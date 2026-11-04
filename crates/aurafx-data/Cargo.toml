@@ -1,0 +1,14 @@
+[package]
+name = "aurafx-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core scientific data model for auraFX (arrays, grids, meshes, tables)"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true
+rayon.workspace = true
+serde.workspace = true
+half.workspace = true

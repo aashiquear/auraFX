@@ -1,0 +1,21 @@
+[package]
+name = "aurafx-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "File readers and writers for auraFX"
+
+[dependencies]
+aurafx-data.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+half.workspace = true
+quick-xml = "0.42"
+base64 = "0.22"
+flate2 = "1"
+lz4_flex = "0.14"
+memchr = "2"

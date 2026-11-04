@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+default-members = ["crates/aurafx-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/aashiquear/auraFX"
+rust-version = "1.85"
+
+[workspace.dependencies]
+aurafx-data = { path = "crates/aurafx-data" }
+aurafx-io = { path = "crates/aurafx-io" }
+aurafx-filters = { path = "crates/aurafx-filters" }
+aurafx-pipeline = { path = "crates/aurafx-pipeline" }
+aurafx-render = { path = "crates/aurafx-render" }
+aurafx-python = { path = "crates/aurafx-python" }
+aurafx-ai = { path = "crates/aurafx-ai" }
+
+anyhow = "1"
+thiserror = "2"
+indexmap = { version = "2", features = ["serde"] }
+rayon = "1.10"
+bytemuck = { version = "1", features = ["derive"] }
+glam = { version = "0.34", features = ["bytemuck"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot = "0.12"
+half = { version = "2", features = ["serde"] }
+
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.release]
+lto = "thin"
+codegen-units = 4

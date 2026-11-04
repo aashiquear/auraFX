@@ -18,7 +18,13 @@ struct CachedMesh {
     mesh: Arc<MeshData>,
 }
 
+static APP_START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
+
 pub struct Viewport {
+    /// 0 for the main 3D view; extra views get increasing ids.
+    pub id: u32,
+    /// Share the camera with other linked views.
+    pub linked: bool,
     render_state: Option<egui_wgpu::RenderState>,
     renderer: Option<Renderer>,
     pub camera: Camera,
@@ -102,12 +108,17 @@ fn display_key(d: &DisplayProps) -> String {
 
 impl Viewport {
     pub fn new(cc: &eframe::CreationContext<'_>, background: [f32; 3]) -> Self {
-        let render_state = cc.wgpu_render_state.clone();
+        Self::with_render_state(cc.wgpu_render_state.clone(), background, 0)
+    }
+
+    pub fn with_render_state(render_state: Option<egui_wgpu::RenderState>, background: [f32; 3], id: u32) -> Self {
         let renderer = render_state.as_ref().map(|rs| {
             let info = rs.adapter.get_info();
             Renderer::new(rs.device.clone(), rs.queue.clone(), format!("{} ({:?})", info.name, info.backend))
         });
         Self {
+            id,
+            linked: false,
             render_state,
             renderer,
             camera: Camera::default(),
@@ -128,7 +139,12 @@ impl Viewport {
     }
 
     pub fn time_seconds(&self) -> f64 {
-        self.start.elapsed().as_secs_f64()
+        let _ = self.start;
+        APP_START.elapsed().as_secs_f64()
+    }
+
+    pub fn render_state(&self) -> Option<egui_wgpu::RenderState> {
+        self.render_state.clone()
     }
 
     pub fn adapter_name(&self) -> String {
@@ -271,9 +287,12 @@ fn do_pick(state: &mut State, rect: Rect, pos: Pos2) {
     }
 }
 
-pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
+/// Draw the view currently in `state.viewport`. Returns true when the user started interacting
+/// with it (used to make a view active).
+pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> bool {
     let avail = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(avail, egui::Sense::click_and_drag());
+    let interacted = response.drag_started() || response.clicked() || response.secondary_clicked();
     let ppp = ui.ctx().pixels_per_point();
     let w = (rect.width() * ppp).round().max(1.0) as u32;
     let h = (rect.height() * ppp).round().max(1.0) as u32;
@@ -282,7 +301,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
     let (req, bounds, empty) = {
         let mut s = state.session.lock();
         // Wait for running/dirty nodes so the camera fits the final data.
-        let req = if s.is_busy() { None } else { s.camera_request.take() };
+        let req = if s.is_busy() || !is_active { None } else { s.camera_request.take() };
         (req, s.visible_bounds(), s.nodes.is_empty())
     };
     if !state.viewport.camera_initialized && !bounds.is_empty() && req.is_none() {
@@ -465,7 +484,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
         r.render(&state.viewport.camera, &draws, &settings);
         state.viewport.sync_texture(recreated);
         // Screenshot requests (UI or Python).
-        let py_req = state.session.lock().screenshot_request.take();
+        let py_req = if is_active { state.session.lock().screenshot_request.take() } else { None };
         let req = state.viewport.screenshot.take().or_else(|| py_req.map(|(p, w, h)| (p, w.zip(h))));
         if let Some((path, _size)) = req {
             match state.viewport.renderer.as_ref().unwrap().save_png(&path) {
@@ -526,6 +545,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
         draw_plane_widget(&painter, &state.viewport.camera, rect, o, n, size, state.viewport.widget_drag);
     }
     viewport_toolbar(state, ui, rect);
+    // Mark the active view when several are open.
+    if state.views.len() > 0 && is_active {
+        ui.painter().rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, crate::theme::ACCENT), egui::StrokeKind::Inside);
+    }
     if state.settings.show_orientation_axes {
         draw_axes(&painter, rect, &state.viewport.camera);
     }
@@ -533,6 +556,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
     if response.dragged() {
         ui.ctx().request_repaint();
     }
+    interacted
 }
 
 fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, cmap: &str, lo: f64, hi: f64, log: bool, txt: Color32) {
@@ -595,7 +619,7 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
     use crate::icons;
     let sel = state.session.lock().selection.clone();
     #[allow(deprecated)]
-    let id = egui::Id::new("viewport_toolbar");
+    let id = egui::Id::new(("viewport_toolbar", state.viewport.id));
     egui::Area::new(id).fixed_pos(rect.left_top() + Vec2::new(8.0, 8.0)).order(egui::Order::Middle).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -606,6 +630,42 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
                     .on_hover_text("Select cells in a rectangle (S). Shift adds, Ctrl removes. Selects through the model.");
                 ui.selectable_value(m, InteractMode::SelectPoints, icons::DOTS_NINE)
                     .on_hover_text("Select points in a rectangle (D). Shift adds, Ctrl removes.");
+                ui.separator();
+                let vid = state.viewport.id;
+                if ui.small_button(icons::COLUMNS).on_hover_text("Split: add a 3D view to the right").clicked() {
+                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: false });
+                }
+                if ui.small_button(icons::ROWS).on_hover_text("Split: add a 3D view below").clicked() {
+                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true });
+                }
+                ui.menu_button(icons::CUBE, |ui| {
+                    ui.label(egui::RichText::new("Look from").weak());
+                    for (label, dir, up) in crate::views::VIEW_DIRECTIONS {
+                        if ui.button(*label).clicked() {
+                            ui.close();
+                            let b = state.session.lock().visible_bounds();
+                            state.viewport.camera.set_view(*dir, *up, &b);
+                            state.viewport.mark_camera_initialized();
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Reset camera").clicked() {
+                        ui.close();
+                        let b = state.session.lock().visible_bounds();
+                        state.viewport.camera.reset_to_bounds(&b);
+                    }
+                })
+                .response
+                .on_hover_text("Camera direction for this view");
+                if !state.views.is_empty() {
+                    let link_icon = if state.viewport.linked { icons::LINK } else { icons::LINK_BREAK };
+                    if ui.selectable_label(state.viewport.linked, link_icon).on_hover_text("Link this view's camera with the other linked views").clicked() {
+                        state.viewport.linked = !state.viewport.linked;
+                    }
+                    if ui.small_button(icons::COPY).on_hover_text("Match: copy this camera to every other view once").clicked() {
+                        state.camera_match_from = Some(vid);
+                    }
+                }
                 if let Some(sel) = &sel {
                     ui.separator();
                     ui.label(format!("{} {}", sel.ids.len(), if sel.assoc == Association::Points { "points" } else { "cells" }));
@@ -626,7 +686,7 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
     let mut close = false;
     if let Some(pk) = &state.viewport.pick {
         #[allow(deprecated)]
-        let id = egui::Id::new("pick_card");
+        let id = egui::Id::new(("pick_card", state.viewport.id));
         egui::Area::new(id).fixed_pos(rect.left_top() + Vec2::new(8.0, 52.0)).order(egui::Order::Middle).show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_max_width(320.0);

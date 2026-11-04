@@ -655,6 +655,33 @@ fn ask(text: String, agent: bool) {
     app_command(format!("ask{} {text}", if agent { "-agent" } else { "" }));
 }
 
+/// Add a 3D view next to the active one: "right" (side by side) or "down" (above/below).
+/// The new view becomes active and starts with the same camera and visible objects.
+#[pyfunction]
+#[pyo3(signature = (direction="right"))]
+fn split_view(direction: &str) {
+    app_command(format!("split {direction}"));
+}
+
+/// Link (or unlink) the cameras of all 3D views.
+#[pyfunction]
+#[pyo3(signature = (on=true))]
+fn link_views(on: bool) {
+    app_command(format!("link {}", if on { "on" } else { "off" }));
+}
+
+/// Copy the active view's camera to every other view once.
+#[pyfunction]
+fn match_views() {
+    app_command("match".into());
+}
+
+/// Make a 3D view active by number (0 = main view, 1, 2, ... = views added with split_view).
+#[pyfunction]
+fn active_view(index: u32) {
+    app_command(format!("activate {index}"));
+}
+
 /// UI theme: "dark", "light" or "system".
 #[pyfunction]
 fn set_theme(mode: String) -> PyResult<()> {
@@ -993,6 +1020,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(set_theme, m)?)?;
+    m.add_function(wrap_pyfunction!(split_view, m)?)?;
+    m.add_function(wrap_pyfunction!(link_views, m)?)?;
+    m.add_function(wrap_pyfunction!(match_views, m)?)?;
+    m.add_function(wrap_pyfunction!(active_view, m)?)?;
     m.add_function(wrap_pyfunction!(ask, m)?)?;
     m.add_function(wrap_pyfunction!(undo, m)?)?;
     m.add_function(wrap_pyfunction!(select, m)?)?;

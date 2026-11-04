@@ -13,6 +13,7 @@ mod pick;
 mod settings;
 mod theme;
 mod viewport;
+mod views;
 mod widgets;
 mod worker;
 

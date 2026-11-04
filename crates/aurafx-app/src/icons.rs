@@ -55,3 +55,7 @@ pub const CPU: &str = "\u{E610}";
 pub const ARROWS_OUT_CARDINAL: &str = "\u{E0A4}";
 pub const SELECTION: &str = "\u{E69A}";
 pub const DOTS_NINE: &str = "\u{E1FC}";
+pub const COLUMNS: &str = "\u{E546}";
+pub const ROWS: &str = "\u{E5A2}";
+pub const LINK: &str = "\u{E2E2}";
+pub const LINK_BREAK: &str = "\u{E2E4}";

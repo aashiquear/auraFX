@@ -24,6 +24,8 @@ pub enum Pane {
     Information,
     Jobs,
     Charts,
+    /// An additional 3D view.
+    View(u32),
 }
 
 impl Pane {
@@ -51,6 +53,7 @@ impl Pane {
             Pane::Information => "Information",
             Pane::Jobs => "Simulations",
             Pane::Charts => "Charts",
+            Pane::View(_) => "3D View",
         }
     }
     pub fn icon(self) -> &'static str {
@@ -65,6 +68,7 @@ impl Pane {
             Pane::Information => crate::icons::INFO,
             Pane::Jobs => crate::icons::ATOM,
             Pane::Charts => crate::icons::WAVE_SINE,
+            Pane::View(_) => crate::icons::CUBE,
         }
     }
 }
@@ -99,6 +103,15 @@ pub struct State {
     pub anim_done_rx: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
     /// The .afx file the session was last saved to / loaded from.
     pub state_path: Option<PathBuf>,
+    /// Id of the 3D view `viewport` currently holds (0 = main view).
+    pub active_view: u32,
+    /// Inactive 3D views.
+    pub views: std::collections::BTreeMap<u32, crate::viewport::Viewport>,
+    /// Visible nodes of each inactive view.
+    pub view_visibility: std::collections::HashMap<u32, std::collections::HashSet<aurafx_pipeline::NodeId>>,
+    pub next_view_id: u32,
+    pub pending_activate: Option<u32>,
+    pub camera_match_from: Option<u32>,
     /// Panes currently in the layout (refreshed every frame).
     pub open_panes: Vec<Pane>,
     /// Layout changes requested by menus, applied after the menu bar is drawn.
@@ -119,6 +132,11 @@ pub enum LayoutAction {
     Show(Pane),
     Hide(Pane),
     Preset(LayoutPreset),
+    /// Add a 3D view beside (or below, when `vertical`) view `from`.
+    SplitView {
+        from: u32,
+        vertical: bool,
+    },
 }
 
 /// Panes that share a tab group in the default layout; used to re-open a closed pane in a sensible place.
@@ -191,7 +209,7 @@ pub fn show_pane(tree: &mut egui_tiles::Tree<Pane>, pane: Pane) {
                             None => split_beside(tree, a, tabs, Horizontal, true, 0.22),
                         }
                     }
-                    Pane::Viewport => split_beside(tree, a, tabs, Horizontal, false, 0.6),
+                    Pane::Viewport | Pane::View(_) => split_beside(tree, a, tabs, Horizontal, false, 0.5),
                 },
                 None => tree.root = Some(tabs),
             }
@@ -275,7 +293,7 @@ impl AuraApp {
         spawn_pipeline_worker(session.clone(), cc.egui_ctx.clone());
         let python = PythonWorker::spawn(session.clone(), cc.egui_ctx.clone());
         let viewport = Viewport::new(cc, settings.background);
-        let tree = cc.storage.and_then(|s| s.get_string("layout_v3")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
+        let tree = cc.storage.and_then(|s| s.get_string("layout_v4")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
         let assistant = Assistant::new(&settings);
         let (anim_tx, anim_rx) = std::sync::mpsc::channel();
         let state = State {
@@ -306,6 +324,12 @@ impl AuraApp {
             anim_job: None,
             anim_done_tx: anim_tx,
             anim_done_rx: anim_rx,
+            active_view: 0,
+            views: Default::default(),
+            view_visibility: Default::default(),
+            next_view_id: 1,
+            pending_activate: None,
+            camera_match_from: None,
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
         };
@@ -315,7 +339,11 @@ impl AuraApp {
                 Err(e) => tracing::error!("cannot read script {}: {e}", p.display()),
             }
         }
-        Self { state, tree }
+        let mut app = Self { state, tree };
+        let max_id =
+            app.tree.tiles.iter().filter_map(|(_, t)| if let egui_tiles::Tile::Pane(Pane::View(id)) = t { Some(*id) } else { None }).max().unwrap_or(0);
+        app.state.next_view_id = max_id + 1;
+        app
     }
 }
 
@@ -794,6 +822,29 @@ impl State {
                     }
                 }
                 ui.separator();
+                ui.label(RichText::new("3D views").weak());
+                if ui.button(format!("{} New view side by side", crate::icons::COLUMNS)).clicked() {
+                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: false });
+                    ui.close();
+                }
+                if ui.button(format!("{} New view above / below", crate::icons::ROWS)).clicked() {
+                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: true });
+                    ui.close();
+                }
+                let all_linked = self.viewport.linked && self.views.values().all(|v| v.linked);
+                let mut linked = all_linked;
+                if ui
+                    .add_enabled(!self.views.is_empty(), egui::Checkbox::new(&mut linked, format!("{} Link all cameras", crate::icons::LINK)))
+                    .on_hover_text("Rotating, zooming or choosing +X/+Y/+Z/Iso in one view applies to all linked views")
+                    .changed()
+                {
+                    self.link_all_views(linked);
+                }
+                if ui.add_enabled(!self.views.is_empty(), egui::Button::new("Match all views to the active camera")).clicked() {
+                    self.camera_match_from = Some(self.active_view);
+                    ui.close();
+                }
+                ui.separator();
                 ui.label(RichText::new("Layouts").weak());
                 for (label, preset, tip) in [
                     ("Full workbench", LayoutPreset::Full, "Every panel"),
@@ -1123,7 +1174,8 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
         match pane {
             Pane::Pipeline => crate::panels::pipeline_ui(self.state, ui),
             Pane::Properties => crate::panels::properties_ui(self.state, ui),
-            Pane::Viewport => crate::viewport::viewport_ui(self.state, ui),
+            Pane::Viewport => self.state.view_pane_ui(ui, 0),
+            Pane::View(id) => self.state.view_pane_ui(ui, *id),
             Pane::Python => crate::console::console_ui(self.state, ui),
             Pane::Assistant => crate::assistant::assistant_ui(self.state, ui),
             Pane::Log => crate::panels::log_ui(self.state, ui),
@@ -1136,6 +1188,24 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
     }
 
     fn tab_title_for_pane(&mut self, pane: &Pane) -> egui::WidgetText {
+        let active = match pane {
+            Pane::Viewport => Some(0),
+            Pane::View(id) => Some(*id),
+            _ => None,
+        };
+        if let Some(id) = active {
+            let many = !self.state.views.is_empty();
+            let name = if id == 0 { "3D View".to_string() } else { format!("3D View {}", id + 1) };
+            let mark = if many && id == self.state.active_view { " (active)" } else { "" };
+            let link = if many
+                && (if id == self.state.active_view { self.state.viewport.linked } else { self.state.views.get(&id).map(|v| v.linked).unwrap_or(false) })
+            {
+                format!(" {}", crate::icons::LINK)
+            } else {
+                String::new()
+            };
+            return format!("{} {name}{link}{mark}", pane.icon()).into();
+        }
         format!("{} {}", pane.icon(), pane.title()).into()
     }
 
@@ -1259,6 +1329,17 @@ impl eframe::App for AuraApp {
                         self.state.layout_actions.push(LayoutAction::Show(p));
                     }
                 }
+                "split" => {
+                    let vertical = matches!(arg, "down" | "below" | "vertical" | "up");
+                    self.state.layout_actions.push(LayoutAction::SplitView { from: self.state.active_view, vertical });
+                }
+                "link" => self.state.link_all_views(arg != "off"),
+                "match" => self.state.camera_match_from = Some(self.state.active_view),
+                "activate" => {
+                    if let Ok(id) = arg.parse::<u32>() {
+                        self.state.pending_activate = Some(id);
+                    }
+                }
                 "ask" | "ask-agent" => {
                     let desc = self.state.session.lock().describe();
                     if verb == "ask-agent" {
@@ -1279,6 +1360,24 @@ impl eframe::App for AuraApp {
                 LayoutAction::Show(p) => show_pane(&mut self.tree, p),
                 LayoutAction::Hide(p) => hide_pane(&mut self.tree, p),
                 LayoutAction::Preset(pr) => apply_preset(&mut self.tree, pr),
+                LayoutAction::SplitView { from, vertical } => {
+                    let anchor = self.tree.tiles.find_pane(&crate::views::pane_for(from)).or_else(|| self.tree.tiles.find_pane(&Pane::Viewport));
+                    let id = self.state.new_view();
+                    let new_pane = self.tree.tiles.insert_pane(Pane::View(id));
+                    let tabs = self.tree.tiles.insert_tab_tile(vec![new_pane]);
+                    match anchor.and_then(|a| self.tree.tiles.parent_of(a)).or(anchor) {
+                        Some(a) => split_beside(
+                            &mut self.tree,
+                            a,
+                            tabs,
+                            if vertical { egui_tiles::LinearDir::Vertical } else { egui_tiles::LinearDir::Horizontal },
+                            false,
+                            0.5,
+                        ),
+                        None => self.tree.root = Some(tabs),
+                    }
+                    self.state.pending_activate = Some(id);
+                }
             }
         }
         if self.tree.root().is_none() {
@@ -1294,6 +1393,17 @@ impl eframe::App for AuraApp {
             self.tree.ui(&mut behavior, ui);
         });
 
+        let open_views: Vec<u32> = self
+            .tree
+            .tiles
+            .iter()
+            .filter_map(|(_, t)| match t {
+                egui_tiles::Tile::Pane(Pane::Viewport) => Some(0),
+                egui_tiles::Tile::Pane(Pane::View(id)) => Some(*id),
+                _ => None,
+            })
+            .collect();
+        self.state.views_end_frame(&open_views);
         let st = &mut self.state;
         st.animation_tick(ctx);
         st.animation_poll();
@@ -1336,7 +1446,7 @@ impl eframe::App for AuraApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if let Ok(s) = serde_json::to_string(&self.tree) {
-            storage.set_string("layout_v3", s);
+            storage.set_string("layout_v4", s);
         }
         self.state.settings.save();
         // Keep the last pipeline so it can be restored next time.

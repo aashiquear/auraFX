@@ -26,7 +26,7 @@ one ships something usable on its own.
 - [x] Cargo workspace with one crate per subsystem (see `docs/ARCHITECTURE.md`).
 - [x] App icon and branding assets (`assets/icons`, `assets/branding`).
 - [~] CI: build + test on Linux/macOS/Windows, clippy, rustfmt (workflow written, not yet run on GitHub).
-- [ ] Packaging: AppImage, `.deb`, `.dmg`, MSIX, Flatpak; Linux `.desktop` + icon install.
+- [~] Packaging: AppImage, tar.gz + `install.sh`, `.dmg`, Windows installer + zip, Android APK, unsigned iOS IPA (done); `.deb`, MSIX, Flatpak (todo).
 - [ ] Crash reporting and structured logs (`tracing`), log panel in the UI.
 - [~] Settings system (TOML in platform config dir), settings UI with search.
 - [ ] Plugin ABI (dynamic Rust crates + Python plugins) and plugin manager UI.
@@ -73,7 +73,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [ ] VTKHDF (`.vtkhdf`), HDF5 generic browser.
 
 ### 1.2 Tier 2 (simulation ecosystem)
-- [~] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories).
+- [~] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories). Boundary patches still todo.
 - [ ] EnSight Gold (`.case`), Tecplot ASCII/binary, CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [ ] NetCDF CF/MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y.
 - [ ] Molecular: PDB, Gaussian Cube, CML, VASP (POSCAR/CHGCAR/OUTCAR), XYZ molecules.
@@ -132,7 +132,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [ ] Molecules: Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
 - [ ] Parallel/distributed: D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
-- [ ] Annotation: Annotate Attribute Data, Annotate Global Data, Annotate Selection, Annotate Time Filter, Environment Annotation, Python Annotation, Programmable Annotation, Text, 3D Text, Logo, Ruler, Protractor
+- [~] Annotation (text, time label and ruler done): Annotate Attribute Data, Annotate Global Data, Annotate Selection, Annotate Time Filter, Environment Annotation, Python Annotation, Programmable Annotation, Text, 3D Text, Logo, Ruler, Protractor
 - [~] Programmable: Programmable Filter ★ (Python), Programmable Source, Python Calculator ★, Live Programmable Source, Color By Array, OME TIFF Channel Calculator, Threshold Table, Field Arrays From File
 
 ### 2.4 Sources
@@ -166,7 +166,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 
 ### 3.2 Other views
 - [~] Line chart ★ (multiple series, log axes, styles, legends, markers, selection link), Bar chart, Point chart, XY bar chart, Histogram view, Box chart / Quartile chart, Plot matrix (scatter matrix), Parallel coordinates, Image chart, Comparative views (render/line chart), Slice view, Orthographic slice view, Spreadsheet view ★ (point/cell/field/row data, sort, filter, column visibility, precision, export CSV), Python view (matplotlib embedded), Spreadsheet of selection.
-- [~] Layouts: split horizontally/vertically, tabs, link cameras, link views, link selections, maximize, save/restore layouts, multiple windows/monitors.
+- [~] Layouts (split views, linked cameras, match view direction done): split horizontally/vertically, tabs, link cameras, link views, link selections, maximize, save/restore layouts, multiple windows/monitors.
 
 ### 3.3 Animation and time
 - [~] Time toolbar (play, step, loop, time value entry, snap to steps, real-time, sequence modes), time inspector.
@@ -294,11 +294,17 @@ Data; 18 more filters including Stream Tracer and Tube; Temporal Statistics; GPU
 rendering; animation export; interactive plane widget; AI agent mode; NetCDF-4 Exodus;
 OpenFOAM, XYZ, LAMMPS data, PLY and OBJ readers; live file watching; parameter sweeps; CI.
 
-Known gaps worth doing next: boundary patches and decomposed cases in the OpenFOAM reader;
-selection of visible cells only (needs an ID buffer); volume rendering that depth-merges with
-opaque geometry; higher-order cell tessellation; client/server and distributed execution;
-plugin system; packaging (AppImage, installers); Slurm and CI runs not yet exercised on real
-infrastructure.
+Done in iteration 3: multiple 3D views side by side or stacked, with per-view visibility,
+linked cameras and one-click "look from" directions shared across linked views; packaging for
+Linux (tar.gz, AppImage, `install.sh`), macOS (`.dmg`), Windows (installer, zip, `install.ps1`),
+Android (APK) and iOS (unsigned IPA) with a GitHub release workflow; desktop packages bundle
+Python 3.12 + NumPy; volume rendering that depth-merges with opaque geometry; visible-only cell
+selection through a GPU id pass; text annotations, time label and ruler; decomposed OpenFOAM
+cases.
+
+Known gaps worth doing next: OpenFOAM boundary patches; higher-order cell tessellation;
+client/server and distributed execution; plugin system; Slurm runs not yet exercised on real
+infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)
 

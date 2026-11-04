@@ -17,6 +17,8 @@ use std::sync::{Arc, LazyLock};
 struct CaseInfo {
     times: Vec<(f64, String)>,
     mesh: Arc<UnstructuredGrid>,
+    /// Decomposed cases: processor directories and their cell counts (fields are concatenated in this order).
+    processors: Vec<(PathBuf, usize)>,
 }
 
 static CASES: LazyLock<Mutex<HashMap<PathBuf, Arc<CaseInfo>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -295,14 +297,52 @@ fn info(path: &Path) -> Result<Arc<CaseInfo>> {
     }
     let case = case_dir(path);
     let mesh_dir = case.join("constant/polyMesh");
-    if !mesh_dir.exists() {
-        if case.join("processor0").exists() {
-            bail!("{} is a decomposed case; run reconstructPar first (decomposed cases are not supported yet)", case.display());
+    let c = if mesh_dir.exists() {
+        Arc::new(CaseInfo { times: time_dirs(&case), mesh: Arc::new(build_mesh(&case, &mesh_dir)?), processors: vec![] })
+    } else {
+        // Decomposed case: merge processor meshes.
+        let mut procs: Vec<(usize, PathBuf)> = std::fs::read_dir(&case)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let n = e.file_name().to_string_lossy().to_string();
+                n.strip_prefix("processor").and_then(|k| k.parse::<usize>().ok()).map(|k| (k, e.path()))
+            })
+            .collect();
+        procs.sort();
+        if procs.is_empty() {
+            bail!("{} has no constant/polyMesh and no processor* directories", case.display());
         }
-        bail!("{} has no constant/polyMesh", case.display());
-    }
-    let mesh = Arc::new(build_mesh(&case, &mesh_dir)?);
-    let c = Arc::new(CaseInfo { times: time_dirs(&case), mesh });
+        let mut merged = UnstructuredGrid::default();
+        let mut processors = Vec::new();
+        for (i, (_, dir)) in procs.iter().enumerate() {
+            let m = build_mesh(&case, &dir.join("constant/polyMesh")).with_context(|| format!("{}", dir.display()))?;
+            processors.push((dir.clone(), m.cells.len()));
+            if i == 0 {
+                merged = m;
+            } else {
+                let off = merged.points.len() as u32;
+                merged.points.append(&m.points);
+                let had_poly = merged.cells.polyhedron_faces.take();
+                let new_poly = m.cells.polyhedron_faces.clone();
+                let n_old = merged.cells.len();
+                merged.cells.append(&m.cells, off);
+                if had_poly.is_some() || new_poly.is_some() {
+                    let mut faces = had_poly.unwrap_or_else(|| vec![Vec::new(); n_old]);
+                    let shifted: Vec<Vec<Vec<u32>>> = new_poly
+                        .unwrap_or_else(|| vec![Vec::new(); m.cells.len()])
+                        .into_iter()
+                        .map(|c| c.into_iter().map(|f| f.into_iter().map(|p| p + off).collect()).collect())
+                        .collect();
+                    faces.extend(shifted);
+                    merged.cells.polyhedron_faces = Some(faces);
+                }
+            }
+        }
+        merged.field_data.insert(Array::new("NumberOfProcessors", 1, ArrayData::I64(vec![procs.len() as i64])));
+        Arc::new(CaseInfo { times: time_dirs(&procs[0].1), mesh: Arc::new(merged), processors })
+    };
     CASES.lock().insert(path.to_path_buf(), c.clone());
     Ok(c)
 }
@@ -368,24 +408,41 @@ pub fn read_time(path: &Path, index: usize) -> Result<DataSet> {
     let mut ug = (*c.mesh).clone();
     let ncells = ug.cells.len();
     if let Some((t, dir)) = c.times.get(index) {
-        let tdir = case_dir(path).join(dir);
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(&tdir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
-        entries.sort();
-        for f in entries {
-            let name = f.file_name().unwrap().to_string_lossy().trim_end_matches(".gz").to_string();
-            if name.starts_with('.') || name.ends_with(".orig") {
-                continue;
-            }
-            let bytes = match read_maybe_gz(&f) {
-                Ok(b) => b,
-                Err(_) => continue,
-            };
-            match read_field(&bytes, ncells) {
-                Ok(Some((nc, v))) => {
-                    ug.cell_data.insert(Array::new(name, nc, ArrayData::F64(v)));
+        // (directory holding the time folder, number of cells it covers)
+        let parts: Vec<(PathBuf, usize)> = if c.processors.is_empty() { vec![(case_dir(path), ncells)] } else { c.processors.clone() };
+        let tdir0 = parts[0].0.join(dir);
+        let mut names: Vec<String> = std::fs::read_dir(&tdir0)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().to_string_lossy().trim_end_matches(".gz").to_string())
+            .filter(|n| !n.starts_with('.') && !n.ends_with(".orig"))
+            .collect();
+        names.sort();
+        names.dedup();
+        'fields: for name in names {
+            let mut all: Vec<f64> = Vec::new();
+            let mut ncomp = 0;
+            for (pdir, pcells) in &parts {
+                let bytes = match read_maybe_gz(&pdir.join(dir).join(&name)) {
+                    Ok(b) => b,
+                    Err(_) => continue 'fields,
+                };
+                match read_field(&bytes, *pcells) {
+                    Ok(Some((nc, v))) => {
+                        ncomp = nc;
+                        all.extend(v);
+                    }
+                    Ok(None) => continue 'fields,
+                    Err(e) => {
+                        tracing::warn!("OpenFOAM field {name} in {}: {e:#}", pdir.display());
+                        continue 'fields;
+                    }
                 }
-                Ok(None) => {}
-                Err(e) => tracing::warn!("OpenFOAM field {}: {e:#}", f.display()),
+            }
+            if ncomp > 0 && all.len() == ncells * ncomp {
+                ug.cell_data.insert(Array::new(name, ncomp, ArrayData::F64(all)));
             }
         }
         ug.field_data.insert(Array::scalars_f64("TimeValue", vec![*t]));

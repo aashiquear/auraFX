@@ -6,6 +6,8 @@ import os, struct, sys
 
 case = sys.argv[1]
 fmt = sys.argv[2] if len(sys.argv) > 2 else "ascii"
+# Optional: write processor<i> sub-cases (shifted along x) to mimic a decomposed run.
+x0 = float(os.environ.get("FOAM_X_OFFSET", "0"))
 nx, ny, nz = 4, 3, 2
 os.makedirs(f"{case}/constant/polyMesh", exist_ok=True)
 for t in ("0", "1"):
@@ -16,7 +18,7 @@ open(f"{case}/system/controlDict", "w").write("FoamFile { version 2.0; format as
 
 def pid(i, j, k): return i + (nx + 1) * (j + (ny + 1) * k)
 def cid(i, j, k): return i + nx * (j + ny * k)
-pts = [(i * 1.0, j * 1.0, k * 1.0) for k in range(nz + 1) for j in range(ny + 1) for i in range(nx + 1)]
+pts = [(x0 + i * 1.0, j * 1.0, k * 1.0) for k in range(nz + 1) for j in range(ny + 1) for i in range(nx + 1)]
 internal, boundary = [], []  # (face pts, owner, neighbour)
 for k in range(nz):
     for j in range(ny):
@@ -77,7 +79,7 @@ with open(f"{case}/constant/polyMesh/neighbour", "wb") as f:
 nb = len(boundary)
 open(f"{case}/constant/polyMesh/boundary", "w").write(header("polyBoundaryMesh", "boundary").replace(f"format {fmt}", "format ascii") + f"1\n(\n    walls\n    {{\n        type wall;\n        nFaces {nb};\n        startFace {len(internal)};\n    }}\n)\n")
 
-centers = [((i + .5), (j + .5), (k + .5)) for k in range(nz) for j in range(ny) for i in range(nx)]
+centers = [((x0 + i + .5), (j + .5), (k + .5)) for k in range(nz) for j in range(ny) for i in range(nx)]
 for t, scale in (("0", 0.0), ("1", 1.0)):
     with open(f"{case}/{t}/T", "wb") as f:
         f.write(header("volScalarField", "T").encode())

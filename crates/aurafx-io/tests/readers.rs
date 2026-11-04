@@ -270,3 +270,19 @@ fn md_and_surface_formats() {
     let back = static_ds_abs(&ply_dir.join("s.ply"));
     assert_eq!((back.n_points(), back.n_cells()), (sphere.n_points(), 1056));
 }
+
+#[test]
+fn openfoam_decomposed_case() {
+    let s = match read_file(td("foam_decomposed/case.foam")).unwrap_or_else(|e| panic!("{e:#}")) {
+        Loaded::Series(s) => s,
+        _ => panic!("expected time steps"),
+    };
+    let d = load_step(&s.steps[1]).unwrap();
+    assert_eq!(d.n_cells(), 48);
+    assert_eq!(d.n_points(), 120);
+    let b = d.bounds();
+    assert_eq!((b.min[0], b.max[0]), (0.0, 8.0));
+    // T = 300 + 10 x at cell centers: x from 0.5 to 7.5.
+    assert_eq!(d.cell_data().unwrap().get("T").unwrap().range(None), (305.0, 375.0));
+    assert_eq!(d.field_data().get("NumberOfProcessors").unwrap().get(0, 0), 2.0);
+}

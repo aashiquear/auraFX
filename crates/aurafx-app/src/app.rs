@@ -92,6 +92,8 @@ pub struct State {
     pub toasts: Vec<(String, f64, bool)>,
     pub jobs_panel: crate::jobs_panel::JobsPanel,
     pub charts: crate::charts::ChartsState,
+    /// The .afx file the session was last saved to / loaded from.
+    pub state_path: Option<PathBuf>,
     /// Panes currently in the layout (refreshed every frame).
     pub open_panes: Vec<Pane>,
     /// Layout changes requested by menus, applied after the menu bar is drawn.
@@ -292,6 +294,7 @@ impl AuraApp {
             toasts: Vec::new(),
             jobs_panel: crate::jobs_panel::JobsPanel::default(),
             charts: Default::default(),
+            state_path: None,
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
         };
@@ -317,6 +320,10 @@ impl State {
 
     pub fn open_file(&mut self, path: PathBuf) {
         let path = std::fs::canonicalize(&path).unwrap_or(path);
+        if path.extension().map(|e| e.eq_ignore_ascii_case("afx")).unwrap_or(false) {
+            self.load_state(path);
+            return;
+        }
         let r = self.session.lock().open_file(&path);
         match r {
             Ok(_) => {
@@ -330,12 +337,83 @@ impl State {
         }
     }
 
+    pub fn undo(&mut self) {
+        match self.session.lock().undo() {
+            Some(l) => self.status = format!("Undid: {l}"),
+            None => self.status = "Nothing to undo".into(),
+        }
+    }
+
+    pub fn redo(&mut self) {
+        match self.session.lock().redo() {
+            Some(l) => self.status = format!("Redid: {l}"),
+            None => self.status = "Nothing to redo".into(),
+        }
+    }
+
+    pub fn camera_state(&self) -> aurafx_pipeline::CameraState {
+        let c = &self.viewport.camera;
+        aurafx_pipeline::CameraState {
+            eye: c.eye.to_array(),
+            target: c.target.to_array(),
+            up: c.up.to_array(),
+            fov_y_deg: c.fov_y_deg,
+            orthographic: c.orthographic,
+            ortho_height: c.ortho_height,
+        }
+    }
+
+    pub fn save_state_to(&mut self, path: PathBuf) {
+        let cam = self.camera_state();
+        let r = self.session.lock().save_state(&path, Some(cam));
+        match r {
+            Ok(()) => {
+                self.state_path = Some(path.clone());
+                self.settings.push_recent(path.clone());
+                self.settings.save();
+                self.toast(format!("Saved {}", path.display()), false);
+            }
+            Err(e) => self.toast(format!("Could not save state: {e:#}"), true),
+        }
+    }
+
+    /// Save to the current state file, or ask for one.
+    pub fn save_state_dialog(&mut self, save_as: bool) {
+        if let (false, Some(p)) = (save_as, self.state_path.clone()) {
+            self.save_state_to(p);
+            return;
+        }
+        if let Some(p) = rfd::FileDialog::new().add_filter("auraFX state", &["afx"]).set_file_name("session.afx").save_file() {
+            let p = if p.extension().is_none() { p.with_extension("afx") } else { p };
+            self.save_state_to(p);
+        }
+    }
+
+    pub fn load_state(&mut self, path: PathBuf) {
+        let r = self.session.lock().load_state(&path);
+        match r {
+            Ok(_) => {
+                self.state_path = Some(path.clone());
+                self.settings.push_recent(path.clone());
+                self.settings.save();
+                self.status = format!("Loaded state {}", path.display());
+            }
+            Err(e) => self.toast(format!("State loaded with problems: {e:#}"), true),
+        }
+    }
+
+    pub fn last_session_path() -> PathBuf {
+        aurafx_jobs::cache_dir().join("last_session.afx")
+    }
+
     pub fn open_file_dialog(&mut self) {
-        let exts: Vec<&str> = aurafx_io::all_extensions();
+        let mut exts: Vec<&str> = aurafx_io::all_extensions();
+        exts.push("afx");
         let mut dlg = rfd::FileDialog::new().add_filter("All supported", &exts);
         for (e, label) in aurafx_io::supported_formats() {
             dlg = dlg.add_filter(label, e);
         }
+        dlg = dlg.add_filter("auraFX state", &["afx"]);
         dlg = dlg.add_filter("All files", &["*"]);
         if let Some(last) = self.settings.recent_files.first().and_then(|p| p.parent()) {
             dlg = dlg.set_directory(last);
@@ -375,16 +453,34 @@ impl State {
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.text_edit_focused();
+        let (undo, redo, save_state) = ctx.input_mut(|i| {
+            (
+                !typing && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
+                !typing
+                    && (i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
+                        || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y)),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
+            )
+        });
+        if undo {
+            self.undo();
+        }
+        if redo {
+            self.redo();
+        }
+        if save_state {
+            self.save_state_dialog(false);
+        }
         let (open, palette, screenshot, reset_cam, del, play, next, prev, settings) = ctx.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::K) || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space),
                 i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::S),
-                i.consume_key(egui::Modifiers::NONE, egui::Key::R) && !typing,
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) && !typing,
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Space) && !typing,
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Period) && !typing,
-                i.consume_key(egui::Modifiers::NONE, egui::Key::Comma) && !typing,
+                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::R),
+                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Delete),
+                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Space),
+                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Period),
+                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Comma),
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma),
             )
         });
@@ -450,6 +546,23 @@ impl State {
                     ui.close();
                     self.open_file_dialog();
                 }
+                if ui.button("Save State    Ctrl+S").on_hover_text("Save the pipeline, display settings and camera to an .afx file").clicked() {
+                    ui.close();
+                    self.save_state_dialog(false);
+                }
+                if ui.button("Save State As…").clicked() {
+                    ui.close();
+                    self.save_state_dialog(true);
+                }
+                let last = Self::last_session_path();
+                if ui
+                    .add_enabled(last.exists(), egui::Button::new("Restore Last Session"))
+                    .on_hover_text("Reopen the pipeline you had when auraFX was last closed")
+                    .clicked()
+                {
+                    ui.close();
+                    self.load_state(last);
+                }
                 ui.menu_button("Open Recent", |ui| {
                     if self.settings.recent_files.is_empty() {
                         ui.label("No recent files");
@@ -487,6 +600,40 @@ impl State {
                 ui.separator();
                 if ui.button("Quit").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
+            ui.menu_button("Edit", |ui| {
+                let (ul, rl) = {
+                    let s = self.session.lock();
+                    (s.undo_label().map(|l| l.to_string()), s.redo_label().map(|l| l.to_string()))
+                };
+                if ui.add_enabled(ul.is_some(), egui::Button::new(format!("Undo {}    Ctrl+Z", ul.clone().unwrap_or_default()))).clicked() {
+                    ui.close();
+                    self.undo();
+                }
+                if ui.add_enabled(rl.is_some(), egui::Button::new(format!("Redo {}    Ctrl+Shift+Z", rl.clone().unwrap_or_default()))).clicked() {
+                    ui.close();
+                    self.redo();
+                }
+                ui.separator();
+                let active = self.session.lock().active;
+                if ui.add_enabled(active.is_some(), egui::Button::new("Delete active node    Del")).clicked() {
+                    ui.close();
+                    if let Some(a) = active {
+                        self.session.lock().remove_node(a);
+                    }
+                }
+                if ui.add_enabled(active.is_some(), egui::Button::new("Rename active node")).clicked() {
+                    ui.close();
+                    if let Some(a) = active {
+                        let name = self.session.lock().nodes.get(&a).map(|n| n.name.clone()).unwrap_or_default();
+                        self.rename_target = Some((a, name));
+                    }
+                }
+                ui.separator();
+                if ui.button("Settings…    Ctrl+,").clicked() {
+                    ui.close();
+                    self.show_settings = true;
                 }
             });
             ui.menu_button("Sources", |ui| {
@@ -946,6 +1093,22 @@ impl eframe::App for AuraApp {
         let st = &mut self.state;
         st.viewport.frame_begin(ctx, frame);
         st.viewport.settings.background = st.settings.background_for(ctx.theme() == egui::Theme::Dark);
+        {
+            let cam = st.camera_state();
+            let mut s = st.session.lock();
+            s.camera_state = Some(cam);
+            if let Some(c) = s.pending_camera.take() {
+                drop(s);
+                let vc = &mut st.viewport.camera;
+                vc.eye = glam::DVec3::from_array(c.eye);
+                vc.target = glam::DVec3::from_array(c.target);
+                vc.up = glam::DVec3::from_array(c.up);
+                vc.fov_y_deg = c.fov_y_deg;
+                vc.orthographic = c.orthographic;
+                vc.ortho_height = c.ortho_height;
+                st.viewport.mark_camera_initialized();
+            }
+        }
         st.handle_shortcuts(ctx);
         st.tick_playback(ctx);
         // Open files passed on the command line.
@@ -1100,5 +1263,17 @@ impl eframe::App for AuraApp {
             storage.set_string("layout_v3", s);
         }
         self.state.settings.save();
+        // Keep the last pipeline so it can be restored next time.
+        let cam = self.state.camera_state();
+        let s = self.state.session.lock();
+        if !s.nodes.is_empty() {
+            let p = State::last_session_path();
+            if let Some(d) = p.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            if let Err(e) = s.save_state(&p, Some(cam)) {
+                tracing::warn!("could not save last session: {e:#}");
+            }
+        }
     }
 }

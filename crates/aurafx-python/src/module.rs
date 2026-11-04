@@ -616,6 +616,30 @@ fn hide_panel(name: String) {
 }
 
 #[pyfunction]
+fn undo() -> Option<String> {
+    session().lock().undo()
+}
+
+#[pyfunction]
+fn redo() -> Option<String> {
+    session().lock().redo()
+}
+
+/// Save the pipeline, display settings and camera to an .afx file.
+#[pyfunction]
+fn save_state(path: String) -> PyResult<()> {
+    let s = session().lock();
+    let cam = s.camera_state;
+    s.save_state(std::path::Path::new(&path), cam).map_err(err)
+}
+
+/// Replace the pipeline with the contents of an .afx file.
+#[pyfunction]
+fn load_state(path: String) -> PyResult<()> {
+    session().lock().load_state(std::path::Path::new(&path)).map(|_| ()).map_err(err)
+}
+
+#[pyfunction]
 fn clear() {
     let mut s = session().lock();
     let ids: Vec<NodeId> = s.nodes.keys().copied().collect();
@@ -820,6 +844,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(clear, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(set_theme, m)?)?;
+    m.add_function(wrap_pyfunction!(undo, m)?)?;
+    m.add_function(wrap_pyfunction!(redo, m)?)?;
+    m.add_function(wrap_pyfunction!(save_state, m)?)?;
+    m.add_function(wrap_pyfunction!(load_state, m)?)?;
     m.add_function(wrap_pyfunction!(layout, m)?)?;
     m.add_function(wrap_pyfunction!(hide_panel, m)?)?;
     m.add_function(wrap_pyfunction!(plot, m)?)?;

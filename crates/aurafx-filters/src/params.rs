@@ -186,7 +186,11 @@ impl Params {
                 }
             }
             serde_json::Value::Object(o) => ParamValue::Array {
-                assoc: if o.get("assoc").and_then(|a| a.as_str()) == Some("cells") { Association::Cells } else { Association::Points },
+                assoc: if o.get("assoc").and_then(|a| a.as_str()).map(|a| a.eq_ignore_ascii_case("cells") || a.eq_ignore_ascii_case("cell")).unwrap_or(false) {
+                    Association::Cells
+                } else {
+                    Association::Points
+                },
                 name: o.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(),
             },
             serde_json::Value::Null => return,
@@ -199,5 +203,34 @@ impl Params {
             (_, v) => v,
         };
         self.0.insert(key.to_string(), coerced);
+    }
+}
+
+/// JSON for state files: NaN ("automatic") values become the string "auto".
+pub fn param_to_json(v: &ParamValue) -> serde_json::Value {
+    match v {
+        ParamValue::Float(f) if f.is_nan() => serde_json::Value::String("auto".into()),
+        ParamValue::Vec3(a) if a.iter().any(|x| x.is_nan()) => serde_json::Value::String("auto".into()),
+        other => serde_json::to_value(other).unwrap_or(serde_json::Value::Null),
+    }
+}
+
+/// Inverse of [`param_to_json`], using the parameter's spec to restore the right type.
+pub fn param_from_json(spec: &ParamSpec, v: &serde_json::Value) -> ParamValue {
+    if v.as_str() == Some("auto") {
+        return match spec.kind {
+            ParamKind::Vec3 => ParamValue::Vec3([f64::NAN; 3]),
+            _ => ParamValue::Float(f64::NAN),
+        };
+    }
+    let mut p = Params::from_specs(std::slice::from_ref(spec));
+    p.set_json(&spec.key, v);
+    match (&spec.kind, p.get(&spec.key).cloned().unwrap_or(spec.default.clone())) {
+        (ParamKind::Float { .. }, ParamValue::Int(i)) => ParamValue::Float(i as f64),
+        (ParamKind::Int { .. }, ParamValue::Float(f)) => ParamValue::Int(f as i64),
+        (ParamKind::Floats, ParamValue::Vec3(a)) => ParamValue::Floats(a.to_vec()),
+        (ParamKind::Floats, ParamValue::Float(f)) => ParamValue::Floats(vec![f]),
+        (ParamKind::Choice(_) | ParamKind::Str | ParamKind::Expression, ParamValue::Str(s)) => ParamValue::Str(s),
+        (_, x) => x,
     }
 }

@@ -44,6 +44,26 @@ pub struct Node {
 }
 
 impl Node {
+    pub fn new(id: NodeId, name: String, kind: NodeKind, params: Params, input: Option<NodeId>) -> Self {
+        Node {
+            id,
+            name,
+            kind,
+            params,
+            input,
+            visible: true,
+            display: DisplayProps::default(),
+            output: None,
+            info: None,
+            error: None,
+            dirty: true,
+            running: false,
+            last_exec_ms: 0.0,
+            output_time_index: None,
+            auto_colored: false,
+        }
+    }
+
     pub fn def(&self) -> Option<&Arc<FilterDef>> {
         match &self.kind {
             NodeKind::Source { def } | NodeKind::Filter { def } => Some(def),
@@ -122,7 +142,7 @@ impl WorkItem {
 #[derive(Default)]
 pub struct Session {
     pub nodes: IndexMap<NodeId, Node>,
-    next_id: NodeId,
+    pub(crate) next_id: NodeId,
     pub active: Option<NodeId>,
     /// Union of all time values across readers, sorted.
     pub times: Vec<f64>,
@@ -143,6 +163,16 @@ pub struct Session {
     pub chart: Chart,
     /// UI commands from scripts/AI the app executes: "theme light", "layout analyze", "hide Log", "show Charts".
     pub app_commands: Vec<String>,
+    pub(crate) undo_stack: Vec<(String, crate::state::Snapshot)>,
+    pub(crate) redo_stack: Vec<(String, crate::state::Snapshot)>,
+    pub(crate) last_checkpoint: Option<(String, f64)>,
+    /// While > 0, changes are not recorded for undo (used while applying snapshots/scripts).
+    pub suspend_undo: u32,
+    pub(crate) loaded_cache: std::collections::HashMap<PathBuf, Loaded>,
+    /// Camera from a loaded state file, applied by the UI.
+    pub pending_camera: Option<crate::state::CameraState>,
+    /// The UI's current camera, mirrored so scripts can save it.
+    pub camera_state: Option<crate::state::CameraState>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -158,6 +188,14 @@ impl Session {
 
     pub fn shared() -> SharedSession {
         Arc::new(Mutex::new(Self::new()))
+    }
+
+    pub(crate) fn now_pub(&self) -> f64 {
+        self.now()
+    }
+
+    pub(crate) fn rebuild_times_pub(&mut self) {
+        self.rebuild_times()
     }
 
     fn now(&self) -> f64 {
@@ -205,6 +243,7 @@ impl Session {
 
     pub fn open_file(&mut self, path: impl AsRef<Path>) -> Result<NodeId> {
         let path = path.as_ref().to_path_buf();
+        self.checkpoint(format!("Open {}", path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
         let loaded = aurafx_io::read_file(&path).map_err(|e| {
             self.log(LogLevel::Error, format!("Failed to open {}: {e:#}", path.display()));
             e
@@ -242,6 +281,7 @@ impl Session {
         if !def.is_source {
             return Err(anyhow!("{} is a filter, not a source", def.label));
         }
+        self.checkpoint(format!("Add {}", def.label));
         let id = self.alloc();
         let node = Node {
             id,
@@ -276,6 +316,7 @@ impl Session {
         if !self.nodes.contains_key(&input) {
             return Err(anyhow!("input node {input} does not exist"));
         }
+        self.checkpoint(format!("Add {}", def.label));
         let id = self.alloc();
         let mut display = self.nodes[&input].display.clone();
         display.representation = crate::display::Representation::Surface;
@@ -330,6 +371,10 @@ impl Session {
     }
 
     pub fn remove_node(&mut self, id: NodeId) {
+        if let Some(n) = self.nodes.get(&id) {
+            let label = format!("Delete {}", n.name);
+            self.checkpoint(label);
+        }
         let mut to_remove = vec![id];
         let mut i = 0;
         while i < to_remove.len() {
@@ -343,7 +388,11 @@ impl Session {
         }
         let parent = self.nodes.get(&id).and_then(|n| n.input);
         for r in &to_remove {
-            self.nodes.shift_remove(r);
+            if let Some(n) = self.nodes.shift_remove(r) {
+                if let NodeKind::Reader { path, loaded } = n.kind {
+                    self.loaded_cache.insert(path, loaded);
+                }
+            }
         }
         if let Some(p) = parent {
             if let Some(n) = self.nodes.get_mut(&p) {
@@ -359,6 +408,12 @@ impl Session {
     }
 
     pub fn set_param(&mut self, id: NodeId, key: &str, value: aurafx_filters::ParamValue) {
+        let label = self.nodes.get(&id).map(|n| format!("Edit {}", n.name));
+        if let Some(n) = self.nodes.get(&id) {
+            if n.params.get(key) != Some(&value) {
+                self.checkpoint(label.unwrap_or_default());
+            }
+        }
         if let Some(n) = self.nodes.get_mut(&id) {
             if n.params.get(key) != Some(&value) {
                 n.params.set(key, value);
@@ -368,6 +423,9 @@ impl Session {
     }
 
     pub fn set_param_json(&mut self, id: NodeId, key: &str, value: &serde_json::Value) {
+        if let Some(label) = self.nodes.get(&id).map(|n| format!("Edit {}", n.name)) {
+            self.checkpoint(label);
+        }
         if let Some(n) = self.nodes.get_mut(&id) {
             n.params.set_json(key, value);
             self.mark_dirty(id);
@@ -375,6 +433,9 @@ impl Session {
     }
 
     pub fn set_visible(&mut self, id: NodeId, visible: bool) {
+        if let Some(label) = self.nodes.get(&id).filter(|n| n.visible != visible).map(|n| format!("{} {}", if visible { "Show" } else { "Hide" }, n.name)) {
+            self.checkpoint(label);
+        }
         if let Some(n) = self.nodes.get_mut(&id) {
             n.visible = visible;
             self.touch();
@@ -382,8 +443,13 @@ impl Session {
     }
 
     pub fn set_display(&mut self, id: NodeId, f: impl FnOnce(&mut DisplayProps)) {
-        if let Some(n) = self.nodes.get_mut(&id) {
-            f(&mut n.display);
+        let Some(n) = self.nodes.get(&id) else { return };
+        let mut d = n.display.clone();
+        f(&mut d);
+        if d != n.display {
+            let label = format!("Display {}", n.name);
+            self.checkpoint(label);
+            self.nodes.get_mut(&id).unwrap().display = d;
             self.touch();
         }
     }
@@ -396,6 +462,9 @@ impl Session {
     }
 
     pub fn rename(&mut self, id: NodeId, name: String) {
+        if let Some(label) = self.nodes.get(&id).filter(|n| n.name != name).map(|n| format!("Rename {}", n.name)) {
+            self.checkpoint(label);
+        }
         if let Some(n) = self.nodes.get_mut(&id) {
             n.name = name;
             self.touch();

@@ -89,6 +89,10 @@ impl Viewport {
 
     pub fn frame_end(&mut self, _ctx: &egui::Context) {}
 
+    pub fn mark_camera_initialized(&mut self) {
+        self.camera_initialized = true;
+    }
+
     pub fn request_screenshot(&mut self, path: PathBuf, size: Option<(u32, u32)>) {
         self.screenshot = Some((path, size));
     }
@@ -253,6 +257,15 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
             egui::FontId::proportional(12.0),
             fg_weak,
         );
+    }
+    if empty {
+        let last = crate::app::State::last_session_path();
+        if last.exists() {
+            let r = Rect::from_center_size(rect.center() + Vec2::new(0.0, 75.0), Vec2::new(220.0, 30.0));
+            if ui.put(r, egui::Button::new(format!("{} Restore last session", crate::icons::ARROW_CLOCKWISE))).clicked() {
+                state.load_state(last);
+            }
+        }
     }
     if let Some((label, cmap, (lo, hi), log)) = scalar_bar {
         draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log, fg);

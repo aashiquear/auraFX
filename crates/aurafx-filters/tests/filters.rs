@@ -244,3 +244,46 @@ fn extract_subset_crops_and_samples() {
     assert_eq!(g.x, vec![0.0, 3.0, 6.0, 9.0, 10.0]);
     assert!(aurafx_filters::geometry::extract_subset(&src, [5.0; 3], [2.0; 3], [1.0; 3], false).is_err());
 }
+
+#[test]
+fn quadratic_cells_render_curved() {
+    // One quadratic tetra whose 0-1 mid node bulges out of the flat face.
+    let mut pts = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+    let mid = |a: usize, b: usize, p: &Vec<f64>| [(p[3 * a] + p[3 * b]) / 2.0, (p[3 * a + 1] + p[3 * b + 1]) / 2.0, (p[3 * a + 2] + p[3 * b + 2]) / 2.0];
+    let base = pts.clone();
+    for (a, b) in [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)] {
+        pts.extend_from_slice(&mid(a, b, &base));
+    }
+    pts[3 * 4 + 1] = -0.3; // node 4 (edge 0-1) moved to y = -0.3
+    let mut cells = Cells::new();
+    cells.push(CellType::QuadraticTetra, &(0..10).collect::<Vec<u32>>());
+    let mut ug = UnstructuredGrid { points: Points::new_f64(pts), cells, ..Default::default() };
+    ug.cell_data.insert(Array::scalars_f64("id", vec![7.0]));
+    let s = aurafx_filters::surface::extract_surface(&DataSet::UnstructuredGrid(ug)).unwrap();
+    assert_eq!(s.polys.len(), 16, "4 curved faces x 4 triangles");
+    assert_eq!(s.points.len(), 10, "every node is used");
+    let min_y = (0..s.points.len()).map(|i| s.points.get(i)[1]).fold(f64::INFINITY, f64::min);
+    assert!((min_y + 0.3).abs() < 1e-12, "the bulge is part of the surface");
+    assert_eq!(s.cell_data.get("id").unwrap().range(None), (7.0, 7.0));
+
+    // A quadratic quad shell (8 nodes) becomes 6 triangles; a quadratic edge a 2-segment line.
+    let mut cells = Cells::new();
+    cells.push(CellType::QuadraticQuad, &[0, 1, 2, 3, 4, 5, 6, 7]);
+    cells.push(CellType::QuadraticEdge, &[0, 1, 4]);
+    let q = vec![0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0, 2.0, 0.0, 0.0, 2.0, 0.0, 1.0, -0.2, 0.0, 2.0, 1.0, 0.0, 1.0, 2.0, 0.0, 0.0, 1.0, 0.0];
+    let ug = UnstructuredGrid { points: Points::new_f64(q), cells, ..Default::default() };
+    let s = aurafx_filters::surface::extract_surface(&DataSet::UnstructuredGrid(ug)).unwrap();
+    assert_eq!(s.polys.len(), 6);
+    assert_eq!(s.lines.len(), 1);
+    assert_eq!(s.lines.cell(0).len(), 3);
+    // Total area grows by the bulge but stays close to the flat 4.0.
+    let area: f64 = (0..s.polys.len())
+        .map(|i| {
+            let c = s.polys.cell(i);
+            let p: Vec<[f64; 3]> = c.iter().map(|&k| s.points.get(k as usize)).collect();
+            let (u, v) = ([p[1][0] - p[0][0], p[1][1] - p[0][1]], [p[2][0] - p[0][0], p[2][1] - p[0][1]]);
+            0.5 * (u[0] * v[1] - u[1] * v[0])
+        })
+        .sum();
+    assert!(area > 4.0 && area < 4.3, "consistent winding, area {area}");
+}

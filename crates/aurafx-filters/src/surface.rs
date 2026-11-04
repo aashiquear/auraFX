@@ -121,6 +121,61 @@ fn structured_surface(ds: &DataSet) -> Result<PolyData> {
     Ok(PolyData { points, polys, point_data, cell_data, ..Default::default() })
 }
 
+/// Linear base type and (edge -> mid-edge node) table of quadratic cells, in VTK node order.
+fn quadratic_edges(ty: CellType) -> Option<(CellType, &'static [((usize, usize), usize)])> {
+    const TET10: [((usize, usize), usize); 6] = [((0, 1), 4), ((1, 2), 5), ((2, 0), 6), ((0, 3), 7), ((1, 3), 8), ((2, 3), 9)];
+    const HEX20: [((usize, usize), usize); 12] = [
+        ((0, 1), 8),
+        ((1, 2), 9),
+        ((2, 3), 10),
+        ((3, 0), 11),
+        ((4, 5), 12),
+        ((5, 6), 13),
+        ((6, 7), 14),
+        ((7, 4), 15),
+        ((0, 4), 16),
+        ((1, 5), 17),
+        ((2, 6), 18),
+        ((3, 7), 19),
+    ];
+    const WEDGE15: [((usize, usize), usize); 9] =
+        [((0, 1), 6), ((1, 2), 7), ((2, 0), 8), ((3, 4), 9), ((4, 5), 10), ((5, 3), 11), ((0, 3), 12), ((1, 4), 13), ((2, 5), 14)];
+    const PYR13: [((usize, usize), usize); 8] = [((0, 1), 5), ((1, 2), 6), ((2, 3), 7), ((3, 0), 8), ((0, 4), 9), ((1, 4), 10), ((2, 4), 11), ((3, 4), 12)];
+    const TRI6: [((usize, usize), usize); 3] = [((0, 1), 3), ((1, 2), 4), ((2, 0), 5)];
+    const QUAD8: [((usize, usize), usize); 4] = [((0, 1), 4), ((1, 2), 5), ((2, 3), 6), ((3, 0), 7)];
+    Some(match ty {
+        CellType::QuadraticTetra => (CellType::Tetra, &TET10),
+        CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron => (CellType::Hexahedron, &HEX20),
+        CellType::QuadraticWedge => (CellType::Wedge, &WEDGE15),
+        CellType::QuadraticPyramid => (CellType::Pyramid, &PYR13),
+        CellType::QuadraticTriangle | CellType::BiquadraticTriangle => (CellType::Triangle, &TRI6),
+        CellType::QuadraticQuad | CellType::BiquadraticQuad => (CellType::Quad, &QUAD8),
+        _ => return None,
+    })
+}
+
+/// Split a quadratic triangle or quad (corners + one mid node per edge k -> k+1) into linear
+/// triangles that pass through the mid nodes, keeping the winding.
+fn subdivide_face(c: &[u32], m: &[u32]) -> Vec<Vec<u32>> {
+    match c.len() {
+        3 => vec![vec![c[0], m[0], m[2]], vec![m[0], c[1], m[1]], vec![m[2], m[1], c[2]], vec![m[0], m[1], m[2]]],
+        4 => {
+            vec![vec![c[0], m[0], m[3]], vec![m[0], c[1], m[1]], vec![m[1], c[2], m[2]], vec![m[3], m[2], c[3]], vec![m[0], m[1], m[2]], vec![m[0], m[2], m[3]]]
+        }
+        _ => vec![c.to_vec()],
+    }
+}
+
+/// Mid nodes of the edges of a face given by local corner indices.
+fn face_mids(face: &[usize], edges: &[((usize, usize), usize)], pts: &[u32]) -> Option<Vec<u32>> {
+    (0..face.len())
+        .map(|k| {
+            let (a, b) = (face[k], face[(k + 1) % face.len()]);
+            edges.iter().find(|((x, y), _)| (*x == a && *y == b) || (*x == b && *y == a)).and_then(|(_, m)| pts.get(*m).copied())
+        })
+        .collect()
+}
+
 fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
     let ds = as_explicit(ds);
     let (points, pd, cd, fd) = crate::simplex::parts(&ds).ok_or_else(|| anyhow::anyhow!("unsupported dataset for surface extraction"))?;
@@ -128,7 +183,8 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
     struct FaceRec {
         count: u32,
         cell: usize,
-        pts: Vec<u32>,
+        /// Linear polygons drawn for this face (one, or several for a curved quadratic face).
+        polys: Vec<Vec<u32>>,
     }
     let mut faces: HashMap<Vec<u32>, FaceRec> = HashMap::new();
     let mut verts = Cells::new();
@@ -146,34 +202,61 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
                 parent_v.push(cid);
             }
             1 => {
-                lines.push(ty, pts);
+                if ty == CellType::QuadraticEdge && pts.len() >= 3 {
+                    lines.push(CellType::PolyLine, &[pts[0], pts[2], pts[1]]);
+                } else {
+                    lines.push(ty, pts);
+                }
                 parent_l.push(cid);
             }
-            2 => {
-                polys.push(ty, pts);
-                parent_p.push(cid);
-            }
+            2 => match quadratic_edges(ty) {
+                Some((base, edges)) if pts.len() >= base.fixed_point_count().unwrap_or(0) + edges.len() => {
+                    let corners: Vec<usize> = (0..base.fixed_point_count().unwrap_or(0)).collect();
+                    let c: Vec<u32> = corners.iter().map(|&k| pts[k]).collect();
+                    let m = face_mids(&corners, edges, pts).unwrap_or_default();
+                    for t in subdivide_face(&c, &m) {
+                        polys.push(CellType::Triangle, &t);
+                        parent_p.push(cid);
+                    }
+                }
+                _ => {
+                    polys.push(ty, pts);
+                    parent_p.push(cid);
+                }
+            },
             _ => {
-                let mut add_face = |f: Vec<u32>| {
-                    let mut key = f.clone();
+                // Faces are matched by their sorted corner ids.
+                let mut add_face = |f: Vec<u32>, polys: Vec<Vec<u32>>| {
+                    let mut key = f;
                     key.sort_unstable();
                     match faces.get_mut(&key) {
                         Some(r) => r.count += 1,
                         None => {
                             face_order.push(key.clone());
-                            faces.insert(key, FaceRec { count: 1, cell: cid, pts: f });
+                            faces.insert(key, FaceRec { count: 1, cell: cid, polys });
                         }
                     }
                 };
                 if ty == CellType::Polyhedron {
                     if let Some(fs) = ph_faces {
                         for f in fs {
-                            add_face(f.clone());
+                            add_face(f.clone(), vec![f.clone()]);
                         }
                     }
                 } else if ty.is_linear() {
                     for f in ty.faces() {
-                        add_face(f.iter().map(|&k| pts[k]).collect());
+                        let c: Vec<u32> = f.iter().map(|&k| pts[k]).collect();
+                        add_face(c.clone(), vec![c]);
+                    }
+                } else if let Some((base, edges)) = quadratic_edges(ty).filter(|(b, e)| pts.len() >= b.fixed_point_count().unwrap_or(0) + e.len()) {
+                    // Curved faces through the mid-edge nodes.
+                    for f in base.faces() {
+                        let c: Vec<u32> = f.iter().map(|&k| pts[k]).collect();
+                        let polys = match face_mids(f, edges, pts) {
+                            Some(m) => subdivide_face(&c, &m),
+                            None => vec![c.clone()],
+                        };
+                        add_face(c, polys);
                     }
                 } else {
                     // Higher-order: use the linear corner faces of the base type.
@@ -188,7 +271,8 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
                         _ => CellType::Hexahedron,
                     };
                     for f in base.faces() {
-                        add_face(f.iter().map(|&k| pts[k]).collect());
+                        let c: Vec<u32> = f.iter().map(|&k| pts[k]).collect();
+                        add_face(c.clone(), vec![c]);
                     }
                 }
             }
@@ -197,13 +281,15 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
     for key in face_order {
         let r = &faces[&key];
         if r.count == 1 {
-            let ty = match r.pts.len() {
-                3 => CellType::Triangle,
-                4 => CellType::Quad,
-                _ => CellType::Polygon,
-            };
-            polys.push(ty, &r.pts);
-            parent_p.push(r.cell);
+            for p in &r.polys {
+                let ty = match p.len() {
+                    3 => CellType::Triangle,
+                    4 => CellType::Quad,
+                    _ => CellType::Polygon,
+                };
+                polys.push(ty, p);
+                parent_p.push(r.cell);
+            }
         }
     }
     // Compact points.

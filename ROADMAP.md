@@ -38,7 +38,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Datasets: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`, `UnstructuredGrid`, `Table`, `PointCloud`/particles.
 - [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid`.
 - [x] Cell types: all VTK linear types (vertex, line, polyline, tri, quad, polygon, tet, hex, wedge, pyramid, pentagonal/hexagonal prism, polyhedron).
-- [ ] Higher-order: quadratic, Lagrange and Bezier cells with tessellation.
+- [~] Higher-order: quadratic cells drawn curved through their mid-edge nodes (tets, hexes, wedges, pyramids, shells, edges); Lagrange and Bezier still drawn from corner nodes.
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
 - [~] Selections (IDs, rectangle/frustum, visible-only, threshold query done): IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
 - [~] Spatial structures (cell locator for probe and stream tracer done): point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
@@ -302,7 +302,7 @@ Python 3.12 + NumPy; volume rendering that depth-merges with opaque geometry; vi
 selection through a GPU id pass; text annotations, time label and ruler; decomposed OpenFOAM
 cases.
 
-Known gaps worth doing next: higher-order cell tessellation;
+Known gaps worth doing next: Lagrange/Bezier cell tessellation;
 client/server and distributed execution; plugin system; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

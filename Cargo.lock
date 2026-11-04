@@ -260,6 +260,7 @@ dependencies = [
  "anyhow",
  "aurafx-data",
  "aurafx-filters",
+ "aurafx-io",
  "aurafx-jobs",
  "aurafx-pipeline",
  "numpy",

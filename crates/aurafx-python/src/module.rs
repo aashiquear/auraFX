@@ -269,6 +269,12 @@ impl PyNode {
         array_to_numpy(py, &arr.data, arr.ncomp)
     }
 
+    /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .csv .stl .ply (format from the extension).
+    fn save(&self, path: String) -> PyResult<()> {
+        let ds = self.output()?;
+        aurafx_io::writers::write_file(&ds, std::path::Path::new(&path)).map_err(err)
+    }
+
     /// Point coordinates as an (N, 3) NumPy array.
     #[getter]
     fn points<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {

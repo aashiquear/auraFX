@@ -402,6 +402,34 @@ impl State {
         }
     }
 
+    /// Write the active node's data to a file chosen by the user.
+    pub fn save_data_dialog(&mut self) {
+        let (name, ds) = {
+            let s = self.session.lock();
+            match s.active_node() {
+                Some(n) => (n.name.clone(), n.output.clone()),
+                None => (String::new(), None),
+            }
+        };
+        let Some(ds) = ds else {
+            self.toast("Select a node with data to save", true);
+            return;
+        };
+        let formats = aurafx_io::writers::writable_formats(&ds);
+        let stem: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+        let mut dlg = rfd::FileDialog::new().set_file_name(format!("{stem}.{}", formats.first().map(|f| f.0).unwrap_or("csv")));
+        for (e, label) in &formats {
+            dlg = dlg.add_filter(*label, &[*e]);
+        }
+        if let Some(p) = dlg.save_file() {
+            let p = if p.extension().is_none() { p.with_extension(formats.first().map(|f| f.0).unwrap_or("csv")) } else { p };
+            match aurafx_io::writers::write_file(&ds, &p) {
+                Ok(()) => self.toast(format!("Saved {}", p.display()), false),
+                Err(e) => self.toast(format!("{e:#}"), true),
+            }
+        }
+    }
+
     pub fn last_session_path() -> PathBuf {
         aurafx_jobs::cache_dir().join("last_session.afx")
     }
@@ -546,6 +574,12 @@ impl State {
                     ui.close();
                     self.open_file_dialog();
                 }
+                let has_data = self.session.lock().active_node().map(|n| n.output.is_some()).unwrap_or(false);
+                if ui.add_enabled(has_data, egui::Button::new("Save Data…")).on_hover_text("Write the selected node's data (VTK, CSV, STL, PLY)").clicked() {
+                    ui.close();
+                    self.save_data_dialog();
+                }
+                ui.separator();
                 if ui.button("Save State    Ctrl+S").on_hover_text("Save the pipeline, display settings and camera to an .afx file").clicked() {
                     ui.close();
                     self.save_state_dialog(false);

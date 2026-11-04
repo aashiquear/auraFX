@@ -137,3 +137,50 @@ fn exodus_examples() {
         eprintln!("{name}: {}", info.summary());
     }
 }
+
+#[test]
+fn writers_roundtrip() {
+    let dir = std::env::temp_dir().join(format!("afx-writers-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (src, ext) in [
+        ("wavelet_tets.vtu", "vtu"),
+        ("wavelet_tets.vtu", "vtk"),
+        ("contour.vtp", "vtp"),
+        ("contour.vtp", "vtk"),
+        ("wavelet.vti", "vti"),
+        ("wavelet.vti", "vtk"),
+        ("rect.vtr", "vtr"),
+        ("struct.vts", "vts"),
+        ("group.vtm", "vtm"),
+    ] {
+        let a = static_ds(src);
+        let out = dir.join(format!("{}_{}.{ext}", src.replace('.', "_"), ext));
+        aurafx_io::writers::write_file(&a, &out).unwrap_or_else(|e| panic!("{src} -> {ext}: {e:#}"));
+        let b = match read_file(&out).unwrap_or_else(|e| panic!("re-read {}: {e:#}", out.display())) {
+            Loaded::Static(d) => d,
+            _ => panic!(),
+        };
+        assert_eq!(a.n_points(), b.n_points(), "{src}->{ext}");
+        assert_eq!(a.n_cells(), b.n_cells(), "{src}->{ext}");
+        assert_eq!(a.bounds(), b.bounds(), "{src}->{ext}");
+        if let (Some(pa), Some(pb)) = (a.point_data(), b.point_data()) {
+            for arr in pa.iter() {
+                let other = pb.get(&arr.name).unwrap_or_else(|| panic!("{src}->{ext}: lost {}", arr.name));
+                assert_eq!(arr.range(None), other.range(None), "{src}->{ext}: {}", arr.name);
+            }
+        }
+    }
+    let sphere = static_ds("sphere.vtp");
+    for ext in ["stl", "ply", "csv"] {
+        aurafx_io::writers::write_file(&sphere, &dir.join(format!("sphere.{ext}"))).unwrap();
+    }
+    let stl = static_ds_abs(&dir.join("sphere.stl"));
+    assert_eq!(stl.n_cells(), sphere.n_cells());
+}
+
+fn static_ds_abs(p: &std::path::Path) -> std::sync::Arc<aurafx_data::DataSet> {
+    match read_file(p).unwrap() {
+        Loaded::Static(d) => d,
+        _ => panic!(),
+    }
+}

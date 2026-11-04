@@ -146,6 +146,11 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                         state.session.lock().mark_dirty(r.id);
                         ui.close();
                     }
+                    if ui.button("Save data…").clicked() {
+                        state.session.lock().active = Some(r.id);
+                        state.save_data_dialog();
+                        ui.close();
+                    }
                     ui.separator();
                     if ui.button(RichText::new("Delete").color(crate::theme::ERROR)).clicked() {
                         state.session.lock().remove_node(r.id);

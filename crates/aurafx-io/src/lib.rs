@@ -10,6 +10,7 @@ pub mod legacy_vtk;
 pub mod netcdf3;
 pub mod series;
 pub mod stl;
+pub mod writers;
 pub mod xml_vtk;
 
 use anyhow::{anyhow, Context, Result};

@@ -102,6 +102,7 @@ pub struct State {
     pub charts: crate::charts::ChartsState,
     pub anim_dialog: crate::animation::AnimDialog,
     pub cmap_editor: crate::colormap_editor::ColormapEditor,
+    pub plugins: crate::plugins_ui::PluginsWindow,
     pub anim_job: Option<crate::animation::AnimJob>,
     pub anim_done_tx: std::sync::mpsc::Sender<Result<PathBuf, String>>,
     pub anim_done_rx: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
@@ -330,7 +331,7 @@ impl AuraApp {
         let tree = cc.storage.and_then(|s| s.get_string("layout_v4")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
         let assistant = Assistant::new(&settings);
         let (anim_tx, anim_rx) = std::sync::mpsc::channel();
-        let state = State {
+        let mut state = State {
             session,
             settings,
             python,
@@ -358,6 +359,7 @@ impl AuraApp {
             state_path: None,
             anim_dialog: Default::default(),
             cmap_editor: Default::default(),
+            plugins: Default::default(),
             anim_job: None,
             anim_done_tx: anim_tx,
             anim_done_rx: anim_rx,
@@ -371,6 +373,8 @@ impl AuraApp {
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
         };
+        // Plugins first, so startup scripts and restored sessions can use their filters.
+        state.sync_plugins(false);
         if let Some(p) = script {
             match std::fs::read_to_string(&p) {
                 Ok(code) => state.python.run(code, "startup"),
@@ -545,11 +549,16 @@ impl State {
             self.file_browser.open = true;
             return;
         }
-        let mut exts: Vec<&str> = aurafx_io::all_extensions();
-        exts.push("afx");
-        let mut dlg = crate::dialogs::FileDialog::new().add_filter("All supported", &exts);
+        let mut exts: Vec<String> = aurafx_io::all_extensions();
+        exts.push("afx".into());
+        let refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
+        let mut dlg = crate::dialogs::FileDialog::new().add_filter("All supported", &refs);
         for (e, label) in aurafx_io::supported_formats() {
             dlg = dlg.add_filter(label, e);
+        }
+        for r in aurafx_io::plugin_readers() {
+            let e: Vec<&str> = r.extensions.iter().map(|s| s.as_str()).collect();
+            dlg = dlg.add_filter(&r.label, &e);
         }
         dlg = dlg.add_filter("auraFX state", &["afx"]);
         dlg = dlg.add_filter("All files", &["*"]);
@@ -800,6 +809,10 @@ impl State {
                     }
                 }
                 ui.separator();
+                if ui.button("Plugins…").on_hover_text("Python plugins that add filters, sources and readers").clicked() {
+                    ui.close();
+                    self.plugins.open = true;
+                }
                 if ui.button("Settings…    Ctrl+,").clicked() {
                     ui.close();
                     self.show_settings = true;
@@ -1448,6 +1461,9 @@ impl eframe::App for AuraApp {
                         self.state.layout_actions.push(LayoutAction::Hide(p));
                     }
                 }
+                "show" if arg.eq_ignore_ascii_case("plugins") => {
+                    self.state.plugins.open = true;
+                }
                 "show" if arg.eq_ignore_ascii_case("colormap") || arg.eq_ignore_ascii_case("color map editor") => {
                     self.state.cmap_editor.open = true;
                 }
@@ -1567,6 +1583,8 @@ impl eframe::App for AuraApp {
         st.animation_poll();
         crate::animation::dialog_ui(st, ctx);
         crate::colormap_editor::editor_ui(st, ctx);
+        st.plugins_tick(ctx);
+        crate::plugins_ui::plugins_ui(st, ctx);
         if let Some(p) = crate::dialogs::file_browser_ui(&mut st.file_browser, ctx) {
             st.open_file(p);
         }

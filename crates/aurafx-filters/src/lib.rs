@@ -17,6 +17,7 @@ pub mod geometry;
 pub mod glyph;
 pub mod outline;
 pub mod probe;
+pub mod python;
 pub mod selection;
 pub mod slice;
 pub mod sources;
@@ -28,4 +29,4 @@ pub mod transform;
 pub mod warp;
 
 pub use params::{param_from_json, param_to_json, Association, ParamKind, ParamSpec, ParamValue, Params};
-pub use registry::{default_array, find, registry, search, FilterDef, MultiInput, Temporal};
+pub use registry::{default_array, find, register, registry, search, unregister_plugin, CustomFn, Extension, FilterDef, MultiInput, Temporal};

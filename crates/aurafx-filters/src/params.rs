@@ -104,6 +104,8 @@ pub enum ParamKind {
     Floats,
     /// Multi-line expression (calculator).
     Expression,
+    /// Source code (Python), edited in a code box and applied explicitly.
+    Code,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -239,7 +241,7 @@ pub fn param_from_json(spec: &ParamSpec, v: &serde_json::Value) -> ParamValue {
         (ParamKind::Int { .. }, ParamValue::Float(f)) => ParamValue::Int(f as i64),
         (ParamKind::Floats, ParamValue::Vec3(a)) => ParamValue::Floats(a.to_vec()),
         (ParamKind::Floats, ParamValue::Float(f)) => ParamValue::Floats(vec![f]),
-        (ParamKind::Choice(_) | ParamKind::Str | ParamKind::Expression, ParamValue::Str(s)) => ParamValue::Str(s),
+        (ParamKind::Choice(_) | ParamKind::Str | ParamKind::Expression | ParamKind::Code, ParamValue::Str(s)) => ParamValue::Str(s),
         (_, x) => x,
     }
 }

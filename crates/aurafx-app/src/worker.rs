@@ -72,6 +72,8 @@ pub struct PythonResult {
 pub enum PythonRequest {
     Run(PythonJob),
     Complete(String, Sender<Vec<String>>),
+    /// Load new/changed plugins and unload removed/disabled ones (paths, disabled, reload all).
+    SyncPlugins(Vec<std::path::PathBuf>, Vec<std::path::PathBuf>, bool),
 }
 
 /// Owns the interpreter on its own thread; the UI talks to it through channels.
@@ -80,6 +82,8 @@ pub struct PythonWorker {
     rx: Receiver<PythonResult>,
     pub version: Arc<parking_lot::Mutex<String>>,
     pub busy: Arc<std::sync::atomic::AtomicBool>,
+    /// Plugin load/reload messages for the UI to show.
+    pub plugin_messages: Arc<parking_lot::Mutex<Vec<String>>>,
 }
 
 impl PythonWorker {
@@ -89,6 +93,10 @@ impl PythonWorker {
         let version = Arc::new(parking_lot::Mutex::new(String::new()));
         let busy = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (v2, b2) = (version.clone(), busy.clone());
+        let plugin_messages = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let pm2 = plugin_messages.clone();
+        #[cfg(feature = "python")]
+        let session2 = session.clone();
         std::thread::Builder::new()
             .name("aurafx-python".into())
             .spawn(move || {
@@ -122,6 +130,29 @@ impl PythonWorker {
                             let _ = res_tx.send(PythonResult { code: job.code, origin: job.origin, output, elapsed: t0.elapsed() });
                             ctx.request_repaint();
                         }
+                        PythonRequest::SyncPlugins(paths, disabled, force) => {
+                            #[cfg(feature = "python")]
+                            {
+                                if force {
+                                    aurafx_python::plugins::forget_mtimes();
+                                }
+                                let (msgs, changed) = aurafx_python::plugins::sync(&paths, &disabled);
+                                if !changed.is_empty() {
+                                    session2.lock().refresh_filter_defs(&changed);
+                                }
+                                if !msgs.is_empty() {
+                                    let mut s = session2.lock();
+                                    for m in &msgs {
+                                        let lvl = if m.contains("failed") { aurafx_pipeline::LogLevel::Error } else { aurafx_pipeline::LogLevel::Info };
+                                        s.log(lvl, m.clone());
+                                    }
+                                    pm2.lock().extend(msgs);
+                                    ctx.request_repaint();
+                                }
+                            }
+                            #[cfg(not(feature = "python"))]
+                            let _ = (paths, disabled, force, &pm2);
+                        }
                         PythonRequest::Complete(prefix, reply) => {
                             #[cfg(feature = "python")]
                             let _ = reply.send(rt.complete(&prefix));
@@ -132,7 +163,11 @@ impl PythonWorker {
                 }
             })
             .expect("spawn python worker");
-        Self { tx, rx, version, busy }
+        Self { tx, rx, version, busy, plugin_messages }
+    }
+
+    pub fn sync_plugins(&self, paths: Vec<std::path::PathBuf>, disabled: Vec<std::path::PathBuf>, force: bool) {
+        let _ = self.tx.send(PythonRequest::SyncPlugins(paths, disabled, force));
     }
 
     pub fn run(&self, code: impl Into<String>, origin: &str) {

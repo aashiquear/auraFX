@@ -17,3 +17,4 @@ parking_lot.workspace = true
 tracing.workspace = true
 pyo3 = { version = "0.30", features = ["auto-initialize"] }
 numpy = "0.30"
+directories = "6"

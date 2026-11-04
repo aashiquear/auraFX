@@ -13,6 +13,7 @@ mod jobs_panel;
 mod palette;
 mod panels;
 mod pick;
+mod plugins_ui;
 mod settings;
 mod theme;
 mod viewport;

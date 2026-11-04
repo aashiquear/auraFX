@@ -298,6 +298,7 @@ dependencies = [
  "aurafx-io",
  "aurafx-jobs",
  "aurafx-pipeline",
+ "directories",
  "numpy",
  "parking_lot",
  "pyo3",

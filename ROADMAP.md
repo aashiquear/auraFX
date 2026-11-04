@@ -29,7 +29,7 @@ one ships something usable on its own.
 - [~] Packaging: AppImage, tar.gz + `install.sh`, `.dmg`, Windows installer + zip, Android APK, unsigned iOS IPA (done); `.deb`, MSIX, Flatpak (todo).
 - [~] Crash reporting and structured logs (`tracing`), log panel in the UI. (Logs and log panel done; crash reporting todo.)
 - [~] Settings system (TOML in platform config dir), settings UI with search.
-- [ ] Plugin ABI (dynamic Rust crates + Python plugins) and plugin manager UI.
+- [~] Plugin ABI (dynamic Rust crates + Python plugins) and plugin manager UI. (Python plugins and the Plugins window done; Rust plugins todo.)
 
 ### 0.2 Data model (`aurafx-data`)
 Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible.
@@ -134,7 +134,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
 - [ ] Parallel/distributed: D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
 - [~] Annotation (text, time label and ruler done): Annotate Attribute Data, Annotate Global Data, Annotate Selection, Annotate Time Filter, Environment Annotation, Python Annotation, Programmable Annotation, Text, 3D Text, Logo, Ruler, Protractor
-- [~] Programmable: Programmable Filter ★ (Python), Programmable Source, Python Calculator ★, Live Programmable Source, Color By Array, OME TIFF Channel Calculator, Threshold Table, Field Arrays From File
+- [~] Programmable: Programmable Filter ★ (Python), Programmable Source, Python Calculator ★ (done), Live Programmable Source, Color By Array, OME TIFF Channel Calculator, Threshold Table, Field Arrays From File
 
 ### 2.4 Sources
 - [~] Geometric: Sphere ★, Cone ★, Cylinder ★, Box ★, Plane ★, Line ★, Disk, Ellipse, Arrow, Axes, Superquadric, Point Source, PolyLine Source, PolyPoint Source, Spline Source, Outline Source
@@ -144,7 +144,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 ### 2.5 Filter infrastructure
 - [~] Every filter has: typed properties, defaults, validation, documentation, search keywords, Python binding, undo entry, and progress reporting.
 - [ ] GPU implementations (wgpu compute) for: contour, clip, slice, threshold, gradient, resample, glyph, stream tracer, particle advection, connectivity, histogram.
-- [ ] Custom filter authoring: Python (`@afx.filter`) and Rust plugins.
+- [~] Custom filter authoring: Python (`@afx.filter`, done) and Rust plugins.
 
 ---
 
@@ -210,9 +210,9 @@ with cancel), everything searchable, every action scriptable, every panel option
   - Helpers: `afx.fit(x, y, model)`, `afx.stats(...)`, `afx.plot(...)` (opens a chart view), `afx.export(...)`.
 - [~] Python trace recorder (UI -> script), script "macros" toolbar, scheduled/batch runs (`aurafx --script run.py`), headless mode (`aurafx-batch`).
 - [~] Bundled scientific stack management (packages ship Python 3.12 + NumPy): detect/install numpy, scipy, pandas, polars, matplotlib, h5py, netCDF4, scikit-learn, torch (CUDA/ROCm wheels), with a UI for environments.
-- [ ] Programmable filter/source with NumPy and typed dataset wrappers.
+- [x] Programmable filter/source with NumPy and typed dataset wrappers (`afx.Data`).
 - [ ] Jupyter kernel exposure (drive auraFX from a notebook) and notebook panel inside the app.
-- [ ] Custom Python plugins (reader, filter, panel) with hot-reload.
+- [~] Custom Python plugins (reader, filter, source done; panel todo) with hot-reload.
 
 ---
 
@@ -267,7 +267,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Golden-image render tests, filter regression tests against VTK outputs, reader conformance suite with sample files for every format.
 - [ ] Benchmarks vs ParaView (load time, filter time, frame rate) published in docs.
 - [ ] User guide, filter reference (auto-generated from property metadata), Python API docs, tutorials, example gallery.
-- [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook.
+- [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook (done: `docs/plugins.md`).
 
 ---
 
@@ -329,8 +329,15 @@ Operator match ParaView 6.1.1. The particle filters are checked against the exac
 auraFX interpolates the velocity linearly in time and builds one streak per seed. Particle ids
 are unique per particle (ParaView restarts them at every release).
 
+Done in iteration 8: Python plugins (`@afx.filter`, `@afx.source`, `@afx.reader` in `.py` files
+from the plugin folder, `AURAFX_PLUGIN_PATH` or the Plugins window; hot reload re-runs nodes that
+use them; errors shown per plugin), the Plugins window (Edit menu), `afx.Data` with NumPy arrays
+and `afx.make_*` constructors, and the Programmable Filter, Programmable Source and Python
+Calculator with a code editor in Properties. Text parameters now keep what you type until you
+apply it (they used to lose keystrokes). Guide: `docs/plugins.md`.
+
 Known gaps worth doing next: Lagrange/Bezier cell tessellation;
-client/server and distributed execution; plugin system; Slurm runs not yet exercised on real
+client/server and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)

@@ -24,6 +24,10 @@ pub struct Settings {
     pub hosts: Vec<aurafx_jobs::Host>,
     /// Color maps the user saved or imported.
     pub user_colormaps: Vec<aurafx_pipeline::colormap::ColorMap>,
+    /// Plugin files and folders added in the Plugins window (besides the user plugin folder).
+    pub plugin_paths: Vec<PathBuf>,
+    /// Plugin files the user switched off.
+    pub disabled_plugins: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -42,6 +46,8 @@ impl Default for Settings {
             default_colormap: "Viridis".into(),
             hosts: Vec::new(),
             user_colormaps: Vec::new(),
+            plugin_paths: Vec::new(),
+            disabled_plugins: Vec::new(),
         }
     }
 }

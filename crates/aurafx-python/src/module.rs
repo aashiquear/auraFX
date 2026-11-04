@@ -5,7 +5,7 @@ use aurafx_data::{ArrayData, DataSet};
 use aurafx_filters::Association;
 use aurafx_pipeline::session::CameraRequest;
 use aurafx_pipeline::{ColorBy, NodeId, Representation};
-use numpy::{PyArray1, PyArray2, PyArrayMethods, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyArrayMethods};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyModule, PyTuple};
@@ -456,7 +456,7 @@ impl PyNode {
     }
 }
 
-fn array_to_numpy<'py>(py: Python<'py>, data: &ArrayData, ncomp: usize) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn array_to_numpy<'py>(py: Python<'py>, data: &ArrayData, ncomp: usize) -> PyResult<Bound<'py, PyAny>> {
     macro_rules! conv {
         ($v:expr) => {{
             let v = $v.clone();
@@ -485,25 +485,57 @@ fn array_to_numpy<'py>(py: Python<'py>, data: &ArrayData, ncomp: usize) -> PyRes
     }
 }
 
-fn numpy_to_array(v: &Bound<'_, PyAny>) -> PyResult<(ArrayData, usize)> {
-    if let Ok(a) = v.cast::<PyArray2<f64>>() {
-        let ro = a.readonly();
-        let shape = ro.shape().to_vec();
-        return Ok((ArrayData::F64(ro.as_slice()?.to_vec()), shape[1]));
-    }
-    if let Ok(a) = v.cast::<PyArray1<f64>>() {
-        return Ok((ArrayData::F64(a.readonly().as_slice()?.to_vec()), 1));
-    }
-    // Fallback: go through Python to a flat list of floats.
-    let np = v.py().import("numpy")?;
-    let arr = np.call_method1("asarray", (v,))?.call_method1("astype", ("float64",))?;
+/// A NumPy array (or anything array-like) as an auraFX array: float32/float64/int32/int64/uint8
+/// keep their type, everything else becomes float64. Returns (data, components).
+pub(crate) fn numpy_to_array(v: &Bound<'_, PyAny>) -> PyResult<(ArrayData, usize)> {
+    let py = v.py();
+    let np = py.import("numpy")?;
+    let arr = np.call_method1("ascontiguousarray", (v,))?;
     let shape: Vec<usize> = arr.getattr("shape")?.extract()?;
-    let ncomp = if shape.len() >= 2 { shape[1] } else { 1 };
-    let flat: Vec<f64> = arr.call_method0("ravel")?.call_method0("tolist")?.extract()?;
-    Ok((ArrayData::F64(flat), ncomp))
+    if shape.len() > 2 {
+        return Err(PyValueError::new_err(format!("arrays must be 1-D or 2-D (N x components), got shape {shape:?}")));
+    }
+    let ncomp = if shape.len() == 2 { shape[1].max(1) } else { 1 };
+    macro_rules! take {
+        ($t:ty, $var:ident) => {
+            if let Ok(a) = arr.cast::<numpy::PyArrayDyn<$t>>() {
+                return Ok((ArrayData::$var(a.readonly().as_slice()?.to_vec()), ncomp));
+            }
+        };
+    }
+    take!(f64, F64);
+    take!(f32, F32);
+    take!(i32, I32);
+    take!(i64, I64);
+    take!(u8, U8);
+    let arr = arr.call_method1("astype", ("float64",))?;
+    let a = arr.cast::<numpy::PyArrayDyn<f64>>()?;
+    Ok((ArrayData::F64(a.readonly().as_slice()?.to_vec()), ncomp))
 }
 
 // ------------------------------------------------------------------ module functions
+
+/// (id, is_source) of a filter by id or label, for `afx.<plugin filter>(...)`.
+#[pyfunction]
+fn _filter_kind(name: &str) -> Option<(String, bool)> {
+    aurafx_filters::find(name).map(|f| (f.id.to_string(), f.is_source))
+}
+
+/// Loaded plugins: [{path, filters, readers, error, enabled}].
+#[pyfunction]
+fn plugins<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+    let l = PyList::empty(py);
+    for p in crate::plugins::list() {
+        let d = PyDict::new(py);
+        d.set_item("path", p.path.display().to_string())?;
+        d.set_item("filters", p.filters)?;
+        d.set_item("readers", p.readers)?;
+        d.set_item("error", p.error)?;
+        d.set_item("enabled", p.enabled)?;
+        l.append(d)?;
+    }
+    Ok(l)
+}
 
 #[pyfunction]
 #[pyo3(signature = (path, **kwargs))]
@@ -572,7 +604,7 @@ fn describe() -> String {
 #[pyfunction]
 fn filters<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
     let l = PyList::empty(py);
-    for f in aurafx_filters::registry() {
+    for f in aurafx_filters::registry().iter() {
         let d = PyDict::new(py);
         d.set_item("id", f.id)?;
         d.set_item("label", f.label)?;
@@ -1273,13 +1305,27 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(points_from, m)?)?;
     m.add_function(wrap_pyfunction!(colormaps, m)?)?;
     let py = m.py();
-    for f in aurafx_filters::registry() {
+    for f in aurafx_filters::registry().iter() {
         if f.is_source {
             m.add(f.id, make_source_fn(py, f.id)?)?;
         } else if f.multi.is_some() {
             m.add(f.id, make_multi_fn(py, f.id)?)?;
         }
     }
+    m.add_class::<crate::data::PyData>()?;
+    m.add_class::<crate::data::ArrayMap>()?;
+    m.add_function(wrap_pyfunction!(crate::data::make_points, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::data::make_polydata, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::data::make_image, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::data::make_grid, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::data::make_multiblock, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::plugins::_register_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::plugins::_register_reader, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::plugins::load_plugin, m)?)?;
+    m.add_function(wrap_pyfunction!(_filter_kind, m)?)?;
+    m.add_function(wrap_pyfunction!(plugins, m)?)?;
+    // Decorators (@afx.filter, @afx.source, @afx.reader) and helpers are plain Python.
+    m.py().run(&std::ffi::CString::new(crate::plugins::PY_API).unwrap(), Some(&m.dict()), None)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__doc__", "auraFX scripting: afx.load(path), node.slice(...), node.color_by('T'), afx.screenshot('out.png'). See afx.filters().")?;
     let _ = PyTuple::empty(py);

@@ -299,6 +299,52 @@ pub(crate) fn auto_fill(state: &State, id: NodeId, spec: &ParamSpec) -> ParamVal
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum TextKind {
+    Line,
+    Expression,
+    /// Code box with this many visible rows; applied with Ctrl+Enter or the Apply button only.
+    Code(usize),
+}
+
+/// A text parameter edited through a draft kept across frames, applied on Enter / focus loss
+/// (code: Ctrl+Enter or Apply). Returns the new value when applied.
+fn text_param(ui: &mut egui::Ui, node: NodeId, key: &str, value: &str, kind: TextKind) -> Option<String> {
+    let did = ui.make_persistent_id(("param_draft", node, key));
+    let mut s: String = ui.data(|d| d.get_temp::<String>(did)).unwrap_or_else(|| value.to_string());
+    let r = match kind {
+        TextKind::Line => ui.add(egui::TextEdit::singleline(&mut s)),
+        TextKind::Expression => ui.add(egui::TextEdit::multiline(&mut s).code_editor().desired_rows(2).desired_width(f32::INFINITY)),
+        TextKind::Code(rows) => ui.add(egui::TextEdit::multiline(&mut s).code_editor().desired_rows(rows).desired_width(f32::INFINITY)),
+    };
+    let ctrl_enter = r.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
+    let mut apply = ctrl_enter || (!matches!(kind, TextKind::Code(_)) && r.lost_focus());
+    if let TextKind::Code(_) = kind {
+        ui.horizontal(|ui| {
+            let dirty = s != value;
+            if ui.add_enabled(dirty, egui::Button::new("Apply")).on_hover_text("Run the script (Ctrl+Enter)").clicked() {
+                apply = true;
+            }
+            if dirty {
+                if ui.small_button("Revert").clicked() {
+                    s = value.to_string();
+                }
+                ui.label(RichText::new("not applied yet").weak().small());
+            }
+        });
+    }
+    if apply {
+        ui.data_mut(|d| d.remove::<String>(did));
+        return (s != value).then_some(s);
+    }
+    if s != value || r.has_focus() {
+        ui.data_mut(|d| d.insert_temp(did, s));
+    } else {
+        ui.data_mut(|d| d.remove::<String>(did));
+    }
+    None
+}
+
 fn param_widget(
     state: &mut State,
     ui: &mut egui::Ui,
@@ -378,17 +424,17 @@ fn param_widget(
             }
         }
         ParamKind::Str => {
-            let mut s = value.as_str().unwrap_or("").to_string();
-            let r = ui.text_edit_singleline(&mut s);
-            if r.lost_focus() {
+            if let Some(s) = text_param(ui, id, &spec.key, value.as_str().unwrap_or(""), TextKind::Line) {
+                out = Some(ParamValue::Str(s));
+            }
+        }
+        ParamKind::Code => {
+            if let Some(s) = text_param(ui, id, &spec.key, value.as_str().unwrap_or(""), TextKind::Code(6)) {
                 out = Some(ParamValue::Str(s));
             }
         }
         ParamKind::Expression => {
-            let mut s = value.as_str().unwrap_or("").to_string();
-            let r = ui.add(egui::TextEdit::multiline(&mut s).code_editor().desired_rows(2).desired_width(f32::INFINITY));
-            let apply = r.lost_focus() || (r.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)));
-            if apply {
+            if let Some(s) = text_param(ui, id, &spec.key, value.as_str().unwrap_or(""), TextKind::Expression) {
                 out = Some(ParamValue::Str(s));
             }
         }
@@ -642,7 +688,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     let mut adv: bool = ui.data_mut(|d| d.get_temp(show_adv)).unwrap_or(false);
                     egui::Grid::new("params").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                         for spec in &def.params {
-                            if spec.advanced && !adv {
+                            if (spec.advanced && !adv) || matches!(spec.kind, ParamKind::Code) {
                                 continue;
                             }
                             let label = ui.label(&spec.label);
@@ -656,6 +702,13 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.end_row();
                         }
                     });
+                    for spec in def.params.iter().filter(|p| matches!(p.kind, ParamKind::Code)) {
+                        ui.label(RichText::new(&spec.label).strong());
+                        let value = params.get(&spec.key).and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
+                        if let Some(nv) = text_param(ui, id, &spec.key, &value, TextKind::Code(14)) {
+                            state.session.lock().set_param(id, &spec.key, ParamValue::Str(nv));
+                        }
+                    }
                     if def.params.iter().any(|p| p.advanced) {
                         if ui.checkbox(&mut adv, "Show advanced").changed() {
                             ui.data_mut(|d| d.insert_temp(show_adv, adv));

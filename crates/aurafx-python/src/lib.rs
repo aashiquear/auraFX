@@ -8,7 +8,9 @@
 //! afx.screenshot("slice.png")
 //! ```
 
+mod data;
 mod module;
+pub mod plugins;
 
 use anyhow::Result;
 use aurafx_pipeline::SharedSession;
@@ -19,6 +21,10 @@ use std::sync::OnceLock;
 static SESSION: OnceLock<SharedSession> = OnceLock::new();
 
 pub(crate) fn session() -> &'static SharedSession {
+    if data::in_pipeline() {
+        // The pipeline may be locked by this very thread (a filter running in update_blocking).
+        panic!("aurafx pipeline functions (load, filters, show, ...) cannot be used inside a Python filter, source or reader; use the data you are given and the afx.make_* helpers");
+    }
     SESSION.get().expect("aurafx python runtime not initialized")
 }
 
@@ -68,6 +74,7 @@ impl PythonRuntime {
         }
         pyo3::append_to_inittab!(aurafx);
         Python::initialize();
+        data::install_hook();
         let globals = Python::attach(|py| -> PyResult<Py<PyDict>> {
             let g = PyDict::new(py);
             g.set_item("__name__", "__main__")?;

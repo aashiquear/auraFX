@@ -563,6 +563,35 @@ impl Session {
         Ok(id)
     }
 
+    /// After plugins were (re)loaded: point nodes using these filter ids at the new definitions
+    /// and re-run them.
+    pub fn refresh_filter_defs(&mut self, ids: &[String]) {
+        let mut dirty = Vec::new();
+        for n in self.nodes.values_mut() {
+            let def = match &mut n.kind {
+                NodeKind::Source { def } | NodeKind::Filter { def } => def,
+                NodeKind::Reader { .. } => continue,
+            };
+            if ids.iter().any(|i| i == def.id) {
+                if let Some(new) = aurafx_filters::find(def.id) {
+                    // Keep values of parameters that still exist; add new ones with defaults.
+                    let mut params = new.default_params();
+                    for spec in &new.params {
+                        if let Some(v) = n.params.get(&spec.key) {
+                            params.set(&spec.key, v.clone());
+                        }
+                    }
+                    n.params = params;
+                    *def = new;
+                }
+                dirty.push(n.id);
+            }
+        }
+        for id in dirty {
+            self.mark_dirty(id);
+        }
+    }
+
     /// Downstream nodes of `id` (through primary and extra inputs), including `id`.
     pub fn downstream(&self, id: NodeId) -> Vec<NodeId> {
         let mut out = vec![id];

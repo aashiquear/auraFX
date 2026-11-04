@@ -45,4 +45,86 @@ fn python_api_behaviour() {
     ));
     assert!(out.error.is_none(), "{:?}", out.error);
     assert_eq!(out.stdout.trim(), "5\n9\nTrue");
+
+    // ---------------- plugins and Python filters ----------------
+    let dir = std::env::temp_dir().join(format!("afx_plugins_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let plugin = dir.join("my_tools.py");
+    let write_plugin = |factor: &str| {
+        std::fs::write(
+            &plugin,
+            format!(
+                r#"
+import aurafx as afx
+import numpy as np
+
+@afx.filter(category="Test")
+def scale_points(data, factor={factor}, mode=afx.Choice(["a", "b"]), array=afx.ArrayParam()):
+    """Scale the points."""
+    data.points = data.points * factor
+    data.field_data["mode"] = np.array([1.0 if mode == "a" else 2.0])
+    return data
+
+@afx.filter(inputs=(2, None))
+def count_points(inputs):
+    out = inputs[0].copy()
+    out.field_data["total"] = np.array([float(sum(d.n_points for d in inputs))])
+    return out
+
+@afx.source
+def tri(size=1.0):
+    return afx.make_polydata([[0, 0, 0], [size, 0, 0], [0, size, 0]], polys=[[0, 1, 2]])
+
+@afx.reader(extensions=["xyzt"], label="XYZT")
+def read_xyzt(path):
+    a = np.loadtxt(path, ndmin=2)
+    d = afx.make_points(a[:, :3])
+    d.point_data["T"] = a[:, 3]
+    return d
+
+@afx.filter
+def sneaky(data):
+    afx.load("nothing.vtu")
+    return data
+"#
+            ),
+        )
+        .unwrap();
+    };
+    write_plugin("2.0");
+    std::fs::write(dir.join("pts.xyzt"), "0 0 0 1\n1 0 0 2\n0 1 0 3\n").unwrap();
+    let out = rt.run(&format!(
+        "ids = afx.load_plugin({:?})\nprint(sorted(ids))\nt = afx.tri(size=2.0)\ns = t.scale_points(mode='b')\nprint(s.info()['bounds']['max'][0], s.info()['n_points'])\nc = afx.count_points(t, s)\nprint(c.info()['n_points'])\nr = afx.load({:?})\nprint(r.info()['n_points'], r.array('T').tolist())\nbad = t.sneaky()\ntry:\n    bad.info()\nexcept Exception as e:\n    print('cannot be used inside' in str(e))",
+        plugin,
+        dir.join("pts.xyzt")
+    ));
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "['count_points', 'scale_points', 'sneaky', 'tri']\n4.0 3\n3\n3 [1.0, 2.0, 3.0]\nTrue", "{}", out.stdout);
+    {
+        let s = session.lock();
+        let sn = s.nodes.values().find(|n| n.def().is_some_and(|d| d.id == "scale_points")).unwrap();
+        let fd = sn.output.as_ref().unwrap().field_data().get("mode").unwrap().get(0, 0);
+        assert_eq!(fd, 2.0, "Choice parameter reached the function");
+    }
+    // Hot reload: a new default factor applies to the existing node (its own value was default).
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    write_plugin("3.0");
+    let (msgs, changed) = aurafx_python::plugins::sync(&[dir.clone()], &[]);
+    assert!(changed.iter().any(|c| c == "scale_points"), "{msgs:?}");
+    session.lock().refresh_filter_defs(&changed);
+    session.lock().update_blocking();
+    let out = rt.run("print(s.info()['bounds']['max'][0])");
+    assert_eq!(out.stdout.trim(), "4.0", "the node kept its own parameter value (2.0 was stored when created)");
+    // Disabling removes the filters.
+    aurafx_python::plugins::sync(&[dir.clone()], &[plugin.clone()]);
+    assert!(aurafx_filters::find("scale_points").is_none());
+    assert!(aurafx_python::plugins::list().iter().any(|p| p.path == plugin && !p.enabled));
+
+    // Programmable Filter / Source and Python Calculator.
+    let out = rt.run(
+        "w = afx.wavelet()\np = w.programmable_filter(script=\"output.point_data['twice'] = inputs[0].point_data['RTData'] * 2\\noutput.PointData.append(np.ones(output.n_points), 'one')\")\nprint(sorted(p.arrays()['points']))\nq = afx.programmable_source(script='output = afx.make_points(np.zeros((5, 3)))')\nprint(q.info()['n_points'])\nk = w.python_calculator(expression='RTData * 3 + points[:, 0]', result='rt3')\nimport numpy as _np\nprint(bool(_np.allclose(k.array('rt3'), w.array('RTData') * 3 + w.points[:, 0])))\ne = w.programmable_filter(script='raise ValueError(\"boom\")')\ntry:\n    e.info()\nexcept Exception as x:\n    print('boom' in str(x))",
+    );
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "['RTData', 'one', 'twice']\n5\nTrue\nTrue", "{}", out.stdout);
+    let _ = std::fs::remove_dir_all(&dir);
 }

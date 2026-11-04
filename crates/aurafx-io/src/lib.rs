@@ -49,8 +49,44 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
     ]
 }
 
-pub fn all_extensions() -> Vec<&'static str> {
-    supported_formats().into_iter().flat_map(|(e, _)| e.iter().copied()).collect()
+/// Every extension auraFX can open, plugin readers included.
+pub fn all_extensions() -> Vec<String> {
+    let mut v: Vec<String> = supported_formats().into_iter().flat_map(|(e, _)| e.iter().map(|x| x.to_string())).collect();
+    for r in plugin_readers() {
+        v.extend(r.extensions.iter().cloned());
+    }
+    v
+}
+
+/// A reader added at run time (Python plugins).
+pub struct PluginReader {
+    /// Lower-case extensions without the dot.
+    pub extensions: Vec<String>,
+    pub label: String,
+    /// The plugin file that defined it.
+    pub plugin: String,
+    pub read: Arc<dyn Fn(&Path) -> Result<DataSet> + Send + Sync>,
+}
+
+static PLUGIN_READERS: std::sync::RwLock<Vec<Arc<PluginReader>>> = std::sync::RwLock::new(Vec::new());
+
+pub fn plugin_readers() -> Vec<Arc<PluginReader>> {
+    PLUGIN_READERS.read().unwrap().clone()
+}
+
+/// Add a reader; it takes precedence over built-in readers for its extensions.
+pub fn register_reader(r: PluginReader) {
+    let mut v = PLUGIN_READERS.write().unwrap();
+    v.retain(|x| !(x.plugin == r.plugin && x.label == r.label));
+    v.push(Arc::new(r));
+}
+
+/// Remove the readers a plugin file registered.
+pub fn unregister_readers(plugin: &str) -> usize {
+    let mut v = PLUGIN_READERS.write().unwrap();
+    let n = v.len();
+    v.retain(|x| x.plugin != plugin);
+    n - v.len()
 }
 
 fn ext_of(path: &Path) -> String {
@@ -66,6 +102,10 @@ fn ext_of(path: &Path) -> String {
 pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     let path = path.as_ref();
     let ext = ext_of(path);
+    if let Some(r) = plugin_readers().into_iter().rev().find(|r| r.extensions.iter().any(|e| *e == ext)) {
+        let ds = (r.read)(path).with_context(|| format!("{} reader ({})", r.label, r.plugin))?;
+        return Ok(Loaded::Static(Arc::new(ds)));
+    }
     let loaded = match ext.as_str() {
         "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),

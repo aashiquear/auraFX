@@ -234,26 +234,28 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
 
     // Overlays.
     let painter = ui.painter_at(rect);
+    let fg = crate::theme::overlay_text(state.viewport.settings.background);
+    let fg_weak = fg.linear_multiply(0.6);
     if empty {
         let c = rect.center();
-        painter.text(c + Vec2::new(0.0, -30.0), egui::Align2::CENTER_CENTER, "auraFX", egui::FontId::proportional(34.0), Color32::from_gray(140));
+        painter.text(c + Vec2::new(0.0, -30.0), egui::Align2::CENTER_CENTER, "auraFX", egui::FontId::proportional(34.0), fg_weak);
         painter.text(
             c + Vec2::new(0.0, 6.0),
             egui::Align2::CENTER_CENTER,
             "Drop a file here, press Ctrl+O to open one, or Ctrl+K to search for a source or filter.",
             egui::FontId::proportional(15.0),
-            Color32::from_gray(120),
+            fg_weak,
         );
         painter.text(
             c + Vec2::new(0.0, 30.0),
             egui::Align2::CENTER_CENTER,
             "Supported: VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd), LAMMPS dumps, STL, CSV",
             egui::FontId::proportional(12.0),
-            Color32::from_gray(100),
+            fg_weak,
         );
     }
     if let Some((label, cmap, (lo, hi), log)) = scalar_bar {
-        draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log);
+        draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log, fg);
     }
     if state.settings.show_orientation_axes {
         draw_axes(&painter, rect, &state.viewport.camera);
@@ -264,7 +266,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
     }
 }
 
-fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, cmap: &str, lo: f64, hi: f64, log: bool) {
+fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, cmap: &str, lo: f64, hi: f64, log: bool, txt: Color32) {
     let map = colormap::get(cmap);
     let bar_w = 18.0;
     let bar_h = (rect.height() * 0.45).clamp(80.0, 320.0);
@@ -278,9 +280,8 @@ fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, cmap: &str, lo: f
         let col = Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8);
         p.rect_filled(Rect::from_min_max(Pos2::new(x, y0 + t0 * bar_h), Pos2::new(x + bar_w, y0 + t1 * bar_h + 0.5)), 0.0, col);
     }
-    p.rect_stroke(Rect::from_min_size(Pos2::new(x, y0), Vec2::new(bar_w, bar_h)), 0.0, Stroke::new(1.0, Color32::from_gray(200)), egui::StrokeKind::Outside);
+    p.rect_stroke(Rect::from_min_size(Pos2::new(x, y0), Vec2::new(bar_w, bar_h)), 0.0, Stroke::new(1.0, txt), egui::StrokeKind::Outside);
     let font = egui::FontId::proportional(12.0);
-    let txt = Color32::from_gray(230);
     let ticks = 5;
     for k in 0..ticks {
         let f = k as f64 / (ticks - 1) as f64;

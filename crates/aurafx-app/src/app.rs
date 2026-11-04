@@ -92,6 +92,128 @@ pub struct State {
     pub toasts: Vec<(String, f64, bool)>,
     pub jobs_panel: crate::jobs_panel::JobsPanel,
     pub charts: crate::charts::ChartsState,
+    /// Panes currently in the layout (refreshed every frame).
+    pub open_panes: Vec<Pane>,
+    /// Layout changes requested by menus, applied after the menu bar is drawn.
+    pub layout_actions: Vec<LayoutAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutPreset {
+    Full,
+    Visualize,
+    Analyze,
+    Script,
+    Simulate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutAction {
+    Show(Pane),
+    Hide(Pane),
+    Preset(LayoutPreset),
+}
+
+/// Panes that share a tab group in the default layout; used to re-open a closed pane in a sensible place.
+const PANE_GROUPS: &[&[Pane]] = &[
+    &[Pane::Pipeline],
+    &[Pane::Properties, Pane::Information],
+    &[Pane::Viewport],
+    &[Pane::Python, Pane::Charts, Pane::Spreadsheet, Pane::Log],
+    &[Pane::Assistant, Pane::Jobs],
+];
+
+/// Put `new` next to `anchor` in direction `dir` (before or after), giving it `share` of the space.
+fn split_beside(tree: &mut egui_tiles::Tree<Pane>, anchor: egui_tiles::TileId, new: egui_tiles::TileId, dir: egui_tiles::LinearDir, before: bool, share: f32) {
+    let parent = tree.tiles.parent_of(anchor);
+    if let Some(pid) = parent {
+        if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Linear(lin))) = tree.tiles.get_mut(pid) {
+            if lin.dir == dir {
+                let idx = lin.children.iter().position(|c| *c == anchor).unwrap_or(0);
+                lin.children.insert(if before { idx } else { idx + 1 }, new);
+                let a = lin.shares[anchor];
+                lin.shares.set_share(anchor, a * (1.0 - share));
+                lin.shares.set_share(new, a * share);
+                return;
+            }
+        }
+    }
+    let kids = if before { vec![new, anchor] } else { vec![anchor, new] };
+    let mut lin = egui_tiles::Linear::new(dir, kids);
+    lin.shares.set_share(anchor, 1.0 - share);
+    lin.shares.set_share(new, share);
+    let lin_id = tree.tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(lin)));
+    match parent {
+        Some(pid) => {
+            if let Some(egui_tiles::Tile::Container(c)) = tree.tiles.get_mut(pid) {
+                // Keeps position and share of the replaced child.
+                let _ = c.replace_child(anchor, lin_id);
+            }
+        }
+        None => tree.root = Some(lin_id),
+    }
+}
+
+pub fn show_pane(tree: &mut egui_tiles::Tree<Pane>, pane: Pane) {
+    use egui_tiles::LinearDir::{Horizontal, Vertical};
+    if tree.tiles.find_pane(&pane).is_none() {
+        let group = PANE_GROUPS.iter().find(|g| g.contains(&pane)).copied().unwrap_or(&[]);
+        let neighbor = group.iter().filter(|p| **p != pane).find_map(|p| tree.tiles.find_pane(p));
+        let id = tree.tiles.insert_pane(pane);
+        if let Some(par) = neighbor.and_then(|n| tree.tiles.parent_of(n)) {
+            if let Some(egui_tiles::Tile::Container(c)) = tree.tiles.get_mut(par) {
+                c.add_child(id);
+            }
+        } else {
+            let tabs = tree.tiles.insert_tab_tile(vec![id]);
+            // Anchor on the 3D view's tab group (or the root when the view is closed).
+            let anchor = tree.tiles.find_pane(&Pane::Viewport).and_then(|v| tree.tiles.parent_of(v)).or(tree.root());
+            match anchor {
+                Some(a) => match pane {
+                    Pane::Python | Pane::Charts | Pane::Spreadsheet | Pane::Log => split_beside(tree, a, tabs, Vertical, false, 0.3),
+                    Pane::Assistant | Pane::Jobs => split_beside(tree, a, tabs, Horizontal, false, 0.28),
+                    Pane::Pipeline | Pane::Properties | Pane::Information => {
+                        // Join the left column if the other left-side group is open.
+                        let other = [Pane::Pipeline, Pane::Properties, Pane::Information]
+                            .iter()
+                            .filter(|p| **p != pane)
+                            .find_map(|p| tree.tiles.find_pane(p))
+                            .and_then(|t| tree.tiles.parent_of(t));
+                        match other {
+                            Some(o) => split_beside(tree, o, tabs, Vertical, pane == Pane::Pipeline, 0.4),
+                            None => split_beside(tree, a, tabs, Horizontal, true, 0.22),
+                        }
+                    }
+                    Pane::Viewport => split_beside(tree, a, tabs, Horizontal, false, 0.6),
+                },
+                None => tree.root = Some(tabs),
+            }
+        }
+    }
+    tree.make_active(|_, t| matches!(t, egui_tiles::Tile::Pane(p) if *p == pane));
+}
+
+pub fn hide_pane(tree: &mut egui_tiles::Tree<Pane>, pane: Pane) {
+    if let Some(id) = tree.tiles.find_pane(&pane) {
+        tree.remove_recursively(id);
+    }
+}
+
+pub fn apply_preset(tree: &mut egui_tiles::Tree<Pane>, preset: LayoutPreset) {
+    *tree = default_tree();
+    let (hide, front): (&[Pane], &[Pane]) = match preset {
+        LayoutPreset::Full => (&[], &[]),
+        LayoutPreset::Visualize => (&[Pane::Python, Pane::Charts, Pane::Spreadsheet, Pane::Log, Pane::Assistant, Pane::Jobs, Pane::Information], &[]),
+        LayoutPreset::Analyze => (&[Pane::Jobs, Pane::Log], &[Pane::Charts, Pane::Information]),
+        LayoutPreset::Script => (&[Pane::Jobs, Pane::Spreadsheet, Pane::Charts], &[Pane::Python, Pane::Assistant]),
+        LayoutPreset::Simulate => (&[Pane::Spreadsheet], &[Pane::Jobs, Pane::Log]),
+    };
+    for p in hide {
+        hide_pane(tree, *p);
+    }
+    for p in front {
+        show_pane(tree, *p);
+    }
 }
 
 pub struct AuraApp {
@@ -140,7 +262,7 @@ impl AuraApp {
         let settings = Settings::load();
         aurafx_jobs::set_hosts(settings.hosts.clone());
         crate::theme::install_fonts(&cc.egui_ctx);
-        crate::theme::apply(&cc.egui_ctx, settings.dark_theme, settings.ui_scale);
+        crate::theme::apply(&cc.egui_ctx, settings.theme, settings.ui_scale);
         egui_extras::install_image_loaders(&cc.egui_ctx);
         let session = Session::shared();
         spawn_pipeline_worker(session.clone(), cc.egui_ctx.clone());
@@ -170,6 +292,8 @@ impl AuraApp {
             toasts: Vec::new(),
             jobs_panel: crate::jobs_panel::JobsPanel::default(),
             charts: Default::default(),
+            open_panes: Pane::ALL.to_vec(),
+            layout_actions: Vec::new(),
         };
         if let Some(p) = script {
             match std::fs::read_to_string(&p) {
@@ -415,12 +539,64 @@ impl State {
                 ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
                 ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
                 ui.separator();
-                ui.label("Background");
-                let mut c = self.settings.background;
-                if ui.color_edit_button_rgb(&mut c).changed() {
-                    self.settings.background = c;
-                    self.viewport.settings.background = c;
-                    self.settings.save();
+                ui.label("Theme");
+                for m in crate::theme::ThemeMode::ALL {
+                    if ui.radio(self.settings.theme == m, m.label()).clicked() {
+                        self.settings.theme = m;
+                        self.settings.dark_theme = m != crate::theme::ThemeMode::Light;
+                        crate::theme::apply(ui.ctx(), m, self.settings.ui_scale);
+                        self.settings.save();
+                    }
+                }
+                ui.separator();
+                let dark = ui.ctx().theme() == egui::Theme::Dark;
+                ui.horizontal(|ui| {
+                    ui.label(if dark { "3D background (dark theme)" } else { "3D background (light theme)" });
+                    let mut c = self.settings.background_for(dark);
+                    if ui.color_edit_button_rgb(&mut c).changed() {
+                        if dark {
+                            self.settings.background = c;
+                        } else {
+                            self.settings.background_light = c;
+                        }
+                        self.settings.save();
+                    }
+                    if ui.small_button("Default").clicked() {
+                        let d = Settings::default();
+                        if dark {
+                            self.settings.background = d.background;
+                        } else {
+                            self.settings.background_light = d.background_light;
+                        }
+                        self.settings.save();
+                    }
+                });
+            });
+            ui.menu_button("Windows", |ui| {
+                for p in Pane::ALL {
+                    let mut open = self.open_panes.contains(&p);
+                    if ui.checkbox(&mut open, format!("{} {}", p.icon(), p.title())).clicked() {
+                        self.layout_actions.push(if open { LayoutAction::Show(p) } else { LayoutAction::Hide(p) });
+                    }
+                }
+                ui.separator();
+                ui.label(RichText::new("Layouts").weak());
+                for (label, preset, tip) in [
+                    ("Full workbench", LayoutPreset::Full, "Every panel"),
+                    ("Visualize", LayoutPreset::Visualize, "Pipeline, properties and a large 3D view"),
+                    ("Analyze", LayoutPreset::Analyze, "3D view with charts, spreadsheet and statistics"),
+                    ("Script", LayoutPreset::Script, "Python console and assistant beside the 3D view"),
+                    ("Simulate", LayoutPreset::Simulate, "Simulation runner, logs and GPUs"),
+                ] {
+                    if ui.button(label).on_hover_text(tip).clicked() {
+                        self.layout_actions.push(LayoutAction::Preset(preset));
+                        ui.close();
+                    }
+                }
+                ui.separator();
+                if ui.button("Reset layout").clicked() {
+                    self.layout_actions.push(LayoutAction::Preset(LayoutPreset::Full));
+                    ui.close();
                 }
             });
             ui.menu_button("Simulate", |ui| {
@@ -605,7 +781,7 @@ impl State {
                 ui.spinner();
                 ui.label("Working…");
             } else {
-                ui.label(RichText::new("●").color(Color32::from_rgb(90, 200, 120)));
+                ui.label(RichText::new("●").color(crate::theme::OK));
             }
             ui.label(&self.status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -629,12 +805,20 @@ impl State {
         egui::Window::new("Settings").open(&mut open).resizable(true).default_width(520.0).show(ctx, |ui| {
             ui.heading("Appearance");
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut self.settings.dark_theme, "Dark theme").changed() {
-                    crate::theme::apply(ctx, self.settings.dark_theme, self.settings.ui_scale);
+                ui.label("Theme");
+                let before = self.settings.theme;
+                egui::ComboBox::from_id_salt("theme_mode").selected_text(self.settings.theme.label()).show_ui(ui, |ui| {
+                    for m in crate::theme::ThemeMode::ALL {
+                        ui.selectable_value(&mut self.settings.theme, m, m.label());
+                    }
+                });
+                if before != self.settings.theme {
+                    self.settings.dark_theme = self.settings.theme != crate::theme::ThemeMode::Light;
+                    crate::theme::apply(ctx, self.settings.theme, self.settings.ui_scale);
                 }
                 ui.label("UI scale");
                 if ui.add(egui::Slider::new(&mut self.settings.ui_scale, 0.7..=2.0)).drag_stopped() {
-                    crate::theme::apply(ctx, self.settings.dark_theme, self.settings.ui_scale);
+                    crate::theme::apply(ctx, self.settings.theme, self.settings.ui_scale);
                 }
             });
             ui.separator();
@@ -712,7 +896,7 @@ impl State {
                 let fill = if *err { Color32::from_rgb(120, 40, 40) } else { Color32::from_rgb(40, 80, 50) };
                 egui::Frame::popup(ui.style()).fill(fill).show(ui, |ui| {
                     ui.set_max_width(420.0);
-                    ui.label(msg);
+                    ui.label(RichText::new(msg).color(Color32::WHITE));
                 });
             }
         });
@@ -758,8 +942,10 @@ impl eframe::App for AuraApp {
     fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx_owned = root_ui.ctx().clone();
         let ctx = &ctx_owned;
+        self.state.open_panes = Pane::ALL.iter().copied().filter(|p| self.tree.tiles.find_pane(p).is_some()).collect();
         let st = &mut self.state;
         st.viewport.frame_begin(ctx, frame);
+        st.viewport.settings.background = st.settings.background_for(ctx.theme() == egui::Theme::Dark);
         st.handle_shortcuts(ctx);
         st.tick_playback(ctx);
         // Open files passed on the command line.
@@ -810,38 +996,64 @@ impl eframe::App for AuraApp {
         });
         egui::Panel::bottom("status").show(root_ui, |ui| st.status_bar(ui));
 
-        // Panels that were closed can be reopened from here.
-        let missing: Vec<Pane> =
-            Pane::ALL.iter().copied().filter(|p| !self.tree.tiles.iter().any(|(_, t)| matches!(t, egui_tiles::Tile::Pane(x) if x == p))).collect();
-        if !missing.is_empty() {
-            egui::Panel::top("reopen").show(root_ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Closed panels:");
-                    for p in missing {
-                        if ui.small_button(format!("{} {}", p.icon(), p.title())).clicked() {
-                            let id = self.tree.tiles.insert_pane(p);
-                            if let Some(root) = self.tree.root() {
-                                if let Some(egui_tiles::Tile::Container(c)) = self.tree.tiles.get_mut(root) {
-                                    c.add_child(id);
-                                }
-                            }
-                        }
+        // Commands from Python / the AI assistant.
+        let cmds = std::mem::take(&mut self.state.session.lock().app_commands);
+        for c in cmds {
+            let (verb, arg) = c.split_once(' ').unwrap_or((c.as_str(), ""));
+            let find = |a: &str| Pane::ALL.iter().copied().find(|p| p.title().eq_ignore_ascii_case(a) || format!("{p:?}").eq_ignore_ascii_case(a));
+            match verb {
+                "theme" => {
+                    let m = match arg {
+                        "light" => crate::theme::ThemeMode::Light,
+                        "system" => crate::theme::ThemeMode::System,
+                        _ => crate::theme::ThemeMode::Dark,
+                    };
+                    self.state.settings.theme = m;
+                    self.state.settings.dark_theme = m != crate::theme::ThemeMode::Light;
+                    crate::theme::apply(ctx, m, self.state.settings.ui_scale);
+                    self.state.settings.save();
+                }
+                "layout" => {
+                    let p = match arg {
+                        "visualize" => LayoutPreset::Visualize,
+                        "analyze" => LayoutPreset::Analyze,
+                        "script" => LayoutPreset::Script,
+                        "simulate" => LayoutPreset::Simulate,
+                        _ => LayoutPreset::Full,
+                    };
+                    self.state.layout_actions.push(LayoutAction::Preset(p));
+                }
+                "hide" => {
+                    if let Some(p) = find(arg) {
+                        self.state.layout_actions.push(LayoutAction::Hide(p));
                     }
-                    if ui.small_button("Reset layout").clicked() {
-                        self.tree = default_tree();
+                }
+                "show" => {
+                    if let Some(p) = find(arg) {
+                        self.state.layout_actions.push(LayoutAction::Show(p));
                     }
-                });
-            });
-        }
-
-        let panel_req = self.state.session.lock().panel_request.take();
-        if let Some(name) = panel_req {
-            let want = name.to_lowercase();
-            if let Some(pane) = Pane::ALL.iter().copied().find(|p| p.title().to_lowercase() == want || format!("{p:?}").to_lowercase() == want) {
-                self.tree.make_active(|_, tile| matches!(tile, egui_tiles::Tile::Pane(p) if *p == pane));
+                }
+                _ => tracing::warn!("unknown app command {c:?}"),
             }
         }
-        egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(2))).show(root_ui, |ui| {
+        // Apply layout changes requested from menus.
+        let had_actions = !self.state.layout_actions.is_empty();
+        for a in std::mem::take(&mut self.state.layout_actions) {
+            match a {
+                LayoutAction::Show(p) => show_pane(&mut self.tree, p),
+                LayoutAction::Hide(p) => hide_pane(&mut self.tree, p),
+                LayoutAction::Preset(pr) => apply_preset(&mut self.tree, pr),
+            }
+        }
+        if self.tree.root().is_none() {
+            self.tree = default_tree();
+        }
+        if had_actions {
+            tracing::debug!("layout: {:#?}", self.tree);
+        }
+
+        let fill = if ctx.theme() == egui::Theme::Dark { crate::theme::dark_visuals().panel_fill } else { crate::theme::light_visuals().panel_fill };
+        egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(2)).fill(fill)).show(root_ui, |ui| {
             let mut behavior = TreeBehavior { state: &mut self.state };
             self.tree.ui(&mut behavior, ui);
         });
@@ -877,6 +1089,10 @@ impl eframe::App for AuraApp {
             }
         }
         st.viewport.frame_end(ctx);
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        visuals.panel_fill.to_normalized_gamma_f32()
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

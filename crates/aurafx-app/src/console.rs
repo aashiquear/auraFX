@@ -2,7 +2,7 @@
 
 use crate::app::State;
 use crate::worker::PythonResult;
-use egui::{Color32, RichText};
+use egui::RichText;
 
 #[derive(Default)]
 pub struct Console {
@@ -115,19 +115,19 @@ pub fn console_ui(state: &mut State, ui: &mut egui::Ui) {
         }
         for e in &state.console.entries {
             for (i, line) in e.code.lines().enumerate() {
-                ui.label(RichText::new(format!("{} {}", if i == 0 { ">>>" } else { "..." }, line)).monospace().color(Color32::from_rgb(140, 190, 255)));
+                ui.label(RichText::new(format!("{} {}", if i == 0 { ">>>" } else { "..." }, line)).monospace().color(crate::theme::INFO));
             }
             if !e.stdout.is_empty() {
                 ui.label(RichText::new(e.stdout.trim_end()).monospace());
             }
             if !e.stderr.is_empty() {
-                ui.label(RichText::new(e.stderr.trim_end()).monospace().color(Color32::from_rgb(240, 190, 80)));
+                ui.label(RichText::new(e.stderr.trim_end()).monospace().color(crate::theme::WARN));
             }
             if let Some(v) = &e.value {
-                ui.label(RichText::new(v).monospace().color(Color32::from_gray(200)));
+                ui.label(RichText::new(v).monospace().color(ui.visuals().text_color()));
             }
             if let Some(err) = &e.error {
-                ui.label(RichText::new(err.trim_end()).monospace().color(Color32::from_rgb(255, 110, 110)));
+                ui.label(RichText::new(err.trim_end()).monospace().color(crate::theme::ERROR));
             }
             if e.ms > 50.0 {
                 ui.label(RichText::new(format!("({:.0} ms, {})", e.ms, e.origin)).weak().small());

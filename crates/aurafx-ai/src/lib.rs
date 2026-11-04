@@ -351,7 +351,9 @@ API cheat sheet:\n\
 - node.color_by('array', assoc='points'|'cells', cmap='Viridis', range=(lo, hi)); node.show(); node.hide(); node.delete()\n\
 - node.info() -> dict; node.arrays(); node.array('name') -> numpy; node.points -> numpy (N,3); node.add_array('name', numpy_array)\n\
 - afx.<source>(**params) for sources (sphere, cone, wavelet, plane, line, box, cylinder, point_source)\n\
-- afx.time(index); afx.times(); afx.view('+x'|'-y'|'iso'); afx.reset_camera(); afx.screenshot('file.png'); afx.describe(); afx.run()\n\
+- afx.time(index); afx.times(); afx.view('+x'|'-y'|'iso'|[x,y,z]); afx.reset_camera(); afx.screenshot('file.png'); afx.describe(); afx.run()\n\
+- afx.plot(x, y, label=...); afx.over_time(node, 'array', stat='max'); afx.show_panel('Charts'); afx.hide_panel('Log'); afx.layout('analyze'); afx.set_theme('light')\n\
+- afx.submit('cmd', host=None, workdir=..., gpu='amd:0', outputs='*.e', auto_load=True) runs simulations; afx.job(id); afx.gpus()\n\
 - numpy is available as np; standard scientific Python can be used on arrays.\n\n\
 Available filters/sources (id: description):\n{filter_catalog}\n\n\
 Current pipeline state:\n{pipeline_description}"

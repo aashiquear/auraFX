@@ -575,12 +575,44 @@ fn over_time(py: Python<'_>, node: PyRef<PyNode>, array: String, stat: &str, plo
     r.map_err(err)
 }
 
+fn app_command(cmd: String) {
+    let mut s = session().lock();
+    s.app_commands.push(cmd);
+    s.revision += 1;
+}
+
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
 #[pyfunction]
 fn show_panel(name: String) {
-    let mut s = session().lock();
-    s.panel_request = Some(name);
-    s.revision += 1;
+    app_command(format!("show {name}"));
+}
+
+/// UI theme: "dark", "light" or "system".
+#[pyfunction]
+fn set_theme(mode: String) -> PyResult<()> {
+    let m = mode.to_ascii_lowercase();
+    if !["dark", "light", "system"].contains(&m.as_str()) {
+        return Err(PyValueError::new_err("mode must be 'dark', 'light' or 'system'"));
+    }
+    app_command(format!("theme {m}"));
+    Ok(())
+}
+
+/// Window layout preset: "full", "visualize", "analyze", "script" or "simulate".
+#[pyfunction]
+fn layout(name: String) -> PyResult<()> {
+    let m = name.to_ascii_lowercase();
+    if !["full", "visualize", "analyze", "script", "simulate"].contains(&m.as_str()) {
+        return Err(PyValueError::new_err("layout must be one of full, visualize, analyze, script, simulate"));
+    }
+    app_command(format!("layout {m}"));
+    Ok(())
+}
+
+/// Close a panel (it can be reopened from the Windows menu or with show_panel).
+#[pyfunction]
+fn hide_panel(name: String) {
+    app_command(format!("hide {name}"));
 }
 
 #[pyfunction]
@@ -787,6 +819,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(screenshot, m)?)?;
     m.add_function(wrap_pyfunction!(clear, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
+    m.add_function(wrap_pyfunction!(set_theme, m)?)?;
+    m.add_function(wrap_pyfunction!(layout, m)?)?;
+    m.add_function(wrap_pyfunction!(hide_panel, m)?)?;
     m.add_function(wrap_pyfunction!(plot, m)?)?;
     m.add_function(wrap_pyfunction!(clear_plots, m)?)?;
     m.add_function(wrap_pyfunction!(over_time, m)?)?;

@@ -181,11 +181,11 @@ impl JobsPanel {
 
 fn state_color(s: &JobState) -> Color32 {
     match s {
-        JobState::Running => Color32::from_rgb(90, 180, 255),
-        JobState::Queued | JobState::Submitted(_) => Color32::from_rgb(220, 200, 90),
-        JobState::Finished(0) => Color32::from_rgb(100, 210, 120),
+        JobState::Running => crate::theme::INFO,
+        JobState::Queued | JobState::Submitted(_) => crate::theme::WARN,
+        JobState::Finished(0) => crate::theme::OK,
         JobState::Cancelled => Color32::from_gray(150),
-        _ => Color32::from_rgb(255, 110, 110),
+        _ => crate::theme::ERROR,
     }
 }
 
@@ -404,11 +404,11 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     egui::ScrollArea::vertical().id_salt("joblog").max_height(260.0).stick_to_bottom(true).show(ui, |ui| {
                         for l in log.iter().filter(|l| filt.is_empty() || l.to_lowercase().contains(&filt)) {
                             let c = if l.starts_with("! ") {
-                                Color32::from_rgb(240, 190, 80)
+                                crate::theme::WARN
                             } else if l.starts_with("[auraFX]") {
                                 crate::theme::ACCENT_SOFT
                             } else {
-                                Color32::from_gray(210)
+                                ui.visuals().text_color()
                             };
                             ui.label(RichText::new(l).monospace().color(c));
                         }
@@ -501,14 +501,14 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
             if let Some((name, r, g)) = &state.jobs_panel.host_test_result {
                 match r {
                     Ok(s) => {
-                        ui.colored_label(Color32::from_rgb(100, 210, 120), format!("{name}: connected"));
+                        ui.colored_label(crate::theme::OK, format!("{name}: connected"));
                         ui.label(RichText::new(s).monospace().small());
                         for x in g {
                             ui.label(format!("{:?} GPU #{}: {} ({:.1} GB)", x.vendor, x.index, x.name, x.memory_total_mb / 1024.0));
                         }
                     }
                     Err(e) => {
-                        ui.colored_label(Color32::from_rgb(255, 110, 110), format!("{name}: {e}"));
+                        ui.colored_label(crate::theme::ERROR, format!("{name}: {e}"));
                     }
                 }
             }
@@ -600,7 +600,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
             });
             if let Some(e) = &p.browse_error {
-                ui.colored_label(Color32::from_rgb(255, 110, 110), e);
+                ui.colored_label(crate::theme::ERROR, e);
             }
             let exts = aurafx_io::all_extensions();
             let mut go_into: Option<String> = None;

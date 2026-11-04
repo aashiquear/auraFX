@@ -9,7 +9,12 @@ use std::path::PathBuf;
 pub struct Settings {
     pub ai: AiConfig,
     pub recent_files: Vec<PathBuf>,
+    /// 3D view background in dark mode.
     pub background: [f32; 3],
+    /// 3D view background in light mode.
+    pub background_light: [f32; 3],
+    pub theme: crate::theme::ThemeMode,
+    /// Legacy flag from older settings files.
     pub dark_theme: bool,
     pub ui_scale: f32,
     pub auto_run_ai_code: bool,
@@ -24,6 +29,8 @@ impl Default for Settings {
             ai: AiConfig::default(),
             recent_files: Vec::new(),
             background: [0.12, 0.13, 0.16],
+            background_light: [0.93, 0.94, 0.96],
+            theme: crate::theme::ThemeMode::Dark,
             dark_theme: true,
             ui_scale: 1.0,
             auto_run_ai_code: false,
@@ -41,6 +48,10 @@ impl Settings {
 
     pub fn load() -> Self {
         let mut s = Self::load_file();
+        // Migrate the old boolean setting.
+        if !s.dark_theme && s.theme == crate::theme::ThemeMode::Dark {
+            s.theme = crate::theme::ThemeMode::Light;
+        }
         if let Ok(h) = std::env::var("OLLAMA_HOST") {
             if !h.is_empty() && s.ai.ollama_url.contains("localhost:11434") {
                 s.ai.ollama_url = if h.starts_with("http") { h } else { format!("http://{h}") };
@@ -57,6 +68,15 @@ impl Settings {
                 Self::default()
             }),
             Err(_) => Self::default(),
+        }
+    }
+
+    /// 3D background for the theme currently shown.
+    pub fn background_for(&self, dark: bool) -> [f32; 3] {
+        if dark {
+            self.background
+        } else {
+            self.background_light
         }
     }
 

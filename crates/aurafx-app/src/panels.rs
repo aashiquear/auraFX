@@ -3,7 +3,7 @@
 use crate::app::State;
 use aurafx_filters::{Association, ParamKind, ParamSpec, ParamValue};
 use aurafx_pipeline::{ColorBy, LogLevel, NodeId, Representation};
-use egui::{Color32, RichText};
+use egui::RichText;
 
 // ------------------------------------------------------------------ pipeline
 
@@ -101,7 +101,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
                 let mut text = RichText::new(&r.name);
                 if r.error.is_some() {
-                    text = text.color(Color32::from_rgb(255, 110, 110));
+                    text = text.color(crate::theme::ERROR);
                 } else if !r.visible {
                     text = text.weak();
                 }
@@ -147,7 +147,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button(RichText::new("Delete").color(Color32::from_rgb(255, 120, 120))).clicked() {
+                    if ui.button(RichText::new("Delete").color(crate::theme::ERROR)).clicked() {
                         state.session.lock().remove_node(r.id);
                         ui.close();
                     }
@@ -157,7 +157,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                 } else if r.dirty {
                     ui.label(RichText::new("…").weak());
                 } else if r.error.is_some() {
-                    ui.label(RichText::new(crate::icons::WARNING).color(Color32::from_rgb(255, 110, 110)));
+                    ui.label(RichText::new(crate::icons::WARNING).color(crate::theme::ERROR));
                 }
             });
         }
@@ -380,7 +380,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
         });
     });
     if let Some(e) = error {
-        ui.colored_label(Color32::from_rgb(255, 110, 110), e);
+        ui.colored_label(crate::theme::ERROR, e);
     }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // Arrays available to parameter widgets: from the input for filters, own output for sources.
@@ -636,9 +636,9 @@ pub fn log_ui(state: &mut State, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
         for (lvl, msg, t) in entries.into_iter().rev() {
             let color = match lvl {
-                LogLevel::Info => Color32::from_gray(190),
-                LogLevel::Warn => Color32::from_rgb(240, 190, 80),
-                LogLevel::Error => Color32::from_rgb(255, 110, 110),
+                LogLevel::Info => ui.visuals().text_color(),
+                LogLevel::Warn => crate::theme::WARN,
+                LogLevel::Error => crate::theme::ERROR,
             };
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("{t:8.1}s")).weak().monospace());

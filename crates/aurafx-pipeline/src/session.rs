@@ -139,10 +139,10 @@ pub struct Session {
     pub camera_request: Option<CameraRequest>,
     /// Set by Python/AI: (path, width, height). The UI fulfils it and clears it.
     pub screenshot_request: Option<(PathBuf, Option<u32>, Option<u32>)>,
-    /// Set by Python/AI to bring a UI panel to the front (by title, case-insensitive).
-    pub panel_request: Option<String>,
     /// Series plotted from scripts / time analysis.
     pub chart: Chart,
+    /// UI commands from scripts/AI the app executes: "theme light", "layout analyze", "hide Log", "show Charts".
+    pub app_commands: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -320,8 +320,8 @@ impl Session {
         self.active = Some(id);
         // Show table-like results where they can be read.
         match def.id {
-            "histogram" | "plot_over_line" => self.panel_request = Some("Charts".into()),
-            "descriptive_statistics" | "integrate_variables" | "probe_location" => self.panel_request = Some("Spreadsheet".into()),
+            "histogram" | "plot_over_line" => self.app_commands.push("show Charts".into()),
+            "descriptive_statistics" | "integrate_variables" | "probe_location" => self.app_commands.push("show Spreadsheet".into()),
             _ => {}
         }
         self.trace.push(format!("{} = {}.{}()", self.py_var(id), self.py_var(input), def.id));
@@ -610,7 +610,7 @@ impl Session {
         self.chart.series.retain(|s| s.name != name);
         self.chart.series.push(ChartSeries { name, x, y });
         self.chart.revision += 1;
-        self.panel_request = Some("Charts".into());
+        self.app_commands.push("show Charts".into());
         self.touch();
     }
 

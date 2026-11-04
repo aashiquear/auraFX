@@ -4,7 +4,7 @@ use crate::app::State;
 use crate::settings::Settings;
 use crate::worker::PythonResult;
 use aurafx_ai::{AiConfig, ChatMessage, ProviderKind, Role, StreamEvent};
-use egui::{Color32, RichText};
+use egui::RichText;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::sync::mpsc::Receiver;
 
@@ -270,7 +270,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         }
     });
     if let Some(e) = state.assistant.error.clone() {
-        ui.colored_label(Color32::from_rgb(255, 110, 110), e);
+        ui.colored_label(crate::theme::ERROR, e);
     }
     ui.separator();
     let input_h = 100.0;
@@ -292,7 +292,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         for i in 0..n {
             let m = &a.messages[i];
             let (name, color) = match m.role {
-                Role::User => ("You", Color32::from_rgb(140, 190, 255)),
+                Role::User => ("You", crate::theme::INFO),
                 Role::Assistant => ("auraFX AI", crate::theme::ACCENT_SOFT),
             };
             ui.label(RichText::new(name).strong().color(color));
@@ -314,7 +314,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
                 for (idx, text, err) in a.code_results.iter().filter(|(idx, _, _)| *idx == i) {
                     let _ = idx;
-                    let col = if *err { Color32::from_rgb(255, 110, 110) } else { Color32::from_gray(190) };
+                    let col = if *err { crate::theme::ERROR } else { ui.visuals().text_color() };
                     ui.label(RichText::new(text.trim_end()).monospace().small().color(col));
                     if *err && ui.small_button("Ask AI to fix").clicked() {
                         send_text = Some(format!("Running your code failed with:\n```\n{}\n```\nPlease fix it.", text.trim_end()));

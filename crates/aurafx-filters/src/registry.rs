@@ -21,6 +21,12 @@ pub struct FilterDef {
     pub apply: ApplyFn,
 }
 
+impl std::fmt::Debug for FilterDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FilterDef({})", self.id)
+    }
+}
+
 impl FilterDef {
     pub fn default_params(&self) -> Params {
         Params::from_specs(&self.params)

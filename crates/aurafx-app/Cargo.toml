@@ -4,4 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "aurafx"
+path = "src/main.rs"
+
 [dependencies]
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+egui = "0.37"
+egui-wgpu = "0.37"
+egui_tiles = "0.18"
+egui_plot = "0.38"
+egui_commonmark = "0.26"

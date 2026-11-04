@@ -3,5 +3,15 @@ name = "aurafx-pipeline"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Pipeline graph, session state and execution for auraFX"
 
 [dependencies]
+aurafx-data.workspace = true
+aurafx-io.workspace = true
+aurafx-filters.workspace = true
+anyhow.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true

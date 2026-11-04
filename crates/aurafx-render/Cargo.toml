@@ -3,5 +3,16 @@ name = "aurafx-render"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "wgpu renderer for auraFX"
 
 [dependencies]
+aurafx-data.workspace = true
+aurafx-filters.workspace = true
+aurafx-pipeline.workspace = true
+anyhow.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+wgpu = "30"
+image = { version = "0.25", default-features = false, features = ["png"] }

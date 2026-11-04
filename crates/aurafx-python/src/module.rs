@@ -75,6 +75,14 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let r = val.as_str().and_then(Representation::parse).ok_or_else(|| PyValueError::new_err("unknown representation"))?;
                 s.set_display(id, |d| d.representation = r);
             }
+            "volume_opacity" | "density" => {
+                let v = val.as_f64().unwrap_or(1.0) as f32;
+                s.set_display(id, |d| d.volume_opacity = v);
+            }
+            "volume_threshold" => {
+                let v = val.as_f64().unwrap_or(0.0) as f32;
+                s.set_display(id, |d| d.volume_threshold = v);
+            }
             "point_size" => {
                 let v = val.as_f64().unwrap_or(4.0) as f32;
                 s.set_display(id, |d| d.point_size = v);

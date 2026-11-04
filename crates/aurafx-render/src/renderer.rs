@@ -48,7 +48,23 @@ impl Default for RenderSettings {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct VolumeUniform {
+    box_min: [f32; 4],
+    box_max: [f32; 4],
+    dims: [f32; 4],
+    params: [f32; 4],
+}
+
+struct GpuVolume {
+    _texture: wgpu::Texture,
+    params: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
 struct GpuNode {
+    volume: Option<GpuVolume>,
     mesh_ptr: usize,
     tris: Option<(wgpu::Buffer, u32)>,
     lines: Option<(wgpu::Buffer, u32)>,
@@ -80,6 +96,9 @@ pub struct Renderer {
     pipe_overlay_tris: wgpu::RenderPipeline,
     pipe_overlay_lines: wgpu::RenderPipeline,
     pipe_overlay_points: wgpu::RenderPipeline,
+    pipe_volume: wgpu::RenderPipeline,
+    vol_bgl: wgpu::BindGroupLayout,
+    vol_sampler: wgpu::Sampler,
     nodes: HashMap<NodeId, GpuNode>,
     pub adapter_info: String,
 }
@@ -181,6 +200,77 @@ impl Renderer {
         let pipe_overlay_lines = make_pipeline("overlay lines", "vs_mesh", "fs_line", LineList, Vertex, true, false, true);
         let pipe_overlay_points = make_pipeline("overlay points", "vs_point", "fs_point", TriangleList, Instance, true, false, true);
 
+        let vol_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aurafx volume shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/volume.wgsl").into()),
+        });
+        let vol_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("volume bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+            ],
+        });
+        let vol_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&bgl), Some(&vol_bgl)],
+            immediate_size: 0,
+        });
+        let pipe_volume = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("volume"),
+            layout: Some(&vol_layout),
+            vertex: wgpu::VertexState { module: &vol_shader, entry_point: Some("vs_volume"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &vol_shader,
+                entry_point: Some("fs_volume"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: Some(wgpu::Face::Front), ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: MSAA, ..Default::default() },
+            multiview_mask: None,
+            cache: None,
+        });
+        let vol_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
         let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16);
         Self {
             device,
@@ -201,6 +291,9 @@ impl Renderer {
             pipe_overlay_tris,
             pipe_overlay_lines,
             pipe_overlay_points,
+            pipe_volume,
+            vol_bgl,
+            vol_sampler,
             nodes: HashMap::new(),
             adapter_info,
         }
@@ -302,6 +395,43 @@ impl Renderer {
         })
     }
 
+    fn upload_volume(&self, v: &crate::tessellate::VolumeData) -> GpuVolume {
+        let size = wgpu::Extent3d { width: v.dims[0].max(1), height: v.dims[1].max(1), depth_or_array_layers: v.dims[2].max(1) };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("volume"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            bytemuck::cast_slice(&v.values.iter().map(|h| h.to_bits()).collect::<Vec<u16>>()),
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(2 * size.width), rows_per_image: Some(size.height) },
+            size,
+        );
+        let params = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("volume params"),
+            size: std::mem::size_of::<VolumeUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D3), ..Default::default() });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("volume bg"),
+            layout: &self.vol_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.vol_sampler) },
+                wgpu::BindGroupEntry { binding: 2, resource: params.as_entire_binding() },
+            ],
+        });
+        GpuVolume { _texture: texture, params, bind_group }
+    }
+
     fn upload(&self, label: &str, verts: &[Vertex]) -> Option<(wgpu::Buffer, u32)> {
         if verts.is_empty() {
             return None;
@@ -318,11 +448,13 @@ impl Renderer {
         let ptr = Arc::as_ptr(&draw.mesh) as usize;
         let needs_mesh = self.nodes.get(&draw.id).map(|g| g.mesh_ptr != ptr).unwrap_or(true);
         if needs_mesh {
+            let volume = draw.mesh.volume.as_ref().map(|v| self.upload_volume(v));
             let tris = self.upload("tris", &draw.mesh.tris);
             let lines = self.upload("lines", &draw.mesh.lines);
             let points = self.upload("points", &draw.mesh.points);
             match self.nodes.get_mut(&draw.id) {
                 Some(g) => {
+                    g.volume = volume;
                     g.tris = tris;
                     g.lines = lines;
                     g.points = points;
@@ -337,8 +469,10 @@ impl Renderer {
                     });
                     let lut = self.lut_texture(&draw.display.colormap);
                     let bind_group = self.make_bind_group(&uniform, &lut);
-                    self.nodes
-                        .insert(draw.id, GpuNode { mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap.clone(), lut, bind_group });
+                    self.nodes.insert(
+                        draw.id,
+                        GpuNode { volume, mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap.clone(), lut, bind_group },
+                    );
                 }
             }
         }
@@ -384,6 +518,15 @@ impl Renderer {
                 flags: [if d.display.lighting { 1.0 } else { 0.0 }, d.display.point_size, if d.display.points_as_spheres { 1.0 } else { 0.0 }, 0.0],
             };
             self.queue.write_buffer(&g.uniform, 0, bytemuck::bytes_of(&u));
+            if let (Some(gv), Some(v)) = (&g.volume, &d.mesh.volume) {
+                let vu = VolumeUniform {
+                    box_min: [v.box_min[0], v.box_min[1], v.box_min[2], 0.0],
+                    box_max: [v.box_max[0], v.box_max[1], v.box_max[2], 0.0],
+                    dims: [v.dims[0] as f32, v.dims[1] as f32, v.dims[2] as f32, 0.0],
+                    params: [d.display.volume_opacity, d.display.volume_threshold, 512.0, 0.0],
+                };
+                self.queue.write_buffer(&gv.params, 0, bytemuck::bytes_of(&vu));
+            }
         }
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("aurafx render") });
@@ -409,10 +552,27 @@ impl Renderer {
             });
             // Opaque first, then translucent, then overlays.
             let mut order: Vec<&NodeDraw> = draws.iter().collect();
-            order.sort_by_key(|d| (d.overlay, d.display.opacity < 1.0));
+            order.sort_by_key(|d| {
+                (
+                    d.overlay,
+                    if d.mesh.volume.is_some() {
+                        1
+                    } else if d.display.opacity < 1.0 {
+                        2
+                    } else {
+                        0
+                    },
+                )
+            });
             for d in order {
                 let g = &self.nodes[&d.id];
                 pass.set_bind_group(0, &g.bind_group, &[]);
+                if let Some(gv) = &g.volume {
+                    pass.set_pipeline(&self.pipe_volume);
+                    pass.set_bind_group(1, &gv.bind_group, &[]);
+                    pass.draw(0..36, 0..1);
+                    continue;
+                }
                 let translucent = d.display.opacity < 1.0;
                 let (pt, pl, pp) = if d.overlay {
                     (&self.pipe_overlay_tris, &self.pipe_overlay_lines, &self.pipe_overlay_points)

@@ -347,7 +347,7 @@ the user can run it with one click. Keep code minimal. Prefer method chaining on
 API cheat sheet:\n\
 - afx.load(path) -> Node; afx.active() -> Node or None; afx.nodes(); afx.get(name)\n\
 - node.<filter>(**params) -> Node for any filter id below (e.g. node.slice(normal=[0,0,1]), node.contour(values=[0.5]), node.threshold(lower=1, upper=2), node.clip(type='Sphere', radius=2), node.calculator(expression='mag(velocity)', result='speed'), node.glyph(orient='velocity'))\n\
-- node.set(**params_or_display) ; display keys: visible, opacity, colormap, representation ('Surface','Wireframe','Points','Surface With Edges','Outline'), point_size, name\n\
+- node.set(**params_or_display) ; display keys: visible, opacity, colormap, representation ('Surface','Wireframe','Points','Surface With Edges','Outline','Volume'), volume_opacity, volume_threshold, point_size, name\n\
 - node.color_by('array', assoc='points'|'cells', cmap='Viridis', range=(lo, hi)); node.show(); node.hide(); node.delete()\n\
 - node.info() -> dict; node.arrays(); node.array('name') -> numpy; node.points -> numpy (N,3); node.add_array('name', numpy_array)\n\
 - afx.<source>(**params) for sources (sphere, cone, wavelet, plane, line, box, cylinder, point_source)\n\

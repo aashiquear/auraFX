@@ -282,6 +282,7 @@ dependencies = [
  "aurafx-pipeline",
  "bytemuck",
  "glam",
+ "half",
  "image",
  "pollster 0.4.0",
  "rayon",

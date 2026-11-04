@@ -27,6 +27,73 @@ pub struct MeshData {
     pub bounds: Bounds,
     /// Local origin subtracted from all positions (for precision with large coordinates).
     pub origin: [f64; 3],
+    pub volume: Option<VolumeData>,
+}
+
+/// A scalar field on a uniform grid for ray casting. Values are normalized to [0, 1] over `range`
+/// (NaN marks samples outside the data).
+#[derive(Debug, Clone)]
+pub struct VolumeData {
+    pub dims: [u32; 3],
+    /// Box corners relative to `MeshData::origin`.
+    pub box_min: [f32; 3],
+    pub box_max: [f32; 3],
+    pub values: Vec<half::f16>,
+}
+
+/// Build volume data: image data is used directly, anything else is resampled.
+fn build_volume(ds: &DataSet, display: &DisplayProps, origin: [f64; 3]) -> Option<(VolumeData, (f64, f64))> {
+    let img: ImageData = match ds {
+        DataSet::ImageData(i) => i.clone(),
+        other => {
+            let b = other.bounds();
+            if b.is_empty() {
+                return None;
+            }
+            let s = b.size();
+            let mx = s.iter().cloned().fold(0.0, f64::max).max(1e-30);
+            let target = 128.0;
+            let dims = [
+                ((s[0] / mx) * target).ceil().max(2.0) as usize,
+                ((s[1] / mx) * target).ceil().max(2.0) as usize,
+                ((s[2] / mx) * target).ceil().max(2.0) as usize,
+            ];
+            aurafx_filters::probe::resample_to_image(other, dims).ok()?
+        }
+    };
+    let (name, comp) = match &display.color_by {
+        Some(cb) => (cb.name.clone(), cb.component),
+        None => (aurafx_filters::default_array(&DataSet::ImageData(img.clone()), false)?.1, None),
+    };
+    // Cell data on images is converted to points by averaging.
+    let img = if img.point_data.get(&name).is_none() {
+        match aurafx_filters::attributes::cell_to_point(&DataSet::ImageData(img.clone()), &[name.clone()]).ok()? {
+            DataSet::UnstructuredGrid(u) => ImageData { point_data: u.point_data, ..img },
+            _ => img,
+        }
+    } else {
+        img
+    };
+    let arr = img.point_data.get(&name)?;
+    let vals = arr.component_f32(comp.filter(|&c| c < arr.ncomp));
+    let (lo, hi) = display.range.unwrap_or_else(|| arr.range(comp.filter(|&c| c < arr.ncomp)));
+    let d = img.dims();
+    let mask = img.point_data.get("vtkValidPointMask");
+    let span = (hi - lo).max(1e-300);
+    let values: Vec<half::f16> = vals
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            if mask.map(|m| m.get(i, 0) == 0.0).unwrap_or(false) || !v.is_finite() {
+                half::f16::NAN
+            } else {
+                half::f16::from_f64(((v as f64 - lo) / span).clamp(0.0, 1.0))
+            }
+        })
+        .collect();
+    let b = img.bounds();
+    let rel = |p: [f64; 3]| [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32];
+    Some((VolumeData { dims: [d[0] as u32, d[1] as u32, d[2] as u32], box_min: rel(b.min), box_max: rel(b.max), values }, (lo, hi)))
 }
 
 struct Leaf {
@@ -266,6 +333,20 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
     let bounds = ds.bounds();
     let origin = if bounds.is_empty() { [0.0; 3] } else { bounds.center() };
     let mut mesh = MeshData { bounds, origin, ..Default::default() };
+    if display.representation == Representation::Volume {
+        let leaf = match ds {
+            DataSet::MultiBlock(_) => {
+                aurafx_filters::find("merge_blocks").and_then(|f| f.run(Some(ds), &f.default_params()).ok()).unwrap_or_else(|| ds.clone())
+            }
+            d => d.clone(),
+        };
+        if let Some((v, r)) = build_volume(&leaf, display, origin) {
+            mesh.volume = Some(v);
+            mesh.scalar_range = Some(r);
+            mesh.has_scalars = true;
+        }
+        return mesh;
+    }
     if display.representation == Representation::Outline {
         let pd = aurafx_filters::outline::outline(ds);
         emit_lines(&pd, origin, None, None, 0, &mut mesh.lines);
@@ -332,7 +413,7 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
                 }
             }
             Representation::Points => emit_points(pd, origin, ps, cs, &mut mesh.points),
-            Representation::Outline => unreachable!(),
+            Representation::Outline | Representation::Volume => unreachable!(),
         }
     }
     mesh

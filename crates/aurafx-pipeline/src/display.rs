@@ -11,11 +11,19 @@ pub enum Representation {
     Wireframe,
     Points,
     Outline,
+    /// GPU ray-cast volume (image data directly; other meshes are resampled).
+    Volume,
 }
 
 impl Representation {
-    pub const ALL: [Representation; 5] =
-        [Representation::Surface, Representation::SurfaceWithEdges, Representation::Wireframe, Representation::Points, Representation::Outline];
+    pub const ALL: [Representation; 6] = [
+        Representation::Surface,
+        Representation::SurfaceWithEdges,
+        Representation::Wireframe,
+        Representation::Points,
+        Representation::Outline,
+        Representation::Volume,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Representation::Surface => "Surface",
@@ -23,6 +31,7 @@ impl Representation {
             Representation::Wireframe => "Wireframe",
             Representation::Points => "Points",
             Representation::Outline => "Outline",
+            Representation::Volume => "Volume",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -40,6 +49,7 @@ pub struct ColorBy {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DisplayProps {
     pub representation: Representation,
     /// `None` = solid color.
@@ -56,6 +66,10 @@ pub struct DisplayProps {
     pub show_scalar_bar: bool,
     pub lighting: bool,
     pub edge_color: [f32; 3],
+    /// Volume rendering: overall opacity scale (higher = more opaque).
+    pub volume_opacity: f32,
+    /// Volume rendering: values below this fraction of the range are fully transparent.
+    pub volume_threshold: f32,
 }
 
 impl Default for DisplayProps {
@@ -74,6 +88,8 @@ impl Default for DisplayProps {
             show_scalar_bar: true,
             lighting: true,
             edge_color: [0.0, 0.0, 0.0],
+            volume_opacity: 1.0,
+            volume_threshold: 0.0,
         }
     }
 }

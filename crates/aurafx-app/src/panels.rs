@@ -543,9 +543,19 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
 
-                ui.label("Opacity");
-                ui.add(egui::Slider::new(&mut d.opacity, 0.0..=1.0));
-                ui.end_row();
+                if d.representation == Representation::Volume {
+                    ui.label("Volume density");
+                    ui.add(egui::Slider::new(&mut d.volume_opacity, 0.05..=10.0).logarithmic(true)).on_hover_text("Higher values make the volume more opaque");
+                    ui.end_row();
+                    ui.label("Transparent below");
+                    ui.add(egui::Slider::new(&mut d.volume_threshold, 0.0..=0.99))
+                        .on_hover_text("Fraction of the color range below which the volume is invisible");
+                    ui.end_row();
+                } else {
+                    ui.label("Opacity");
+                    ui.add(egui::Slider::new(&mut d.opacity, 0.0..=1.0));
+                    ui.end_row();
+                }
                 if matches!(d.representation, Representation::Points) || info.as_ref().map(|i| i.n_cells == 0 || i.kind == "Polygonal Mesh").unwrap_or(false) {
                     ui.label("Point size");
                     ui.horizontal(|ui| {

@@ -407,3 +407,8 @@ fn compact(points: &Points, attrs: &Attributes, conn: &mut [u32]) -> (Points, At
     }
     (points.gather(&order), attrs.gather(&order))
 }
+
+/// Drop cached metadata for `path` (the file changed on disk).
+pub fn forget(path: &Path) {
+    CACHE.lock().remove(path);
+}

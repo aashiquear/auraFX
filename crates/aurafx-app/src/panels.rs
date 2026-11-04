@@ -387,6 +387,41 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
     if let Some(e) = error {
         ui.colored_label(crate::theme::ERROR, e);
     }
+    // Live reload for readers (watch a running simulation).
+    let reader = {
+        let s = state.session.lock();
+        s.nodes.get(&id).and_then(|n| match &n.kind {
+            aurafx_pipeline::NodeKind::Reader { path, .. } if !path.to_string_lossy().starts_with("memory://") => Some((n.watch, n.follow_latest)),
+            _ => None,
+        })
+    };
+    if let Some((mut watch, mut follow)) = reader {
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut watch, format!("{} Watch file", crate::icons::ARROW_CLOCKWISE))
+                .on_hover_text("Reload automatically when a running simulation writes new data")
+                .changed()
+            {
+                state.session.lock().set_watch(id, watch);
+            }
+            if watch && ui.checkbox(&mut follow, "jump to newest step").changed() {
+                if let Some(n) = state.session.lock().nodes.get_mut(&id) {
+                    n.follow_latest = follow;
+                }
+            }
+            if ui.small_button("Reload now").clicked() {
+                let path = match &state.session.lock().nodes[&id].kind {
+                    aurafx_pipeline::NodeKind::Reader { path, .. } => path.clone(),
+                    _ => return,
+                };
+                aurafx_io::invalidate(&path);
+                match aurafx_io::read_file(&path) {
+                    Ok(l) => state.session.lock().reload_reader(id, l, aurafx_io::signature(&path)),
+                    Err(e) => state.toast(format!("{e:#}"), true),
+                }
+            }
+        });
+    }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // Arrays available to parameter widgets: from the input for filters, own output for sources.
         let src_info = if def.as_ref().map(|d| d.is_source).unwrap_or(true) { info.as_ref() } else { input_info.as_ref() };

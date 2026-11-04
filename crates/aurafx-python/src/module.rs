@@ -201,6 +201,17 @@ impl PyNode {
         Ok(self.clone())
     }
 
+    /// Reload automatically when the file changes (live view of a running simulation).
+    #[pyo3(signature = (on=true, follow_latest=true))]
+    fn watch(&self, on: bool, follow_latest: bool) -> PyNode {
+        let mut s = session().lock();
+        s.set_watch(self.id, on);
+        if let Some(n) = s.nodes.get_mut(&self.id) {
+            n.follow_latest = follow_latest;
+        }
+        self.clone()
+    }
+
     fn show(&self) -> PyNode {
         session().lock().set_visible(self.id, true);
         self.clone()

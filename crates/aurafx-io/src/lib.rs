@@ -134,3 +134,39 @@ pub(crate) fn sibling(path: &Path, rel: &str) -> PathBuf {
         path.parent().unwrap_or(Path::new(".")).join(rel_path)
     }
 }
+
+/// A cheap fingerprint of what a reader depends on, to detect changes while a solver runs:
+/// size and modification time of the file (and, for directories / OpenFOAM cases, of its entries).
+pub fn signature(path: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    fn add(h: &mut std::collections::hash_map::DefaultHasher, p: &Path) {
+        if let Ok(m) = std::fs::metadata(p) {
+            m.len().hash(h);
+            if let Ok(t) = m.modified() {
+                t.hash(h);
+            }
+        }
+    }
+    add(&mut h, path);
+    let is_foam = path.extension().map(|e| e == "foam").unwrap_or(false);
+    let dir = if is_foam { path.parent().map(|p| p.to_path_buf()) } else { None };
+    if let Some(d) = dir {
+        if let Ok(rd) = std::fs::read_dir(&d) {
+            let mut names: Vec<String> = rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+            names.sort();
+            names.hash(&mut h);
+            for n in names.iter().filter(|n| n.parse::<f64>().is_ok()) {
+                add(&mut h, &d.join(n));
+            }
+        }
+    }
+    h.finish()
+}
+
+/// Forget cached metadata so the next read sees the new file contents.
+pub fn invalidate(path: &Path) {
+    lammps::forget(path);
+    exodus::forget(path);
+    openfoam::forget(path);
+}

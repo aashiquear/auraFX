@@ -300,3 +300,8 @@ mod tests {
         assert_eq!(pd.get("c_pe").unwrap().get(0, 0), -3.5);
     }
 }
+
+/// Drop cached metadata for `path` (the file changed on disk).
+pub fn forget(path: &Path) {
+    INDEX.lock().remove(path);
+}

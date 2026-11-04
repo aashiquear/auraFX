@@ -10,16 +10,36 @@ use std::time::{Duration, Instant};
 pub fn spawn_pipeline_worker(session: SharedSession, ctx: egui::Context) {
     std::thread::Builder::new()
         .name("aurafx-pipeline".into())
-        .spawn(move || loop {
-            let item = session.lock().take_work();
-            match item {
-                Some(item) => {
-                    let t0 = Instant::now();
-                    let r = item.execute();
-                    session.lock().complete(item, r, t0.elapsed().as_secs_f64() * 1000.0);
-                    ctx.request_repaint();
+        .spawn(move || {
+            let mut last_watch = Instant::now();
+            loop {
+                if last_watch.elapsed() > Duration::from_millis(1000) {
+                    last_watch = Instant::now();
+                    let watched = session.lock().watched();
+                    for (id, path, sig) in watched {
+                        let now = aurafx_io::signature(&path);
+                        if now != sig {
+                            // Let the solver finish writing before re-reading.
+                            std::thread::sleep(Duration::from_millis(300));
+                            aurafx_io::invalidate(&path);
+                            match aurafx_io::read_file(&path) {
+                                Ok(l) => session.lock().reload_reader(id, l, aurafx_io::signature(&path)),
+                                Err(e) => tracing::debug!("watch: {} not readable yet: {e:#}", path.display()),
+                            }
+                            ctx.request_repaint();
+                        }
+                    }
                 }
-                None => std::thread::sleep(Duration::from_millis(15)),
+                let item = session.lock().take_work();
+                match item {
+                    Some(item) => {
+                        let t0 = Instant::now();
+                        let r = item.execute();
+                        session.lock().complete(item, r, t0.elapsed().as_secs_f64() * 1000.0);
+                        ctx.request_repaint();
+                    }
+                    None => std::thread::sleep(Duration::from_millis(15)),
+                }
             }
         })
         .expect("spawn pipeline worker");

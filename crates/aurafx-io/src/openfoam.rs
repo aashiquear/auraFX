@@ -434,3 +434,8 @@ fn aurafx_filters_free_cell_to_point(ds: &DataSet) -> DataSet {
     }
     DataSet::UnstructuredGrid(out)
 }
+
+/// Drop cached metadata for `path` (the file changed on disk).
+pub fn forget(path: &Path) {
+    CASES.lock().remove(path);
+}

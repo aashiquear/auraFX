@@ -41,6 +41,11 @@ pub struct Node {
     pub output_time_index: Option<usize>,
     /// Whether the automatic "color by active scalar" default has been applied.
     pub auto_colored: bool,
+    /// Reload automatically when the file changes (live view of a running simulation).
+    pub watch: bool,
+    /// When watching, jump to the newest time step after a reload.
+    pub follow_latest: bool,
+    pub(crate) file_signature: u64,
 }
 
 impl Node {
@@ -61,6 +66,9 @@ impl Node {
             last_exec_ms: 0.0,
             output_time_index: None,
             auto_colored: false,
+            watch: false,
+            follow_latest: true,
+            file_signature: 0,
         }
     }
 
@@ -279,6 +287,9 @@ impl Session {
             last_exec_ms: 0.0,
             output_time_index: None,
             auto_colored: false,
+            watch: false,
+            follow_latest: true,
+            file_signature: 0,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -312,6 +323,9 @@ impl Session {
             last_exec_ms: 0.0,
             output_time_index: None,
             auto_colored: false,
+            watch: false,
+            follow_latest: true,
+            file_signature: 0,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -349,6 +363,9 @@ impl Session {
             last_exec_ms: 0.0,
             output_time_index: None,
             auto_colored: false,
+            watch: false,
+            follow_latest: true,
+            file_signature: 0,
         };
         // ParaView-style: hide the input when adding a filter that replaces its look.
         if matches!(
@@ -835,6 +852,47 @@ impl Session {
         self.selection = None;
         self.mark_dirty(id);
         Ok(id)
+    }
+
+    /// Turn live reloading on or off for a reader node.
+    pub fn set_watch(&mut self, id: NodeId, on: bool) {
+        if let Some(n) = self.nodes.get_mut(&id) {
+            if let NodeKind::Reader { path, .. } = &n.kind {
+                n.file_signature = aurafx_io::signature(path);
+                n.watch = on;
+                self.touch();
+            }
+        }
+    }
+
+    /// Paths and signatures of watched readers (checked off the lock by the worker).
+    pub fn watched(&self) -> Vec<(NodeId, PathBuf, u64)> {
+        self.nodes
+            .values()
+            .filter(|n| n.watch)
+            .filter_map(|n| match &n.kind {
+                NodeKind::Reader { path, .. } if !path.to_string_lossy().starts_with("memory://") => Some((n.id, path.clone(), n.file_signature)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Re-read a reader node whose file changed.
+    pub fn reload_reader(&mut self, id: NodeId, loaded: Loaded, signature: u64) {
+        let Some(n) = self.nodes.get_mut(&id) else { return };
+        let follow = n.follow_latest;
+        if let NodeKind::Reader { loaded: l, .. } = &mut n.kind {
+            *l = loaded;
+        }
+        n.file_signature = signature;
+        n.output_time_index = None;
+        let name = n.name.clone();
+        self.rebuild_times();
+        if follow && !self.times.is_empty() {
+            self.time_index = self.times.len() - 1;
+        }
+        self.mark_dirty(id);
+        self.log(LogLevel::Info, format!("{name} changed on disk: reloaded ({} time steps)", self.times.len().max(1)));
     }
 
     // ------------------------------------------------------------------ queries

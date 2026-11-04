@@ -24,6 +24,7 @@ struct VolumeParams {
 @group(1) @binding(0) var vol: texture_3d<f32>;
 @group(1) @binding(1) var vol_sampler: sampler;
 @group(1) @binding(2) var<uniform> vp: VolumeParams;
+@group(2) @binding(0) var scene_depth: texture_depth_multisampled_2d;
 
 struct VOut {
     @builtin(position) clip: vec4<f32>,
@@ -77,10 +78,17 @@ fn fs_volume(in: VOut) -> @location(0) vec4<f32> {
     let n = min(i32(ceil((t_exit - start) / step)), 2048);
     let size = bmax - bmin;
     let dims = vp.dims.xyz;
+    // Depth of the opaque scene at this pixel: stop marching behind solid surfaces.
+    let px = vec2<i32>(i32(in.clip.x), i32(in.clip.y));
+    let solid = textureLoad(scene_depth, px, 0);
     var acc = vec3<f32>(0.0);
     var alpha = 0.0;
     for (var i = 0; i < n; i = i + 1) {
         let p = cam + dir * (start + (f32(i) + 0.5) * step);
+        let clip_p = node.view_proj * vec4<f32>(p, 1.0);
+        if (clip_p.z / clip_p.w > solid) {
+            break;
+        }
         var tc = (p - bmin) / max(size, vec3<f32>(1e-20));
         tc = tc * (dims - 1.0) / dims + 0.5 / dims;
         let v = textureSampleLevel(vol, vol_sampler, tc, 0.0).r;

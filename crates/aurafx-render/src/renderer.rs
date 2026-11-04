@@ -98,6 +98,8 @@ pub struct Renderer {
     pipe_overlay_points: wgpu::RenderPipeline,
     pipe_volume: wgpu::RenderPipeline,
     vol_bgl: wgpu::BindGroupLayout,
+    scene_bgl: wgpu::BindGroupLayout,
+    scene_bg: wgpu::BindGroup,
     vol_sampler: wgpu::Sampler,
     nodes: HashMap<NodeId, GpuNode>,
     pub adapter_info: String,
@@ -231,9 +233,18 @@ impl Renderer {
                 },
             ],
         });
+        let scene_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("scene depth bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: true },
+                count: None,
+            }],
+        });
         let vol_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[Some(&bgl), Some(&vol_bgl)],
+            bind_group_layouts: &[Some(&bgl), Some(&vol_bgl), Some(&scene_bgl)],
             immediate_size: 0,
         });
         let pipe_volume = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -272,6 +283,7 @@ impl Renderer {
         });
 
         let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16);
+        let scene_bg = Self::make_scene_bg(&device, &scene_bgl, &depth_view);
         Self {
             device,
             queue,
@@ -293,6 +305,8 @@ impl Renderer {
             pipe_overlay_points,
             pipe_volume,
             vol_bgl,
+            scene_bgl,
+            scene_bg,
             vol_sampler,
             nodes: HashMap::new(),
             adapter_info,
@@ -328,7 +342,7 @@ impl Renderer {
             sample_count: MSAA,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let cv = color.create_view(&wgpu::TextureViewDescriptor { format: Some(COLOR_FORMAT), ..Default::default() });
@@ -336,6 +350,10 @@ impl Renderer {
         let mv = msaa.create_view(&Default::default());
         let dv = depth.create_view(&Default::default());
         (color, cv, disp, mv, dv)
+    }
+
+    fn make_scene_bg(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, depth: &wgpu::TextureView) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("scene depth"), layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(depth) }] })
     }
 
     /// Returns true if the target was recreated (the UI must re-register the texture).
@@ -349,6 +367,7 @@ impl Renderer {
         self.color_view = cv;
         self.display_view = disp;
         self.msaa_view = mv;
+        self.scene_bg = Self::make_scene_bg(&self.device, &self.scene_bgl, &dv);
         self.depth_view = dv;
         self.width = w;
         self.height = h;
@@ -530,73 +549,87 @@ impl Renderer {
         }
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("aurafx render") });
+        // Draw classes: 0 opaque, 1 volume, 2 translucent; overlays last.
+        let class = |d: &NodeDraw| -> (bool, u8) { (d.overlay, if d.mesh.volume.is_some() { 1 } else if d.display.opacity < 1.0 { 2 } else { 0 }) };
+        let mut order: Vec<&NodeDraw> = draws.iter().collect();
+        order.sort_by_key(|d| class(d));
+        let (opaque, rest): (Vec<&NodeDraw>, Vec<&NodeDraw>) = order.into_iter().partition(|d| class(d) == (false, 0));
+        let bg = settings.background;
+        // Pass 1: opaque geometry writes depth.
         {
-            let bg = settings.background;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("scene"),
+                label: Some("opaque"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_view,
                     depth_slice: None,
-                    resolve_target: Some(&self.color_view),
+                    resolve_target: if rest.is_empty() { Some(&self.color_view) } else { None },
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: srgb_to_linear(bg[0]), g: srgb_to_linear(bg[1]), b: srgb_to_linear(bg[2]), a: 1.0 }),
-                        store: wgpu::StoreOp::Discard,
+                        store: if rest.is_empty() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_view,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
                     stencil_ops: None,
                 }),
                 ..Default::default()
             });
-            // Opaque first, then translucent, then overlays.
-            let mut order: Vec<&NodeDraw> = draws.iter().collect();
-            order.sort_by_key(|d| {
-                (
-                    d.overlay,
-                    if d.mesh.volume.is_some() {
-                        1
-                    } else if d.display.opacity < 1.0 {
-                        2
-                    } else {
-                        0
-                    },
-                )
+            for d in &opaque {
+                self.draw_node(&mut pass, d);
+            }
+        }
+        // Pass 2: volumes (which read the opaque depth), translucent surfaces and overlays.
+        if !rest.is_empty() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("blended"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.msaa_view,
+                    depth_slice: None,
+                    resolve_target: Some(&self.color_view),
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &self.depth_view, depth_ops: None, stencil_ops: None }),
+                ..Default::default()
             });
-            for d in order {
-                let g = &self.nodes[&d.id];
-                pass.set_bind_group(0, &g.bind_group, &[]);
-                if let Some(gv) = &g.volume {
-                    pass.set_pipeline(&self.pipe_volume);
-                    pass.set_bind_group(1, &gv.bind_group, &[]);
-                    pass.draw(0..36, 0..1);
-                    continue;
-                }
-                let translucent = d.display.opacity < 1.0;
-                let (pt, pl, pp) = if d.overlay {
-                    (&self.pipe_overlay_tris, &self.pipe_overlay_lines, &self.pipe_overlay_points)
-                } else {
-                    (if translucent { &self.pipe_tris_blend } else { &self.pipe_tris }, &self.pipe_lines, &self.pipe_points)
-                };
-                if let Some((buf, n)) = &g.tris {
-                    pass.set_pipeline(pt);
-                    pass.set_vertex_buffer(0, buf.slice(..));
-                    pass.draw(0..*n, 0..1);
-                }
-                if let Some((buf, n)) = &g.lines {
-                    pass.set_pipeline(pl);
-                    pass.set_vertex_buffer(0, buf.slice(..));
-                    pass.draw(0..*n, 0..1);
-                }
-                if let Some((buf, n)) = &g.points {
-                    pass.set_pipeline(pp);
-                    pass.set_vertex_buffer(0, buf.slice(..));
-                    pass.draw(0..6, 0..*n);
-                }
+            for d in &rest {
+                self.draw_node(&mut pass, d);
             }
         }
         self.queue.submit(Some(encoder.finish()));
+    }
+
+    fn draw_node(&self, pass: &mut wgpu::RenderPass<'_>, d: &NodeDraw) {
+        let g = &self.nodes[&d.id];
+        pass.set_bind_group(0, &g.bind_group, &[]);
+        if let Some(gv) = &g.volume {
+            pass.set_pipeline(&self.pipe_volume);
+            pass.set_bind_group(1, &gv.bind_group, &[]);
+            pass.set_bind_group(2, &self.scene_bg, &[]);
+            pass.draw(0..36, 0..1);
+            return;
+        }
+        let translucent = d.display.opacity < 1.0;
+        let (pt, pl, pp) = if d.overlay {
+            (&self.pipe_overlay_tris, &self.pipe_overlay_lines, &self.pipe_overlay_points)
+        } else {
+            (if translucent { &self.pipe_tris_blend } else { &self.pipe_tris }, &self.pipe_lines, &self.pipe_points)
+        };
+        if let Some((buf, n)) = &g.tris {
+            pass.set_pipeline(pt);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..*n, 0..1);
+        }
+        if let Some((buf, n)) = &g.lines {
+            pass.set_pipeline(pl);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..*n, 0..1);
+        }
+        if let Some((buf, n)) = &g.points {
+            pass.set_pipeline(pp);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..6, 0..*n);
+        }
     }
 
     /// Read back the current color target as RGBA8 (sRGB) pixels.

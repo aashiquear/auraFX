@@ -1186,7 +1186,7 @@ impl eframe::App for AuraApp {
         // Python results.
         for r in st.python.poll() {
             st.console.push_result(&r);
-            if r.origin == "assistant" {
+            if r.origin == "assistant" || r.origin == "agent" {
                 st.assistant.on_python_result(&r);
             }
             if let Some(e) = &r.output.error {
@@ -1262,6 +1262,16 @@ impl eframe::App for AuraApp {
                     if let Some(p) = find(arg) {
                         self.state.layout_actions.push(LayoutAction::Show(p));
                     }
+                }
+                "ask" | "ask-agent" => {
+                    let desc = self.state.session.lock().describe();
+                    if verb == "ask-agent" {
+                        self.state.settings.ai_agent_mode = true;
+                        self.state.assistant.agent_active = true;
+                        self.state.assistant.reset_agent_steps();
+                    }
+                    self.state.assistant.send(arg.to_string(), desc);
+                    self.state.layout_actions.push(LayoutAction::Show(Pane::Assistant));
                 }
                 _ => tracing::warn!("unknown app command {c:?}"),
             }

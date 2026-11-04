@@ -22,7 +22,22 @@ pub struct Assistant {
     code_results: Vec<(usize, String, bool)>,
     cfg: AiConfig,
     auto_ran: usize,
+    // Agent mode: run code, feed results back, repeat.
+    agent_steps: usize,
+    agent_pending: usize,
+    agent_results: Vec<String>,
+    agent_continue: bool,
+    pub agent_active: bool,
 }
+
+impl Assistant {
+    pub fn reset_agent_steps(&mut self) {
+        self.agent_steps = 0;
+    }
+}
+
+pub const TOOL_PREFIX: &str = "[tool result]";
+const AGENT_MAX_STEPS: usize = 8;
 
 impl Assistant {
     pub fn new(settings: &Settings) -> Self {
@@ -39,6 +54,11 @@ impl Assistant {
             code_results: Vec::new(),
             cfg: settings.ai.clone(),
             auto_ran: 0,
+            agent_steps: 0,
+            agent_pending: 0,
+            agent_results: Vec::new(),
+            agent_continue: false,
+            agent_active: false,
         };
         a.refresh_models();
         a
@@ -108,6 +128,15 @@ impl Assistant {
             return;
         }
         self.error = None;
+        if self.cfg.model.is_empty() && self.cfg.provider == ProviderKind::Ollama {
+            match self.models.first() {
+                Some(m) => self.cfg.model = m.clone(),
+                None => {
+                    self.error = Some("No model selected. Pick one in the model list (or check the Ollama URL in Settings).".into());
+                    return;
+                }
+            }
+        }
         self.messages.push(ChatMessage { role: Role::User, content: text });
         let catalog: String = aurafx_filters::registry()
             .iter()
@@ -119,6 +148,17 @@ impl Assistant {
         let msgs: Vec<ChatMessage> = self.messages.iter().rev().take(20).rev().cloned().collect();
         self.stream = Some(aurafx_ai::stream_chat(self.cfg.clone(), system, msgs));
         self.partial.clear();
+    }
+
+    pub fn stop_agent(&mut self) {
+        self.agent_active = false;
+        self.agent_pending = 0;
+        self.agent_continue = false;
+        self.agent_results.clear();
+        if self.stream.take().is_some() && !self.partial.is_empty() {
+            let text = std::mem::take(&mut self.partial);
+            self.messages.push(ChatMessage { role: Role::Assistant, content: format!("{text}\n\n*(stopped)*") });
+        }
     }
 
     pub fn on_python_result(&mut self, r: &PythonResult) {
@@ -136,6 +176,17 @@ impl Assistant {
         }
         if text.is_empty() {
             text = "ok".into();
+        }
+        if r.origin == "agent" && self.agent_active {
+            let mut t = text.clone();
+            if t.len() > 4000 {
+                t = format!("{}\n… (truncated)", &t[..4000]);
+            }
+            self.agent_results.push(format!("{}:\n```\n{}\n```", if err { "Error" } else { "Output" }, t.trim_end()));
+            self.agent_pending = self.agent_pending.saturating_sub(1);
+            if self.agent_pending == 0 {
+                self.agent_continue = true;
+            }
         }
         self.code_results.push((idx, text, err));
     }
@@ -291,6 +342,12 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         let n = a.messages.len();
         for i in 0..n {
             let m = &a.messages[i];
+            if m.role == Role::User && m.content.starts_with(TOOL_PREFIX) {
+                egui::CollapsingHeader::new(RichText::new(format!("{} Code ran — results sent back to the assistant", crate::icons::TERMINAL_WINDOW)).weak().small()).id_salt(("toolmsg", i)).show(ui, |ui| {
+                    ui.label(RichText::new(m.content.trim_start_matches(TOOL_PREFIX).trim()).monospace().small());
+                });
+                continue;
+            }
             let (name, color) = match m.role {
                 Role::User => ("You", crate::theme::INFO),
                 Role::Assistant => ("auraFX AI", crate::theme::ACCENT_SOFT),
@@ -353,14 +410,60 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             let t = std::mem::take(&mut state.assistant.input);
             send_text = Some(t);
         }
-        ui.checkbox(&mut state.settings.auto_run_ai_code, "auto-run code").on_hover_text("Run Python blocks from replies automatically");
+        ui.checkbox(&mut state.settings.ai_agent_mode, "agent mode").on_hover_text(
+            "Do it for me: the assistant's code runs automatically and the results go back to it, so it can continue or fix errors (up to 8 steps)",
+        );
+        if !state.settings.ai_agent_mode {
+            ui.checkbox(&mut state.settings.auto_run_ai_code, "auto-run code").on_hover_text("Run Python blocks from replies automatically");
+        }
+        if state.assistant.agent_active || state.assistant.is_streaming() {
+            if ui.button(format!("{} Stop", crate::icons::X)).clicked() {
+                state.assistant.stop_agent();
+            }
+            if state.assistant.agent_active {
+                ui.label(RichText::new(format!("step {}/{}", state.assistant.agent_steps + 1, AGENT_MAX_STEPS)).weak().small());
+            }
+        }
     });
     if let Some(t) = send_text {
         let desc = state.session.lock().describe();
+        if state.settings.ai_agent_mode {
+            state.assistant.agent_active = true;
+            state.assistant.agent_steps = 0;
+        }
         state.assistant.send(t, desc);
     }
-    // Auto-run newly completed assistant messages.
-    if state.settings.auto_run_ai_code && !state.assistant.is_streaming() {
+    // Agent mode: run new code blocks, then send the results back.
+    if state.settings.ai_agent_mode && !state.assistant.is_streaming() {
+        let n = state.assistant.messages.len();
+        while state.assistant.auto_ran < n {
+            let i = state.assistant.auto_ran;
+            state.assistant.auto_ran += 1;
+            let m = state.assistant.messages[i].clone();
+            if m.role != Role::Assistant || !state.assistant.agent_active {
+                continue;
+            }
+            let blocks = aurafx_ai::python_blocks(&m.content);
+            if blocks.is_empty() || state.assistant.agent_steps >= AGENT_MAX_STEPS {
+                state.assistant.agent_active = false;
+                continue;
+            }
+            state.assistant.agent_pending += blocks.len();
+            for b in blocks {
+                state.run_python(&b, "agent");
+            }
+        }
+        if state.assistant.agent_continue && state.assistant.agent_active {
+            state.assistant.agent_continue = false;
+            state.assistant.agent_steps += 1;
+            let results = std::mem::take(&mut state.assistant.agent_results).join("\n\n");
+            let desc = state.session.lock().describe();
+            let msg = format!(
+                "{TOOL_PREFIX}\n{results}\n\nUpdated pipeline:\n{desc}\nIf the task is done, reply with a short summary and no code. Otherwise reply with the next ```python block (fix any error first)."
+            );
+            state.assistant.send(msg, desc);
+        }
+    } else if state.settings.auto_run_ai_code && !state.assistant.is_streaming() {
         let n = state.assistant.messages.len();
         while state.assistant.auto_ran < n {
             let i = state.assistant.auto_ran;

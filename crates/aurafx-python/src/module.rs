@@ -262,7 +262,7 @@ impl PyNode {
     /// Get an array as a NumPy array (copy). `assoc` is "points", "cells" or "field".
     #[pyo3(signature = (name, assoc=None))]
     fn array<'py>(&self, py: Python<'py>, name: String, assoc: Option<String>) -> PyResult<Bound<'py, PyAny>> {
-        let ds = self.output()?;
+        let ds = self.flat_output()?;
         let find = |a: Option<&aurafx_data::Attributes>| a.and_then(|x| x.get(&name).cloned());
         let arr = match assoc.as_deref() {
             Some("cells") | Some("cell") => find(ds.cell_data()),
@@ -286,7 +286,7 @@ impl PyNode {
     /// Point coordinates as an (N, 3) NumPy array.
     #[getter]
     fn points<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let ds = self.output()?;
+        let ds = self.flat_output()?;
         let pts = ds.points().ok_or_else(|| PyRuntimeError::new_err("dataset has no points"))?;
         array_to_numpy(py, &pts.data, 3)
     }
@@ -317,6 +317,16 @@ impl PyNode {
 }
 
 impl PyNode {
+    /// Output with multi-block data merged into one mesh (for array/point access).
+    fn flat_output(&self) -> PyResult<std::sync::Arc<DataSet>> {
+        let ds = self.output()?;
+        if matches!(&*ds, DataSet::MultiBlock(_)) {
+            let f = aurafx_filters::find("merge_blocks").ok_or_else(|| PyRuntimeError::new_err("merge_blocks missing"))?;
+            return f.run(Some(&ds), &f.default_params()).map(std::sync::Arc::new).map_err(err);
+        }
+        Ok(ds)
+    }
+
     fn output(&self) -> PyResult<std::sync::Arc<DataSet>> {
         let mut s = session().lock();
         s.update_blocking();
@@ -625,6 +635,13 @@ fn points_from(xyz: Bound<'_, PyAny>, name: &str, arrays: Option<&Bound<'_, PyDi
 #[pyfunction]
 fn show_panel(name: String) {
     app_command(format!("show {name}"));
+}
+
+/// Send a request to the AI assistant panel. With agent=True it runs its code and iterates.
+#[pyfunction]
+#[pyo3(signature = (text, agent=false))]
+fn ask(text: String, agent: bool) {
+    app_command(format!("ask{} {text}", if agent { "-agent" } else { "" }));
 }
 
 /// UI theme: "dark", "light" or "system".
@@ -936,6 +953,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(set_theme, m)?)?;
+    m.add_function(wrap_pyfunction!(ask, m)?)?;
     m.add_function(wrap_pyfunction!(undo, m)?)?;
     m.add_function(wrap_pyfunction!(select, m)?)?;
     m.add_function(wrap_pyfunction!(selection, m)?)?;

@@ -8,10 +8,7 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    pub const EMPTY: Bounds = Bounds {
-        min: [f64::INFINITY; 3],
-        max: [f64::NEG_INFINITY; 3],
-    };
+    pub const EMPTY: Bounds = Bounds { min: [f64::INFINITY; 3], max: [f64::NEG_INFINITY; 3] };
 
     pub fn new(min: [f64; 3], max: [f64; 3]) -> Self {
         Self { min, max }
@@ -46,19 +43,11 @@ impl Bounds {
     }
 
     pub fn center(&self) -> [f64; 3] {
-        [
-            0.5 * (self.min[0] + self.max[0]),
-            0.5 * (self.min[1] + self.max[1]),
-            0.5 * (self.min[2] + self.max[2]),
-        ]
+        [0.5 * (self.min[0] + self.max[0]), 0.5 * (self.min[1] + self.max[1]), 0.5 * (self.min[2] + self.max[2])]
     }
 
     pub fn size(&self) -> [f64; 3] {
-        [
-            self.max[0] - self.min[0],
-            self.max[1] - self.min[1],
-            self.max[2] - self.min[2],
-        ]
+        [self.max[0] - self.min[0], self.max[1] - self.min[1], self.max[2] - self.min[2]]
     }
 
     pub fn diagonal(&self) -> f64 {

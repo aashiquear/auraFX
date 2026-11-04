@@ -57,7 +57,11 @@ impl Locator {
         let target = (n as f64 / 4.0).cbrt().ceil().max(1.0) as usize;
         let s = b.size();
         let maxs = s.iter().cloned().fold(0.0, f64::max).max(1e-30);
-        let dims = [((s[0] / maxs) * target as f64).ceil().max(1.0) as usize, ((s[1] / maxs) * target as f64).ceil().max(1.0) as usize, ((s[2] / maxs) * target as f64).ceil().max(1.0) as usize];
+        let dims = [
+            ((s[0] / maxs) * target as f64).ceil().max(1.0) as usize,
+            ((s[1] / maxs) * target as f64).ceil().max(1.0) as usize,
+            ((s[2] / maxs) * target as f64).ceil().max(1.0) as usize,
+        ];
         let size = [s[0].max(tol) / dims[0] as f64, s[1].max(tol) / dims[1] as f64, s[2].max(tol) / dims[2] as f64];
         let mut loc = Self { pts, simplices, bins: vec![Vec::new(); dims[0] * dims[1] * dims[2]], dims, lo: b.min, size, tol };
         for (si, (ids, _, k)) in loc.simplices.iter().enumerate() {
@@ -255,7 +259,11 @@ pub fn resample_to_image(ds: &DataSet, dims: [usize; 3]) -> Result<ImageData> {
     }
     let d = [dims[0].max(1), dims[1].max(1), dims[2].max(1)];
     let s = b.size();
-    let spacing = [if d[0] > 1 { s[0] / (d[0] - 1) as f64 } else { 1.0 }, if d[1] > 1 { s[1] / (d[1] - 1) as f64 } else { 1.0 }, if d[2] > 1 { s[2] / (d[2] - 1) as f64 } else { 1.0 }];
+    let spacing = [
+        if d[0] > 1 { s[0] / (d[0] - 1) as f64 } else { 1.0 },
+        if d[1] > 1 { s[1] / (d[1] - 1) as f64 } else { 1.0 },
+        if d[2] > 1 { s[2] / (d[2] - 1) as f64 } else { 1.0 },
+    ];
     let mut pts = Vec::with_capacity(d[0] * d[1] * d[2]);
     for k in 0..d[2] {
         for j in 0..d[1] {

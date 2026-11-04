@@ -89,7 +89,10 @@ impl Host {
     }
     /// Test connectivity; returns the remote `uname -a`.
     pub fn test(&self) -> Result<String> {
-        Ok(self.run_capture("uname -a; nproc; command -v nvidia-smi rocm-smi sbatch lmp mpirun python3 2>/dev/null", Duration::from_secs(20))?.trim().to_string())
+        Ok(self
+            .run_capture("uname -a; nproc; command -v nvidia-smi rocm-smi sbatch lmp mpirun python3 2>/dev/null", Duration::from_secs(20))?
+            .trim()
+            .to_string())
     }
     /// List a directory: (name, is_dir, size).
     pub fn list_dir(&self, path: &str) -> Result<Vec<(String, bool, u64)>> {
@@ -407,7 +410,18 @@ pub fn submit(jobs: &SharedJobs, spec: JobSpec) -> JobId {
         let mut m = jobs.lock();
         let id = m.next.max(1);
         m.next = id + 1;
-        m.jobs.push(Job { id, spec: spec.clone(), state: JobState::Queued, log: VecDeque::new(), started: None, elapsed: None, start_instant: None, child: None, outputs: vec![], outputs_pending_load: false });
+        m.jobs.push(Job {
+            id,
+            spec: spec.clone(),
+            state: JobState::Queued,
+            log: VecDeque::new(),
+            started: None,
+            elapsed: None,
+            start_instant: None,
+            child: None,
+            outputs: vec![],
+            outputs_pending_load: false,
+        });
         m.revision += 1;
         id
     };
@@ -490,7 +504,10 @@ fn run_direct(jobs: &SharedJobs, id: JobId, spec: &JobSpec) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 fn run_slurm(jobs: &SharedJobs, id: JobId, spec: &JobSpec, partition: &str, time: &str, nodes: u32, tasks: u32, extra: &str) -> Result<()> {
     let script = spec.slurm_script(partition, time, nodes, tasks, extra);
-    let submit = format!("mkdir -p {wd} && cd {wd} && cat > .aurafx_job_{id}.sh <<'AURAFX_EOF'\n{script}AURAFX_EOF\nsbatch --parsable .aurafx_job_{id}.sh", wd = shell_quote(&spec.workdir));
+    let submit = format!(
+        "mkdir -p {wd} && cd {wd} && cat > .aurafx_job_{id}.sh <<'AURAFX_EOF'\n{script}AURAFX_EOF\nsbatch --parsable .aurafx_job_{id}.sh",
+        wd = shell_quote(&spec.workdir)
+    );
     let bare = Host { setup: String::new(), ..spec.host.clone() };
     let out = bare.run_capture(&submit, Duration::from_secs(60))?;
     let slurm_id = out.trim().split(';').next().unwrap_or("").to_string();
@@ -563,7 +580,11 @@ fn collect_outputs(jobs: &SharedJobs, id: JobId, spec: &JobSpec) {
 }
 
 pub fn cache_dir() -> PathBuf {
-    std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))).unwrap_or_else(std::env::temp_dir).join("aurafx")
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("aurafx")
 }
 
 pub fn cancel(jobs: &SharedJobs, id: JobId) -> Result<()> {
@@ -662,6 +683,10 @@ pub fn set_hosts(h: Vec<Host>) {
 pub fn resolve_host(name: Option<&str>) -> Host {
     match name {
         None | Some("") | Some("local") | Some("localhost") => Host::local(),
-        Some(n) => hosts().into_iter().find(|h| h.name == n).unwrap_or_else(|| Host { name: n.to_string(), kind: HostKind::Ssh { target: n.to_string(), port: None, identity: None, jump: None }, setup: String::new() }),
+        Some(n) => hosts().into_iter().find(|h| h.name == n).unwrap_or_else(|| Host {
+            name: n.to_string(),
+            kind: HostKind::Ssh { target: n.to_string(), port: None, identity: None, jump: None },
+            setup: String::new(),
+        }),
     }
 }

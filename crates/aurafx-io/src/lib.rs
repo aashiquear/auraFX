@@ -3,14 +3,14 @@
 //! Entry point: [`read_file`], which sniffs the format from the extension (and a few
 //! magic bytes) and returns either a single dataset or a lazily-loaded time series.
 
+pub mod csv;
 pub mod exodus;
 pub mod lammps;
-pub mod netcdf3;
 pub mod legacy_vtk;
-pub mod xml_vtk;
-pub mod csv;
-pub mod stl;
+pub mod netcdf3;
 pub mod series;
+pub mod stl;
+pub mod xml_vtk;
 
 use anyhow::{anyhow, Context, Result};
 use aurafx_data::{DataSet, TimeSeries, TimeStepRef};

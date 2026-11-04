@@ -45,11 +45,7 @@ impl<'a> PointBuilder<'a> {
         }
         let pa = self.src_points.get(a as usize);
         let pb = self.src_points.get(b as usize);
-        self.points.extend_from_slice(&[
-            pa[0] + t * (pb[0] - pa[0]),
-            pa[1] + t * (pb[1] - pa[1]),
-            pa[2] + t * (pb[2] - pa[2]),
-        ]);
+        self.points.extend_from_slice(&[pa[0] + t * (pb[0] - pa[0]), pa[1] + t * (pb[1] - pa[1]), pa[2] + t * (pb[2] - pa[2])]);
         let id = self.recipe.len() as u32;
         self.recipe.push((a, b, t as f32));
         self.edges.insert((a, b, q), id);

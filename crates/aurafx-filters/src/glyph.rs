@@ -123,7 +123,13 @@ pub fn glyph(ds: &DataSet, opt: &GlyphOptions) -> Result<PolyData> {
         let s = opt.scale_factor
             * match scale {
                 Some(a) => a.magnitude(i),
-                None => if orient.is_some() { len } else { 1.0 },
+                None => {
+                    if orient.is_some() {
+                        len
+                    } else {
+                        1.0
+                    }
+                }
             };
         if s == 0.0 || !s.is_finite() {
             continue;

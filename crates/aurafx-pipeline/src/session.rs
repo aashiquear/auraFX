@@ -297,7 +297,21 @@ impl Session {
             auto_colored: false,
         };
         // ParaView-style: hide the input when adding a filter that replaces its look.
-        if matches!(def.id, "slice" | "clip" | "contour" | "threshold" | "extract_surface" | "warp_by_vector" | "warp_by_scalar" | "transform" | "calculator" | "cell_data_to_point_data" | "point_data_to_cell_data" | "merge_blocks") {
+        if matches!(
+            def.id,
+            "slice"
+                | "clip"
+                | "contour"
+                | "threshold"
+                | "extract_surface"
+                | "warp_by_vector"
+                | "warp_by_scalar"
+                | "transform"
+                | "calculator"
+                | "cell_data_to_point_data"
+                | "point_data_to_cell_data"
+                | "merge_blocks"
+        ) {
             if let Some(n) = self.nodes.get_mut(&input) {
                 n.visible = false;
             }
@@ -484,7 +498,9 @@ impl Session {
                     WorkKind::LoadStep { step: s.steps[index].clone(), index }
                 }
                 NodeKind::Source { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: None },
-                NodeKind::Filter { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: n.input.and_then(|i| self.nodes[&i].output.clone()) },
+                NodeKind::Filter { def } => {
+                    WorkKind::Run { def: def.clone(), params: n.params.clone(), input: n.input.and_then(|i| self.nodes[&i].output.clone()) }
+                }
             };
             let nm = self.nodes.get_mut(&id).unwrap();
             nm.running = true;

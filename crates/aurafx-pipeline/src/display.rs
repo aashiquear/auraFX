@@ -14,7 +14,8 @@ pub enum Representation {
 }
 
 impl Representation {
-    pub const ALL: [Representation; 5] = [Representation::Surface, Representation::SurfaceWithEdges, Representation::Wireframe, Representation::Points, Representation::Outline];
+    pub const ALL: [Representation; 5] =
+        [Representation::Surface, Representation::SurfaceWithEdges, Representation::Wireframe, Representation::Points, Representation::Outline];
     pub fn label(self) -> &'static str {
         match self {
             Representation::Surface => "Surface",

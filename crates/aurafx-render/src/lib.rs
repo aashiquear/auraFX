@@ -1,8 +1,8 @@
 //! GPU rendering of pipeline nodes with wgpu.
 
 pub mod camera;
-pub mod tessellate;
 pub mod renderer;
+pub mod tessellate;
 
 pub use camera::Camera;
 pub use renderer::{headless, NodeDraw, RenderSettings, Renderer};

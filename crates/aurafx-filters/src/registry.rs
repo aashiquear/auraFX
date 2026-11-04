@@ -69,10 +69,20 @@ impl FilterDef {
 }
 
 fn arr_param(key: &str, label: &str) -> ParamSpec {
-    ParamSpec::new(key, label, ParamKind::Array { scalar_only: false, vector_only: false }, ParamValue::Array { assoc: Association::Points, name: String::new() })
+    ParamSpec::new(
+        key,
+        label,
+        ParamKind::Array { scalar_only: false, vector_only: false },
+        ParamValue::Array { assoc: Association::Points, name: String::new() },
+    )
 }
 fn vec_param(key: &str, label: &str) -> ParamSpec {
-    ParamSpec::new(key, label, ParamKind::Array { scalar_only: false, vector_only: true }, ParamValue::Array { assoc: Association::Points, name: String::new() })
+    ParamSpec::new(
+        key,
+        label,
+        ParamKind::Array { scalar_only: false, vector_only: true },
+        ParamValue::Array { assoc: Association::Points, name: String::new() },
+    )
 }
 fn f(key: &str, label: &str, default: f64, min: f64, max: f64) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Float { min, max, log: false }, ParamValue::Float(default))
@@ -113,12 +123,18 @@ pub fn default_array(ds: &DataSet, want_vector: bool) -> Option<(Association, St
             return Some(s.name.clone());
         }
         // Skip geometric helper arrays and constant arrays; prefer 1-component data.
-        let skip: Vec<&str> = [AttributeKind::Normals, AttributeKind::TCoords, AttributeKind::GlobalIds, AttributeKind::PedigreeIds].iter().filter_map(|k| a.active.get(k).map(|s| s.as_str())).collect();
+        let skip: Vec<&str> = [AttributeKind::Normals, AttributeKind::TCoords, AttributeKind::GlobalIds, AttributeKind::PedigreeIds]
+            .iter()
+            .filter_map(|k| a.active.get(k).map(|s| s.as_str()))
+            .collect();
         let useful = |x: &&Array| {
-            x.scalar_type() != ScalarType::String && !skip.contains(&x.name.as_str()) && !matches!(x.name.as_str(), "Normals" | "TextureCoordinates" | "vtkOriginalPointIds" | "vtkOriginalCellIds" | "vtkGhostType") && {
-                let (lo, hi) = x.range(None);
-                hi > lo
-            }
+            x.scalar_type() != ScalarType::String
+                && !skip.contains(&x.name.as_str())
+                && !matches!(x.name.as_str(), "Normals" | "TextureCoordinates" | "vtkOriginalPointIds" | "vtkOriginalCellIds" | "vtkGhostType")
+                && {
+                    let (lo, hi) = x.range(None);
+                    hi > lo
+                }
         };
         a.iter().filter(useful).find(|x| x.ncomp == 1).or_else(|| a.iter().find(useful)).map(|x| x.name.clone())
     };
@@ -156,7 +172,11 @@ fn per_leaf(ds: &DataSet, f: &dyn Fn(&DataSet) -> Result<DataSet>) -> Result<Dat
 
 fn bounds_center(ds: &DataSet) -> [f64; 3] {
     let b = ds.bounds();
-    if b.is_empty() { [0.0; 3] } else { b.center() }
+    if b.is_empty() {
+        [0.0; 3]
+    } else {
+        b.center()
+    }
 }
 
 fn build() -> Vec<FilterDef> {
@@ -174,7 +194,9 @@ fn build() -> Vec<FilterDef> {
                 v3("origin", "Origin", [f64::NAN; 3]).help("Leave unset to use the center of the data."),
                 v3("normal", "Normal", [1.0, 0.0, 0.0]),
                 f("radius", "Radius (sphere)", 1.0, 0.0, f64::INFINITY),
-                ParamSpec::new("offsets", "Offsets", ParamKind::Floats, ParamValue::Floats(vec![0.0])).advanced().help("Additional parallel slices at these distances along the normal."),
+                ParamSpec::new("offsets", "Offsets", ParamKind::Floats, ParamValue::Floats(vec![0.0]))
+                    .advanced()
+                    .help("Additional parallel slices at these distances along the normal."),
             ],
             apply: |input, p| {
                 let ds = input.unwrap();
@@ -183,7 +205,14 @@ fn build() -> Vec<FilterDef> {
                 let normal = crate::slice::normalize(p.vec3("normal", [1.0, 0.0, 0.0]));
                 let radius = p.f64("radius", 1.0);
                 let ty = p.str("type");
-                let offsets = { let o = p.floats("offsets"); if o.is_empty() { vec![0.0] } else { o } };
+                let offsets = {
+                    let o = p.floats("offsets");
+                    if o.is_empty() {
+                        vec![0.0]
+                    } else {
+                        o
+                    }
+                };
                 per_leaf(ds, &|d| {
                     if ty == "Sphere" {
                         return Ok(DataSet::PolyData(crate::slice::slice_sphere(d, origin, radius)?));
@@ -304,8 +333,12 @@ fn build() -> Vec<FilterDef> {
                     let (lo0, hi0) = arr.range(comp(p));
                     let mut lo = p.f64("lower", f64::NAN);
                     let mut hi = p.f64("upper", f64::NAN);
-                    if lo.is_nan() { lo = lo0 + 0.25 * (hi0 - lo0); }
-                    if hi.is_nan() { hi = hi0; }
+                    if lo.is_nan() {
+                        lo = lo0 + 0.25 * (hi0 - lo0);
+                    }
+                    if hi.is_nan() {
+                        hi = hi0;
+                    }
                     let mode = if p.str("method") == "Any point" { crate::threshold::PointMode::Any } else { crate::threshold::PointMode::All };
                     Ok(DataSet::UnstructuredGrid(crate::threshold::threshold(d, a, &n, comp(p), lo, hi, mode, p.bool("invert", false))?))
                 })
@@ -320,13 +353,21 @@ fn build() -> Vec<FilterDef> {
             is_source: false,
             params: vec![
                 choice("attribute", "Attribute", &["Points", "Cells"], "Points"),
-                ParamSpec::new("expression", "Expression", ParamKind::Expression, ParamValue::Str("coordsX".into())).help("e.g. mag(velocity), sqrt(x^2+y^2), if(T > 300, 1, 0)"),
+                ParamSpec::new("expression", "Expression", ParamKind::Expression, ParamValue::Str("coordsX".into()))
+                    .help("e.g. mag(velocity), sqrt(x^2+y^2), if(T > 300, 1, 0)"),
                 s("result", "Result name", "Result"),
             ],
             apply: |input, p| {
                 let assoc = if p.str("attribute") == "Cells" { Association::Cells } else { Association::Points };
                 let expr = p.str("expression");
-                let name = { let n = p.str("result"); if n.is_empty() { "Result".to_string() } else { n } };
+                let name = {
+                    let n = p.str("result");
+                    if n.is_empty() {
+                        "Result".to_string()
+                    } else {
+                        n
+                    }
+                };
                 per_leaf(input.unwrap(), &|d| crate::calculator::calculator(d, assoc, &expr, &name))
             },
         },
@@ -352,7 +393,12 @@ fn build() -> Vec<FilterDef> {
             description: "Displace points along a direction (or normals) by a scalar value.",
             keywords: &["height", "elevation", "carpet plot", "deform"],
             is_source: false,
-            params: vec![arr_param("array", "Scalars"), f("scale", "Scale factor", 1.0, f64::NEG_INFINITY, f64::INFINITY), v3("normal", "Direction", [0.0, 0.0, 1.0]), b("use_normals", "Use point normals", false)],
+            params: vec![
+                arr_param("array", "Scalars"),
+                f("scale", "Scale factor", 1.0, f64::NEG_INFINITY, f64::INFINITY),
+                v3("normal", "Direction", [0.0, 0.0, 1.0]),
+                b("use_normals", "Use point normals", false),
+            ],
             apply: |input, p| {
                 per_leaf(input.unwrap(), &|d| {
                     let (_, n) = array_or_default(d, p, "array", false)?;
@@ -377,12 +423,14 @@ fn build() -> Vec<FilterDef> {
             ],
             apply: |input, p| {
                 per_leaf(input.unwrap(), &|d| {
-                    let orient = p.array("orient").map(|(_, n)| n).or_else(|| default_array(d, true).filter(|(a, _)| *a == Association::Points).map(|(_, n)| n));
+                    let orient =
+                        p.array("orient").map(|(_, n)| n).or_else(|| default_array(d, true).filter(|(a, _)| *a == Association::Points).map(|(_, n)| n));
                     let scale_array = p.array("scale_array").map(|(_, n)| n);
                     let mut sf = p.f64("scale", f64::NAN);
                     if sf.is_nan() {
                         let diag = d.bounds().diagonal().max(1e-12);
-                        let maxmag = orient.as_ref().and_then(|n| d.point_data().and_then(|a| a.get(n))).map(|a| a.range(None).1).filter(|v| *v > 0.0).unwrap_or(1.0);
+                        let maxmag =
+                            orient.as_ref().and_then(|n| d.point_data().and_then(|a| a.get(n))).map(|a| a.range(None).1).filter(|v| *v > 0.0).unwrap_or(1.0);
                         sf = 0.05 * diag / if scale_array.is_some() || orient.is_some() { maxmag } else { 1.0 };
                     }
                     let opt = crate::glyph::GlyphOptions {
@@ -458,7 +506,13 @@ fn build() -> Vec<FilterDef> {
             description: "Distribution of an array as a table of bins (shown in the Charts panel).",
             keywords: &["distribution", "bins", "frequency", "pdf"],
             is_source: false,
-            params: vec![arr_param("array", "Array"), s("component", "Component", ""), i("bins", "Bins", 64, 1, 100_000), f("lower", "Range min", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).advanced(), f("upper", "Range max", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).advanced()],
+            params: vec![
+                arr_param("array", "Array"),
+                s("component", "Component", ""),
+                i("bins", "Bins", 64, 1, 100_000),
+                f("lower", "Range min", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).advanced(),
+                f("upper", "Range max", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).advanced(),
+            ],
             apply: |input, p| {
                 let ds = input.unwrap();
                 let (a, n) = array_or_default(ds, p, "array", false)?;
@@ -494,7 +548,12 @@ fn build() -> Vec<FilterDef> {
             description: "Spatial gradient of a point scalar (adds <name>_gradient).",
             keywords: &["derivative", "slope", "grad", "flux"],
             is_source: false,
-            params: vec![ParamSpec::new("array", "Scalar", ParamKind::Array { scalar_only: true, vector_only: false }, ParamValue::Array { assoc: Association::Points, name: String::new() })],
+            params: vec![ParamSpec::new(
+                "array",
+                "Scalar",
+                ParamKind::Array { scalar_only: true, vector_only: false },
+                ParamValue::Array { assoc: Association::Points, name: String::new() },
+            )],
             apply: |input, p| {
                 per_leaf(input.unwrap(), &|d| {
                     let (_, n) = array_or_default(d, p, "array", false)?;
@@ -559,7 +618,11 @@ fn build() -> Vec<FilterDef> {
             keywords: &["move", "rotate", "scale", "translate", "affine"],
             is_source: false,
             params: vec![v3("translate", "Translate", [0.0; 3]), v3("rotate", "Rotate (deg)", [0.0; 3]), v3("scale", "Scale", [1.0; 3])],
-            apply: |input, p| per_leaf(input.unwrap(), &|d| crate::transform::transform(d, p.vec3("translate", [0.0; 3]), p.vec3("rotate", [0.0; 3]), p.vec3("scale", [1.0; 3]))),
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    crate::transform::transform(d, p.vec3("translate", [0.0; 3]), p.vec3("rotate", [0.0; 3]), p.vec3("scale", [1.0; 3]))
+                })
+            },
         },
         FilterDef {
             id: "cell_centers",
@@ -597,15 +660,23 @@ fn build() -> Vec<FilterDef> {
                                 let names: Vec<String> = out.point_data.arrays.keys().cloned().collect();
                                 for n in names {
                                     match ug.point_data.get(&n) {
-                                        Some(a) => { let _ = out.point_data.get_mut(&n).unwrap().data.append(&a.data); }
-                                        None => { out.point_data.remove(&n); }
+                                        Some(a) => {
+                                            let _ = out.point_data.get_mut(&n).unwrap().data.append(&a.data);
+                                        }
+                                        None => {
+                                            out.point_data.remove(&n);
+                                        }
                                     }
                                 }
                                 let names: Vec<String> = out.cell_data.arrays.keys().cloned().collect();
                                 for n in names {
                                     match ug.cell_data.get(&n) {
-                                        Some(a) => { let _ = out.cell_data.get_mut(&n).unwrap().data.append(&a.data); }
-                                        None => { out.cell_data.remove(&n); }
+                                        Some(a) => {
+                                            let _ = out.cell_data.get_mut(&n).unwrap().data.append(&a.data);
+                                        }
+                                        None => {
+                                            out.cell_data.remove(&n);
+                                        }
                                     }
                                 }
                             }
@@ -645,8 +716,20 @@ fn build() -> Vec<FilterDef> {
             description: "A polygonal sphere.",
             keywords: &["ball", "shape"],
             is_source: true,
-            params: vec![v3("center", "Center", [0.0; 3]), f("radius", "Radius", 0.5, 0.0, f64::INFINITY), i("theta", "Theta resolution", 32, 3, 1024), i("phi", "Phi resolution", 32, 3, 1024)],
-            apply: |_, p| Ok(DataSet::PolyData(crate::sources::sphere(p.vec3("center", [0.0; 3]), p.f64("radius", 0.5), p.i64("theta", 32) as usize, p.i64("phi", 32) as usize))),
+            params: vec![
+                v3("center", "Center", [0.0; 3]),
+                f("radius", "Radius", 0.5, 0.0, f64::INFINITY),
+                i("theta", "Theta resolution", 32, 3, 1024),
+                i("phi", "Phi resolution", 32, 3, 1024),
+            ],
+            apply: |_, p| {
+                Ok(DataSet::PolyData(crate::sources::sphere(
+                    p.vec3("center", [0.0; 3]),
+                    p.f64("radius", 0.5),
+                    p.i64("theta", 32) as usize,
+                    p.i64("phi", 32) as usize,
+                )))
+            },
         },
         FilterDef {
             id: "cone",
@@ -655,8 +738,22 @@ fn build() -> Vec<FilterDef> {
             description: "A polygonal cone.",
             keywords: &["shape"],
             is_source: true,
-            params: vec![v3("center", "Center", [0.0; 3]), v3("direction", "Direction", [1.0, 0.0, 0.0]), f("height", "Height", 1.0, 0.0, f64::INFINITY), f("radius", "Radius", 0.5, 0.0, f64::INFINITY), i("resolution", "Resolution", 32, 3, 1024)],
-            apply: |_, p| Ok(DataSet::PolyData(crate::sources::cone(p.vec3("center", [0.0; 3]), p.f64("height", 1.0), p.f64("radius", 0.5), p.i64("resolution", 32) as usize, p.vec3("direction", [1.0, 0.0, 0.0])))),
+            params: vec![
+                v3("center", "Center", [0.0; 3]),
+                v3("direction", "Direction", [1.0, 0.0, 0.0]),
+                f("height", "Height", 1.0, 0.0, f64::INFINITY),
+                f("radius", "Radius", 0.5, 0.0, f64::INFINITY),
+                i("resolution", "Resolution", 32, 3, 1024),
+            ],
+            apply: |_, p| {
+                Ok(DataSet::PolyData(crate::sources::cone(
+                    p.vec3("center", [0.0; 3]),
+                    p.f64("height", 1.0),
+                    p.f64("radius", 0.5),
+                    p.i64("resolution", 32) as usize,
+                    p.vec3("direction", [1.0, 0.0, 0.0]),
+                )))
+            },
         },
         FilterDef {
             id: "cylinder",
@@ -665,8 +762,20 @@ fn build() -> Vec<FilterDef> {
             description: "A capped cylinder along Y.",
             keywords: &["tube", "shape"],
             is_source: true,
-            params: vec![v3("center", "Center", [0.0; 3]), f("height", "Height", 1.0, 0.0, f64::INFINITY), f("radius", "Radius", 0.5, 0.0, f64::INFINITY), i("resolution", "Resolution", 32, 3, 1024)],
-            apply: |_, p| Ok(DataSet::PolyData(crate::sources::cylinder(p.vec3("center", [0.0; 3]), p.f64("height", 1.0), p.f64("radius", 0.5), p.i64("resolution", 32) as usize))),
+            params: vec![
+                v3("center", "Center", [0.0; 3]),
+                f("height", "Height", 1.0, 0.0, f64::INFINITY),
+                f("radius", "Radius", 0.5, 0.0, f64::INFINITY),
+                i("resolution", "Resolution", 32, 3, 1024),
+            ],
+            apply: |_, p| {
+                Ok(DataSet::PolyData(crate::sources::cylinder(
+                    p.vec3("center", [0.0; 3]),
+                    p.f64("height", 1.0),
+                    p.f64("radius", 0.5),
+                    p.i64("resolution", 32) as usize,
+                )))
+            },
         },
         FilterDef {
             id: "box",
@@ -685,8 +794,22 @@ fn build() -> Vec<FilterDef> {
             description: "A subdivided rectangle.",
             keywords: &["quad", "grid", "shape"],
             is_source: true,
-            params: vec![v3("origin", "Origin", [-0.5, -0.5, 0.0]), v3("point1", "Point 1", [0.5, -0.5, 0.0]), v3("point2", "Point 2", [-0.5, 0.5, 0.0]), i("xres", "X resolution", 10, 1, 4096), i("yres", "Y resolution", 10, 1, 4096)],
-            apply: |_, p| Ok(DataSet::PolyData(crate::sources::plane(p.vec3("origin", [-0.5, -0.5, 0.0]), p.vec3("point1", [0.5, -0.5, 0.0]), p.vec3("point2", [-0.5, 0.5, 0.0]), p.i64("xres", 10) as usize, p.i64("yres", 10) as usize))),
+            params: vec![
+                v3("origin", "Origin", [-0.5, -0.5, 0.0]),
+                v3("point1", "Point 1", [0.5, -0.5, 0.0]),
+                v3("point2", "Point 2", [-0.5, 0.5, 0.0]),
+                i("xres", "X resolution", 10, 1, 4096),
+                i("yres", "Y resolution", 10, 1, 4096),
+            ],
+            apply: |_, p| {
+                Ok(DataSet::PolyData(crate::sources::plane(
+                    p.vec3("origin", [-0.5, -0.5, 0.0]),
+                    p.vec3("point1", [0.5, -0.5, 0.0]),
+                    p.vec3("point2", [-0.5, 0.5, 0.0]),
+                    p.i64("xres", 10) as usize,
+                    p.i64("yres", 10) as usize,
+                )))
+            },
         },
         FilterDef {
             id: "line",
@@ -696,7 +819,13 @@ fn build() -> Vec<FilterDef> {
             keywords: &["segment"],
             is_source: true,
             params: vec![v3("point1", "Point 1", [-0.5, 0.0, 0.0]), v3("point2", "Point 2", [0.5, 0.0, 0.0]), i("resolution", "Resolution", 10, 1, 1_000_000)],
-            apply: |_, p| Ok(DataSet::PolyData(crate::sources::line(p.vec3("point1", [-0.5, 0.0, 0.0]), p.vec3("point2", [0.5, 0.0, 0.0]), p.i64("resolution", 10) as usize))),
+            apply: |_, p| {
+                Ok(DataSet::PolyData(crate::sources::line(
+                    p.vec3("point1", [-0.5, 0.0, 0.0]),
+                    p.vec3("point2", [0.5, 0.0, 0.0]),
+                    p.i64("resolution", 10) as usize,
+                )))
+            },
         },
         FilterDef {
             id: "point_source",
@@ -705,8 +834,20 @@ fn build() -> Vec<FilterDef> {
             description: "Random points inside a sphere.",
             keywords: &["random", "points", "seeds"],
             is_source: true,
-            params: vec![v3("center", "Center", [0.0; 3]), f("radius", "Radius", 0.5, 0.0, f64::INFINITY), i("count", "Number of points", 1000, 1, 100_000_000), i("seed", "Random seed", 1, 0, i64::MAX).advanced()],
-            apply: |_, p| Ok(DataSet::PolyData(crate::sources::point_source(p.vec3("center", [0.0; 3]), p.f64("radius", 0.5), p.i64("count", 1000) as usize, p.i64("seed", 1) as u64))),
+            params: vec![
+                v3("center", "Center", [0.0; 3]),
+                f("radius", "Radius", 0.5, 0.0, f64::INFINITY),
+                i("count", "Number of points", 1000, 1, 100_000_000),
+                i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
+            ],
+            apply: |_, p| {
+                Ok(DataSet::PolyData(crate::sources::point_source(
+                    p.vec3("center", [0.0; 3]),
+                    p.f64("radius", 0.5),
+                    p.i64("count", 1000) as usize,
+                    p.i64("seed", 1) as u64,
+                )))
+            },
         },
         FilterDef {
             id: "wavelet",
@@ -715,7 +856,11 @@ fn build() -> Vec<FilterDef> {
             description: "Synthetic 3D scalar volume, handy for trying filters.",
             keywords: &["test data", "volume", "example", "rtdata"],
             is_source: true,
-            params: vec![i("half_size", "Half size", 10, 1, 512), f("maximum", "Maximum", 255.0, f64::NEG_INFINITY, f64::INFINITY), f("std_dev", "Std. deviation", 0.5, 0.0, f64::INFINITY)],
+            params: vec![
+                i("half_size", "Half size", 10, 1, 512),
+                f("maximum", "Maximum", 255.0, f64::NEG_INFINITY, f64::INFINITY),
+                f("std_dev", "Std. deviation", 0.5, 0.0, f64::INFINITY),
+            ],
             apply: |_, p| {
                 let h = p.i64("half_size", 10);
                 Ok(DataSet::ImageData(crate::sources::wavelet([-h, h, -h, h, -h, h], p.f64("maximum", 255.0), p.f64("std_dev", 0.5))))

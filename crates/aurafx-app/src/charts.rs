@@ -107,7 +107,10 @@ pub fn charts_ui(state: &mut State, ui: &mut egui::Ui) {
             });
             let names: Vec<String> = {
                 let s = state.session.lock();
-                s.active_node().and_then(|n| n.info.as_ref()).map(|i| i.point_arrays.iter().chain(&i.cell_arrays).chain(&i.field_arrays).map(|a| a.name.clone()).collect()).unwrap_or_default()
+                s.active_node()
+                    .and_then(|n| n.info.as_ref())
+                    .map(|i| i.point_arrays.iter().chain(&i.cell_arrays).chain(&i.field_arrays).map(|a| a.name.clone()).collect())
+                    .unwrap_or_default()
             };
             if cs.over_time_array.is_empty() || !names.contains(&cs.over_time_array) {
                 cs.over_time_array = names.first().cloned().unwrap_or_default();
@@ -117,7 +120,11 @@ pub fn charts_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.selectable_value(&mut cs.over_time_array, n.clone(), n);
                 }
             });
-            if ui.add_enabled(active.is_some() && !cs.over_time_array.is_empty(), egui::Button::new(format!("{} Plot", icons::WAVE_SINE))).on_hover_text("Re-runs the pipeline for every time step in the background").clicked() {
+            if ui
+                .add_enabled(active.is_some() && !cs.over_time_array.is_empty(), egui::Button::new(format!("{} Plot", icons::WAVE_SINE)))
+                .on_hover_text("Re-runs the pipeline for every time step in the background")
+                .clicked()
+            {
                 let code = format!("afx.over_time(afx.get('{}'), {:?}, stat={:?})", active.unwrap(), cs.over_time_array, cs.over_time_stat);
                 state.python.run(code, "charts");
             }

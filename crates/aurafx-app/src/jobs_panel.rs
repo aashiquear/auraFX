@@ -316,9 +316,16 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     spec.gpu = p.gpu_request();
                     spec.outputs = p.outputs.clone();
                     spec.auto_load = p.auto_load;
-                    spec.env = p.env.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.trim().to_string(), v.trim().to_string())).filter(|(k, _)| !k.is_empty()).collect();
+                    spec.env = p
+                        .env
+                        .lines()
+                        .filter_map(|l| l.split_once('='))
+                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                        .filter(|(k, _)| !k.is_empty())
+                        .collect();
                     if p.slurm {
-                        spec.scheduler = Scheduler::Slurm { partition: p.partition.clone(), time: p.time.clone(), nodes: p.nodes, tasks: p.np, extra: p.extra.clone() };
+                        spec.scheduler =
+                            Scheduler::Slurm { partition: p.partition.clone(), time: p.time.clone(), nodes: p.nodes, tasks: p.np, extra: p.extra.clone() };
                     }
                     let id = aurafx_jobs::submit(&aurafx_jobs::global(), spec);
                     p.selected = Some(id);
@@ -332,7 +339,13 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
 
         // ---------------------------------------------------------- job list
         let jobs = aurafx_jobs::global();
-        let rows: Vec<(JobId, String, String, JobState, Option<std::time::Duration>, usize)> = jobs.lock().jobs.iter().rev().map(|j| (j.id, j.spec.name.clone(), j.spec.host.name.clone(), j.state.clone(), j.runtime(), j.outputs.len())).collect();
+        let rows: Vec<(JobId, String, String, JobState, Option<std::time::Duration>, usize)> = jobs
+            .lock()
+            .jobs
+            .iter()
+            .rev()
+            .map(|j| (j.id, j.spec.name.clone(), j.spec.host.name.clone(), j.state.clone(), j.runtime(), j.outputs.len()))
+            .collect();
         egui::CollapsingHeader::new(RichText::new(format!("{} Jobs ({})", icons::LIST, rows.len())).strong()).default_open(true).show(ui, |ui| {
             if rows.is_empty() {
                 ui.label(RichText::new("No jobs yet. Fill in the form above and press Run, or call afx.submit(...) from Python.").weak());
@@ -379,7 +392,10 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                         }
                         if ui.small_button(format!("{} Ask AI", icons::SPARKLE)).on_hover_text("Send the end of this log to the assistant").clicked() {
                             let tail: Vec<&String> = log.iter().rev().take(60).collect::<Vec<_>>().into_iter().rev().collect();
-                            let msg = format!("Here is the end of my simulation log. Explain what happened and suggest fixes if it failed:\n```\n{}\n```", tail.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n"));
+                            let msg = format!(
+                                "Here is the end of my simulation log. Explain what happened and suggest fixes if it failed:\n```\n{}\n```",
+                                tail.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")
+                            );
                             let desc = state.session.lock().describe();
                             state.assistant.send(msg, desc);
                         }
@@ -387,7 +403,13 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     let filt = state.jobs_panel.log_filter.to_lowercase();
                     egui::ScrollArea::vertical().id_salt("joblog").max_height(260.0).stick_to_bottom(true).show(ui, |ui| {
                         for l in log.iter().filter(|l| filt.is_empty() || l.to_lowercase().contains(&filt)) {
-                            let c = if l.starts_with("! ") { Color32::from_rgb(240, 190, 80) } else if l.starts_with("[auraFX]") { crate::theme::ACCENT_SOFT } else { Color32::from_gray(210) };
+                            let c = if l.starts_with("! ") {
+                                Color32::from_rgb(240, 190, 80)
+                            } else if l.starts_with("[auraFX]") {
+                                crate::theme::ACCENT_SOFT
+                            } else {
+                                Color32::from_gray(210)
+                            };
                             ui.label(RichText::new(l).monospace().color(c));
                         }
                     });
@@ -434,7 +456,13 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
 
         // ---------------------------------------------------------- hosts
         egui::CollapsingHeader::new(RichText::new(format!("{} Remote machines (SSH)", icons::TERMINAL_WINDOW)).strong()).default_open(false).show(ui, |ui| {
-            ui.label(RichText::new("auraFX uses your system ssh, so ~/.ssh/config aliases, keys, agents and ProxyJump work. Use key-based login (no password prompts).").weak().small());
+            ui.label(
+                RichText::new(
+                    "auraFX uses your system ssh, so ~/.ssh/config aliases, keys, agents and ProxyJump work. Use key-based login (no password prompts).",
+                )
+                .weak()
+                .small(),
+            );
             let mut remove: Option<usize> = None;
             for (i, h) in state.settings.hosts.iter().enumerate() {
                 ui.horizontal(|ui| {
@@ -533,7 +561,11 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.label(RichText::new("From ~/.ssh/config:").weak());
                     for a in ssh_aliases {
                         if !state.settings.hosts.iter().any(|h| h.name == a) && ui.small_button(format!("+ {a}")).clicked() {
-                            state.settings.hosts.push(Host { name: a.clone(), kind: HostKind::Ssh { target: a, port: None, identity: None, jump: None }, setup: String::new() });
+                            state.settings.hosts.push(Host {
+                                name: a.clone(),
+                                kind: HostKind::Ssh { target: a, port: None, identity: None, jump: None },
+                                setup: String::new(),
+                            });
                             aurafx_jobs::set_hosts(state.settings.hosts.clone());
                             state.settings.save();
                         }
@@ -546,11 +578,14 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new(RichText::new(format!("{} Browse files", icons::FOLDER_OPEN)).strong()).default_open(false).show(ui, |ui| {
             let p = &mut state.jobs_panel;
             ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("browsehost").selected_text(hosts.get(p.browse_host).map(|h| h.name.clone()).unwrap_or_default()).show_ui(ui, |ui| {
-                    for (i, h) in hosts.iter().enumerate() {
-                        ui.selectable_value(&mut p.browse_host, i, &h.name);
-                    }
-                });
+                egui::ComboBox::from_id_salt("browsehost").selected_text(hosts.get(p.browse_host).map(|h| h.name.clone()).unwrap_or_default()).show_ui(
+                    ui,
+                    |ui| {
+                        for (i, h) in hosts.iter().enumerate() {
+                            ui.selectable_value(&mut p.browse_host, i, &h.name);
+                        }
+                    },
+                );
                 let r = ui.add(egui::TextEdit::singleline(&mut p.browse_path).desired_width(220.0));
                 if ui.button("Go").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                     p.browse(&ctx);
@@ -574,7 +609,13 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                 for (name, is_dir, size) in &p.browse_entries {
                     let openable = !is_dir && exts.iter().any(|e| name.to_lowercase().ends_with(&format!(".{e}")));
                     let label = if *is_dir { format!("{} {name}/", icons::FOLDER_OPEN) } else { format!("{name}   {:.1} MB", *size as f64 / 1e6) };
-                    let text = if openable { RichText::new(label).strong() } else if *is_dir { RichText::new(label) } else { RichText::new(label).weak() };
+                    let text = if openable {
+                        RichText::new(label).strong()
+                    } else if *is_dir {
+                        RichText::new(label)
+                    } else {
+                        RichText::new(label).weak()
+                    };
                     let r = ui.selectable_label(false, text);
                     if r.double_clicked() || (r.clicked() && *is_dir) {
                         if *is_dir {

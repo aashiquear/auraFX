@@ -55,7 +55,14 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
                     }
                     3 => {
                         let d = outs[0];
-                        let w = [pb.keep(ins[0]), pb.keep(ins[1]), pb.keep(ins[2]), edge_pt(&mut pb, ins[0], d), edge_pt(&mut pb, ins[1], d), edge_pt(&mut pb, ins[2], d)];
+                        let w = [
+                            pb.keep(ins[0]),
+                            pb.keep(ins[1]),
+                            pb.keep(ins[2]),
+                            edge_pt(&mut pb, ins[0], d),
+                            edge_pt(&mut pb, ins[1], d),
+                            edge_pt(&mut pb, ins[2], d),
+                        ];
                         for wt in wedge_tets {
                             cells.push(CellType::Tetra, &[w[wt[0]], w[wt[1]], w[wt[2]], w[wt[3]]]);
                             parents.push(cid);

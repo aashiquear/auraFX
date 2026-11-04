@@ -185,14 +185,30 @@ fn auto_fill(state: &State, id: NodeId, spec: &ParamSpec) -> ParamValue {
             }
         }
         ParamKind::Float { .. } => {
-            let range = input.and_then(|n| n.info.as_ref()).and_then(|i| i.point_arrays.first().or(i.cell_arrays.first())).map(|a| a.range).unwrap_or((0.0, 1.0));
-            ParamValue::Float(if key == "lower" { range.0 } else if key == "upper" { range.1 } else if key.contains("scale") { 1.0 } else { 0.0 })
+            let range =
+                input.and_then(|n| n.info.as_ref()).and_then(|i| i.point_arrays.first().or(i.cell_arrays.first())).map(|a| a.range).unwrap_or((0.0, 1.0));
+            ParamValue::Float(if key == "lower" {
+                range.0
+            } else if key == "upper" {
+                range.1
+            } else if key.contains("scale") {
+                1.0
+            } else {
+                0.0
+            })
         }
         _ => spec.default.clone(),
     }
 }
 
-fn param_widget(state: &mut State, ui: &mut egui::Ui, id: NodeId, spec: &ParamSpec, value: &ParamValue, arrays: &[(Association, String, usize)]) -> Option<ParamValue> {
+fn param_widget(
+    state: &mut State,
+    ui: &mut egui::Ui,
+    id: NodeId,
+    spec: &ParamSpec,
+    value: &ParamValue,
+    arrays: &[(Association, String, usize)],
+) -> Option<ParamValue> {
     let mut out = None;
     match &spec.kind {
         ParamKind::Bool => {
@@ -302,7 +318,13 @@ fn param_widget(state: &mut State, ui: &mut egui::Ui, id: NodeId, spec: &ParamSp
                         continue;
                     }
                     let sel = *a == cur_assoc && *n == cur_name;
-                    if ui.selectable_label(sel, format!("{} {}{}", crate::viewport::assoc_glyph(*a), n, if *nc > 1 { format!(" ({nc})") } else { String::new() })).clicked() {
+                    if ui
+                        .selectable_label(
+                            sel,
+                            format!("{} {}{}", crate::viewport::assoc_glyph(*a), n, if *nc > 1 { format!(" ({nc})") } else { String::new() }),
+                        )
+                        .clicked()
+                    {
                         out = Some(ParamValue::Array { assoc: *a, name: n.clone() });
                     }
                 }
@@ -311,7 +333,8 @@ fn param_widget(state: &mut State, ui: &mut egui::Ui, id: NodeId, spec: &ParamSp
         ParamKind::Floats => {
             let cur = value.as_floats().unwrap_or_default();
             let id_salt = ui.scope_id().with(&spec.key);
-            let mut text: String = ui.data_mut(|d| d.get_temp::<String>(id_salt)).unwrap_or_else(|| cur.iter().map(|v| aurafx_data::info::g(*v)).collect::<Vec<_>>().join(", "));
+            let mut text: String =
+                ui.data_mut(|d| d.get_temp::<String>(id_salt)).unwrap_or_else(|| cur.iter().map(|v| aurafx_data::info::g(*v)).collect::<Vec<_>>().join(", "));
             let r = ui.text_edit_singleline(&mut text);
             ui.data_mut(|d| d.insert_temp(id_salt, text.clone()));
             if r.lost_focus() {
@@ -329,7 +352,18 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
         let s = state.session.lock();
         s.active_node().map(|n| {
             let input_info = n.input.and_then(|i| s.nodes.get(&i)).and_then(|i| i.info.clone());
-            (n.id, n.name.clone(), n.type_label(), n.def().cloned(), n.params.clone(), n.display.clone(), n.info.clone(), input_info, n.error.clone(), n.last_exec_ms)
+            (
+                n.id,
+                n.name.clone(),
+                n.type_label(),
+                n.def().cloned(),
+                n.params.clone(),
+                n.display.clone(),
+                n.info.clone(),
+                input_info,
+                n.error.clone(),
+                n.last_exec_ms,
+            )
         })
     };
     let Some((id, name, kind, def, params, display, info, input_info, error, ms)) = snapshot else {
@@ -357,46 +391,48 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
             arrays.extend(i.cell_arrays.iter().map(|a| (Association::Cells, a.name.clone(), a.ncomp)));
         }
         if let Some(def) = &def {
-            egui::CollapsingHeader::new(RichText::new("Parameters").strong()).default_open(true).show(ui, |ui| {
-                ui.label(RichText::new(def.description).weak().small());
-                let show_adv = ui.scope_id().with("adv");
-                let mut adv: bool = ui.data_mut(|d| d.get_temp(show_adv)).unwrap_or(false);
-                egui::Grid::new("params").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                    for spec in &def.params {
-                        if spec.advanced && !adv {
-                            continue;
+            egui::CollapsingHeader::new(RichText::new("Parameters").strong())
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(def.description).weak().small());
+                    let show_adv = ui.scope_id().with("adv");
+                    let mut adv: bool = ui.data_mut(|d| d.get_temp(show_adv)).unwrap_or(false);
+                    egui::Grid::new("params").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+                        for spec in &def.params {
+                            if spec.advanced && !adv {
+                                continue;
+                            }
+                            let label = ui.label(&spec.label);
+                            if !spec.help.is_empty() {
+                                label.on_hover_text(&spec.help);
+                            }
+                            let value = params.get(&spec.key).cloned().unwrap_or(spec.default.clone());
+                            if let Some(nv) = param_widget(state, ui, id, spec, &value, &arrays) {
+                                state.session.lock().set_param(id, &spec.key, nv);
+                            }
+                            ui.end_row();
                         }
-                        let label = ui.label(&spec.label);
-                        if !spec.help.is_empty() {
-                            label.on_hover_text(&spec.help);
+                    });
+                    if def.params.iter().any(|p| p.advanced) {
+                        if ui.checkbox(&mut adv, "Show advanced").changed() {
+                            ui.data_mut(|d| d.insert_temp(show_adv, adv));
                         }
-                        let value = params.get(&spec.key).cloned().unwrap_or(spec.default.clone());
-                        if let Some(nv) = param_widget(state, ui, id, spec, &value, &arrays) {
-                            state.session.lock().set_param(id, &spec.key, nv);
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Reset to defaults").clicked() {
+                            let mut s = state.session.lock();
+                            if let Some(n) = s.nodes.get_mut(&id) {
+                                n.params = def.default_params();
+                            }
+                            s.mark_dirty(id);
                         }
-                        ui.end_row();
-                    }
-                });
-                if def.params.iter().any(|p| p.advanced) {
-                    if ui.checkbox(&mut adv, "Show advanced").changed() {
-                        ui.data_mut(|d| d.insert_temp(show_adv, adv));
-                    }
-                }
-                ui.horizontal(|ui| {
-                    if ui.button("Reset to defaults").clicked() {
-                        let mut s = state.session.lock();
-                        if let Some(n) = s.nodes.get_mut(&id) {
-                            n.params = def.default_params();
+                        if ui.button("Re-run").clicked() {
+                            state.session.lock().mark_dirty(id);
                         }
-                        s.mark_dirty(id);
-                    }
-                    if ui.button("Re-run").clicked() {
-                        state.session.lock().mark_dirty(id);
-                    }
-                });
-            })
-            .header_response
-            .on_hover_text("Changes apply immediately.");
+                    });
+                })
+                .header_response
+                .on_hover_text("Changes apply immediately.");
         }
 
         egui::CollapsingHeader::new(RichText::new("Display").strong()).default_open(true).show(ui, |ui| {
@@ -413,7 +449,13 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.label("Color by");
                 let own: Vec<(Association, String, usize)> = info
                     .as_ref()
-                    .map(|i| i.point_arrays.iter().map(|a| (Association::Points, a.name.clone(), a.ncomp)).chain(i.cell_arrays.iter().map(|a| (Association::Cells, a.name.clone(), a.ncomp))).collect())
+                    .map(|i| {
+                        i.point_arrays
+                            .iter()
+                            .map(|a| (Association::Points, a.name.clone(), a.ncomp))
+                            .chain(i.cell_arrays.iter().map(|a| (Association::Cells, a.name.clone(), a.ncomp)))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let cur = d.color_by.as_ref().map(|c| format!("{} {}", crate::viewport::assoc_glyph(c.assoc), c.name)).unwrap_or_else(|| "Solid color".into());
                 egui::ComboBox::from_id_salt("colorby").selected_text(cur).width(200.0).show_ui(ui, |ui| {
@@ -423,7 +465,13 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     }
                     for (a, n, nc) in &own {
                         let sel = d.color_by.as_ref().map(|c| c.assoc == *a && c.name == *n).unwrap_or(false);
-                        if ui.selectable_label(sel, format!("{} {}{}", crate::viewport::assoc_glyph(*a), n, if *nc > 1 { format!(" ({nc})") } else { String::new() })).clicked() {
+                        if ui
+                            .selectable_label(
+                                sel,
+                                format!("{} {}{}", crate::viewport::assoc_glyph(*a), n, if *nc > 1 { format!(" ({nc})") } else { String::new() }),
+                            )
+                            .clicked()
+                        {
                             d.color_by = Some(ColorBy { assoc: *a, name: n.clone(), component: None });
                             d.range = None;
                         }
@@ -437,12 +485,15 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     if ncomp > 1 {
                         ui.label("Component");
                         let mut comp = cb.component;
-                        egui::ComboBox::from_id_salt("comp").selected_text(comp.map(|c| c.to_string()).unwrap_or_else(|| "Magnitude".into())).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut comp, None, "Magnitude");
-                            for c in 0..ncomp {
-                                ui.selectable_value(&mut comp, Some(c), ["X", "Y", "Z"].get(c).map(|s| s.to_string()).unwrap_or_else(|| c.to_string()));
-                            }
-                        });
+                        egui::ComboBox::from_id_salt("comp").selected_text(comp.map(|c| c.to_string()).unwrap_or_else(|| "Magnitude".into())).show_ui(
+                            ui,
+                            |ui| {
+                                ui.selectable_value(&mut comp, None, "Magnitude");
+                                for c in 0..ncomp {
+                                    ui.selectable_value(&mut comp, Some(c), ["X", "Y", "Z"].get(c).map(|s| s.to_string()).unwrap_or_else(|| c.to_string()));
+                                }
+                            },
+                        );
                         if comp != cb.component {
                             d.color_by.as_mut().unwrap().component = comp;
                             d.range = None;

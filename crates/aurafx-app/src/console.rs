@@ -147,7 +147,13 @@ pub fn console_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         });
     }
-    let resp = ui.add(egui::TextEdit::multiline(&mut state.console.input).code_editor().desired_rows(3).desired_width(f32::INFINITY).hint_text("Python… (Ctrl+Enter to run, Tab to complete, Up/Down for history)"));
+    let resp = ui.add(
+        egui::TextEdit::multiline(&mut state.console.input)
+            .code_editor()
+            .desired_rows(3)
+            .desired_width(f32::INFINITY)
+            .hint_text("Python… (Ctrl+Enter to run, Tab to complete, Up/Down for history)"),
+    );
     if resp.has_focus() {
         let (run, tab, up, down) = ui.input_mut(|i| {
             (

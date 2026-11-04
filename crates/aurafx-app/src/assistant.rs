@@ -109,7 +109,11 @@ impl Assistant {
         }
         self.error = None;
         self.messages.push(ChatMessage { role: Role::User, content: text });
-        let catalog: String = aurafx_filters::registry().iter().map(|f| format!("- {}: {} [{}]", f.id, f.description, f.params.iter().map(|p| p.key.as_str()).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("\n");
+        let catalog: String = aurafx_filters::registry()
+            .iter()
+            .map(|f| format!("- {}: {} [{}]", f.id, f.description, f.params.iter().map(|p| p.key.as_str()).collect::<Vec<_>>().join(", ")))
+            .collect::<Vec<_>>()
+            .join("\n");
         let system = aurafx_ai::system_prompt(&pipeline, &catalog);
         // Keep the last 20 messages to bound context.
         let msgs: Vec<ChatMessage> = self.messages.iter().rev().take(20).rev().cloned().collect();
@@ -148,11 +152,13 @@ impl Assistant {
             ui.end_row();
             ui.label("Model");
             ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("model").selected_text(if self.cfg.model.is_empty() { "(default)".to_string() } else { self.cfg.model.clone() }).show_ui(ui, |ui| {
-                    for m in self.models.clone() {
-                        ui.selectable_value(&mut self.cfg.model, m.clone(), m);
-                    }
-                });
+                egui::ComboBox::from_id_salt("model")
+                    .selected_text(if self.cfg.model.is_empty() { "(default)".to_string() } else { self.cfg.model.clone() })
+                    .show_ui(ui, |ui| {
+                        for m in self.models.clone() {
+                            ui.selectable_value(&mut self.cfg.model, m.clone(), m);
+                        }
+                    });
                 ui.text_edit_singleline(&mut self.cfg.model);
                 if ui.button(crate::icons::ARROW_CLOCKWISE).on_hover_text("Refresh model list").clicked() {
                     self.refresh_models();
@@ -189,10 +195,15 @@ impl Assistant {
             ui.add(egui::Slider::new(&mut self.cfg.temperature, 0.0..=1.5));
             ui.end_row();
             ui.label("Auto-run code");
-            ui.checkbox(&mut settings.auto_run_ai_code, "Run Python blocks from the assistant automatically").on_hover_text("Off by default: review code before running it.");
+            ui.checkbox(&mut settings.auto_run_ai_code, "Run Python blocks from the assistant automatically")
+                .on_hover_text("Off by default: review code before running it.");
             ui.end_row();
         });
-        if before.provider != self.cfg.provider || before.ollama_url != self.cfg.ollama_url || before.api_key != self.cfg.api_key || before.openai_url != self.cfg.openai_url {
+        if before.provider != self.cfg.provider
+            || before.ollama_url != self.cfg.ollama_url
+            || before.api_key != self.cfg.api_key
+            || before.openai_url != self.cfg.openai_url
+        {
             if before.provider != self.cfg.provider {
                 self.cfg.model.clear();
             }
@@ -205,7 +216,14 @@ impl Assistant {
 }
 
 fn cfg_eq(a: &AiConfig, o: &AiConfig) -> bool {
-    a.provider == o.provider && a.model == o.model && a.api_key == o.api_key && a.ollama_url == o.ollama_url && a.openai_url == o.openai_url && a.anthropic_url == o.anthropic_url && a.max_tokens == o.max_tokens && a.temperature == o.temperature
+    a.provider == o.provider
+        && a.model == o.model
+        && a.api_key == o.api_key
+        && a.ollama_url == o.ollama_url
+        && a.openai_url == o.openai_url
+        && a.anthropic_url == o.anthropic_url
+        && a.max_tokens == o.max_tokens
+        && a.temperature == o.temperature
 }
 
 pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
@@ -230,7 +248,13 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.selectable_value(&mut a.cfg.model, m.clone(), m);
             }
             if a.models.is_empty() {
-                ui.label(RichText::new(match a.cfg.provider { ProviderKind::Ollama => format!("No models at {}. Run `ollama pull <model>` or set the URL in Settings.", a.cfg.ollama_url), _ => "No models listed; type one in Settings.".to_string() }).weak());
+                ui.label(
+                    RichText::new(match a.cfg.provider {
+                        ProviderKind::Ollama => format!("No models at {}. Run `ollama pull <model>` or set the URL in Settings.", a.cfg.ollama_url),
+                        _ => "No models listed; type one in Settings.".to_string(),
+                    })
+                    .weak(),
+                );
             }
         });
         if before_model != a.cfg.model {
@@ -312,7 +336,12 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         }
     });
     ui.separator();
-    let resp = ui.add(egui::TextEdit::multiline(&mut state.assistant.input).desired_rows(2).desired_width(f32::INFINITY).hint_text("Ask the assistant… (Enter to send, Shift+Enter for newline)"));
+    let resp = ui.add(
+        egui::TextEdit::multiline(&mut state.assistant.input)
+            .desired_rows(2)
+            .desired_width(f32::INFINITY)
+            .hint_text("Ask the assistant… (Enter to send, Shift+Enter for newline)"),
+    );
     if state.assistant.focus_input {
         resp.request_focus();
         state.assistant.focus_input = false;

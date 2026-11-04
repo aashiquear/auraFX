@@ -153,7 +153,9 @@ impl PyNode {
     fn __getattr__(&self, name: String) -> PyResult<FilterCall> {
         match aurafx_filters::find(&name) {
             Some(def) if !def.is_source => Ok(FilterCall { input: self.id, filter_id: def.id.to_string() }),
-            _ => Err(pyo3::exceptions::PyAttributeError::new_err(format!("Node has no attribute or filter named '{name}'. Try afx.filters() to list filters."))),
+            _ => {
+                Err(pyo3::exceptions::PyAttributeError::new_err(format!("Node has no attribute or filter named '{name}'. Try afx.filters() to list filters.")))
+            }
         }
     }
 
@@ -165,7 +167,14 @@ impl PyNode {
     }
 
     #[pyo3(signature = (name=None, assoc=None, component=None, cmap=None, range=None))]
-    fn color_by(&self, name: Option<String>, assoc: Option<String>, component: Option<usize>, cmap: Option<String>, range: Option<(f64, f64)>) -> PyResult<PyNode> {
+    fn color_by(
+        &self,
+        name: Option<String>,
+        assoc: Option<String>,
+        component: Option<usize>,
+        cmap: Option<String>,
+        range: Option<(f64, f64)>,
+    ) -> PyResult<PyNode> {
         let mut s = session().lock();
         match name {
             Some(n) => {
@@ -426,7 +435,13 @@ fn help_filter(id: String) -> PyResult<String> {
     let f = aurafx_filters::find(&id).ok_or_else(|| PyKeyError::new_err(format!("unknown filter {id}")))?;
     let mut s = format!("{} ({})\n{}\n\nParameters:\n", f.label, f.id, f.description);
     for p in &f.params {
-        s += &format!("  {} - {} (default {}){}\n", p.key, p.label, serde_json::to_string(&p.default).unwrap_or_default(), if p.help.is_empty() { String::new() } else { format!(": {}", p.help) });
+        s += &format!(
+            "  {} - {} (default {}){}\n",
+            p.key,
+            p.label,
+            serde_json::to_string(&p.default).unwrap_or_default(),
+            if p.help.is_empty() { String::new() } else { format!(": {}", p.help) }
+        );
     }
     Ok(s)
 }
@@ -451,9 +466,16 @@ fn reset_camera() {
     session().lock().camera_request = Some(CameraRequest::ResetToBounds);
 }
 
-/// View from a named direction: "+x", "-y", "iso", ...
+/// View from a named direction ("+x", "-y", "iso", ...) or a vector [x, y, z] pointing from the data to the camera.
 #[pyfunction]
-fn view(direction: String) -> PyResult<()> {
+#[pyo3(signature = (direction, up=None))]
+fn view(direction: Bound<'_, PyAny>, up: Option<[f64; 3]>) -> PyResult<()> {
+    if let Ok(v) = direction.extract::<[f64; 3]>() {
+        let up = up.unwrap_or(if v[0].abs() < 1e-9 && v[1].abs() < 1e-9 { [0.0, 1.0, 0.0] } else { [0.0, 0.0, 1.0] });
+        session().lock().camera_request = Some(CameraRequest::View { direction: v, up });
+        return Ok(());
+    }
+    let direction: String = direction.extract()?;
     let (dir, up) = match direction.to_ascii_lowercase().as_str() {
         "+x" | "x" => ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
         "-x" => ([-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
@@ -480,7 +502,15 @@ fn screenshot(path: String, width: Option<u32>, height: Option<u32>) {
 #[pyfunction]
 #[pyo3(signature = (x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=false))]
 #[allow(clippy::too_many_arguments)]
-fn plot(x: Bound<'_, PyAny>, y: Option<Bound<'_, PyAny>>, label: Option<String>, title: Option<String>, xlabel: Option<String>, ylabel: Option<String>, clear: bool) -> PyResult<()> {
+fn plot(
+    x: Bound<'_, PyAny>,
+    y: Option<Bound<'_, PyAny>>,
+    label: Option<String>,
+    title: Option<String>,
+    xlabel: Option<String>,
+    ylabel: Option<String>,
+    clear: bool,
+) -> PyResult<()> {
     let to_vec = |v: &Bound<'_, PyAny>| -> PyResult<Vec<f64>> {
         if let Ok(l) = v.extract::<Vec<f64>>() {
             return Ok(l);
@@ -569,9 +599,7 @@ fn colormaps() -> Vec<&'static str> {
 
 /// Build a source function for each registered source so `afx.sphere(radius=2)` works.
 fn make_source_fn(py: Python<'_>, id: &'static str) -> PyResult<Py<PyAny>> {
-    let code = format!(
-        "def {id}(**kw):\n    import aurafx\n    return aurafx.apply('{id}', None, **kw)\n{id}.__doc__ = aurafx_doc\n"
-    );
+    let code = format!("def {id}(**kw):\n    import aurafx\n    return aurafx.apply('{id}', None, **kw)\n{id}.__doc__ = aurafx_doc\n");
     let doc = aurafx_filters::find(id).map(|f| f.description.to_string()).unwrap_or_default();
     let g = PyDict::new(py);
     g.set_item("aurafx_doc", doc)?;
@@ -588,7 +616,13 @@ fn job_dict<'py>(py: Python<'py>, j: &aurafx_jobs::Job, tail: usize) -> PyResult
     d.set_item("host", &j.spec.host.name)?;
     d.set_item("state", j.state.label())?;
     d.set_item("active", j.state.is_active())?;
-    d.set_item("exit_code", match j.state { aurafx_jobs::JobState::Finished(c) => Some(c), _ => None })?;
+    d.set_item(
+        "exit_code",
+        match j.state {
+            aurafx_jobs::JobState::Finished(c) => Some(c),
+            _ => None,
+        },
+    )?;
     d.set_item("seconds", j.runtime().map(|r| r.as_secs_f64()))?;
     let n = j.log.len();
     d.set_item("log", j.log.iter().skip(n.saturating_sub(tail)).cloned().collect::<Vec<_>>())?;
@@ -601,7 +635,19 @@ fn job_dict<'py>(py: Python<'py>, j: &aurafx_jobs::Job, tail: usize) -> PyResult
 #[pyfunction]
 #[pyo3(signature = (command, host=None, workdir=None, gpu=None, outputs=None, auto_load=false, name=None, env=None, slurm=None, wait=false))]
 #[allow(clippy::too_many_arguments)]
-fn submit(py: Python<'_>, command: String, host: Option<String>, workdir: Option<String>, gpu: Option<String>, outputs: Option<String>, auto_load: bool, name: Option<String>, env: Option<std::collections::HashMap<String, String>>, slurm: Option<std::collections::HashMap<String, String>>, wait: bool) -> PyResult<u64> {
+fn submit(
+    py: Python<'_>,
+    command: String,
+    host: Option<String>,
+    workdir: Option<String>,
+    gpu: Option<String>,
+    outputs: Option<String>,
+    auto_load: bool,
+    name: Option<String>,
+    env: Option<std::collections::HashMap<String, String>>,
+    slurm: Option<std::collections::HashMap<String, String>>,
+    wait: bool,
+) -> PyResult<u64> {
     let mut spec = aurafx_jobs::JobSpec::new(name.unwrap_or_else(|| command.split_whitespace().next().unwrap_or("job").to_string()), command);
     spec.host = aurafx_jobs::resolve_host(host.as_deref());
     if let Some(w) = workdir {

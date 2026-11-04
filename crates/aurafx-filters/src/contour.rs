@@ -3,8 +3,8 @@
 use crate::attributes::cell_to_point;
 use crate::interp::ScalarFn;
 use crate::params::Association;
-use crate::slice::cut_at_zero;
 use crate::simplex::{as_explicit, parts};
+use crate::slice::cut_at_zero;
 use anyhow::{anyhow, Result};
 use aurafx_data::*;
 

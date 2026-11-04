@@ -163,11 +163,7 @@ impl Default for ImageData {
 impl ImageData {
     pub fn dims(&self) -> [usize; 3] {
         let e = &self.extent;
-        [
-            (e[1] - e[0] + 1).max(0) as usize,
-            (e[3] - e[2] + 1).max(0) as usize,
-            (e[5] - e[4] + 1).max(0) as usize,
-        ]
+        [(e[1] - e[0] + 1).max(0) as usize, (e[3] - e[2] + 1).max(0) as usize, (e[5] - e[4] + 1).max(0) as usize]
     }
     pub fn n_points(&self) -> usize {
         let d = self.dims();
@@ -175,8 +171,7 @@ impl ImageData {
     }
     pub fn n_cells(&self) -> usize {
         let d = self.dims();
-        d.iter().map(|&n| n.saturating_sub(1).max(if n == 0 { 0 } else { 1 })).product::<usize>()
-            * if d.iter().any(|&n| n == 0) { 0 } else { 1 }
+        d.iter().map(|&n| n.saturating_sub(1).max(if n == 0 { 0 } else { 1 })).product::<usize>() * if d.iter().any(|&n| n == 0) { 0 } else { 1 }
     }
     pub fn point(&self, i: usize, j: usize, k: usize) -> [f64; 3] {
         let e = &self.extent;
@@ -263,11 +258,7 @@ pub struct StructuredGrid {
 impl StructuredGrid {
     pub fn dims(&self) -> [usize; 3] {
         let e = &self.extent;
-        [
-            (e[1] - e[0] + 1).max(0) as usize,
-            (e[3] - e[2] + 1).max(0) as usize,
-            (e[5] - e[4] + 1).max(0) as usize,
-        ]
+        [(e[1] - e[0] + 1).max(0) as usize, (e[3] - e[2] + 1).max(0) as usize, (e[5] - e[4] + 1).max(0) as usize]
     }
 }
 
@@ -324,7 +315,10 @@ pub struct TimeSeries {
 pub enum TimeStepRef {
     File(PathBuf),
     /// Frame `frame` inside a multi-frame file (e.g. LAMMPS dump).
-    FileFrame { path: PathBuf, frame: usize },
+    FileFrame {
+        path: PathBuf,
+        frame: usize,
+    },
     #[serde(skip)]
     Loaded(Arc<DataSet>),
 }

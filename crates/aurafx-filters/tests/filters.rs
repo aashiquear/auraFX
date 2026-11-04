@@ -78,7 +78,8 @@ fn registry_search() {
 fn probe_and_plot_over_line() {
     let t = td("wavelet_tets.vtu");
     let w = run("wavelet", None, &[("half_size", 5.into())]);
-    let line = run("plot_over_line", Some(&t), &[("point1", serde_json::json!([-5, 0, 0])), ("point2", serde_json::json!([5, 0, 0])), ("resolution", 10.into())]);
+    let line =
+        run("plot_over_line", Some(&t), &[("point1", serde_json::json!([-5, 0, 0])), ("point2", serde_json::json!([5, 0, 0])), ("resolution", 10.into())]);
     let pd = line.point_data().unwrap();
     let mask = pd.get("vtkValidPointMask").unwrap();
     assert_eq!(mask.range(None), (1.0, 1.0));
@@ -101,10 +102,12 @@ fn analysis_filters() {
     let n = img.n_points();
     let pts = img.points();
     // f = 2x + 3y - z -> gradient (2, 3, -1) exactly.
-    let f: Vec<f64> = (0..n).map(|i| {
-        let p = pts.get(i);
-        2.0 * p[0] + 3.0 * p[1] - p[2]
-    }).collect();
+    let f: Vec<f64> = (0..n)
+        .map(|i| {
+            let p = pts.get(i);
+            2.0 * p[0] + 3.0 * p[1] - p[2]
+        })
+        .collect();
     img.point_data.insert(aurafx_data::Array::scalars_f64("f", f));
     let ds = DataSet::ImageData(img);
     let it = run("integrate_variables", Some(&ds), &[]);

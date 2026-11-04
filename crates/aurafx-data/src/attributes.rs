@@ -62,8 +62,7 @@ impl Attributes {
     }
 
     pub fn scalars(&self) -> Option<&Array> {
-        self.active(AttributeKind::Scalars)
-            .or_else(|| self.arrays.values().find(|a| a.ncomp == 1 && a.scalar_type() != crate::ScalarType::String))
+        self.active(AttributeKind::Scalars).or_else(|| self.arrays.values().find(|a| a.ncomp == 1 && a.scalar_type() != crate::ScalarType::String))
     }
 
     pub fn vectors(&self) -> Option<&Array> {
@@ -88,10 +87,7 @@ impl Attributes {
 
     /// Build a new attribute set containing the given tuples of every array.
     pub fn gather(&self, idx: &[usize]) -> Attributes {
-        Attributes {
-            arrays: self.arrays.iter().map(|(k, a)| (k.clone(), a.gather(idx))).collect(),
-            active: self.active.clone(),
-        }
+        Attributes { arrays: self.arrays.iter().map(|(k, a)| (k.clone(), a.gather(idx))).collect(), active: self.active.clone() }
     }
 
     /// Keep only arrays that pass `pred`.

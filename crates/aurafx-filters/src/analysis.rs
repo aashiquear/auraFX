@@ -193,7 +193,8 @@ pub fn gradient(ds: &DataSet, name: &str) -> Result<DataSet> {
     let mut acc = vec![[0.0f64; 3]; n];
     let mut wsum = vec![0.0f64; n];
     let solve3 = |m: [[f64; 3]; 3], r: [f64; 3]| -> Option<[f64; 3]> {
-        let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+        let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
         if det.abs() < 1e-300 {
             return None;
         }
@@ -202,7 +203,8 @@ pub fn gradient(ds: &DataSet, name: &str) -> Result<DataSet> {
             for row in 0..3 {
                 mm[row][c] = r[row];
             }
-            mm[0][0] * (mm[1][1] * mm[2][2] - mm[1][2] * mm[2][1]) - mm[0][1] * (mm[1][0] * mm[2][2] - mm[1][2] * mm[2][0]) + mm[0][2] * (mm[1][0] * mm[2][1] - mm[1][1] * mm[2][0])
+            mm[0][0] * (mm[1][1] * mm[2][2] - mm[1][2] * mm[2][1]) - mm[0][1] * (mm[1][0] * mm[2][2] - mm[1][2] * mm[2][0])
+                + mm[0][2] * (mm[1][0] * mm[2][1] - mm[1][1] * mm[2][0])
         };
         Some([rep(0) / det, rep(1) / det, rep(2) / det])
     };

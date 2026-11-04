@@ -77,7 +77,15 @@ fn triangulate(pd: &PolyData, cell_base: usize) -> Vec<([u32; 3], usize)> {
 /// Emit triangles with crease-angle normals: a corner averages the normals of incident
 /// triangles that are within `crease_deg` of its own face, so curved surfaces look smooth
 /// while hard edges (e.g. box corners) stay sharp.
-fn emit_triangles(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal: Option<&[f32]>, cell_base: usize, crease_deg: Option<f64>, out: &mut Vec<Vertex>) {
+fn emit_triangles(
+    pd: &PolyData,
+    origin: [f64; 3],
+    pscal: Option<&[f32]>,
+    cscal: Option<&[f32]>,
+    cell_base: usize,
+    crease_deg: Option<f64>,
+    out: &mut Vec<Vertex>,
+) {
     let tris = triangulate(pd, cell_base);
     if tris.is_empty() {
         return;
@@ -98,7 +106,11 @@ fn emit_triangles(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal:
             let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
             let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
             let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if l > 0.0 { [n[0] / l, n[1] / l, n[2] / l] } else { [0.0, 0.0, 0.0] }
+            if l > 0.0 {
+                [n[0] / l, n[1] / l, n[2] / l]
+            } else {
+                [0.0, 0.0, 0.0]
+            }
         })
         .collect();
     // Point -> incident triangles (CSR).
@@ -149,7 +161,11 @@ fn emit_triangles(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal:
                         }
                     }
                     let l = (acc[0] * acc[0] + acc[1] * acc[1] + acc[2] * acc[2]).sqrt();
-                    if l > 0.0 { [acc[0] / l, acc[1] / l, acc[2] / l] } else { fnrm }
+                    if l > 0.0 {
+                        [acc[0] / l, acc[1] / l, acc[2] / l]
+                    } else {
+                        fnrm
+                    }
                 } else {
                     fnrm
                 };
@@ -222,7 +238,12 @@ fn emit_points(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal: Op
         for i in 0..pd.verts.len() {
             for &id in pd.verts.cell(i) {
                 let p = pd.points.get(id as usize);
-                out.push(Vertex { pos: [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32], scalar: cscal.unwrap()[i], normal: [0.0, 0.0, 1.0], _pad: 0.0 });
+                out.push(Vertex {
+                    pos: [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32],
+                    scalar: cscal.unwrap()[i],
+                    normal: [0.0, 0.0, 1.0],
+                    _pad: 0.0,
+                });
             }
         }
         return;
@@ -231,7 +252,12 @@ fn emit_points(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal: Op
     for i in 0..n {
         let p = pd.points.get(i);
         let s = pscal.and_then(|ps| ps.get(i).copied()).unwrap_or(0.0);
-        out.push(Vertex { pos: [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32], scalar: s, normal: [0.0, 0.0, 1.0], _pad: 0.0 });
+        out.push(Vertex {
+            pos: [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32],
+            scalar: s,
+            normal: [0.0, 0.0, 1.0],
+            _pad: 0.0,
+        });
     }
 }
 
@@ -311,4 +337,3 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
     }
     mesh
 }
-

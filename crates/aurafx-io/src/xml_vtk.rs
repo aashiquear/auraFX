@@ -121,7 +121,11 @@ fn read_header_values(ctx: &FileCtx, bytes: &[u8], n: usize) -> Vec<u64> {
             let c = &bytes[i * sz..(i + 1) * sz];
             if ctx.header64 {
                 let a: [u8; 8] = c.try_into().unwrap();
-                if ctx.little_endian { u64::from_le_bytes(a) } else { u64::from_be_bytes(a) }
+                if ctx.little_endian {
+                    u64::from_le_bytes(a)
+                } else {
+                    u64::from_be_bytes(a)
+                }
             } else {
                 let a: [u8; 4] = c.try_into().unwrap();
                 (if ctx.little_endian { u32::from_le_bytes(a) } else { u32::from_be_bytes(a) }) as u64
@@ -313,10 +317,26 @@ fn read_cells_block(ctx: &FileCtx, node: Option<&Node>, poly_kind: Option<&str>)
             .map(|i| {
                 let n = cells.cell(i).len();
                 match kind {
-                    "Verts" => if n == 1 { CellType::Vertex } else { CellType::PolyVertex },
-                    "Lines" => if n == 2 { CellType::Line } else { CellType::PolyLine },
+                    "Verts" => {
+                        if n == 1 {
+                            CellType::Vertex
+                        } else {
+                            CellType::PolyVertex
+                        }
+                    }
+                    "Lines" => {
+                        if n == 2 {
+                            CellType::Line
+                        } else {
+                            CellType::PolyLine
+                        }
+                    }
                     "Strips" => CellType::TriangleStrip,
-                    _ => match n { 3 => CellType::Triangle, 4 => CellType::Quad, _ => CellType::Polygon },
+                    _ => match n {
+                        3 => CellType::Triangle,
+                        4 => CellType::Quad,
+                        _ => CellType::Polygon,
+                    },
                 }
             })
             .collect();

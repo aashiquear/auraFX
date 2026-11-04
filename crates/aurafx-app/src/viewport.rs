@@ -71,7 +71,11 @@ impl Viewport {
             return 0.0;
         }
         let span = self.frame_times.last().unwrap() - self.frame_times.first().unwrap();
-        if span <= 0.0 { 0.0 } else { (self.frame_times.len() - 1) as f64 / span }
+        if span <= 0.0 {
+            0.0
+        } else {
+            (self.frame_times.len() - 1) as f64 / span
+        }
     }
 
     pub fn frame_begin(&mut self, _ctx: &egui::Context, _frame: &eframe::Frame) {
@@ -127,7 +131,14 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, String, (
         };
         if n.display.show_scalar_bar && mesh.has_scalars && (scalar_bar.is_none() || s.active == Some(n.id)) {
             if let (Some(cb), Some(r)) = (&n.display.color_by, mesh.scalar_range) {
-                let label = format!("{}{}", cb.name, match cb.component { Some(c) => format!(" [{c}]"), None => String::new() });
+                let label = format!(
+                    "{}{}",
+                    cb.name,
+                    match cb.component {
+                        Some(c) => format!(" [{c}]"),
+                        None => String::new(),
+                    }
+                );
                 scalar_bar = Some((label, n.display.colormap.clone(), r, n.display.log_scale));
             }
         }
@@ -226,8 +237,20 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
     if empty {
         let c = rect.center();
         painter.text(c + Vec2::new(0.0, -30.0), egui::Align2::CENTER_CENTER, "auraFX", egui::FontId::proportional(34.0), Color32::from_gray(140));
-        painter.text(c + Vec2::new(0.0, 6.0), egui::Align2::CENTER_CENTER, "Drop a file here, press Ctrl+O to open one, or Ctrl+K to search for a source or filter.", egui::FontId::proportional(15.0), Color32::from_gray(120));
-        painter.text(c + Vec2::new(0.0, 30.0), egui::Align2::CENTER_CENTER, "Supported: VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd), LAMMPS dumps, STL, CSV", egui::FontId::proportional(12.0), Color32::from_gray(100));
+        painter.text(
+            c + Vec2::new(0.0, 6.0),
+            egui::Align2::CENTER_CENTER,
+            "Drop a file here, press Ctrl+O to open one, or Ctrl+K to search for a source or filter.",
+            egui::FontId::proportional(15.0),
+            Color32::from_gray(120),
+        );
+        painter.text(
+            c + Vec2::new(0.0, 30.0),
+            egui::Align2::CENTER_CENTER,
+            "Supported: VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd), LAMMPS dumps, STL, CSV",
+            egui::FontId::proportional(12.0),
+            Color32::from_gray(100),
+        );
     }
     if let Some((label, cmap, (lo, hi), log)) = scalar_bar {
         draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log);
@@ -274,7 +297,9 @@ fn draw_axes(p: &egui::Painter, rect: Rect, cam: &Camera) {
     let origin = Pos2::new(rect.left() + 48.0, rect.bottom() - 48.0);
     let len = 32.0;
     let mut axes: Vec<(f64, Pos2, &str, Color32)> = Vec::new();
-    for (i, (name, col)) in [("X", Color32::from_rgb(240, 90, 90)), ("Y", Color32::from_rgb(120, 220, 120)), ("Z", Color32::from_rgb(110, 150, 255))].into_iter().enumerate() {
+    for (i, (name, col)) in
+        [("X", Color32::from_rgb(240, 90, 90)), ("Y", Color32::from_rgb(120, 220, 120)), ("Z", Color32::from_rgb(110, 150, 255))].into_iter().enumerate()
+    {
         let mut v = glam::DVec4::ZERO;
         v[i] = 1.0;
         let r = view * v; // rotation only (w = 0)

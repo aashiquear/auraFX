@@ -306,9 +306,25 @@ fn fix_poly_types(cells: &mut Cells, kind: &str) {
     for i in 0..cells.len() {
         let n = cells.cell(i).len();
         cells.types[i] = match kind {
-            "VERTICES" => if n == 1 { CellType::Vertex } else { CellType::PolyVertex },
-            "LINES" => if n == 2 { CellType::Line } else { CellType::PolyLine },
-            "POLYGONS" => match n { 3 => CellType::Triangle, 4 => CellType::Quad, _ => CellType::Polygon },
+            "VERTICES" => {
+                if n == 1 {
+                    CellType::Vertex
+                } else {
+                    CellType::PolyVertex
+                }
+            }
+            "LINES" => {
+                if n == 2 {
+                    CellType::Line
+                } else {
+                    CellType::PolyLine
+                }
+            }
+            "POLYGONS" => match n {
+                3 => CellType::Triangle,
+                4 => CellType::Quad,
+                _ => CellType::Polygon,
+            },
             _ => CellType::TriangleStrip,
         };
     }

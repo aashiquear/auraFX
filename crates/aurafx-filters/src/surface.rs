@@ -177,7 +177,11 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
                     // Higher-order: use the linear corner faces of the base type.
                     let base = match ty {
                         CellType::QuadraticTetra | CellType::LagrangeTetrahedron | CellType::BezierTetrahedron => CellType::Tetra,
-                        CellType::QuadraticWedge | CellType::QuadraticLinearWedge | CellType::BiquadraticQuadraticWedge | CellType::LagrangeWedge | CellType::BezierWedge => CellType::Wedge,
+                        CellType::QuadraticWedge
+                        | CellType::QuadraticLinearWedge
+                        | CellType::BiquadraticQuadraticWedge
+                        | CellType::LagrangeWedge
+                        | CellType::BezierWedge => CellType::Wedge,
                         CellType::QuadraticPyramid | CellType::LagrangePyramid | CellType::BezierPyramid => CellType::Pyramid,
                         _ => CellType::Hexahedron,
                     };

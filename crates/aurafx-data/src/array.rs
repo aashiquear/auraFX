@@ -233,12 +233,7 @@ impl ArrayData {
             anyhow::bail!("cannot decode string arrays from raw bytes");
         }
         if bytes.len() % sz != 0 {
-            anyhow::bail!(
-                "byte length {} is not a multiple of element size {} for {:?}",
-                bytes.len(),
-                sz,
-                ty
-            );
+            anyhow::bail!("byte length {} is not a multiple of element size {} for {:?}", bytes.len(), sz, ty);
         }
         macro_rules! conv {
             ($t:ty, $variant:ident) => {{
@@ -246,7 +241,11 @@ impl ArrayData {
                     .chunks_exact(sz)
                     .map(|c| {
                         let a: [u8; std::mem::size_of::<$t>()] = c.try_into().unwrap();
-                        if little_endian { <$t>::from_le_bytes(a) } else { <$t>::from_be_bytes(a) }
+                        if little_endian {
+                            <$t>::from_le_bytes(a)
+                        } else {
+                            <$t>::from_be_bytes(a)
+                        }
                     })
                     .collect();
                 ArrayData::$variant(v)
@@ -425,12 +424,7 @@ impl Array {
     }
 
     pub fn gather(&self, idx: &[usize]) -> Array {
-        Array {
-            name: self.name.clone(),
-            ncomp: self.ncomp,
-            data: self.data.gather(self.ncomp, idx),
-            component_names: self.component_names.clone(),
-        }
+        Array { name: self.name.clone(), ncomp: self.ncomp, data: self.data.gather(self.ncomp, idx), component_names: self.component_names.clone() }
     }
 
     pub fn n_bytes(&self) -> usize {

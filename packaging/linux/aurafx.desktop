@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=auraFX
+GenericName=Scientific Visualization
+Comment=Visualize, analyze and run simulations with AI and Python
+Exec=aurafx %F
+Icon=aurafx
+Terminal=false
+Categories=Science;Education;Graphics;Physics;DataVisualization;
+MimeType=application/x-vtk;application/x-exodus;
+Keywords=paraview;vtk;exodus;lammps;simulation;visualization;
+StartupWMClass=aurafx

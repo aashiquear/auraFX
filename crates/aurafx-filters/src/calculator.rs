@@ -108,7 +108,12 @@ fn tokenize(src: &str) -> Result<Vec<Tok>> {
                 '+' | '-' | '*' | '/' | '^' | '%' | '<' | '>' | '=' | '!' | '&' | '|' => {
                     // Two-char comparison ops.
                     if i + 1 < chars.len() && chars[i + 1] == '=' && matches!(c, '<' | '>' | '=' | '!') {
-                        out.push(Tok::Op(match c { '<' => 'l', '>' => 'g', '=' => 'q', _ => 'n' }));
+                        out.push(Tok::Op(match c {
+                            '<' => 'l',
+                            '>' => 'g',
+                            '=' => 'q',
+                            _ => 'n',
+                        }));
                         i += 1;
                     } else if i + 1 < chars.len() && chars[i + 1] == c && matches!(c, '&' | '|') {
                         out.push(Tok::Op(c));
@@ -254,7 +259,11 @@ struct Env<'a> {
 }
 
 fn b(x: bool) -> f64 {
-    if x { 1.0 } else { 0.0 }
+    if x {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 fn eval(e: &Expr, env: &Env, i: usize) -> Result<Value> {
@@ -264,7 +273,11 @@ fn eval(e: &Expr, env: &Env, i: usize) -> Result<Value> {
         Expr::Neg(x) => eval(x, env, i)?.map(|v| -v),
         Expr::Not(x) => eval(x, env, i)?.map(|v| b(v == 0.0)),
         Expr::Cond(c, a, bb) => {
-            if eval(c, env, i)?.scalar()? != 0.0 { eval(a, env, i)? } else { eval(bb, env, i)? }
+            if eval(c, env, i)?.scalar()? != 0.0 {
+                eval(a, env, i)?
+            } else {
+                eval(bb, env, i)?
+            }
         }
         Expr::Bin(op, l, r) => {
             let (a, bv) = (eval(l, env, i)?, eval(r, env, i)?);

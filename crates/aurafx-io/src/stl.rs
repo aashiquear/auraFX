@@ -47,11 +47,7 @@ fn parse_binary(b: &[u8]) -> Vec<[[f32; 3]; 3]> {
             if o + 36 > b.len() {
                 return None;
             }
-            Some([
-                [f(o), f(o + 4), f(o + 8)],
-                [f(o + 12), f(o + 16), f(o + 20)],
-                [f(o + 24), f(o + 28), f(o + 32)],
-            ])
+            Some([[f(o), f(o + 4), f(o + 8)], [f(o + 12), f(o + 16), f(o + 20)], [f(o + 24), f(o + 28), f(o + 32)]])
         })
         .collect()
 }

@@ -21,9 +21,15 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
         ("Open file…", "open load file data", |s| s.open_file_dialog()),
         ("Save screenshot…", "image png export", |s| s.save_screenshot_dialog()),
         ("Reset camera", "fit view zoom", |s| s.session.lock().camera_request = Some(CameraRequest::ResetToBounds)),
-        ("Look from +X", "view camera axis", |s| s.session.lock().camera_request = Some(CameraRequest::View { direction: [1.0, 0.0, 0.0], up: [0.0, 0.0, 1.0] })),
-        ("Look from +Y", "view camera axis", |s| s.session.lock().camera_request = Some(CameraRequest::View { direction: [0.0, 1.0, 0.0], up: [0.0, 0.0, 1.0] })),
-        ("Look from +Z", "view camera axis", |s| s.session.lock().camera_request = Some(CameraRequest::View { direction: [0.0, 0.0, 1.0], up: [0.0, 1.0, 0.0] })),
+        ("Look from +X", "view camera axis", |s| {
+            s.session.lock().camera_request = Some(CameraRequest::View { direction: [1.0, 0.0, 0.0], up: [0.0, 0.0, 1.0] })
+        }),
+        ("Look from +Y", "view camera axis", |s| {
+            s.session.lock().camera_request = Some(CameraRequest::View { direction: [0.0, 1.0, 0.0], up: [0.0, 0.0, 1.0] })
+        }),
+        ("Look from +Z", "view camera axis", |s| {
+            s.session.lock().camera_request = Some(CameraRequest::View { direction: [0.0, 0.0, 1.0], up: [0.0, 1.0, 0.0] })
+        }),
         ("Isometric view", "view camera", |s| s.session.lock().camera_request = Some(CameraRequest::View { direction: [1.0, 1.0, 1.0], up: [0.0, 0.0, 1.0] })),
         ("Toggle orthographic projection", "camera parallel perspective", |s| s.viewport.camera.orthographic = !s.viewport.camera.orthographic),
         ("Delete active node", "remove", |s| {
@@ -93,57 +99,64 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     let mut run: Option<usize> = None;
     let screen = ctx.content_rect();
     #[allow(deprecated)]
-    egui::Area::new(egui::Id::new("palette")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - 280.0, screen.top() + 80.0)).show(ctx, |ui| {
-        egui::Frame::window(ui.style()).show(ui, |ui| {
-            ui.set_width(560.0);
-            let resp = ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY));
-            resp.request_focus();
-            let (esc, enter, up, down) = ui.input_mut(|i| {
-                (
-                    i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
-                    i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
-                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
-                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
-                )
-            });
-            if esc {
-                close = true;
-            }
-            if down && n > 0 {
-                state.palette.selected = (state.palette.selected + 1) % n;
-            }
-            if up && n > 0 {
-                state.palette.selected = (state.palette.selected + n - 1) % n;
-            }
-            if enter && n > 0 {
-                run = Some(state.palette.selected.min(n - 1));
-            }
-            if resp.changed() {
-                state.palette.selected = 0;
-            }
-            ui.separator();
-            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                for (i, (_, item)) in items.iter().enumerate() {
-                    let sel = i == state.palette.selected;
-                    let (title, sub) = match item {
-                        Item::Filter(f) => (format!("{}  {}", if f.is_source { crate::icons::PLUS } else { crate::icons::FUNNEL }, f.label), format!("{} · {}", f.category, f.description)),
-                        Item::Action(l, _) => (format!("{}  {l}", crate::icons::ARROW_RIGHT), "Action".to_string()),
-                    };
-                    let r = ui.selectable_label(sel, RichText::new(title).strong());
-                    ui.label(RichText::new(sub).weak().small());
-                    if r.clicked() {
-                        run = Some(i);
-                    }
-                    if sel && (up || down) {
-                        r.scroll_to_me(None);
-                    }
+    egui::Area::new(egui::Id::new("palette")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - 280.0, screen.top() + 80.0)).show(
+        ctx,
+        |ui| {
+            egui::Frame::window(ui.style()).show(ui, |ui| {
+                ui.set_width(560.0);
+                let resp =
+                    ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY));
+                resp.request_focus();
+                let (esc, enter, up, down) = ui.input_mut(|i| {
+                    (
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                    )
+                });
+                if esc {
+                    close = true;
                 }
-                if items.is_empty() {
-                    ui.label(RichText::new("No matches").weak());
+                if down && n > 0 {
+                    state.palette.selected = (state.palette.selected + 1) % n;
                 }
+                if up && n > 0 {
+                    state.palette.selected = (state.palette.selected + n - 1) % n;
+                }
+                if enter && n > 0 {
+                    run = Some(state.palette.selected.min(n - 1));
+                }
+                if resp.changed() {
+                    state.palette.selected = 0;
+                }
+                ui.separator();
+                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                    for (i, (_, item)) in items.iter().enumerate() {
+                        let sel = i == state.palette.selected;
+                        let (title, sub) = match item {
+                            Item::Filter(f) => (
+                                format!("{}  {}", if f.is_source { crate::icons::PLUS } else { crate::icons::FUNNEL }, f.label),
+                                format!("{} · {}", f.category, f.description),
+                            ),
+                            Item::Action(l, _) => (format!("{}  {l}", crate::icons::ARROW_RIGHT), "Action".to_string()),
+                        };
+                        let r = ui.selectable_label(sel, RichText::new(title).strong());
+                        ui.label(RichText::new(sub).weak().small());
+                        if r.clicked() {
+                            run = Some(i);
+                        }
+                        if sel && (up || down) {
+                            r.scroll_to_me(None);
+                        }
+                    }
+                    if items.is_empty() {
+                        ui.label(RichText::new("No matches").weak());
+                    }
+                });
             });
-        });
-    });
+        },
+    );
     if let Some(i) = run {
         match &items[i].1 {
             Item::Filter(f) => {

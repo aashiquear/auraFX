@@ -19,7 +19,10 @@ pub enum ParamValue {
     Vec3([f64; 3]),
     Str(String),
     /// Reference to a data array: (association, name).
-    Array { assoc: Association, name: String },
+    Array {
+        assoc: Association,
+        name: String,
+    },
     Floats(Vec<f64>),
 }
 
@@ -81,13 +84,23 @@ impl ParamValue {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ParamKind {
     Bool,
-    Int { min: i64, max: i64 },
-    Float { min: f64, max: f64, log: bool },
+    Int {
+        min: i64,
+        max: i64,
+    },
+    Float {
+        min: f64,
+        max: f64,
+        log: bool,
+    },
     Vec3,
     Str,
     Choice(Vec<String>),
     /// Array selector; `scalar_only` restricts to 1-component arrays.
-    Array { scalar_only: bool, vector_only: bool },
+    Array {
+        scalar_only: bool,
+        vector_only: bool,
+    },
     Floats,
     /// Multi-line expression (calculator).
     Expression,
@@ -157,12 +170,20 @@ impl Params {
         let pv = match v {
             serde_json::Value::Bool(b) => ParamValue::Bool(*b),
             serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() { ParamValue::Int(i) } else { ParamValue::Float(n.as_f64().unwrap_or(0.0)) }
+                if let Some(i) = n.as_i64() {
+                    ParamValue::Int(i)
+                } else {
+                    ParamValue::Float(n.as_f64().unwrap_or(0.0))
+                }
             }
             serde_json::Value::String(s) => ParamValue::Str(s.clone()),
             serde_json::Value::Array(a) => {
                 let f: Vec<f64> = a.iter().filter_map(|x| x.as_f64()).collect();
-                if f.len() == 3 && f.len() == a.len() { ParamValue::Vec3([f[0], f[1], f[2]]) } else { ParamValue::Floats(f) }
+                if f.len() == 3 && f.len() == a.len() {
+                    ParamValue::Vec3([f[0], f[1], f[2]])
+                } else {
+                    ParamValue::Floats(f)
+                }
             }
             serde_json::Value::Object(o) => ParamValue::Array {
                 assoc: if o.get("assoc").and_then(|a| a.as_str()) == Some("cells") { Association::Cells } else { Association::Points },

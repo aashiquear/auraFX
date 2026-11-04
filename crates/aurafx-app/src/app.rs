@@ -27,7 +27,18 @@ pub enum Pane {
 }
 
 impl Pane {
-    pub const ALL: [Pane; 10] = [Pane::Pipeline, Pane::Properties, Pane::Viewport, Pane::Python, Pane::Assistant, Pane::Log, Pane::Spreadsheet, Pane::Information, Pane::Jobs, Pane::Charts];
+    pub const ALL: [Pane; 10] = [
+        Pane::Pipeline,
+        Pane::Properties,
+        Pane::Viewport,
+        Pane::Python,
+        Pane::Assistant,
+        Pane::Log,
+        Pane::Spreadsheet,
+        Pane::Information,
+        Pane::Jobs,
+        Pane::Charts,
+    ];
     pub fn title(self) -> &'static str {
         match self {
             Pane::Pipeline => "Pipeline",
@@ -386,7 +397,15 @@ impl State {
                     ui.close();
                     self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
                 }
-                for (label, dir, up) in [("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), ("-X", [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), ("-Y", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]), ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]), ("-Z", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]), ("Isometric", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0])] {
+                for (label, dir, up) in [
+                    ("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+                    ("-X", [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+                    ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+                    ("-Y", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
+                    ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+                    ("-Z", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
+                    ("Isometric", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
+                ] {
                     if ui.button(format!("Look from {label}")).clicked() {
                         ui.close();
                         self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
@@ -442,7 +461,15 @@ impl State {
                 self.open_file_dialog();
             }
             ui.separator();
-            for (label, id, tip) in [("Slice", "slice", "Cut with a plane"), ("Clip", "clip", "Remove part of the data"), ("Contour", "contour", "Isosurfaces"), ("Threshold", "threshold", "Keep a value range"), ("Calculator", "calculator", "Compute arrays"), ("Glyph", "glyph", "Arrows at points"), ("Warp", "warp_by_vector", "Deform by vectors")] {
+            for (label, id, tip) in [
+                ("Slice", "slice", "Cut with a plane"),
+                ("Clip", "clip", "Remove part of the data"),
+                ("Contour", "contour", "Isosurfaces"),
+                ("Threshold", "threshold", "Keep a value range"),
+                ("Calculator", "calculator", "Compute arrays"),
+                ("Glyph", "glyph", "Arrows at points"),
+                ("Warp", "warp_by_vector", "Deform by vectors"),
+            ] {
                 if ui.button(label).on_hover_text(tip).clicked() {
                     self.add_filter(id);
                 }
@@ -451,7 +478,12 @@ impl State {
             if ui.button(format!("{} Reset", crate::icons::ARROWS_COUNTER_CLOCKWISE)).on_hover_text("Reset camera (R)").clicked() {
                 self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
             }
-            for (label, dir, up) in [("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]), ("Iso", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0])] {
+            for (label, dir, up) in [
+                ("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+                ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+                ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+                ("Iso", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
+            ] {
                 if ui.small_button(label).clicked() {
                     self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
                 }
@@ -482,14 +514,22 @@ impl State {
                 if r != repr {
                     self.session.lock().set_display(id, |d| d.representation = r);
                 }
-                let current = color_by.as_ref().map(|c| format!("{}{}", c.name, if c.assoc == Association::Cells { " (cells)" } else { "" })).unwrap_or_else(|| "Solid Color".into());
+                let current = color_by
+                    .as_ref()
+                    .map(|c| format!("{}{}", c.name, if c.assoc == Association::Cells { " (cells)" } else { "" }))
+                    .unwrap_or_else(|| "Solid Color".into());
                 let mut new_cb: Option<Option<ColorBy>> = None;
                 egui::ComboBox::from_id_salt("tb_color").selected_text(current).width(180.0).show_ui(ui, |ui| {
                     if ui.selectable_label(color_by.is_none(), "Solid Color").clicked() {
                         new_cb = Some(None);
                     }
                     for (assoc, name, ncomp) in &arrays {
-                        let label = format!("{}{}{}", if *assoc == Association::Points { format!("{} ", crate::icons::CIRCLE) } else { format!("{} ", crate::icons::SQUARE) }, name, if *ncomp > 1 { format!(" ({ncomp})") } else { String::new() });
+                        let label = format!(
+                            "{}{}{}",
+                            if *assoc == Association::Points { format!("{} ", crate::icons::CIRCLE) } else { format!("{} ", crate::icons::SQUARE) },
+                            name,
+                            if *ncomp > 1 { format!(" ({ncomp})") } else { String::new() }
+                        );
                         let sel = color_by.as_ref().map(|c| c.name == *name && c.assoc == *assoc).unwrap_or(false);
                         if ui.selectable_label(sel, label).clicked() {
                             new_cb = Some(Some(ColorBy { assoc: *assoc, name: name.clone(), component: None }));
@@ -569,7 +609,14 @@ impl State {
             }
             ui.label(&self.status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(format!("{} | {} nodes | {} points, {} cells visible | {:.0} fps", self.viewport.adapter_name(), nodes, pts, cells, self.viewport.fps()));
+                ui.label(format!(
+                    "{} | {} nodes | {} points, {} cells visible | {:.0} fps",
+                    self.viewport.adapter_name(),
+                    nodes,
+                    pts,
+                    cells,
+                    self.viewport.fps()
+                ));
             });
         });
     }
@@ -737,10 +784,14 @@ impl eframe::App for AuraApp {
         let to_open: Vec<(String, Vec<PathBuf>)> = {
             let jobs = aurafx_jobs::global();
             let mut m = jobs.lock();
-            m.jobs.iter_mut().filter(|j| j.outputs_pending_load).map(|j| {
-                j.outputs_pending_load = false;
-                (j.spec.name.clone(), j.outputs.clone())
-            }).collect()
+            m.jobs
+                .iter_mut()
+                .filter(|j| j.outputs_pending_load)
+                .map(|j| {
+                    j.outputs_pending_load = false;
+                    (j.spec.name.clone(), j.outputs.clone())
+                })
+                .collect()
         };
         for (name, outs) in to_open {
             st.toast(format!("{name} finished: opening {} result file(s)", outs.len().min(8)), false);
@@ -760,7 +811,8 @@ impl eframe::App for AuraApp {
         egui::Panel::bottom("status").show(root_ui, |ui| st.status_bar(ui));
 
         // Panels that were closed can be reopened from here.
-        let missing: Vec<Pane> = Pane::ALL.iter().copied().filter(|p| !self.tree.tiles.iter().any(|(_, t)| matches!(t, egui_tiles::Tile::Pane(x) if x == p))).collect();
+        let missing: Vec<Pane> =
+            Pane::ALL.iter().copied().filter(|p| !self.tree.tiles.iter().any(|(_, t)| matches!(t, egui_tiles::Tile::Pane(x) if x == p))).collect();
         if !missing.is_empty() {
             egui::Panel::top("reopen").show(root_ui, |ui| {
                 ui.horizontal(|ui| {

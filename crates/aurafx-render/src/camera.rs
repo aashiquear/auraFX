@@ -18,7 +18,16 @@ pub struct Camera {
 
 impl Default for Camera {
     fn default() -> Self {
-        Self { eye: DVec3::new(0.0, 0.0, 5.0), target: DVec3::ZERO, up: DVec3::Y, fov_y_deg: 30.0, orthographic: false, ortho_height: 1.0, near: 0.01, far: 100.0 }
+        Self {
+            eye: DVec3::new(0.0, 0.0, 5.0),
+            target: DVec3::ZERO,
+            up: DVec3::Y,
+            fov_y_deg: 30.0,
+            orthographic: false,
+            ortho_height: 1.0,
+            near: 0.01,
+            far: 100.0,
+        }
     }
 }
 
@@ -44,7 +53,11 @@ impl Camera {
         let radius = (bounds.diagonal() * 0.5).max(1e-6);
         let dir = {
             let d = self.eye - self.target;
-            if d.length() < 1e-12 { DVec3::new(0.0, 0.0, 1.0) } else { d.normalize() }
+            if d.length() < 1e-12 {
+                DVec3::new(0.0, 0.0, 1.0)
+            } else {
+                d.normalize()
+            }
         };
         let dist = radius / (self.fov_y_deg.to_radians() * 0.5).sin() * 1.05;
         self.target = c;

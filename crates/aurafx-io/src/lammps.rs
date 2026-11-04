@@ -191,11 +191,7 @@ fn parse_frame(bytes: &[u8]) -> Result<DataSet> {
         let [xy, xz, yz] = bx.tilt;
         for i in 0..n {
             let (sx, sy, sz) = (data[ix][i], data[iy][i], data[iz][i]);
-            pts.extend_from_slice(&[
-                bx.lo[0] + sx * len[0] + sy * xy + sz * xz,
-                bx.lo[1] + sy * len[1] + sz * yz,
-                bx.lo[2] + sz * len[2],
-            ]);
+            pts.extend_from_slice(&[bx.lo[0] + sx * len[0] + sy * xy + sz * xz, bx.lo[1] + sy * len[1] + sz * yz, bx.lo[2] + sz * len[2]]);
         }
     } else {
         bail!("dump has no position columns (x y z / xs ys zs / xu yu zu)");
@@ -209,7 +205,9 @@ fn parse_frame(bytes: &[u8]) -> Result<DataSet> {
             consumed[ci] = true;
         }
     }
-    for (prefix, out_name) in [("v", "velocity"), ("f", "force"), ("mu", "dipole"), ("omega", "angular_velocity"), ("tq", "torque"), ("angmom", "angular_momentum")] {
+    for (prefix, out_name) in
+        [("v", "velocity"), ("f", "force"), ("mu", "dipole"), ("omega", "angular_velocity"), ("tq", "torque"), ("angmom", "angular_momentum")]
+    {
         if let Some([a, b, c]) = get3(&format!("{prefix}x"), &format!("{prefix}y"), &format!("{prefix}z")) {
             let mut v = Vec::with_capacity(3 * n);
             for i in 0..n {
@@ -259,8 +257,10 @@ fn parse_frame(bytes: &[u8]) -> Result<DataSet> {
             continue;
         }
         let v = std::mem::take(&mut data[ci]);
-        let is_int = ["id", "type", "mol", "proc", "procp1", "ix", "iy", "iz", "element"].contains(&c.as_str()) || v.iter().all(|x| x.fract() == 0.0 && x.abs() < 1e15);
-        let arr = if is_int { Array::new(c.clone(), 1, ArrayData::I64(v.iter().map(|&x| x as i64).collect())) } else { Array::new(c.clone(), 1, ArrayData::F64(v)) };
+        let is_int =
+            ["id", "type", "mol", "proc", "procp1", "ix", "iy", "iz", "element"].contains(&c.as_str()) || v.iter().all(|x| x.fract() == 0.0 && x.abs() < 1e15);
+        let arr =
+            if is_int { Array::new(c.clone(), 1, ArrayData::I64(v.iter().map(|&x| x as i64).collect())) } else { Array::new(c.clone(), 1, ArrayData::F64(v)) };
         if c == "type" {
             pd.point_data.insert_active(AttributeKind::Scalars, arr);
         } else {

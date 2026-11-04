@@ -220,7 +220,11 @@ impl NcFile {
         let numrecs = if numrecs_raw == 0xFFFF_FFFF || numrecs_raw == u64::MAX {
             // Streaming: infer from file size.
             let first = rec_vars.iter().map(|v| v.begin).min().unwrap_or(map.len());
-            if recsize > 0 { (map.len() - first) / recsize } else { 0 }
+            if recsize > 0 {
+                (map.len() - first) / recsize
+            } else {
+                0
+            }
         } else {
             numrecs_raw as usize
         };

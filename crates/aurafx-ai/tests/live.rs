@@ -8,8 +8,15 @@ fn ollama_stream() {
     cfg.model = std::env::var("AURAFX_LIVE_MODEL").unwrap_or_else(|_| "glm-5.3-flash:cloud".into());
     let models = list_models(&cfg).expect("list models");
     assert!(!models.is_empty(), "no models at {}", cfg.ollama_url);
-    let sys = system_prompt("- [1] \"wavelet.vti\" (VTI), visible, ACTIVE\n    Image Data: 9261 points\n    point arrays:\n      RTData (Float32 x 1, range 37 .. 277)", "- slice: Cut the data with a plane [type, origin, normal]");
-    let rx = stream_chat(cfg, sys, vec![ChatMessage { role: Role::User, content: "Slice the active dataset along z and color it by RTData. Reply with code only.".into() }]);
+    let sys = system_prompt(
+        "- [1] \"wavelet.vti\" (VTI), visible, ACTIVE\n    Image Data: 9261 points\n    point arrays:\n      RTData (Float32 x 1, range 37 .. 277)",
+        "- slice: Cut the data with a plane [type, origin, normal]",
+    );
+    let rx = stream_chat(
+        cfg,
+        sys,
+        vec![ChatMessage { role: Role::User, content: "Slice the active dataset along z and color it by RTData. Reply with code only.".into() }],
+    );
     let mut text = String::new();
     for ev in rx {
         match ev {

@@ -45,7 +45,11 @@ impl Default for AiConfig {
             provider: ProviderKind::Ollama,
             model: String::new(),
             api_key: String::new(),
-            ollama_url: std::env::var("OLLAMA_HOST").ok().filter(|h| !h.is_empty()).map(|h| if h.starts_with("http") { h } else { format!("http://{h}") }).unwrap_or_else(|| "http://localhost:11434".into()),
+            ollama_url: std::env::var("OLLAMA_HOST")
+                .ok()
+                .filter(|h| !h.is_empty())
+                .map(|h| if h.starts_with("http") { h } else { format!("http://{h}") })
+                .unwrap_or_else(|| "http://localhost:11434".into()),
             openai_url: "https://api.openai.com/v1".into(),
             anthropic_url: "https://api.anthropic.com".into(),
             max_tokens: 4096,
@@ -73,7 +77,11 @@ impl AiConfig {
         }
     }
     pub fn model_or_default(&self) -> String {
-        if self.model.is_empty() { self.default_model().to_string() } else { self.model.clone() }
+        if self.model.is_empty() {
+            self.default_model().to_string()
+        } else {
+            self.model.clone()
+        }
     }
 }
 
@@ -267,16 +275,33 @@ pub fn list_models(cfg: &AiConfig) -> Result<Vec<String>> {
     let c = client()?;
     match cfg.provider {
         ProviderKind::Ollama => {
-            let v: serde_json::Value = c.get(format!("{}/api/tags", cfg.ollama_url.trim_end_matches('/'))).timeout(Duration::from_secs(5)).send().context("connecting to Ollama")?.json()?;
-            Ok(v.get("models").and_then(|m| m.as_array()).map(|a| a.iter().filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())).collect()).unwrap_or_default())
+            let v: serde_json::Value = c
+                .get(format!("{}/api/tags", cfg.ollama_url.trim_end_matches('/')))
+                .timeout(Duration::from_secs(5))
+                .send()
+                .context("connecting to Ollama")?
+                .json()?;
+            Ok(v.get("models")
+                .and_then(|m| m.as_array())
+                .map(|a| a.iter().filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())).collect())
+                .unwrap_or_default())
         }
         ProviderKind::Anthropic => {
             let key = cfg.resolved_key();
             if key.is_empty() {
                 return Ok(vec!["claude-sonnet-5-5".into(), "claude-opus-5-5".into(), "claude-haiku-5-5".into()]);
             }
-            let v: serde_json::Value = c.get(format!("{}/v1/models", cfg.anthropic_url.trim_end_matches('/'))).header("x-api-key", key).header("anthropic-version", "2023-06-01").timeout(Duration::from_secs(10)).send()?.json()?;
-            Ok(v.get("data").and_then(|d| d.as_array()).map(|a| a.iter().filter_map(|m| m.get("id").and_then(|n| n.as_str()).map(|s| s.to_string())).collect()).unwrap_or_default())
+            let v: serde_json::Value = c
+                .get(format!("{}/v1/models", cfg.anthropic_url.trim_end_matches('/')))
+                .header("x-api-key", key)
+                .header("anthropic-version", "2023-06-01")
+                .timeout(Duration::from_secs(10))
+                .send()?
+                .json()?;
+            Ok(v.get("data")
+                .and_then(|d| d.as_array())
+                .map(|a| a.iter().filter_map(|m| m.get("id").and_then(|n| n.as_str()).map(|s| s.to_string())).collect())
+                .unwrap_or_default())
         }
         ProviderKind::OpenAI => {
             let key = cfg.resolved_key();
@@ -285,7 +310,10 @@ pub fn list_models(cfg: &AiConfig) -> Result<Vec<String>> {
                 req = req.bearer_auth(key);
             }
             let v: serde_json::Value = req.send()?.json()?;
-            Ok(v.get("data").and_then(|d| d.as_array()).map(|a| a.iter().filter_map(|m| m.get("id").and_then(|n| n.as_str()).map(|s| s.to_string())).collect()).unwrap_or_default())
+            Ok(v.get("data")
+                .and_then(|d| d.as_array())
+                .map(|a| a.iter().filter_map(|m| m.get("id").and_then(|n| n.as_str()).map(|s| s.to_string())).collect())
+                .unwrap_or_default())
         }
     }
 }

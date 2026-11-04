@@ -26,12 +26,7 @@ pub struct DataSetInfo {
 
 fn arrays(a: &Attributes) -> Vec<ArrayInfo> {
     a.iter()
-        .map(|arr| ArrayInfo {
-            name: arr.name.clone(),
-            ncomp: arr.ncomp,
-            dtype: arr.scalar_type().vtk_name().to_string(),
-            range: arr.range(None),
-        })
+        .map(|arr| ArrayInfo { name: arr.name.clone(), ncomp: arr.ncomp, dtype: arr.scalar_type().vtk_name().to_string(), range: arr.range(None) })
         .collect()
 }
 
@@ -77,19 +72,10 @@ impl DataSetInfo {
 
     /// Compact text summary suitable for an LLM prompt or a tooltip.
     pub fn summary(&self) -> String {
-        let mut s = format!(
-            "{}: {} points, {} cells, {:.1} MB",
-            self.kind,
-            self.n_points,
-            self.n_cells,
-            self.bytes as f64 / 1e6
-        );
+        let mut s = format!("{}: {} points, {} cells, {:.1} MB", self.kind, self.n_points, self.n_cells, self.bytes as f64 / 1e6);
         if !self.bounds.is_empty() {
             let b = &self.bounds;
-            s += &format!(
-                "\nbounds: x[{}, {}] y[{}, {}] z[{}, {}]",
-                g(b.min[0]), g(b.max[0]), g(b.min[1]), g(b.max[1]), g(b.min[2]), g(b.max[2])
-            );
+            s += &format!("\nbounds: x[{}, {}] y[{}, {}] z[{}, {}]", g(b.min[0]), g(b.max[0]), g(b.min[1]), g(b.max[1]), g(b.min[2]), g(b.max[2]));
         }
         for (label, arrs) in [("point arrays", &self.point_arrays), ("cell arrays", &self.cell_arrays), ("field arrays", &self.field_arrays)] {
             if !arrs.is_empty() {

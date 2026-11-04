@@ -14,6 +14,9 @@ fn main() {
         }
     }
     for g in gpu::query(&host) {
-        println!("GPU {:?} #{} {} {:.0}/{:.0} MB util {}% temp {:?}", g.vendor, g.index, g.name, g.memory_used_mb, g.memory_total_mb, g.utilization, g.temperature_c);
+        println!(
+            "GPU {:?} #{} {} {:.0}/{:.0} MB util {}% temp {:?}",
+            g.vendor, g.index, g.name, g.memory_used_mb, g.memory_total_mb, g.utilization, g.temperature_c
+        );
     }
 }

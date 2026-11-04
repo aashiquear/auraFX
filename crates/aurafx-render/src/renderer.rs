@@ -109,10 +109,19 @@ impl Renderer {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D1, multisampled: false },
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D1,
+                        multisampled: false,
+                    },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
@@ -127,7 +136,12 @@ impl Renderer {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
-                vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), buffers: &[Some(vertex_layout(step))], compilation_options: Default::default() },
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(vs),
+                    buffers: &[Some(vertex_layout(step))],
+                    compilation_options: Default::default(),
+                },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(fs),
@@ -152,7 +166,8 @@ impl Renderer {
             })
         };
         let pipe_tris = make_pipeline("tris", "vs_mesh", "fs_mesh", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Vertex, false, true);
-        let pipe_tris_blend = make_pipeline("tris blend", "vs_mesh", "fs_mesh", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Vertex, true, true);
+        let pipe_tris_blend =
+            make_pipeline("tris blend", "vs_mesh", "fs_mesh", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Vertex, true, true);
         let pipe_lines = make_pipeline("lines", "vs_mesh", "fs_line", wgpu::PrimitiveTopology::LineList, wgpu::VertexStepMode::Vertex, true, false);
         let pipe_points = make_pipeline("points", "vs_point", "fs_point", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Instance, true, false);
 
@@ -278,7 +293,11 @@ impl Renderer {
         if verts.is_empty() {
             return None;
         }
-        let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytemuck::cast_slice(verts), usage: wgpu::BufferUsages::VERTEX });
+        let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(verts),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
         Some((buf, verts.len() as u32))
     }
 
@@ -305,7 +324,8 @@ impl Renderer {
                     });
                     let lut = self.lut_texture(&draw.display.colormap);
                     let bind_group = self.make_bind_group(&uniform, &lut);
-                    self.nodes.insert(draw.id, GpuNode { mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap.clone(), lut, bind_group });
+                    self.nodes
+                        .insert(draw.id, GpuNode { mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap.clone(), lut, bind_group });
                 }
             }
         }
@@ -405,11 +425,19 @@ impl Renderer {
     pub fn read_pixels(&self) -> Result<(u32, u32, Vec<u8>)> {
         let (w, h) = (self.width, self.height);
         let bytes_per_row = (4 * w).div_ceil(256) * 256;
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("readback"), size: (bytes_per_row * h) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("readback"),
+            size: (bytes_per_row * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
         let mut enc = self.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo { texture: &self.color, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bytes_per_row), rows_per_image: Some(h) } },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bytes_per_row), rows_per_image: Some(h) },
+            },
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         self.queue.submit(Some(enc.finish()));
@@ -440,13 +468,19 @@ impl Renderer {
 
 fn srgb_to_linear(c: f32) -> f64 {
     let c = c as f64;
-    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 /// Create a renderer on a headless device (no window), for batch rendering and tests.
 pub fn headless(width: u32, height: u32) -> Result<Renderer> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    let adapter = pollster_block(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }))?;
+    let adapter = pollster_block(
+        instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
+    )?;
     let info = adapter.get_info();
     let (device, queue) = pollster_block(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
     let mut r = Renderer::new(device, queue, format!("{} ({:?})", info.name, info.backend));

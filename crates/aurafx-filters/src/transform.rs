@@ -7,11 +7,7 @@ pub fn transform(ds: &DataSet, translate: [f64; 3], rotate_deg: [f64; 3], scale:
     let (rx, ry, rz) = (rotate_deg[0].to_radians(), rotate_deg[1].to_radians(), rotate_deg[2].to_radians());
     let (cx, sx, cy, sy, cz, sz) = (rx.cos(), rx.sin(), ry.cos(), ry.sin(), rz.cos(), rz.sin());
     // R = Rz * Ry * Rx
-    let m = [
-        [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
-        [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
-        [-sy, cy * sx, cy * cx],
-    ];
+    let m = [[cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx], [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx], [-sy, cy * sx, cy * cx]];
     let apply = |p: [f64; 3]| -> [f64; 3] {
         let s = [p[0] * scale[0], p[1] * scale[1], p[2] * scale[2]];
         [

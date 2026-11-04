@@ -11,7 +11,16 @@ pub enum PointMode {
     Any,
 }
 
-pub fn threshold(ds: &DataSet, assoc: Association, array: &str, comp: Option<usize>, lo: f64, hi: f64, mode: PointMode, invert: bool) -> Result<UnstructuredGrid> {
+pub fn threshold(
+    ds: &DataSet,
+    assoc: Association,
+    array: &str,
+    comp: Option<usize>,
+    lo: f64,
+    hi: f64,
+    mode: PointMode,
+    invert: bool,
+) -> Result<UnstructuredGrid> {
     let ds = as_explicit(ds);
     let (points, pd, cd, fd) = parts(&ds).ok_or_else(|| anyhow!("threshold: unsupported dataset"))?;
     let arr = match assoc {

@@ -45,7 +45,7 @@ impl Default for AiConfig {
             provider: ProviderKind::Ollama,
             model: String::new(),
             api_key: String::new(),
-            ollama_url: "http://localhost:11434".into(),
+            ollama_url: std::env::var("OLLAMA_HOST").ok().filter(|h| !h.is_empty()).map(|h| if h.starts_with("http") { h } else { format!("http://{h}") }).unwrap_or_else(|| "http://localhost:11434".into()),
             openai_url: "https://api.openai.com/v1".into(),
             anthropic_url: "https://api.anthropic.com".into(),
             max_tokens: 4096,

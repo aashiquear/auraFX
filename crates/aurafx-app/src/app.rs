@@ -1,0 +1,788 @@
+//! Application state, layout and top-level chrome (menu bar, toolbar, status bar).
+
+use crate::assistant::Assistant;
+use crate::console::Console;
+use crate::palette::Palette;
+use crate::settings::Settings;
+use crate::viewport::Viewport;
+use crate::worker::{spawn_pipeline_worker, PythonWorker};
+use aurafx_filters::Association;
+use aurafx_pipeline::session::CameraRequest;
+use aurafx_pipeline::{ColorBy, NodeId, Representation, Session, SharedSession};
+use egui::{Color32, RichText};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Pane {
+    Pipeline,
+    Properties,
+    Viewport,
+    Python,
+    Assistant,
+    Log,
+    Spreadsheet,
+    Information,
+}
+
+impl Pane {
+    pub const ALL: [Pane; 8] = [Pane::Pipeline, Pane::Properties, Pane::Viewport, Pane::Python, Pane::Assistant, Pane::Log, Pane::Spreadsheet, Pane::Information];
+    pub fn title(self) -> &'static str {
+        match self {
+            Pane::Pipeline => "Pipeline",
+            Pane::Properties => "Properties",
+            Pane::Viewport => "3D View",
+            Pane::Python => "Python",
+            Pane::Assistant => "Assistant",
+            Pane::Log => "Log",
+            Pane::Spreadsheet => "Spreadsheet",
+            Pane::Information => "Information",
+        }
+    }
+    pub fn icon(self) -> &'static str {
+        match self {
+            Pane::Pipeline => crate::icons::TREE_STRUCTURE,
+            Pane::Properties => crate::icons::SLIDERS,
+            Pane::Viewport => crate::icons::CUBE,
+            Pane::Python => crate::icons::TERMINAL_WINDOW,
+            Pane::Assistant => crate::icons::SPARKLE,
+            Pane::Log => crate::icons::LIST,
+            Pane::Spreadsheet => crate::icons::TABLE,
+            Pane::Information => crate::icons::INFO,
+        }
+    }
+}
+
+/// Everything except the dock tree (the tree borrows this mutably while drawing).
+pub struct State {
+    pub session: SharedSession,
+    pub settings: Settings,
+    pub python: PythonWorker,
+    pub console: Console,
+    pub assistant: Assistant,
+    pub viewport: Viewport,
+    pub palette: Palette,
+    pub status: String,
+    pub show_settings: bool,
+    pub show_about: bool,
+    pub show_shortcuts: bool,
+    pub rename_target: Option<(NodeId, String)>,
+    pub playing: bool,
+    pub play_fps: f32,
+    last_play_step: f64,
+    pub pending_open: Vec<PathBuf>,
+    pub spreadsheet_assoc: Association,
+    pub spreadsheet_page: usize,
+    pub toasts: Vec<(String, f64, bool)>,
+}
+
+pub struct AuraApp {
+    pub state: State,
+    pub tree: egui_tiles::Tree<Pane>,
+}
+
+pub fn default_tree() -> egui_tiles::Tree<Pane> {
+    let mut tiles = egui_tiles::Tiles::default();
+    let pipeline = tiles.insert_pane(Pane::Pipeline);
+    let props = tiles.insert_pane(Pane::Properties);
+    let info = tiles.insert_pane(Pane::Information);
+    let viewport = tiles.insert_pane(Pane::Viewport);
+    let python = tiles.insert_pane(Pane::Python);
+    let log = tiles.insert_pane(Pane::Log);
+    let sheet = tiles.insert_pane(Pane::Spreadsheet);
+    let assistant = tiles.insert_pane(Pane::Assistant);
+
+    let props_tabs = tiles.insert_tab_tile(vec![props, info]);
+    let mut left = egui_tiles::Linear::new(egui_tiles::LinearDir::Vertical, vec![pipeline, props_tabs]);
+    left.shares.set_share(pipeline, 0.35);
+    left.shares.set_share(props_tabs, 0.65);
+    let left = tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(left)));
+
+    let bottom = tiles.insert_tab_tile(vec![python, log, sheet]);
+    let mut center = egui_tiles::Linear::new(egui_tiles::LinearDir::Vertical, vec![viewport, bottom]);
+    center.shares.set_share(viewport, 0.72);
+    center.shares.set_share(bottom, 0.28);
+    let center = tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(center)));
+
+    let mut root = egui_tiles::Linear::new(egui_tiles::LinearDir::Horizontal, vec![left, center, assistant]);
+    root.shares.set_share(left, 0.2);
+    root.shares.set_share(center, 0.58);
+    root.shares.set_share(assistant, 0.22);
+    let root = tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(root)));
+    #[allow(deprecated)]
+    let id = egui::Id::new("aurafx_layout");
+    egui_tiles::Tree::new(id, root, tiles)
+}
+
+impl AuraApp {
+    pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>, script: Option<PathBuf>) -> Self {
+        let settings = Settings::load();
+        crate::theme::install_fonts(&cc.egui_ctx);
+        crate::theme::apply(&cc.egui_ctx, settings.dark_theme, settings.ui_scale);
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+        let session = Session::shared();
+        spawn_pipeline_worker(session.clone(), cc.egui_ctx.clone());
+        let python = PythonWorker::spawn(session.clone(), cc.egui_ctx.clone());
+        let viewport = Viewport::new(cc, settings.background);
+        let tree = cc.storage.and_then(|s| s.get_string("layout")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
+        let assistant = Assistant::new(&settings);
+        let state = State {
+            session,
+            settings,
+            python,
+            console: Console::default(),
+            assistant,
+            viewport,
+            palette: Palette::default(),
+            status: "Ready. Open a file (Ctrl+O), add a source, or press Ctrl+K.".into(),
+            show_settings: false,
+            show_about: false,
+            show_shortcuts: false,
+            rename_target: None,
+            playing: false,
+            play_fps: 10.0,
+            last_play_step: 0.0,
+            pending_open: files,
+            spreadsheet_assoc: Association::Points,
+            spreadsheet_page: 0,
+            toasts: Vec::new(),
+        };
+        if let Some(p) = script {
+            match std::fs::read_to_string(&p) {
+                Ok(code) => state.python.run(code, "startup"),
+                Err(e) => tracing::error!("cannot read script {}: {e}", p.display()),
+            }
+        }
+        Self { state, tree }
+    }
+}
+
+impl State {
+    pub fn toast(&mut self, msg: impl Into<String>, error: bool) {
+        let now = self.now();
+        self.toasts.push((msg.into(), now, error));
+    }
+
+    fn now(&self) -> f64 {
+        self.viewport.time_seconds()
+    }
+
+    pub fn open_file(&mut self, path: PathBuf) {
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        let r = self.session.lock().open_file(&path);
+        match r {
+            Ok(_) => {
+                self.settings.push_recent(path.clone());
+                self.settings.save();
+                self.status = format!("Opened {}", path.display());
+            }
+            Err(e) => {
+                self.toast(format!("Could not open {}: {e:#}", path.display()), true);
+            }
+        }
+    }
+
+    pub fn open_file_dialog(&mut self) {
+        let exts: Vec<&str> = aurafx_io::all_extensions();
+        let mut dlg = rfd::FileDialog::new().add_filter("All supported", &exts);
+        for (e, label) in aurafx_io::supported_formats() {
+            dlg = dlg.add_filter(label, e);
+        }
+        dlg = dlg.add_filter("All files", &["*"]);
+        if let Some(last) = self.settings.recent_files.first().and_then(|p| p.parent()) {
+            dlg = dlg.set_directory(last);
+        }
+        if let Some(paths) = dlg.pick_files() {
+            for p in paths {
+                self.open_file(p);
+            }
+        }
+    }
+
+    pub fn add_filter(&mut self, id: &str) {
+        let mut s = self.session.lock();
+        let def = aurafx_filters::find(id);
+        let r = match (def.as_ref().map(|d| d.is_source), s.active) {
+            (Some(true), _) => s.add_source(id),
+            (Some(false), Some(a)) => s.add_filter(id, a),
+            (Some(false), None) => Err(anyhow::anyhow!("Select a dataset first (or open a file) to apply {}", def.as_ref().unwrap().label)),
+            (None, _) => Err(anyhow::anyhow!("Unknown filter {id}")),
+        };
+        drop(s);
+        match r {
+            Ok(_) => self.status = format!("Added {}", def.map(|d| d.label).unwrap_or(id)),
+            Err(e) => self.toast(format!("{e:#}"), true),
+        }
+    }
+
+    pub fn save_screenshot_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx.png").save_file() {
+            self.viewport.request_screenshot(path, None);
+        }
+    }
+
+    pub fn run_python(&mut self, code: &str, origin: &str) {
+        self.python.run(code, origin);
+    }
+
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        let typing = ctx.text_edit_focused();
+        let (open, palette, screenshot, reset_cam, del, play, next, prev, settings) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::K) || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space),
+                i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::S),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::R) && !typing,
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) && !typing,
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Space) && !typing,
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Period) && !typing,
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Comma) && !typing,
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma),
+            )
+        });
+        if open {
+            self.open_file_dialog();
+        }
+        if palette {
+            self.palette.open = !self.palette.open;
+        }
+        if screenshot {
+            self.save_screenshot_dialog();
+        }
+        if reset_cam {
+            self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
+        }
+        if del {
+            let active = self.session.lock().active;
+            if let Some(a) = active {
+                self.session.lock().remove_node(a);
+            }
+        }
+        if play {
+            self.playing = !self.playing;
+        }
+        if next {
+            self.session.lock().step_time(1);
+        }
+        if prev {
+            self.session.lock().step_time(-1);
+        }
+        if settings {
+            self.show_settings = true;
+        }
+        // Dropped files.
+        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+        for p in dropped {
+            self.open_file(p);
+        }
+    }
+
+    fn tick_playback(&mut self, ctx: &egui::Context) {
+        if !self.playing {
+            return;
+        }
+        let now = self.now();
+        if now - self.last_play_step >= 1.0 / self.play_fps.max(0.1) as f64 {
+            let mut s = self.session.lock();
+            if s.times.len() < 2 {
+                self.playing = false;
+            } else if !s.is_busy() {
+                s.step_time(1);
+                self.last_play_step = now;
+            }
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        egui::MenuBar::new().ui(ui, |ui| {
+            ui.add(egui::Image::new(egui::include_image!("../../../assets/icons/aurafx-32.png")).fit_to_exact_size(egui::vec2(20.0, 20.0)));
+            ui.menu_button("File", |ui| {
+                if ui.button("Open…    Ctrl+O").clicked() {
+                    ui.close();
+                    self.open_file_dialog();
+                }
+                ui.menu_button("Open Recent", |ui| {
+                    if self.settings.recent_files.is_empty() {
+                        ui.label("No recent files");
+                    }
+                    let recent = self.settings.recent_files.clone();
+                    for p in recent {
+                        if ui.button(p.display().to_string()).clicked() {
+                            ui.close();
+                            self.open_file(p);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Clear list").clicked() {
+                        self.settings.recent_files.clear();
+                        self.settings.save();
+                    }
+                });
+                ui.separator();
+                if ui.button("Save Screenshot…    Ctrl+Shift+S").clicked() {
+                    ui.close();
+                    self.save_screenshot_dialog();
+                }
+                if ui.button("Export Python trace…").clicked() {
+                    ui.close();
+                    let trace = self.session.lock().trace.join("\n");
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Python", &["py"]).set_file_name("aurafx_trace.py").save_file() {
+                        let _ = std::fs::write(p, format!("import aurafx as afx\n\n{trace}\n"));
+                    }
+                }
+                ui.separator();
+                if ui.button("Settings…    Ctrl+,").clicked() {
+                    ui.close();
+                    self.show_settings = true;
+                }
+                ui.separator();
+                if ui.button("Quit").clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
+            ui.menu_button("Sources", |ui| {
+                for f in aurafx_filters::registry().iter().filter(|f| f.is_source) {
+                    if ui.button(f.label).on_hover_text(f.description).clicked() {
+                        ui.close();
+                        self.add_filter(f.id);
+                    }
+                }
+            });
+            ui.menu_button("Filters", |ui| {
+                let mut cats: Vec<&str> = aurafx_filters::registry().iter().filter(|f| !f.is_source).map(|f| f.category).collect();
+                cats.dedup();
+                for cat in cats {
+                    ui.menu_button(cat, |ui| {
+                        for f in aurafx_filters::registry().iter().filter(|f| !f.is_source && f.category == cat) {
+                            if ui.button(f.label).on_hover_text(f.description).clicked() {
+                                ui.close();
+                                self.add_filter(f.id);
+                            }
+                        }
+                    });
+                }
+                ui.separator();
+                if ui.button("Search…    Ctrl+K").clicked() {
+                    ui.close();
+                    self.palette.open = true;
+                }
+            });
+            ui.menu_button("View", |ui| {
+                if ui.button("Reset camera    R").clicked() {
+                    ui.close();
+                    self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
+                }
+                for (label, dir, up) in [("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), ("-X", [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), ("-Y", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]), ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]), ("-Z", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]), ("Isometric", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0])] {
+                    if ui.button(format!("Look from {label}")).clicked() {
+                        ui.close();
+                        self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
+                    }
+                }
+                ui.separator();
+                ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
+                ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
+                ui.separator();
+                ui.label("Background");
+                let mut c = self.settings.background;
+                if ui.color_edit_button_rgb(&mut c).changed() {
+                    self.settings.background = c;
+                    self.viewport.settings.background = c;
+                    self.settings.save();
+                }
+            });
+            ui.menu_button("Help", |ui| {
+                if ui.button("Keyboard shortcuts").clicked() {
+                    ui.close();
+                    self.show_shortcuts = true;
+                }
+                if ui.button("Python API cheat sheet").clicked() {
+                    ui.close();
+                    self.console.show_help = true;
+                }
+                if ui.button("About auraFX").clicked() {
+                    ui.close();
+                    self.show_about = true;
+                }
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(format!("{} Ask AI", crate::icons::SPARKLE)).clicked() {
+                    self.assistant.focus_input = true;
+                }
+                if ui.button(format!("{} Search  Ctrl+K", crate::icons::MAGNIFYING_GLASS)).clicked() {
+                    self.palette.open = true;
+                }
+            });
+        });
+    }
+
+    fn toolbar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            if ui.button(format!("{} Open", crate::icons::FOLDER_OPEN)).on_hover_text("Open data file (Ctrl+O)").clicked() {
+                self.open_file_dialog();
+            }
+            ui.separator();
+            for (label, id, tip) in [("Slice", "slice", "Cut with a plane"), ("Clip", "clip", "Remove part of the data"), ("Contour", "contour", "Isosurfaces"), ("Threshold", "threshold", "Keep a value range"), ("Calculator", "calculator", "Compute arrays"), ("Glyph", "glyph", "Arrows at points"), ("Warp", "warp_by_vector", "Deform by vectors")] {
+                if ui.button(label).on_hover_text(tip).clicked() {
+                    self.add_filter(id);
+                }
+            }
+            ui.separator();
+            if ui.button(format!("{} Reset", crate::icons::ARROWS_COUNTER_CLOCKWISE)).on_hover_text("Reset camera (R)").clicked() {
+                self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
+            }
+            for (label, dir, up) in [("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]), ("Iso", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0])] {
+                if ui.small_button(label).clicked() {
+                    self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
+                }
+            }
+            ui.separator();
+            // Active node display quick controls.
+            let (active, repr, color_by, arrays, cmap) = {
+                let s = self.session.lock();
+                match s.active_node() {
+                    Some(n) => {
+                        let mut arrays: Vec<(Association, String, usize)> = Vec::new();
+                        if let Some(i) = &n.info {
+                            arrays.extend(i.point_arrays.iter().map(|a| (Association::Points, a.name.clone(), a.ncomp)));
+                            arrays.extend(i.cell_arrays.iter().map(|a| (Association::Cells, a.name.clone(), a.ncomp)));
+                        }
+                        (Some(n.id), n.display.representation, n.display.color_by.clone(), arrays, n.display.colormap.clone())
+                    }
+                    None => (None, Representation::Surface, None, vec![], String::new()),
+                }
+            };
+            if let Some(id) = active {
+                let mut r = repr;
+                egui::ComboBox::from_id_salt("tb_repr").selected_text(r.label()).width(150.0).show_ui(ui, |ui| {
+                    for x in Representation::ALL {
+                        ui.selectable_value(&mut r, x, x.label());
+                    }
+                });
+                if r != repr {
+                    self.session.lock().set_display(id, |d| d.representation = r);
+                }
+                let current = color_by.as_ref().map(|c| format!("{}{}", c.name, if c.assoc == Association::Cells { " (cells)" } else { "" })).unwrap_or_else(|| "Solid Color".into());
+                let mut new_cb: Option<Option<ColorBy>> = None;
+                egui::ComboBox::from_id_salt("tb_color").selected_text(current).width(180.0).show_ui(ui, |ui| {
+                    if ui.selectable_label(color_by.is_none(), "Solid Color").clicked() {
+                        new_cb = Some(None);
+                    }
+                    for (assoc, name, ncomp) in &arrays {
+                        let label = format!("{}{}{}", if *assoc == Association::Points { format!("{} ", crate::icons::CIRCLE) } else { format!("{} ", crate::icons::SQUARE) }, name, if *ncomp > 1 { format!(" ({ncomp})") } else { String::new() });
+                        let sel = color_by.as_ref().map(|c| c.name == *name && c.assoc == *assoc).unwrap_or(false);
+                        if ui.selectable_label(sel, label).clicked() {
+                            new_cb = Some(Some(ColorBy { assoc: *assoc, name: name.clone(), component: None }));
+                        }
+                    }
+                });
+                if let Some(cb) = new_cb {
+                    self.session.lock().color_by(id, cb);
+                }
+                if color_by.is_some() {
+                    let mut m = cmap.clone();
+                    egui::ComboBox::from_id_salt("tb_cmap").selected_text(&m).width(150.0).show_ui(ui, |ui| {
+                        for n in aurafx_pipeline::colormap::names() {
+                            ui.selectable_value(&mut m, n.to_string(), n);
+                        }
+                    });
+                    if m != cmap {
+                        self.session.lock().set_display(id, |d| d.colormap = m);
+                    }
+                }
+            }
+        });
+    }
+
+    fn time_bar(&mut self, ui: &mut egui::Ui) {
+        let (n, idx, t) = {
+            let s = self.session.lock();
+            (s.times.len(), s.time_index, s.current_time())
+        };
+        if n < 2 {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("{} Time", crate::icons::CLOCK)).strong());
+            if ui.button(crate::icons::SKIP_BACK).on_hover_text("First").clicked() {
+                self.session.lock().set_time_index(0);
+            }
+            if ui.button(crate::icons::CARET_LEFT).on_hover_text("Previous (,)").clicked() {
+                self.session.lock().step_time(-1);
+            }
+            if ui.button(if self.playing { crate::icons::PAUSE } else { crate::icons::PLAY }).on_hover_text("Play / pause (Space)").clicked() {
+                self.playing = !self.playing;
+            }
+            if ui.button(crate::icons::CARET_RIGHT).on_hover_text("Next (.)").clicked() {
+                self.session.lock().step_time(1);
+            }
+            if ui.button(crate::icons::SKIP_FORWARD).on_hover_text("Last").clicked() {
+                self.session.lock().set_time_index(n - 1);
+            }
+            let mut i = idx;
+            if ui.add(egui::Slider::new(&mut i, 0..=n - 1).show_value(false)).changed() {
+                self.session.lock().set_time_index(i);
+            }
+            ui.label(format!("step {}/{}  t = {}", idx + 1, n, t.map(|v| aurafx_data::info::g(v)).unwrap_or_default()));
+            ui.add(egui::DragValue::new(&mut self.play_fps).range(0.5..=60.0).speed(0.5).suffix(" fps"));
+        });
+    }
+
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let (busy, nodes, pts, cells) = {
+                let s = self.session.lock();
+                let (mut p, mut c) = (0usize, 0usize);
+                for n in s.nodes.values().filter(|n| n.visible) {
+                    if let Some(i) = &n.info {
+                        p += i.n_points;
+                        c += i.n_cells;
+                    }
+                }
+                (s.is_busy(), s.nodes.len(), p, c)
+            };
+            if busy {
+                ui.spinner();
+                ui.label("Working…");
+            } else {
+                ui.label(RichText::new("●").color(Color32::from_rgb(90, 200, 120)));
+            }
+            ui.label(&self.status);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(format!("{} | {} nodes | {} points, {} cells visible | {:.0} fps", self.viewport.adapter_name(), nodes, pts, cells, self.viewport.fps()));
+            });
+        });
+    }
+
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        if !self.show_settings {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("Settings").open(&mut open).resizable(true).default_width(520.0).show(ctx, |ui| {
+            ui.heading("Appearance");
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut self.settings.dark_theme, "Dark theme").changed() {
+                    crate::theme::apply(ctx, self.settings.dark_theme, self.settings.ui_scale);
+                }
+                ui.label("UI scale");
+                if ui.add(egui::Slider::new(&mut self.settings.ui_scale, 0.7..=2.0)).drag_stopped() {
+                    crate::theme::apply(ctx, self.settings.dark_theme, self.settings.ui_scale);
+                }
+            });
+            ui.separator();
+            ui.heading("AI assistant");
+            self.assistant.settings_ui(ui, &mut self.settings);
+            ui.separator();
+            ui.heading("Python");
+            ui.label(format!("Interpreter: {}", self.python.version.lock()));
+            ui.label("Packages are installed into the interpreter above (pip install numpy scipy …).");
+            ui.separator();
+            if ui.button("Save").clicked() {
+                self.settings.save();
+                self.toast("Settings saved", false);
+            }
+        });
+        if !open {
+            self.show_settings = false;
+            self.settings.save();
+        }
+    }
+
+    fn about_window(&mut self, ctx: &egui::Context) {
+        if self.show_about {
+            let mut open = true;
+            egui::Window::new("About auraFX").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add(egui::Image::new(egui::include_image!("../../../assets/icons/aurafx-128.png")).fit_to_exact_size(egui::vec2(96.0, 96.0)));
+                    ui.heading(format!("auraFX {}", env!("CARGO_PKG_VERSION")));
+                    ui.label("Scientific visualization, analysis and simulation workbench written in Rust.");
+                    ui.label(format!("Renderer: {}", self.viewport.adapter_name()));
+                    ui.label(format!("Python: {}", self.python.version.lock()));
+                    ui.hyperlink("https://github.com/aashiquear/auraFX");
+                });
+            });
+            self.show_about = open;
+        }
+        if self.show_shortcuts {
+            let mut open = true;
+            egui::Window::new("Keyboard shortcuts").open(&mut open).collapsible(false).show(ctx, |ui| {
+                egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
+                    for (k, v) in [
+                        ("Ctrl+O", "Open file"),
+                        ("Ctrl+K / Ctrl+Space", "Command palette (search filters, sources, actions)"),
+                        ("Ctrl+Shift+S", "Save screenshot"),
+                        ("R", "Reset camera"),
+                        ("Delete", "Delete active node"),
+                        ("Space", "Play / pause time"),
+                        (", / .", "Previous / next time step"),
+                        ("Left drag", "Rotate"),
+                        ("Middle drag / Shift+drag", "Pan"),
+                        ("Right drag / wheel", "Zoom"),
+                        ("Double click", "Reset camera"),
+                        ("Ctrl+Enter", "Run code in Python console"),
+                        ("Ctrl+,", "Settings"),
+                    ] {
+                        ui.label(RichText::new(k).monospace());
+                        ui.label(v);
+                        ui.end_row();
+                    }
+                });
+            });
+            self.show_shortcuts = open;
+        }
+    }
+
+    fn toasts_ui(&mut self, ctx: &egui::Context) {
+        let now = self.now();
+        self.toasts.retain(|(_, t, _)| now - t < 6.0);
+        if self.toasts.is_empty() {
+            return;
+        }
+        #[allow(deprecated)]
+        egui::Area::new(egui::Id::new("toasts")).anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -40.0)).order(egui::Order::Foreground).show(ctx, |ui| {
+            for (msg, _, err) in &self.toasts {
+                let fill = if *err { Color32::from_rgb(120, 40, 40) } else { Color32::from_rgb(40, 80, 50) };
+                egui::Frame::popup(ui.style()).fill(fill).show(ui, |ui| {
+                    ui.set_max_width(420.0);
+                    ui.label(msg);
+                });
+            }
+        });
+        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+    }
+}
+
+struct TreeBehavior<'a> {
+    state: &'a mut State,
+}
+
+impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
+    fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: egui_tiles::TileId, pane: &mut Pane) -> egui_tiles::UiResponse {
+        match pane {
+            Pane::Pipeline => crate::panels::pipeline_ui(self.state, ui),
+            Pane::Properties => crate::panels::properties_ui(self.state, ui),
+            Pane::Viewport => crate::viewport::viewport_ui(self.state, ui),
+            Pane::Python => crate::console::console_ui(self.state, ui),
+            Pane::Assistant => crate::assistant::assistant_ui(self.state, ui),
+            Pane::Log => crate::panels::log_ui(self.state, ui),
+            Pane::Spreadsheet => crate::panels::spreadsheet_ui(self.state, ui),
+            Pane::Information => crate::panels::information_ui(self.state, ui),
+        }
+        egui_tiles::UiResponse::None
+    }
+
+    fn tab_title_for_pane(&mut self, pane: &Pane) -> egui::WidgetText {
+        format!("{} {}", pane.icon(), pane.title()).into()
+    }
+
+    fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
+        egui_tiles::SimplificationOptions { all_panes_must_have_tabs: true, ..Default::default() }
+    }
+
+    fn is_tab_closable(&self, _tiles: &egui_tiles::Tiles<Pane>, _tile_id: egui_tiles::TileId) -> bool {
+        true
+    }
+}
+
+impl eframe::App for AuraApp {
+    fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx_owned = root_ui.ctx().clone();
+        let ctx = &ctx_owned;
+        let st = &mut self.state;
+        st.viewport.frame_begin(ctx, frame);
+        st.handle_shortcuts(ctx);
+        st.tick_playback(ctx);
+        // Open files passed on the command line.
+        let pending = std::mem::take(&mut st.pending_open);
+        for p in pending {
+            st.open_file(p);
+        }
+        // Python results.
+        for r in st.python.poll() {
+            st.console.push_result(&r);
+            if r.origin == "assistant" {
+                st.assistant.on_python_result(&r);
+            }
+            if let Some(e) = &r.output.error {
+                if r.origin != "console" {
+                    st.toast(format!("Python error: {}", e.lines().last().unwrap_or("")), true);
+                }
+            }
+        }
+        st.assistant.poll(ctx);
+
+        egui::Panel::top("menu").show(root_ui, |ui| st.menu_bar(ui));
+        egui::Panel::top("toolbar").show(root_ui, |ui| {
+            st.toolbar(ui);
+            st.time_bar(ui);
+        });
+        egui::Panel::bottom("status").show(root_ui, |ui| st.status_bar(ui));
+
+        // Panels that were closed can be reopened from here.
+        let missing: Vec<Pane> = Pane::ALL.iter().copied().filter(|p| !self.tree.tiles.iter().any(|(_, t)| matches!(t, egui_tiles::Tile::Pane(x) if x == p))).collect();
+        if !missing.is_empty() {
+            egui::Panel::top("reopen").show(root_ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Closed panels:");
+                    for p in missing {
+                        if ui.small_button(format!("{} {}", p.icon(), p.title())).clicked() {
+                            let id = self.tree.tiles.insert_pane(p);
+                            if let Some(root) = self.tree.root() {
+                                if let Some(egui_tiles::Tile::Container(c)) = self.tree.tiles.get_mut(root) {
+                                    c.add_child(id);
+                                }
+                            }
+                        }
+                    }
+                    if ui.small_button("Reset layout").clicked() {
+                        self.tree = default_tree();
+                    }
+                });
+            });
+        }
+
+        egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(2))).show(root_ui, |ui| {
+            let mut behavior = TreeBehavior { state: &mut self.state };
+            self.tree.ui(&mut behavior, ui);
+        });
+
+        let st = &mut self.state;
+        crate::palette::palette_ui(st, ctx);
+        st.settings_window(ctx);
+        st.about_window(ctx);
+        st.toasts_ui(ctx);
+        // Rename dialog.
+        if let Some((id, mut name)) = st.rename_target.take() {
+            let mut keep = true;
+            let mut done = false;
+            egui::Window::new("Rename").collapsible(false).resizable(false).show(ctx, |ui| {
+                let r = ui.text_edit_singleline(&mut name);
+                r.request_focus();
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    done = true;
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        done = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        keep = false;
+                    }
+                });
+            });
+            if done {
+                st.session.lock().rename(id, name);
+            } else if keep {
+                st.rename_target = Some((id, name));
+            }
+        }
+        st.viewport.frame_end(ctx);
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Ok(s) = serde_json::to_string(&self.tree) {
+            storage.set_string("layout", s);
+        }
+        self.state.settings.save();
+    }
+}

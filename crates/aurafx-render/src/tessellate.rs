@@ -54,81 +54,13 @@ fn point_scalars(attrs: &Attributes, name: &str, comp: Option<usize>) -> Option<
     attrs.get(name).filter(|a| a.scalar_type() != ScalarType::String).map(|a| a.component_f32(comp.filter(|&c| c < a.ncomp)))
 }
 
-fn compute_point_normals(pd: &PolyData) -> Vec<[f32; 3]> {
-    let n = pd.points.len();
-    let mut acc = vec![[0.0f64; 3]; n];
+/// Triangulate polygons and strips: (point ids, owning cell index).
+fn triangulate(pd: &PolyData, cell_base: usize) -> Vec<([u32; 3], usize)> {
+    let mut tris = Vec::with_capacity(pd.polys.len() * 2);
     for i in 0..pd.polys.len() {
         let c = pd.polys.cell(i);
-        if c.len() < 3 {
-            continue;
-        }
-        // Newell's method for polygon normal (area weighted).
-        let mut nx = 0.0;
-        let mut ny = 0.0;
-        let mut nz = 0.0;
-        for k in 0..c.len() {
-            let p = pd.points.get(c[k] as usize);
-            let q = pd.points.get(c[(k + 1) % c.len()] as usize);
-            nx += (p[1] - q[1]) * (p[2] + q[2]);
-            ny += (p[2] - q[2]) * (p[0] + q[0]);
-            nz += (p[0] - q[0]) * (p[1] + q[1]);
-        }
-        for &pi in c {
-            let a = &mut acc[pi as usize];
-            a[0] += nx;
-            a[1] += ny;
-            a[2] += nz;
-        }
-    }
-    acc.into_par_iter()
-        .map(|a| {
-            let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
-            if l > 0.0 { [(a[0] / l) as f32, (a[1] / l) as f32, (a[2] / l) as f32] } else { [0.0, 0.0, 1.0] }
-        })
-        .collect()
-}
-
-/// Triangulate polygon cells and strips into unindexed triangles.
-fn emit_triangles(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal: Option<&[f32]>, cell_base: usize, smooth: bool, out: &mut Vec<Vertex>) {
-    let normals = if smooth { Some(compute_point_normals(pd)) } else { None };
-    let pt = |i: u32| {
-        let p = pd.points.get(i as usize);
-        [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32]
-    };
-    let push_tri = |ids: [u32; 3], cell: usize, out: &mut Vec<Vertex>| {
-        let p = [pt(ids[0]), pt(ids[1]), pt(ids[2])];
-        let flat = {
-            let u = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
-            let v = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
-            let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-            let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if l > 0.0 { [n[0] / l, n[1] / l, n[2] / l] } else { [0.0, 0.0, 1.0] }
-        };
-        for k in 0..3 {
-            let s = match (cscal, pscal) {
-                (Some(c), _) => c.get(cell).copied().unwrap_or(f32::NAN),
-                (None, Some(ps)) => ps.get(ids[k] as usize).copied().unwrap_or(f32::NAN),
-                _ => 0.0,
-            };
-            let normal = match &normals {
-                Some(nn) => nn[ids[k] as usize],
-                None => flat,
-            };
-            out.push(Vertex { pos: p[k], scalar: s, normal, _pad: 0.0 });
-        }
-    };
-    for i in 0..pd.polys.len() {
-        let c = pd.polys.cell(i);
-        let cell = cell_base + i;
-        if c.len() == 3 {
-            push_tri([c[0], c[1], c[2]], cell, out);
-        } else if c.len() == 4 {
-            push_tri([c[0], c[1], c[2]], cell, out);
-            push_tri([c[0], c[2], c[3]], cell, out);
-        } else {
-            for k in 1..c.len().saturating_sub(1) {
-                push_tri([c[0], c[k], c[k + 1]], cell, out);
-            }
+        for k in 1..c.len().saturating_sub(1) {
+            tris.push(([c[0], c[k], c[k + 1]], cell_base + i));
         }
     }
     let strip_base = cell_base + pd.polys.len();
@@ -136,8 +68,104 @@ fn emit_triangles(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal:
         let c = pd.strips.cell(i);
         for k in 0..c.len().saturating_sub(2) {
             let t = if k % 2 == 0 { [c[k], c[k + 1], c[k + 2]] } else { [c[k + 1], c[k], c[k + 2]] };
-            push_tri(t, strip_base + i, out);
+            tris.push((t, strip_base + i));
         }
+    }
+    tris
+}
+
+/// Emit triangles with crease-angle normals: a corner averages the normals of incident
+/// triangles that are within `crease_deg` of its own face, so curved surfaces look smooth
+/// while hard edges (e.g. box corners) stay sharp.
+fn emit_triangles(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal: Option<&[f32]>, cell_base: usize, crease_deg: Option<f64>, out: &mut Vec<Vertex>) {
+    let tris = triangulate(pd, cell_base);
+    if tris.is_empty() {
+        return;
+    }
+    let pos: Vec<[f32; 3]> = (0..pd.points.len())
+        .into_par_iter()
+        .map(|i| {
+            let p = pd.points.get(i);
+            [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32]
+        })
+        .collect();
+    // Unit face normals.
+    let fnorm: Vec<[f32; 3]> = tris
+        .par_iter()
+        .map(|(t, _)| {
+            let (a, b, c) = (pos[t[0] as usize], pos[t[1] as usize], pos[t[2] as usize]);
+            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+            let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if l > 0.0 { [n[0] / l, n[1] / l, n[2] / l] } else { [0.0, 0.0, 0.0] }
+        })
+        .collect();
+    // Point -> incident triangles (CSR).
+    let np = pos.len();
+    let (offsets, adj) = match crease_deg {
+        Some(_) => {
+            let mut counts = vec![0u32; np + 1];
+            for (t, _) in &tris {
+                for &p in t {
+                    counts[p as usize + 1] += 1;
+                }
+            }
+            for i in 0..np {
+                counts[i + 1] += counts[i];
+            }
+            let mut fill = counts.clone();
+            let mut adj = vec![0u32; counts[np] as usize];
+            for (ti, (t, _)) in tris.iter().enumerate() {
+                for &p in t {
+                    adj[fill[p as usize] as usize] = ti as u32;
+                    fill[p as usize] += 1;
+                }
+            }
+            (counts, adj)
+        }
+        None => (Vec::new(), Vec::new()),
+    };
+    let cos_crease = crease_deg.map(|d| d.to_radians().cos() as f32).unwrap_or(1.0);
+    let verts: Vec<[Vertex; 3]> = tris
+        .par_iter()
+        .enumerate()
+        .map(|(ti, (t, cell))| {
+            let fnrm = fnorm[ti];
+            let mut vs = [Vertex::default(); 3];
+            for k in 0..3 {
+                let p = t[k] as usize;
+                let normal = if crease_deg.is_some() {
+                    let mut acc = [0.0f32; 3];
+                    for &oj in &adj[offsets[p] as usize..offsets[p + 1] as usize] {
+                        let on = fnorm[oj as usize];
+                        // Orientation-insensitive: treat flipped neighbours as the same surface.
+                        let d = on[0] * fnrm[0] + on[1] * fnrm[1] + on[2] * fnrm[2];
+                        if d.abs() >= cos_crease {
+                            let sgn = if d < 0.0 { -1.0 } else { 1.0 };
+                            acc[0] += sgn * on[0];
+                            acc[1] += sgn * on[1];
+                            acc[2] += sgn * on[2];
+                        }
+                    }
+                    let l = (acc[0] * acc[0] + acc[1] * acc[1] + acc[2] * acc[2]).sqrt();
+                    if l > 0.0 { [acc[0] / l, acc[1] / l, acc[2] / l] } else { fnrm }
+                } else {
+                    fnrm
+                };
+                let s = match (cscal, pscal) {
+                    (Some(c), _) => c.get(*cell).copied().unwrap_or(f32::NAN),
+                    (None, Some(ps)) => ps.get(p).copied().unwrap_or(f32::NAN),
+                    _ => 0.0,
+                };
+                vs[k] = Vertex { pos: pos[p], scalar: s, normal, _pad: 0.0 };
+            }
+            vs
+        })
+        .collect();
+    out.reserve(verts.len() * 3);
+    for v in verts {
+        out.extend_from_slice(&v);
     }
 }
 
@@ -258,10 +286,10 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         };
         let (ps, cs) = (pscal.as_deref(), cscal.as_deref());
         let poly_cell_base = pd.verts.len() + pd.lines.len();
-        let smooth = display.lighting && pd.point_data.active(AttributeKind::Normals).is_some() || pd.polys.len() > 0 && smooth_default(pd);
+        let crease = if display.lighting { Some(30.0) } else { None };
         match display.representation {
             Representation::Surface | Representation::SurfaceWithEdges => {
-                emit_triangles(pd, origin, ps, cs, poly_cell_base, smooth, &mut mesh.tris);
+                emit_triangles(pd, origin, ps, cs, poly_cell_base, crease, &mut mesh.tris);
                 emit_lines(pd, origin, ps, cs, pd.verts.len(), &mut mesh.lines);
                 if display.representation == Representation::SurfaceWithEdges {
                     emit_polygon_edges(pd, origin, None, &mut mesh.lines);
@@ -284,7 +312,3 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
     mesh
 }
 
-/// Heuristic: smooth-shade surfaces that look like curved geometry (many small polygons).
-fn smooth_default(pd: &PolyData) -> bool {
-    pd.polys.len() > 50
-}

@@ -39,6 +39,8 @@ pub struct Node {
     pub last_exec_ms: f64,
     /// Which time step index the current output corresponds to (readers only).
     pub output_time_index: Option<usize>,
+    /// Whether the automatic "color by active scalar" default has been applied.
+    pub auto_colored: bool,
 }
 
 impl Node {
@@ -203,6 +205,7 @@ impl Session {
             running: false,
             last_exec_ms: 0.0,
             output_time_index: None,
+            auto_colored: false,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -234,6 +237,7 @@ impl Session {
             running: false,
             last_exec_ms: 0.0,
             output_time_index: None,
+            auto_colored: false,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -269,6 +273,7 @@ impl Session {
             running: false,
             last_exec_ms: 0.0,
             output_time_index: None,
+            auto_colored: false,
         };
         // ParaView-style: hide the input when adding a filter that replaces its look.
         if matches!(def.id, "slice" | "clip" | "contour" | "threshold" | "extract_surface" | "warp_by_vector" | "warp_by_scalar" | "transform" | "calculator" | "cell_data_to_point_data" | "point_data_to_cell_data" | "merge_blocks") {
@@ -470,6 +475,31 @@ impl Session {
         n.last_exec_ms = elapsed_ms;
         match result {
             Ok(ds) => {
+                // Friendly default: color by the active scalar the first time data arrives,
+                // and fall back when an inherited color array does not exist in this output.
+                let has = |cb: &ColorBy| {
+                    let attrs = match cb.assoc {
+                        aurafx_filters::Association::Points => ds.point_data(),
+                        aurafx_filters::Association::Cells => ds.cell_data(),
+                    };
+                    let leaf_attrs = match &*ds {
+                        DataSet::MultiBlock(mb) => mb.leaves().into_iter().next().and_then(|(_, d)| match cb.assoc {
+                            aurafx_filters::Association::Points => d.point_data().cloned(),
+                            aurafx_filters::Association::Cells => d.cell_data().cloned(),
+                        }),
+                        _ => attrs.cloned(),
+                    };
+                    leaf_attrs.map(|a| a.get(&cb.name).is_some()).unwrap_or(false)
+                };
+                let needs_default = match &n.display.color_by {
+                    None => !n.auto_colored,
+                    Some(cb) => !has(cb),
+                };
+                if needs_default {
+                    n.display.color_by = aurafx_filters::default_array(&ds, false).map(|(assoc, name)| ColorBy { assoc, name, component: None });
+                    n.display.range = None;
+                }
+                n.auto_colored = true;
                 n.info = Some(DataSetInfo::of(&ds));
                 n.output = Some(ds);
                 n.error = None;

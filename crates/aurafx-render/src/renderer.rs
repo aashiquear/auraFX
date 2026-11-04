@@ -58,8 +58,8 @@ struct GpuNode {
 }
 
 pub struct Renderer {
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
     pub width: u32,
     pub height: u32,
     color: wgpu::Texture,
@@ -89,7 +89,7 @@ fn vertex_layout(step: wgpu::VertexStepMode) -> wgpu::VertexBufferLayout<'static
 }
 
 impl Renderer {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, adapter_info: String) -> Self {
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue, adapter_info: String) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aurafx mesh shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh.wgsl").into()),
@@ -232,7 +232,7 @@ impl Renderer {
         &self.color_view
     }
 
-    pub fn device(&self) -> &Arc<wgpu::Device> {
+    pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
 

@@ -107,10 +107,20 @@ fn comp(p: &Params) -> Option<usize> {
 pub fn default_array(ds: &DataSet, want_vector: bool) -> Option<(Association, String)> {
     let pick = |a: &Attributes| -> Option<String> {
         if want_vector {
-            a.vectors().map(|x| x.name.clone())
-        } else {
-            a.scalars().or_else(|| a.iter().find(|x| x.scalar_type() != ScalarType::String)).map(|x| x.name.clone())
+            return a.vectors().map(|x| x.name.clone());
         }
+        if let Some(s) = a.active(AttributeKind::Scalars) {
+            return Some(s.name.clone());
+        }
+        // Skip geometric helper arrays and constant arrays; prefer 1-component data.
+        let skip: Vec<&str> = [AttributeKind::Normals, AttributeKind::TCoords, AttributeKind::GlobalIds, AttributeKind::PedigreeIds].iter().filter_map(|k| a.active.get(k).map(|s| s.as_str())).collect();
+        let useful = |x: &&Array| {
+            x.scalar_type() != ScalarType::String && !skip.contains(&x.name.as_str()) && !matches!(x.name.as_str(), "Normals" | "TextureCoordinates" | "vtkOriginalPointIds" | "vtkOriginalCellIds" | "vtkGhostType") && {
+                let (lo, hi) = x.range(None);
+                hi > lo
+            }
+        };
+        a.iter().filter(useful).find(|x| x.ncomp == 1).or_else(|| a.iter().find(useful)).map(|x| x.name.clone())
     };
     let ds_for = match ds {
         DataSet::MultiBlock(m) => m.leaves().into_iter().next().map(|(_, d)| d),

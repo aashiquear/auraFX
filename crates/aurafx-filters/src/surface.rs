@@ -116,7 +116,9 @@ fn structured_surface(ds: &DataSet) -> Result<PolyData> {
         }
     }
     let (points, point_data) = crate::interp::compact_points(&points, pd, &mut polys.connectivity);
-    Ok(PolyData { points, polys, point_data, cell_data: cd.gather(&parent), ..Default::default() })
+    let mut cell_data = cd.gather(&parent);
+    cell_data.insert(Array::new("vtkOriginalCellIds", 1, ArrayData::I64(parent.iter().map(|&i| i as i64).collect())));
+    Ok(PolyData { points, polys, point_data, cell_data, ..Default::default() })
 }
 
 fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
@@ -217,5 +219,7 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
     let mut parents = parent_v;
     parents.extend(parent_l);
     parents.extend(parent_p);
-    Ok(PolyData { points, verts, lines, polys, strips: Cells::new(), point_data, cell_data: cd.gather(&parents), field_data: fd.clone() })
+    let mut cell_data = cd.gather(&parents);
+    cell_data.insert(Array::new("vtkOriginalCellIds", 1, ArrayData::I64(parents.iter().map(|&i| i as i64).collect())));
+    Ok(PolyData { points, verts, lines, polys, strips: Cells::new(), point_data, cell_data, field_data: fd.clone() })
 }

@@ -41,6 +41,10 @@ pub struct Viewport {
     pub pick: Option<PickResult>,
     selection_mesh: Option<(u64, Arc<MeshData>)>,
     widget_drag: Option<WidgetHandle>,
+    /// Rectangle cell selection waiting for the id pass: (node, pixel rect, shift, ctrl).
+    pending_id_pick: Option<(NodeId, [u32; 4], bool, bool)>,
+    /// Select every cell inside the rectangle, including hidden ones.
+    pub select_through: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +139,8 @@ impl Viewport {
             pick: None,
             selection_mesh: None,
             widget_drag: None,
+            pending_id_pick: None,
+            select_through: false,
         }
     }
 
@@ -266,6 +272,22 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, String, (
     (draws, scalar_bar)
 }
 
+/// Set (or extend with Shift / reduce with Ctrl) the selection of `node`.
+fn apply_selection(state: &mut State, node: NodeId, assoc: Association, mut ids: Vec<usize>, add: bool, remove: bool) {
+    if add || remove {
+        let prev = state.session.lock().selection.clone().filter(|p| p.node == node && p.assoc == assoc).map(|p| p.ids).unwrap_or_default();
+        if add {
+            ids.extend(prev);
+        } else {
+            let rm: std::collections::HashSet<usize> = ids.into_iter().collect();
+            ids = prev.into_iter().filter(|i| !rm.contains(i)).collect();
+        }
+    }
+    let n = ids.len();
+    state.session.lock().set_selection(node, assoc, ids);
+    state.status = format!("Selected {n} {}", if assoc == Association::Points { "points" } else { "cells" });
+}
+
 fn do_pick(state: &mut State, rect: Rect, pos: Pos2) {
     let ray = crate::pick::screen_ray(&state.viewport.camera, rect, pos);
     let visible: std::collections::HashSet<NodeId> = state.session.lock().nodes.values().filter(|n| n.visible).map(|n| n.id).collect();
@@ -374,21 +396,17 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                     .or_else(|| s.nodes.values().rev().find(|n| n.visible && n.output.is_some()).map(|n| (n.id, n.output.clone().unwrap())))
             };
             match target {
+                Some((id, _)) if assoc == Association::Cells && !state.viewport.select_through => {
+                    // Visible cells only: resolved with the GPU id pass after this frame's render.
+                    let ppp = ui.ctx().pixels_per_point();
+                    let px = |p: Pos2| ((p.x - rect.left()).max(0.0) * ppp, (p.y - rect.top()).max(0.0) * ppp);
+                    let (a, b) = (px(sel.min), px(sel.max));
+                    state.viewport.pending_id_pick =
+                        Some((id, [a.0 as u32, a.1 as u32, b.0.ceil() as u32 + 1, b.1.ceil() as u32 + 1], mods.shift, mods.command));
+                }
                 Some((id, ds)) => {
-                    let mut ids = crate::pick::select_in_rect(&state.viewport.camera, rect, sel, &ds, assoc);
-                    if mods.shift || mods.command {
-                        // Shift adds to, Ctrl removes from, the existing selection.
-                        let prev = state.session.lock().selection.clone().filter(|p| p.node == id && p.assoc == assoc).map(|p| p.ids).unwrap_or_default();
-                        if mods.shift {
-                            ids.extend(prev);
-                        } else {
-                            let rm: std::collections::HashSet<usize> = ids.into_iter().collect();
-                            ids = prev.into_iter().filter(|i| !rm.contains(i)).collect();
-                        }
-                    }
-                    let n = ids.len();
-                    state.session.lock().set_selection(id, assoc, ids);
-                    state.status = format!("Selected {n} {}", if assoc == Association::Points { "points" } else { "cells" });
+                    let ids = crate::pick::select_in_rect(&state.viewport.camera, rect, sel, &ds, assoc);
+                    apply_selection(state, id, assoc, ids, mods.shift, mods.command);
                 }
                 None => state.toast("Select a visible dataset first", true),
             }
@@ -487,6 +505,15 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         let recreated = r.resize(w, h);
         let settings = state.viewport.settings.clone();
         r.render(&state.viewport.camera, &draws, &settings);
+        if let Some((node, px, add, remove)) = state.viewport.pending_id_pick.take() {
+            match r.pick_ids(&state.viewport.camera, &draws, node, px) {
+                Ok(ids) => {
+                    let ids: Vec<usize> = ids.into_iter().map(|i| i as usize).collect();
+                    apply_selection(state, node, Association::Cells, ids, add, remove);
+                }
+                Err(e) => state.toast(format!("Selection failed: {e:#}"), true),
+            }
+        }
         state.viewport.sync_texture(recreated);
         // Screenshot requests (UI or Python).
         let py_req = if is_active { state.session.lock().screenshot_request.take() } else { None };
@@ -636,9 +663,15 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
                 ui.selectable_value(m, InteractMode::Navigate, icons::ARROWS_OUT_CARDINAL).on_hover_text("Navigate: rotate, pan, zoom (Esc)");
                 ui.selectable_value(m, InteractMode::Pick, icons::CROSSHAIR).on_hover_text("Pick: click a surface to read values (P, or Ctrl+click)");
                 ui.selectable_value(m, InteractMode::SelectCells, icons::SELECTION)
-                    .on_hover_text("Select cells in a rectangle (S). Shift adds, Ctrl removes. Selects through the model.");
+                    .on_hover_text("Select visible cells in a rectangle (S). Shift adds, Ctrl removes.");
                 ui.selectable_value(m, InteractMode::SelectPoints, icons::DOTS_NINE)
                     .on_hover_text("Select points in a rectangle (D). Shift adds, Ctrl removes.");
+                if matches!(state.viewport.mode, InteractMode::SelectCells | InteractMode::SelectPoints) {
+                    let t = state.viewport.select_through;
+                    if ui.selectable_label(t, icons::STACK).on_hover_text("Select through: include cells hidden behind the visible surface").clicked() {
+                        state.viewport.select_through = !t;
+                    }
+                }
                 ui.separator();
                 let vid = state.viewport.id;
                 if ui.small_button(icons::COLUMNS).on_hover_text("Split: add a 3D view to the right").clicked() {

@@ -61,14 +61,43 @@ fn volume_stops_at_opaque_geometry() {
     let plane_only = center(&r);
     assert!(plane_only[1] > 200 && plane_only[0] < 30, "{plane_only:?}");
     // Plane + volume from the front: the volume in front tints it.
-    r.render(&cam, &[NodeDraw { id: 1, mesh: mv.clone(), display: dv.clone(), overlay: false }, NodeDraw { id: 2, mesh: mp.clone(), display: dp.clone(), overlay: false }], &RenderSettings::default());
+    r.render(
+        &cam,
+        &[NodeDraw { id: 1, mesh: mv.clone(), display: dv.clone(), overlay: false }, NodeDraw { id: 2, mesh: mp.clone(), display: dp.clone(), overlay: false }],
+        &RenderSettings::default(),
+    );
     let front = center(&r);
     assert_ne!(front, plane_only, "volume in front of the plane must be visible");
     // Seen from behind with the plane moved to the back face: the volume is fully in front.
     // Moving the plane in front of the volume must hide the volume completely.
     let plane_front = aurafx_data::DataSet::PolyData(aurafx_filters::sources::plane([-12.0, -12.0, 10.5], [12.0, -12.0, 10.5], [-12.0, 12.0, 10.5], 1, 1));
     let mpf = Arc::new(tessellate::tessellate(&plane_front, &dp));
-    r.render(&cam, &[NodeDraw { id: 1, mesh: mv, display: dv, overlay: false }, NodeDraw { id: 2, mesh: mpf, display: dp, overlay: false }], &RenderSettings::default());
+    r.render(
+        &cam,
+        &[NodeDraw { id: 1, mesh: mv, display: dv, overlay: false }, NodeDraw { id: 2, mesh: mpf, display: dp, overlay: false }],
+        &RenderSettings::default(),
+    );
     let hidden = center(&r);
     assert_eq!(hidden, plane_only, "a plane in front of the volume hides it");
+}
+
+#[test]
+fn id_pass_returns_visible_cells_only() {
+    // Wavelet image seen from +Z: only the top layer of cells (z in [4, 5]) is visible.
+    let img = aurafx_filters::sources::wavelet([-5, 5, -5, 5, -5, 5], 255.0, 0.5);
+    let ds = aurafx_data::DataSet::ImageData(img);
+    let d = DisplayProps::default();
+    let mesh = Arc::new(tessellate::tessellate(&ds, &d));
+    let mut r = match headless(300, 300) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let mut cam = Camera::default();
+    cam.set_view([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], &ds.bounds());
+    let draws = [NodeDraw { id: 7, mesh, display: d, overlay: false }];
+    r.render(&cam, &draws, &RenderSettings::default());
+    let ids = r.pick_ids(&cam, &draws, 7, [0, 0, 300, 300]).unwrap();
+    assert_eq!(ids.len(), 100, "the 10x10 top cells");
+    // Cell (i, j, k=9) has id i + 10 j + 100*9.
+    assert!(ids.iter().all(|&id| id >= 900 && id < 1000), "{:?}", &ids[..5]);
 }

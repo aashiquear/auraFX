@@ -98,16 +98,30 @@ fn build_volume(ds: &DataSet, display: &DisplayProps, origin: [f64; 3]) -> Optio
 
 struct Leaf {
     pd: PolyData,
+    /// Index of this leaf's first cell in the flattened numbering used by selections.
+    cell_offset: usize,
 }
 
 /// Collect renderable leaves: everything is turned into polydata (surfaces) first.
 fn leaves(ds: &DataSet, repr: Representation) -> Vec<Leaf> {
+    leaves_at(ds, repr, 0)
+}
+
+fn leaves_at(ds: &DataSet, repr: Representation, cell_offset: usize) -> Vec<Leaf> {
     match ds {
-        DataSet::MultiBlock(mb) => mb.leaves().into_iter().flat_map(|(_, d)| leaves(d, repr)).collect(),
+        DataSet::MultiBlock(mb) => {
+            let mut off = cell_offset;
+            let mut out = Vec::new();
+            for (_, d) in mb.leaves() {
+                out.extend(leaves_at(d, repr, off));
+                off += d.n_cells();
+            }
+            out
+        }
         DataSet::Table(_) => vec![],
-        DataSet::PolyData(pd) => vec![Leaf { pd: pd.clone() }],
+        DataSet::PolyData(pd) => vec![Leaf { pd: pd.clone(), cell_offset }],
         other => match aurafx_filters::surface::extract_surface(other) {
-            Ok(pd) => vec![Leaf { pd }],
+            Ok(pd) => vec![Leaf { pd, cell_offset }],
             Err(e) => {
                 tracing::warn!("surface extraction failed: {e:#}");
                 vec![]
@@ -151,6 +165,7 @@ fn emit_triangles(
     cscal: Option<&[f32]>,
     cell_base: usize,
     crease_deg: Option<f64>,
+    cell_ids: &(dyn Fn(usize) -> u32 + Sync),
     out: &mut Vec<Vertex>,
 ) {
     let tris = triangulate(pd, cell_base);
@@ -241,7 +256,7 @@ fn emit_triangles(
                     (None, Some(ps)) => ps.get(p).copied().unwrap_or(f32::NAN),
                     _ => 0.0,
                 };
-                vs[k] = Vertex { pos: pos[p], scalar: s, normal, _pad: 0.0 };
+                vs[k] = Vertex { pos: pos[p], scalar: s, normal, _pad: f32::from_bits(cell_ids(*cell)) };
             }
             vs
         })
@@ -393,10 +408,14 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         };
         let (ps, cs) = (pscal.as_deref(), cscal.as_deref());
         let poly_cell_base = pd.verts.len() + pd.lines.len();
+        // Flattened original cell id of each surface cell (for picking/selection).
+        let orig = pd.cell_data.get("vtkOriginalCellIds").cloned();
+        let off = leaf.cell_offset;
+        let cell_ids = move |c: usize| -> u32 { (off + orig.as_ref().map(|a| a.get(c, 0) as usize).unwrap_or(c)) as u32 };
         let crease = if display.lighting { Some(30.0) } else { None };
         match display.representation {
             Representation::Surface | Representation::SurfaceWithEdges => {
-                emit_triangles(pd, origin, ps, cs, poly_cell_base, crease, &mut mesh.tris);
+                emit_triangles(pd, origin, ps, cs, poly_cell_base, crease, &cell_ids, &mut mesh.tris);
                 emit_lines(pd, origin, ps, cs, pd.verts.len(), &mut mesh.lines);
                 if display.representation == Representation::SurfaceWithEdges {
                     emit_polygon_edges(pd, origin, None, &mut mesh.lines);

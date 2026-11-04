@@ -97,6 +97,8 @@ pub struct Renderer {
     pipe_overlay_lines: wgpu::RenderPipeline,
     pipe_overlay_points: wgpu::RenderPipeline,
     pipe_volume: wgpu::RenderPipeline,
+    pipe_id: wgpu::RenderPipeline,
+    id_targets: Option<(u32, u32, wgpu::Texture, wgpu::TextureView, wgpu::TextureView)>,
     vol_bgl: wgpu::BindGroupLayout,
     scene_bgl: wgpu::BindGroupLayout,
     scene_bg: wgpu::BindGroup,
@@ -238,7 +240,11 @@ impl Renderer {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: true },
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: true,
+                },
                 count: None,
             }],
         });
@@ -273,6 +279,44 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let id_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aurafx id shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/id.wgsl").into()),
+        });
+        let pipe_id = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("cell ids"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &id_shader,
+                entry_point: Some("vs_id"),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<crate::tessellate::Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Uint32, offset: 28, shader_location: 3 },
+                    ],
+                })],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &id_shader,
+                entry_point: Some("fs_id"),
+                targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::R32Uint, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
         let vol_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -304,6 +348,8 @@ impl Renderer {
             pipe_overlay_lines,
             pipe_overlay_points,
             pipe_volume,
+            pipe_id,
+            id_targets: None,
             vol_bgl,
             scene_bgl,
             scene_bg,
@@ -353,7 +399,11 @@ impl Renderer {
     }
 
     fn make_scene_bg(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, depth: &wgpu::TextureView) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("scene depth"), layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(depth) }] })
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("scene depth"),
+            layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(depth) }],
+        })
     }
 
     /// Returns true if the target was recreated (the UI must re-register the texture).
@@ -514,43 +564,22 @@ impl Renderer {
         for d in draws {
             self.sync_node(d);
         }
-        let aspect = self.width as f64 / self.height.max(1) as f64;
-        let light = {
-            let f = (camera.eye - camera.target).normalize_or_zero();
-            let r = camera.right();
-            let u = r.cross(-f).normalize_or_zero();
-            (f * 1.0 + r * 0.3 + u * 0.5).normalize_or_zero()
-        };
-        for d in draws {
-            let g = &self.nodes[&d.id];
-            let origin = DVec3::from_array(d.mesh.origin);
-            let vp = camera.view_proj_f32(aspect, origin);
-            let cam_rel = (camera.eye - origin).as_vec3();
-            let (lo, hi) = d.mesh.scalar_range.unwrap_or((0.0, 1.0));
-            let u = NodeUniform {
-                view_proj: vp.to_cols_array_2d(),
-                camera_pos: [cam_rel.x, cam_rel.y, cam_rel.z, 1.0],
-                light_dir: [light.x as f32, light.y as f32, light.z as f32, 0.0],
-                viewport: [self.width as f32, self.height as f32, 0.0, 0.0],
-                color: [d.display.solid_color[0], d.display.solid_color[1], d.display.solid_color[2], d.display.opacity],
-                range: [lo as f32, hi as f32, if d.display.log_scale { 1.0 } else { 0.0 }, if d.mesh.has_scalars { 1.0 } else { 0.0 }],
-                flags: [if d.display.lighting { 1.0 } else { 0.0 }, d.display.point_size, if d.display.points_as_spheres { 1.0 } else { 0.0 }, 0.0],
-            };
-            self.queue.write_buffer(&g.uniform, 0, bytemuck::bytes_of(&u));
-            if let (Some(gv), Some(v)) = (&g.volume, &d.mesh.volume) {
-                let vu = VolumeUniform {
-                    box_min: [v.box_min[0], v.box_min[1], v.box_min[2], 0.0],
-                    box_max: [v.box_max[0], v.box_max[1], v.box_max[2], 0.0],
-                    dims: [v.dims[0] as f32, v.dims[1] as f32, v.dims[2] as f32, 0.0],
-                    params: [d.display.volume_opacity, d.display.volume_threshold, 512.0, 0.0],
-                };
-                self.queue.write_buffer(&gv.params, 0, bytemuck::bytes_of(&vu));
-            }
-        }
+        self.write_uniforms(camera, draws, None);
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("aurafx render") });
         // Draw classes: 0 opaque, 1 volume, 2 translucent; overlays last.
-        let class = |d: &NodeDraw| -> (bool, u8) { (d.overlay, if d.mesh.volume.is_some() { 1 } else if d.display.opacity < 1.0 { 2 } else { 0 }) };
+        let class = |d: &NodeDraw| -> (bool, u8) {
+            (
+                d.overlay,
+                if d.mesh.volume.is_some() {
+                    1
+                } else if d.display.opacity < 1.0 {
+                    2
+                } else {
+                    0
+                },
+            )
+        };
         let mut order: Vec<&NodeDraw> = draws.iter().collect();
         order.sort_by_key(|d| class(d));
         let (opaque, rest): (Vec<&NodeDraw>, Vec<&NodeDraw>) = order.into_iter().partition(|d| class(d) == (false, 0));
@@ -597,6 +626,148 @@ impl Renderer {
             }
         }
         self.queue.submit(Some(encoder.finish()));
+    }
+
+    /// Per-node uniforms; `target` marks the node whose cell ids an ID pass should record.
+    fn write_uniforms(&self, camera: &Camera, draws: &[NodeDraw], target: Option<NodeId>) {
+        let aspect = self.width as f64 / self.height.max(1) as f64;
+        let light = {
+            let f = (camera.eye - camera.target).normalize_or_zero();
+            let r = camera.right();
+            let u = r.cross(-f).normalize_or_zero();
+            (f * 1.0 + r * 0.3 + u * 0.5).normalize_or_zero()
+        };
+        for d in draws {
+            let g = &self.nodes[&d.id];
+            let origin = DVec3::from_array(d.mesh.origin);
+            let vp = camera.view_proj_f32(aspect, origin);
+            let cam_rel = (camera.eye - origin).as_vec3();
+            let (lo, hi) = d.mesh.scalar_range.unwrap_or((0.0, 1.0));
+            let u = NodeUniform {
+                view_proj: vp.to_cols_array_2d(),
+                camera_pos: [cam_rel.x, cam_rel.y, cam_rel.z, 1.0],
+                light_dir: [light.x as f32, light.y as f32, light.z as f32, 0.0],
+                viewport: [self.width as f32, self.height as f32, 0.0, 0.0],
+                color: [d.display.solid_color[0], d.display.solid_color[1], d.display.solid_color[2], d.display.opacity],
+                range: [lo as f32, hi as f32, if d.display.log_scale { 1.0 } else { 0.0 }, if d.mesh.has_scalars { 1.0 } else { 0.0 }],
+                flags: [
+                    if d.display.lighting { 1.0 } else { 0.0 },
+                    d.display.point_size,
+                    if d.display.points_as_spheres { 1.0 } else { 0.0 },
+                    if target == Some(d.id) { 1.0 } else { 0.0 },
+                ],
+            };
+            self.queue.write_buffer(&g.uniform, 0, bytemuck::bytes_of(&u));
+            if let (Some(gv), Some(v)) = (&g.volume, &d.mesh.volume) {
+                let vu = VolumeUniform {
+                    box_min: [v.box_min[0], v.box_min[1], v.box_min[2], 0.0],
+                    box_max: [v.box_max[0], v.box_max[1], v.box_max[2], 0.0],
+                    dims: [v.dims[0] as f32, v.dims[1] as f32, v.dims[2] as f32, 0.0],
+                    params: [d.display.volume_opacity, d.display.volume_threshold, 512.0, 0.0],
+                };
+                self.queue.write_buffer(&gv.params, 0, bytemuck::bytes_of(&vu));
+            }
+        }
+    }
+
+    /// Ids of the cells of node `target` that are visible inside the pixel rectangle
+    /// `[x0, y0, x1, y1)` (call after `render` in the same frame). Other nodes still occlude.
+    pub fn pick_ids(&mut self, camera: &Camera, draws: &[NodeDraw], target: NodeId, rect: [u32; 4]) -> Result<Vec<u32>> {
+        let (w, h) = (self.width, self.height);
+        if self.id_targets.as_ref().map(|t| (t.0, t.1) != (w, h)).unwrap_or(true) {
+            let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("ids"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R32Uint,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let depth = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("id depth"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            let (tv, dv) = (tex.create_view(&Default::default()), depth.create_view(&Default::default()));
+            self.id_targets = Some((w, h, tex, tv, dv));
+        }
+        self.write_uniforms(camera, draws, Some(target));
+        let (_, _, tex, tv, dv) = self.id_targets.as_ref().unwrap();
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ids"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: tv,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: dv,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.pipe_id);
+            for d in draws.iter().filter(|d| !d.overlay && d.display.opacity >= 1.0) {
+                let Some(g) = self.nodes.get(&d.id) else { continue };
+                if let Some((buf, n)) = &g.tris {
+                    pass.set_bind_group(0, &g.bind_group, &[]);
+                    pass.set_vertex_buffer(0, buf.slice(..));
+                    pass.draw(0..*n, 0..1);
+                }
+            }
+        }
+        let x0 = rect[0].min(w.saturating_sub(1));
+        let y0 = rect[1].min(h.saturating_sub(1));
+        let rw = rect[2].clamp(x0 + 1, w) - x0;
+        let rh = rect[3].clamp(y0 + 1, h) - y0;
+        let bpr = (4 * rw).div_ceil(256) * 256;
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("id readback"),
+            size: (bpr * rh) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d { x: x0, y: y0, z: 0 }, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bpr), rows_per_image: Some(rh) } },
+            wgpu::Extent3d { width: rw, height: rh, depth_or_array_layers: 1 },
+        );
+        self.queue.submit(Some(enc.finish()));
+        let slice = buf.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::PollType::wait_indefinitely())?;
+        rx.recv()??;
+        let data = slice.get_mapped_range()?;
+        let mut ids = std::collections::BTreeSet::new();
+        for row in 0..rh {
+            let start = (row * bpr) as usize;
+            for c in data[start..start + (4 * rw) as usize].chunks_exact(4) {
+                let v = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                if v > 0 {
+                    ids.insert(v - 1);
+                }
+            }
+        }
+        drop(data);
+        buf.unmap();
+        // Restore normal uniforms for the next frame.
+        self.write_uniforms(camera, draws, None);
+        Ok(ids.into_iter().collect())
     }
 
     fn draw_node(&self, pass: &mut wgpu::RenderPass<'_>, d: &NodeDraw) {

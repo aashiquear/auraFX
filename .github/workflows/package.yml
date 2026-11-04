@@ -1,0 +1,153 @@
+name: Package
+
+# Installable builds for every platform.
+#   - push to main / manual run: packages are attached to the workflow run as artifacts
+#   - push a tag like v0.2.0: packages are also published as a GitHub Release
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }} (tar.gz + AppImage)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-22.04 }
+          - { arch: aarch64, runner: ubuntu-22.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { key: package-linux-${{ matrix.arch }} }
+      - name: System packages
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev file
+      - name: Build packages
+        run: scripts/package/linux.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurafx-linux-${{ matrix.arch }}
+          path: dist/*
+
+  macos:
+    name: macOS ${{ matrix.arch }} (.dmg)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-14 }
+          - { arch: x86_64, runner: macos-13 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { key: package-macos-${{ matrix.arch }} }
+      - name: Build packages
+        run: scripts/package/macos.sh dist
+        env:
+          MACOS_SIGN_ID: ${{ secrets.MACOS_SIGN_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurafx-macos-${{ matrix.arch }}
+          path: dist/*
+
+  windows:
+    name: Windows x64 (installer + zip)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { key: package-windows }
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build packages
+        shell: pwsh
+        run: scripts/package/windows.ps1 -Out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurafx-windows-x64
+          path: dist/*
+
+  android:
+    name: Android (APK, viewer build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+      - name: SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with: { key: package-android }
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Signing key
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      - name: Build APK
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: scripts/package/android_apk.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurafx-android
+          path: dist/*.apk
+
+  ios:
+    name: iOS (unsigned .ipa, viewer build)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with: { key: package-ios }
+      - name: Build IPA
+        run: scripts/package/ios.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurafx-ios
+          path: dist/*
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows, android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+            scripts/install.sh
+            scripts/install.ps1
+          generate_release_notes: true

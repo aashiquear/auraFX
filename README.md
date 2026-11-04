@@ -41,6 +41,25 @@ plan, with every ParaView 6.1.1 reader, filter and view mapped to a phase, is in
 | **AI** | Ollama (honours `OLLAMA_HOST`), Anthropic, OpenAI-compatible; streaming; pipeline-aware; **agent mode** runs code and iterates on results |
 | **Simulations** | Local, SSH and Slurm jobs; NVIDIA/AMD GPU selection; parameter sweeps; live logs; auto-open results; **live reload** of files a running solver writes; GPU monitor; remote file browser |
 
+## Installing
+
+Prebuilt packages are attached to each [release](https://github.com/aashiquear/auraFX/releases).
+Desktop packages bundle their own Python 3.12 with NumPy, so the Python console works without
+any setup.
+
+| Platform | Package | One-line install |
+|---|---|---|
+| Linux (x86_64, aarch64) | `.tar.gz`, `.AppImage` | `curl -fsSL https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.sh \| sh` |
+| macOS (Apple silicon, Intel) | `.dmg` | same command as Linux |
+| Windows 10/11 (x64) | `-setup.exe` installer, portable `.zip` | `irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1 \| iex` |
+| Android 8+ | `.apk` (viewer build) | download and open the APK |
+| iOS / iPadOS 15+ | unsigned `.ipa` (viewer build) | sign and install with Xcode, AltStore or Sideloadly |
+
+The mobile builds are viewers: they open, filter, render and chart data, chat with the AI
+assistant and submit jobs to remote machines, but they do not embed Python. Packages are built by
+[`.github/workflows/package.yml`](.github/workflows/package.yml) using the scripts in
+`scripts/package/`; you can run those scripts locally too.
+
 ## Building
 
 Requirements: Rust 1.85+, Python 3.10+ with development headers (`python3-dev`), a GPU driver

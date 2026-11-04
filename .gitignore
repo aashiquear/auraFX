@@ -11,3 +11,4 @@ __pycache__/
 /testdata/bake.e
 /testdata/fcc_melt.dump
 /testdata/can_nc4.exo
+/dist

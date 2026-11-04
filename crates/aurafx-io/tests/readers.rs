@@ -286,3 +286,41 @@ fn openfoam_decomposed_case() {
     assert_eq!(d.cell_data().unwrap().get("T").unwrap().range(None), (305.0, 375.0));
     assert_eq!(d.field_data().get("NumberOfProcessors").unwrap().get(0, 0), 2.0);
 }
+
+/// Patch face/point counts and value ranges at t = 1, from ParaView 6.1.1's OpenFOAM reader.
+#[test]
+fn openfoam_boundary_patches_match_paraview() {
+    use aurafx_io::openfoam::{patch_names, read_patches};
+    let cases: [(&str, &[(&str, usize, usize, (f64, f64), (f64, f64))]); 3] = [
+        (
+            "foam_ascii/case.foam",
+            &[("inlet", 6, 12, (250.0, 250.0), (2.0, 2.0)), ("outlet", 6, 12, (335.0, 335.0), (3.5, 3.5)), ("walls", 40, 50, (400.0, 439.0), (0.0, 0.0))],
+        ),
+        (
+            "foam_binary/case.foam",
+            &[("inlet", 6, 12, (250.0, 250.0), (2.0, 2.0)), ("outlet", 6, 12, (335.0, 335.0), (3.5, 3.5)), ("walls", 40, 50, (400.0, 439.0), (0.0, 0.0))],
+        ),
+        (
+            "foam_decomposed/case.foam",
+            &[("inlet", 12, 24, (250.0, 250.0), (2.0, 2.0)), ("outlet", 12, 24, (335.0, 375.0), (3.5, 7.5)), ("walls", 80, 100, (400.0, 439.0), (0.0, 0.0))],
+        ),
+    ];
+    for (case, expect) in cases {
+        let names: Vec<String> = patch_names(&td(case)).unwrap().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, ["inlet", "outlet", "walls"], "{case}");
+        let mb = read_patches(&td(case), Some(1.0), &[]).unwrap_or_else(|e| panic!("{case}: {e:#}"));
+        assert_eq!(mb.blocks.len(), 3, "{case}");
+        for ((name, cells, points, t, ux), (bn, b)) in expect.iter().zip(&mb.blocks) {
+            let b = b.as_ref().unwrap();
+            assert_eq!(bn, name, "{case}");
+            assert_eq!((b.n_cells(), b.n_points()), (*cells, *points), "{case} {name}");
+            let cd = b.cell_data().unwrap();
+            assert_eq!(cd.get("T").unwrap().range(None), *t, "{case} {name} T");
+            assert_eq!(cd.get("U").unwrap().range(Some(0)), *ux, "{case} {name} U.x");
+        }
+        // One patch by name.
+        let one = read_patches(&td(case), Some(1.0), &["inlet".to_string()]).unwrap();
+        assert_eq!(one.blocks.len(), 1);
+        assert!(read_patches(&td(case), Some(1.0), &["nope".to_string()]).is_err());
+    }
+}

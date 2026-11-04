@@ -360,6 +360,386 @@ pub fn open(path: &Path) -> Result<Loaded> {
     Ok(Loaded::Series(s))
 }
 
+/// Number of components of a vol*Field file, from its header.
+fn field_ncomp(bytes: &[u8]) -> Option<usize> {
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(2000)]).to_string();
+    if head.contains("volVectorField") {
+        Some(3)
+    } else if head.contains("volScalarField") {
+        Some(1)
+    } else if head.contains("volSymmTensorField") {
+        Some(6)
+    } else if head.contains("volTensorField") {
+        Some(9)
+    } else {
+        None
+    }
+}
+
+/// `uniform v` or `nonuniform List<T> N(...)` (cursor just after the keyword), expanded to `n` values.
+fn field_values(c: &mut Cur, ncomp: usize, n: usize) -> Result<Vec<f64>> {
+    let kind = c.word();
+    Ok(match kind.as_str() {
+        "uniform" => {
+            let v = if ncomp == 1 {
+                vec![c.number()?]
+            } else {
+                c.expect(b'(')?;
+                let v: Vec<f64> = (0..ncomp).map(|_| c.number()).collect::<Result<_>>()?;
+                c.expect(b')')?;
+                v
+            };
+            (0..n).flat_map(|_| v.clone()).collect()
+        }
+        "nonuniform" => {
+            let _ty = c.word(); // List<scalar>
+            c.list(ncomp, false)?
+        }
+        k => bail!("unsupported field value kind {k:?}"),
+    })
+}
+
+/// Components of a `List<...>` type name.
+fn list_ncomp(ty: &str) -> usize {
+    if ty.contains("vector") {
+        3
+    } else if ty.contains("symmTensor") {
+        6
+    } else if ty.contains("tensor") {
+        9
+    } else {
+        1
+    }
+}
+
+impl Cur<'_> {
+    /// Skip one dictionary entry value up to and including its ';' (or a whole `{...}` sub-dictionary).
+    /// Binary lists (`nonuniform List<T> N(...)`) are skipped by length, not by scanning.
+    fn skip_entry(&mut self) -> Result<()> {
+        if self.peek() == b'{' {
+            self.p += 1;
+            let mut depth = 1;
+            while self.p < self.b.len() && depth > 0 {
+                match self.peek() {
+                    b'{' => {
+                        depth += 1;
+                        self.p += 1;
+                    }
+                    b'}' => {
+                        depth -= 1;
+                        self.p += 1;
+                    }
+                    _ => {
+                        let w = self.word();
+                        if w == "nonuniform" {
+                            let ty = self.word();
+                            self.list(list_ncomp(&ty), ty.contains("label"))?;
+                        } else if w.is_empty() {
+                            self.p += 1;
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let mut depth = 0i32;
+        loop {
+            match self.peek() {
+                0 => return Ok(()),
+                b';' if depth == 0 => {
+                    self.p += 1;
+                    return Ok(());
+                }
+                b'(' => {
+                    depth += 1;
+                    self.p += 1;
+                }
+                b')' => {
+                    depth -= 1;
+                    self.p += 1;
+                }
+                b'{' | b'}' | b';' => self.p += 1,
+                _ => {
+                    let w = self.word();
+                    if w == "nonuniform" {
+                        let ty = self.word();
+                        self.list(list_ncomp(&ty), ty.contains("label"))?;
+                    } else if w.is_empty() {
+                        self.p += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    /// A quoted or plain dictionary keyword.
+    fn key(&mut self) -> String {
+        if self.peek() == b'"' {
+            let s = self.p + 1;
+            let e = memchr::memchr(b'"', &self.b[s..]).map(|i| s + i).unwrap_or(self.b.len());
+            self.p = (e + 1).min(self.b.len());
+            return String::from_utf8_lossy(&self.b[s..e]).to_string();
+        }
+        self.word()
+    }
+}
+
+/// One boundary patch from `polyMesh/boundary`.
+#[derive(Debug, Clone)]
+struct Patch {
+    name: String,
+    ty: String,
+    n_faces: usize,
+    start_face: usize,
+}
+
+fn read_boundary(mesh_dir: &Path) -> Result<Vec<Patch>> {
+    let b = read_maybe_gz(&mesh_dir.join("boundary"))?;
+    let mut c = Cur::new(&b);
+    c.binary = false; // the boundary file is always text
+    let n = c.number()? as usize;
+    c.expect(b'(')?;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        let name = c.key();
+        c.expect(b'{')?;
+        let (mut ty, mut nf, mut sf) = (String::new(), 0, 0);
+        while c.peek() != b'}' && c.peek() != 0 {
+            let k = c.key();
+            match k.as_str() {
+                "type" => {
+                    ty = c.word();
+                    c.expect(b';')?;
+                }
+                "nFaces" => {
+                    nf = c.number()? as usize;
+                    c.expect(b';')?;
+                }
+                "startFace" => {
+                    sf = c.number()? as usize;
+                    c.expect(b';')?;
+                }
+                _ => c.skip_entry()?,
+            }
+        }
+        c.expect(b'}')?;
+        out.push(Patch { name, ty, n_faces: nf, start_face: sf });
+    }
+    Ok(out)
+}
+
+/// The value of each patch in a field file's `boundaryField`: `Some(values)` when a `value`
+/// entry exists, plus the patch type.
+fn read_boundary_values(bytes: &[u8], ncomp: usize, patches: &[Patch]) -> Result<HashMap<String, (String, Option<Vec<f64>>)>> {
+    let mut c = Cur::new(bytes);
+    let at = memchr::memmem::find(&bytes[c.p..], b"boundaryField").ok_or_else(|| anyhow!("no boundaryField"))?;
+    // Skip internalField first so a binary list there cannot fool the search.
+    if let Some(i) = memchr::memmem::find(&bytes[c.p..], b"internalField").filter(|&i| i < at) {
+        c.p += i + "internalField".len();
+        c.skip_entry()?;
+        let at2 = memchr::memmem::find(&bytes[c.p..], b"boundaryField").ok_or_else(|| anyhow!("no boundaryField"))?;
+        c.p += at2 + "boundaryField".len();
+    } else {
+        c.p += at + "boundaryField".len();
+    }
+    c.expect(b'{')?;
+    let mut out = HashMap::new();
+    while c.peek() != b'}' && c.peek() != 0 {
+        let name = c.key();
+        if c.peek() != b'{' {
+            c.skip_entry()?;
+            continue;
+        }
+        c.p += 1;
+        let n = patches.iter().find(|p| p.name == name).map(|p| p.n_faces).unwrap_or(0);
+        let (mut ty, mut value) = (String::new(), None);
+        while c.peek() != b'}' && c.peek() != 0 {
+            let k = c.key();
+            match k.as_str() {
+                "type" => {
+                    ty = c.word();
+                    c.expect(b';')?;
+                }
+                "value" => {
+                    value = Some(field_values(&mut c, ncomp, n)?);
+                    c.expect(b';')?;
+                }
+                _ => c.skip_entry()?,
+            }
+        }
+        c.expect(b'}')?;
+        out.insert(name, (ty, value));
+    }
+    Ok(out)
+}
+
+/// Boundary patches of one (sub-)case at time directory `tdir` (relative to `part`).
+fn read_part_patches(part: &Path, tdir: Option<&str>, include: &dyn Fn(&Patch) -> bool) -> Result<Vec<(String, PolyData)>> {
+    let mesh_dir = part.join("constant/polyMesh");
+    let patches = read_boundary(&mesh_dir)?;
+    let pts_b = read_maybe_gz(&mesh_dir.join("points"))?;
+    let pts = Cur::new(&pts_b).list(3, false).context("polyMesh/points")?;
+    let faces_b = read_maybe_gz(&mesh_dir.join("faces"))?;
+    let faces = Cur::new(&faces_b).faces().context("polyMesh/faces")?;
+    let own_b = read_maybe_gz(&mesh_dir.join("owner"))?;
+    let owner = Cur::new(&own_b).list(1, true).context("polyMesh/owner")?;
+    let nei_b = read_maybe_gz(&mesh_dir.join("neighbour"))?;
+    let neighbour = Cur::new(&nei_b).list(1, true).context("polyMesh/neighbour")?;
+    let ncells = owner.iter().chain(&neighbour).fold(0usize, |m, &c| m.max(c as usize + 1));
+
+    // Field files of this time: (name, ncomp, internal values, per-patch values).
+    let mut fields = Vec::new();
+    if let Some(t) = tdir {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(part.join(t)).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+        entries.sort();
+        for f in entries {
+            let name = f.file_name().unwrap().to_string_lossy().trim_end_matches(".gz").to_string();
+            if name.starts_with('.') || name.ends_with(".orig") {
+                continue;
+            }
+            let Ok(bytes) = read_maybe_gz(&f) else { continue };
+            let Some(ncomp) = field_ncomp(&bytes) else { continue };
+            let internal = match read_field(&bytes, ncells) {
+                Ok(Some((_, v))) => v,
+                _ => continue,
+            };
+            match read_boundary_values(&bytes, ncomp, &patches) {
+                Ok(bv) => fields.push((name, ncomp, internal, bv)),
+                Err(e) => tracing::warn!("OpenFOAM boundary values of {}: {e:#}", f.display()),
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for p in patches.iter().filter(|p| include(p)) {
+        let range = p.start_face..(p.start_face + p.n_faces).min(faces.len());
+        let mut map: HashMap<u32, u32> = HashMap::new();
+        let mut coords = Vec::new();
+        let mut polys = Cells::with_capacity(range.len(), range.len() * 4);
+        for fi in range.clone() {
+            let ids: Vec<u32> = faces[fi]
+                .iter()
+                .map(|&g| {
+                    *map.entry(g).or_insert_with(|| {
+                        coords.extend_from_slice(&pts[g as usize * 3..g as usize * 3 + 3]);
+                        (coords.len() / 3 - 1) as u32
+                    })
+                })
+                .collect();
+            let ct = match ids.len() {
+                3 => CellType::Triangle,
+                4 => CellType::Quad,
+                _ => CellType::Polygon,
+            };
+            polys.push(ct, &ids);
+        }
+        let mut pd = PolyData { points: Points::new_f64(coords), polys, ..Default::default() };
+        for (name, ncomp, internal, bv) in &fields {
+            let vals: Vec<f64> = match bv.get(&p.name) {
+                Some((_, Some(v))) if v.len() == p.n_faces * ncomp => v.clone(),
+                // Walls with noSlip have zero velocity; otherwise use the owner cell (zeroGradient-like).
+                Some((ty, None)) if ty == "noSlip" => vec![0.0; p.n_faces * ncomp],
+                _ => range
+                    .clone()
+                    .flat_map(|fi| {
+                        let o = owner[fi] as usize;
+                        internal[o * ncomp..o * ncomp + ncomp].to_vec()
+                    })
+                    .collect(),
+            };
+            pd.cell_data.insert(Array::new(name.clone(), *ncomp, ArrayData::F64(vals)));
+        }
+        out.push((p.name.clone(), pd));
+    }
+    Ok(out)
+}
+
+/// Boundary patches of the case containing `case` (a `.foam` file or the case folder) at time
+/// `time` (nearest time directory; `None` = the first). `names` selects patches; empty means
+/// every patch except `empty` and processor patches. Patches of decomposed cases are merged.
+pub fn read_patches(case: &Path, time: Option<f64>, names: &[String]) -> Result<MultiBlock> {
+    let case = case_dir(case);
+    let parts: Vec<PathBuf> = if case.join("constant/polyMesh").exists() {
+        vec![case.clone()]
+    } else {
+        let mut procs: Vec<(usize, PathBuf)> = std::fs::read_dir(&case)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let n = e.file_name().to_string_lossy().to_string();
+                n.strip_prefix("processor").and_then(|k| k.parse::<usize>().ok()).map(|k| (k, e.path()))
+            })
+            .collect();
+        procs.sort();
+        procs.into_iter().map(|(_, p)| p).collect()
+    };
+    if parts.is_empty() {
+        bail!("{} is not an OpenFOAM case", case.display());
+    }
+    let times = time_dirs(&parts[0]);
+    let tdir = match time {
+        Some(t) => times.iter().min_by(|a, b| (a.0 - t).abs().total_cmp(&(b.0 - t).abs())).map(|x| x.1.clone()),
+        None => times.first().map(|x| x.1.clone()),
+    };
+    let include = |p: &Patch| {
+        if names.is_empty() {
+            !matches!(p.ty.as_str(), "empty" | "processor" | "processorCyclic")
+        } else {
+            names.iter().any(|n| n == &p.name)
+        }
+    };
+    let mut merged: Vec<(String, PolyData)> = Vec::new();
+    for part in &parts {
+        for (name, pd) in read_part_patches(part, tdir.as_deref(), &include).with_context(|| format!("{}", part.display()))? {
+            match merged.iter_mut().find(|(n, _)| *n == name) {
+                None => merged.push((name, pd)),
+                Some((_, acc)) => {
+                    let off = acc.points.len() as u32;
+                    acc.points.append(&pd.points);
+                    acc.polys.append(&pd.polys, off);
+                    let names: Vec<String> = acc.cell_data.names().map(|s| s.to_string()).collect();
+                    let mut cd = Attributes::new();
+                    for n in names {
+                        if let (Some(a), Some(b)) = (acc.cell_data.get(&n), pd.cell_data.get(&n)) {
+                            if a.ncomp == b.ncomp {
+                                let mut v: Vec<f64> = (0..a.len()).flat_map(|i| (0..a.ncomp).map(move |k| (i, k))).map(|(i, k)| a.get(i, k)).collect();
+                                v.extend((0..b.len()).flat_map(|i| (0..b.ncomp).map(move |k| (i, k))).map(|(i, k)| b.get(i, k)));
+                                cd.insert(Array::new(n.clone(), a.ncomp, ArrayData::F64(v)));
+                            }
+                        }
+                    }
+                    acc.cell_data = cd;
+                }
+            }
+        }
+    }
+    if !names.is_empty() {
+        for n in names {
+            if !merged.iter().any(|(m, _)| m == n) {
+                bail!("no patch named '{n}'");
+            }
+        }
+    }
+    let mut mb = MultiBlock::default();
+    for (name, pd) in merged {
+        mb.blocks.push((name, Some(DataSet::PolyData(pd))));
+    }
+    if let Some(t) = &tdir {
+        if let Ok(v) = t.parse::<f64>() {
+            mb.field_data.insert(Array::scalars_f64("TimeValue", vec![v]));
+        }
+    }
+    Ok(mb)
+}
+
+/// Names and types of the boundary patches of a case.
+pub fn patch_names(case: &Path) -> Result<Vec<(String, String)>> {
+    let case = case_dir(case);
+    let dir = if case.join("constant/polyMesh").exists() { case } else { case.join("processor0") };
+    Ok(read_boundary(&dir.join("constant/polyMesh"))?.into_iter().map(|p| (p.name, p.ty)).collect())
+}
+
 /// Parse a volScalarField / volVectorField internalField.
 fn read_field(bytes: &[u8], ncells: usize) -> Result<Option<(usize, Vec<f64>)>> {
     let head = String::from_utf8_lossy(&bytes[..bytes.len().min(2000)]).to_string();
@@ -377,25 +757,7 @@ fn read_field(bytes: &[u8], ncells: usize) -> Result<Option<(usize, Vec<f64>)>> 
     let mut c = Cur::new(bytes);
     let at = memchr::memmem::find(&bytes[c.p..], b"internalField").ok_or_else(|| anyhow!("no internalField"))?;
     c.p += at + "internalField".len();
-    let kind = c.word();
-    let vals = match kind.as_str() {
-        "uniform" => {
-            let v = if ncomp == 1 {
-                vec![c.number()?]
-            } else {
-                c.expect(b'(')?;
-                let v: Vec<f64> = (0..ncomp).map(|_| c.number()).collect::<Result<_>>()?;
-                c.expect(b')')?;
-                v
-            };
-            (0..ncells).flat_map(|_| v.clone()).collect()
-        }
-        "nonuniform" => {
-            let _ty = c.word(); // List<scalar>
-            c.list(ncomp, false)?
-        }
-        k => bail!("unsupported internalField kind {k:?}"),
-    };
+    let vals = field_values(&mut c, ncomp, ncells)?;
     if vals.len() != ncells * ncomp {
         bail!("field has {} values, mesh has {ncells} cells", vals.len() / ncomp.max(1));
     }

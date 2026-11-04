@@ -19,7 +19,7 @@ open(f"{case}/system/controlDict", "w").write("FoamFile { version 2.0; format as
 def pid(i, j, k): return i + (nx + 1) * (j + (ny + 1) * k)
 def cid(i, j, k): return i + nx * (j + ny * k)
 pts = [(x0 + i * 1.0, j * 1.0, k * 1.0) for k in range(nz + 1) for j in range(ny + 1) for i in range(nx + 1)]
-internal, boundary = [], []  # (face pts, owner, neighbour)
+internal, boundary = [], []  # (face pts, owner, neighbour) / (face pts, owner, patch)
 for k in range(nz):
     for j in range(ny):
         for i in range(nx):
@@ -32,13 +32,16 @@ for k in range(nz):
                 if nb[0] < nx and nb[1] < ny and nb[2] < nz:
                     internal.append((f, c, cid(*nb)))
                 else:
-                    boundary.append((f, c))
-            if i == 0: boundary.append(([pid(0, j, k), pid(0, j, k+1), pid(0, j+1, k+1), pid(0, j+1, k)], c))
-            if j == 0: boundary.append(([pid(i, 0, k), pid(i+1, 0, k), pid(i+1, 0, k+1), pid(i, 0, k+1)], c))
-            if k == 0: boundary.append(([pid(i, j, 0), pid(i, j+1, 0), pid(i+1, j+1, 0), pid(i+1, j, 0)], c))
+                    boundary.append((f, c, "outlet" if f is fx else "walls"))
+            if i == 0: boundary.append(([pid(0, j, k), pid(0, j, k+1), pid(0, j+1, k+1), pid(0, j+1, k)], c, "inlet"))
+            if j == 0: boundary.append(([pid(i, 0, k), pid(i+1, 0, k), pid(i+1, 0, k+1), pid(i, 0, k+1)], c, "walls"))
+            if k == 0: boundary.append(([pid(i, j, 0), pid(i, j+1, 0), pid(i+1, j+1, 0), pid(i+1, j, 0)], c, "walls"))
+# Boundary faces are grouped by patch, in the order the boundary file lists them.
+PATCHES = [("inlet", "patch"), ("outlet", "patch"), ("walls", "wall")]
+boundary.sort(key=lambda b: [p for p, _ in PATCHES].index(b[2]))
 internal.sort(key=lambda f: (f[1], f[2]))
-faces = [f for f, _, _ in internal] + [f for f, _ in boundary]
-owner = [o for _, o, _ in internal] + [o for _, o in boundary]
+faces = [f for f, _, _ in internal] + [f for f, _, _ in boundary]
+owner = [o for _, o, _ in internal] + [o for _, o, _ in boundary]
 neigh = [n for _, _, n in internal]
 ncells = nx * ny * nz
 
@@ -76,8 +79,16 @@ with open(f"{case}/constant/polyMesh/owner", "wb") as f:
     f.write(header("labelList", "owner", f'note "nPoints:{len(pts)} nCells:{ncells} nFaces:{len(faces)} nInternalFaces:{len(internal)}";\n    ').encode()); write_list(f, owner, "label")
 with open(f"{case}/constant/polyMesh/neighbour", "wb") as f:
     f.write(header("labelList", "neighbour").encode()); write_list(f, neigh, "label")
-nb = len(boundary)
-open(f"{case}/constant/polyMesh/boundary", "w").write(header("polyBoundaryMesh", "boundary").replace(f"format {fmt}", "format ascii") + f"1\n(\n    walls\n    {{\n        type wall;\n        nFaces {nb};\n        startFace {len(internal)};\n    }}\n)\n")
+bfile = header("polyBoundaryMesh", "boundary").replace(f"format {fmt}", "format ascii") + f"{len(PATCHES)}\n(\n"
+start = len(internal)
+nfaces = {}
+for name, ty in PATCHES:
+    n = sum(1 for b in boundary if b[2] == name)
+    nfaces[name] = n
+    group = f"\n        inGroups 1(wall);" if ty == "wall" else ""
+    bfile += f"    {name}\n    {{\n        type {ty};{group}\n        nFaces {n};\n        startFace {start};\n    }}\n"
+    start += n
+open(f"{case}/constant/polyMesh/boundary", "w").write(bfile + ")\n")
 
 centers = [((x0 + i + .5), (j + .5), (k + .5)) for k in range(nz) for j in range(ny) for i in range(nx)]
 for t, scale in (("0", 0.0), ("1", 1.0)):
@@ -88,7 +99,11 @@ for t, scale in (("0", 0.0), ("1", 1.0)):
             f.write(b"internalField uniform 300;\n\n")
         else:
             f.write(b"internalField nonuniform List<scalar> "); write_list(f, [300 + 10 * c[0] for c in centers], "scalar"); f.write(b";\n\n")
-        f.write(b"boundaryField\n{\n    walls { type zeroGradient; }\n}\n")
+        f.write(b"boundaryField\n{\n    inlet\n    {\n        type fixedValue;\n        value uniform 250;\n    }\n    outlet { type zeroGradient; }\n")
+        # Walls carry one value per face (binary in binary cases): 400 + face index.
+        f.write(b"    walls\n    {\n        type fixedValue;\n        value nonuniform List<scalar> ")
+        write_list(f, [400.0 + i for i in range(nfaces["walls"])], "scalar")
+        f.write(b";\n    }\n}\n")
     with open(f"{case}/{t}/U", "wb") as f:
         f.write(header("volVectorField", "U").encode())
         f.write(b"dimensions [0 1 -1 0 0 0 0];\n\n")
@@ -96,5 +111,5 @@ for t, scale in (("0", 0.0), ("1", 1.0)):
             f.write(b"internalField uniform (1 0 0);\n\n")
         else:
             f.write(b"internalField nonuniform List<vector> "); write_list(f, [(c[0], c[1], c[2]) for c in centers], "vector"); f.write(b";\n\n")
-        f.write(b"boundaryField\n{\n    walls { type noSlip; }\n}\n")
+        f.write(b"boundaryField\n{\n    inlet { type fixedValue; value uniform (2 0 0); }\n    outlet { type zeroGradient; }\n    walls { type noSlip; }\n}\n")
 print(case, fmt, len(pts), "points", ncells, "cells", len(faces), "faces")

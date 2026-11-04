@@ -455,6 +455,38 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         });
     }
+    // OpenFOAM cases: boundary patches are one click away (ParaView's "Mesh Regions").
+    let foam = {
+        let s = state.session.lock();
+        s.nodes.get(&id).and_then(|n| match &n.kind {
+            aurafx_pipeline::NodeKind::Reader { path, .. } if path.extension().map(|e| e.eq_ignore_ascii_case("foam")).unwrap_or(false) => Some(path.clone()),
+            _ => None,
+        })
+    };
+    if let Some(path) = foam {
+        let key = ui.make_persistent_id(("foam_patches", path.clone()));
+        let names: Vec<(String, String)> = match ui.data(|d| d.get_temp(key)) {
+            Some(v) => v,
+            None => {
+                let v = aurafx_io::openfoam::patch_names(&path).unwrap_or_default();
+                ui.data_mut(|d| d.insert_temp(key, v.clone()));
+                v
+            }
+        };
+        if !names.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button(format!("{} Show boundary patches", crate::icons::POLYGON))
+                    .on_hover_text(names.iter().map(|(n, t)| format!("{n} ({t})")).collect::<Vec<_>>().join("\n"))
+                    .clicked()
+                {
+                    state.session.lock().active = Some(id);
+                    state.add_filter("openfoam_patches");
+                }
+                ui.label(RichText::new(format!("{} patches", names.len())).weak().small());
+            });
+        }
+    }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // Arrays available to parameter widgets: from the input for filters, own output for sources.
         let src_info = if def.as_ref().map(|d| d.is_source).unwrap_or(true) { info.as_ref() } else { input_info.as_ref() };

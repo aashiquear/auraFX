@@ -73,7 +73,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [ ] VTKHDF (`.vtkhdf`), HDF5 generic browser.
 
 ### 1.2 Tier 2 (simulation ecosystem)
-- [~] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories). Boundary patches still todo.
+- [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [ ] EnSight Gold (`.case`), Tecplot ASCII/binary, CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [ ] NetCDF CF/MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y.
 - [ ] Molecular: PDB, Gaussian Cube, CML, VASP (POSCAR/CHGCAR/OUTCAR), XYZ molecules.
@@ -302,7 +302,7 @@ Python 3.12 + NumPy; volume rendering that depth-merges with opaque geometry; vi
 selection through a GPU id pass; text annotations, time label and ruler; decomposed OpenFOAM
 cases.
 
-Known gaps worth doing next: OpenFOAM boundary patches; higher-order cell tessellation;
+Known gaps worth doing next: higher-order cell tessellation;
 client/server and distributed execution; plugin system; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

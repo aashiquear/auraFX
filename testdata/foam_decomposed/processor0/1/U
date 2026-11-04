@@ -40,5 +40,7 @@ internalField nonuniform List<vector> 24
 
 boundaryField
 {
+    inlet { type fixedValue; value uniform (2 0 0); }
+    outlet { type zeroGradient; }
     walls { type noSlip; }
 }

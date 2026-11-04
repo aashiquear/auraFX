@@ -867,6 +867,16 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| crate::geometry::extract_block(input.unwrap(), &p.str("blocks")),
         },
         FilterDef {
+            id: "openfoam_patches",
+            label: "Boundary Patches (OpenFOAM)",
+            category: "Data",
+            description: "Show the boundary patches (inlet, outlet, walls, ...) of an OpenFOAM case with their boundary values.",
+            keywords: &["openfoam", "foam", "patch", "boundary", "wall", "inlet", "outlet", "mesh regions"],
+            is_source: false,
+            params: vec![s("patches", "Patches", "").help("Comma-separated patch names; leave empty for all patches")],
+            apply: |input, p| openfoam_patches(input.unwrap(), &p.str("patches")),
+        },
+        FilterDef {
             id: "shrink",
             label: "Shrink",
             category: "Geometry",
@@ -1185,6 +1195,23 @@ fn build() -> Vec<FilterDef> {
             },
         },
     ]
+}
+
+/// Patches of the OpenFOAM case an internal mesh was read from, at the mesh's time.
+fn openfoam_patches(input: &DataSet, names: &str) -> Result<DataSet> {
+    let fd = input.field_data();
+    let case = fd
+        .get("CasePath")
+        .and_then(|a| match &a.data {
+            aurafx_data::ArrayData::String(v) => v.first().cloned(),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow::anyhow!("the input is not an OpenFOAM case (apply this to the .foam reader)"))?;
+    let time = fd.get("TimeValue").map(|a| a.get(0, 0));
+    let names: Vec<String> = names.split(',').map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect();
+    let mb = aurafx_io::openfoam::read_patches(std::path::Path::new(&case), time, &names)?;
+    // Like the internal mesh, also provide point data averaged from the faces.
+    per_leaf(&DataSet::MultiBlock(mb), &|d| crate::attributes::cell_to_point(d, &[]))
 }
 
 static REGISTRY: OnceLock<Vec<Arc<FilterDef>>> = OnceLock::new();

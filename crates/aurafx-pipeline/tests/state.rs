@@ -112,3 +112,27 @@ fn keyframes_drive_the_pipeline_and_survive_state_files() {
     std::fs::remove_file(&path).ok();
     assert_eq!(s2.animation, s.animation);
 }
+
+#[test]
+fn openfoam_patches_filter_follows_time() {
+    let mut s = Session::new();
+    let r = s.open_file(td("foam_binary/case.foam")).unwrap();
+    let p = s.add_filter("openfoam_patches", r).unwrap();
+    s.update_blocking();
+    let outlet_t = |s: &Session| {
+        let out = s.nodes[&p].output.clone().unwrap_or_else(|| panic!("{:?}", s.nodes[&p].error));
+        let aurafx_data::DataSet::MultiBlock(mb) = &*out else { panic!("expected blocks") };
+        assert_eq!(mb.blocks.iter().map(|b| b.0.as_str()).collect::<Vec<_>>(), ["inlet", "outlet", "walls"]);
+        let o = mb.blocks[1].1.as_ref().unwrap();
+        assert!(o.point_data().unwrap().get("T").is_some(), "point data averaged from faces");
+        o.cell_data().unwrap().get("T").unwrap().range(None)
+    };
+    assert_eq!(outlet_t(&s), (300.0, 300.0));
+    s.set_time_index(1);
+    s.update_blocking();
+    assert_eq!(outlet_t(&s), (335.0, 335.0));
+    s.set_param(p, "patches", ParamValue::Str("walls".into()));
+    s.update_blocking();
+    let out = s.nodes[&p].output.clone().unwrap();
+    assert_eq!(out.n_cells(), 40);
+}

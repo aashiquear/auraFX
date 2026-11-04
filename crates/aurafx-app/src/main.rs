@@ -4,6 +4,7 @@ mod app;
 mod assistant;
 mod console;
 mod icons;
+mod jobs_panel;
 mod palette;
 mod panels;
 mod settings;

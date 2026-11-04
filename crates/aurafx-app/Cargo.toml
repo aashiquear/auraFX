@@ -17,6 +17,7 @@ aurafx-pipeline.workspace = true
 aurafx-render.workspace = true
 aurafx-python.workspace = true
 aurafx-ai.workspace = true
+aurafx-jobs.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

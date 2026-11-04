@@ -151,7 +151,19 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
         (req, s.visible_bounds(), s.nodes.is_empty())
     };
     if !state.viewport.camera_initialized && !bounds.is_empty() && req.is_none() {
-        state.viewport.camera.set_view([1.0, 1.0, 1.0], [0.0, 0.0, 1.0], &bounds);
+        // Flat data is viewed face-on; 3-D data isometrically.
+        let s = bounds.size();
+        let d = bounds.diagonal().max(1e-30);
+        let (dir, up) = if s[2] < 1e-6 * d {
+            ([0.0, 0.0, 1.0], [0.0, 1.0, 0.0])
+        } else if s[1] < 1e-6 * d {
+            ([0.0, -1.0, 0.0], [0.0, 0.0, 1.0])
+        } else if s[0] < 1e-6 * d {
+            ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+        } else {
+            ([1.0, 1.0, 1.0], [0.0, 0.0, 1.0])
+        };
+        state.viewport.camera.set_view(dir, up, &bounds);
         state.viewport.camera_initialized = true;
     }
     match req {

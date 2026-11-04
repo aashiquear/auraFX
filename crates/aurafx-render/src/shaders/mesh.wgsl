@@ -63,9 +63,9 @@ fn shade(color: vec3<f32>, n_in: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     let l = normalize(node.light_dir.xyz);
     let diffuse = max(dot(n, l), 0.0);
     let h = normalize(l + view_dir);
-    let spec = pow(max(dot(n, h), 0.0), 40.0) * 0.25;
-    let ambient = 0.25;
-    return color * (ambient + 0.75 * diffuse) + vec3<f32>(spec);
+    let spec = pow(max(dot(n, h), 0.0), 60.0) * 0.08;
+    let ambient = 0.3;
+    return color * (ambient + 0.7 * diffuse) + vec3<f32>(spec);
 }
 
 @vertex

@@ -156,6 +156,7 @@ dependencies = [
  "aurafx-data",
  "aurafx-filters",
  "aurafx-io",
+ "aurafx-jobs",
  "aurafx-pipeline",
  "aurafx-python",
  "aurafx-render",
@@ -226,6 +227,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aurafx-jobs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "aurafx-pipeline"
 version = "0.1.0"
 dependencies = [
@@ -247,6 +259,7 @@ dependencies = [
  "anyhow",
  "aurafx-data",
  "aurafx-filters",
+ "aurafx-jobs",
  "aurafx-pipeline",
  "numpy",
  "parking_lot",

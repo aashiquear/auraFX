@@ -122,6 +122,8 @@ pub struct Session {
     pub camera_request: Option<CameraRequest>,
     /// Set by Python/AI: (path, width, height). The UI fulfils it and clears it.
     pub screenshot_request: Option<(PathBuf, Option<u32>, Option<u32>)>,
+    /// Set by Python/AI to bring a UI panel to the front (by title, case-insensitive).
+    pub panel_request: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

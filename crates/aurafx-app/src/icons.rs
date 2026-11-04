@@ -51,3 +51,4 @@ pub const CIRCLE_HALF: &str = "\u{E18C}";
 pub const SQUARE: &str = "\u{E45E}";
 pub const ATOM: &str = "\u{E5E4}";
 pub const CROSSHAIR: &str = "\u{E1D6}";
+pub const CPU: &str = "\u{E610}";

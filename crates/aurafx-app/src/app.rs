@@ -22,10 +22,11 @@ pub enum Pane {
     Log,
     Spreadsheet,
     Information,
+    Jobs,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 8] = [Pane::Pipeline, Pane::Properties, Pane::Viewport, Pane::Python, Pane::Assistant, Pane::Log, Pane::Spreadsheet, Pane::Information];
+    pub const ALL: [Pane; 9] = [Pane::Pipeline, Pane::Properties, Pane::Viewport, Pane::Python, Pane::Assistant, Pane::Log, Pane::Spreadsheet, Pane::Information, Pane::Jobs];
     pub fn title(self) -> &'static str {
         match self {
             Pane::Pipeline => "Pipeline",
@@ -36,6 +37,7 @@ impl Pane {
             Pane::Log => "Log",
             Pane::Spreadsheet => "Spreadsheet",
             Pane::Information => "Information",
+            Pane::Jobs => "Simulations",
         }
     }
     pub fn icon(self) -> &'static str {
@@ -48,6 +50,7 @@ impl Pane {
             Pane::Log => crate::icons::LIST,
             Pane::Spreadsheet => crate::icons::TABLE,
             Pane::Information => crate::icons::INFO,
+            Pane::Jobs => crate::icons::ATOM,
         }
     }
 }
@@ -73,6 +76,7 @@ pub struct State {
     pub spreadsheet_assoc: Association,
     pub spreadsheet_page: usize,
     pub toasts: Vec<(String, f64, bool)>,
+    pub jobs_panel: crate::jobs_panel::JobsPanel,
 }
 
 pub struct AuraApp {
@@ -90,6 +94,7 @@ pub fn default_tree() -> egui_tiles::Tree<Pane> {
     let log = tiles.insert_pane(Pane::Log);
     let sheet = tiles.insert_pane(Pane::Spreadsheet);
     let assistant = tiles.insert_pane(Pane::Assistant);
+    let jobs = tiles.insert_pane(Pane::Jobs);
 
     let props_tabs = tiles.insert_tab_tile(vec![props, info]);
     let mut left = egui_tiles::Linear::new(egui_tiles::LinearDir::Vertical, vec![pipeline, props_tabs]);
@@ -103,10 +108,11 @@ pub fn default_tree() -> egui_tiles::Tree<Pane> {
     center.shares.set_share(bottom, 0.28);
     let center = tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(center)));
 
-    let mut root = egui_tiles::Linear::new(egui_tiles::LinearDir::Horizontal, vec![left, center, assistant]);
+    let right = tiles.insert_tab_tile(vec![assistant, jobs]);
+    let mut root = egui_tiles::Linear::new(egui_tiles::LinearDir::Horizontal, vec![left, center, right]);
     root.shares.set_share(left, 0.2);
-    root.shares.set_share(center, 0.58);
-    root.shares.set_share(assistant, 0.22);
+    root.shares.set_share(center, 0.56);
+    root.shares.set_share(right, 0.24);
     let root = tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(root)));
     #[allow(deprecated)]
     let id = egui::Id::new("aurafx_layout");
@@ -116,6 +122,7 @@ pub fn default_tree() -> egui_tiles::Tree<Pane> {
 impl AuraApp {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>, script: Option<PathBuf>) -> Self {
         let settings = Settings::load();
+        aurafx_jobs::set_hosts(settings.hosts.clone());
         crate::theme::install_fonts(&cc.egui_ctx);
         crate::theme::apply(&cc.egui_ctx, settings.dark_theme, settings.ui_scale);
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -123,7 +130,7 @@ impl AuraApp {
         spawn_pipeline_worker(session.clone(), cc.egui_ctx.clone());
         let python = PythonWorker::spawn(session.clone(), cc.egui_ctx.clone());
         let viewport = Viewport::new(cc, settings.background);
-        let tree = cc.storage.and_then(|s| s.get_string("layout")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
+        let tree = cc.storage.and_then(|s| s.get_string("layout_v2")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
         let assistant = Assistant::new(&settings);
         let state = State {
             session,
@@ -145,6 +152,7 @@ impl AuraApp {
             spreadsheet_assoc: Association::Points,
             spreadsheet_page: 0,
             toasts: Vec::new(),
+            jobs_panel: crate::jobs_panel::JobsPanel::default(),
         };
         if let Some(p) = script {
             match std::fs::read_to_string(&p) {
@@ -389,6 +397,13 @@ impl State {
                     self.viewport.settings.background = c;
                     self.settings.save();
                 }
+            });
+            ui.menu_button("Simulate", |ui| {
+                if ui.button("Run a simulation…").clicked() {
+                    ui.close();
+                    self.status = "Use the Simulations panel to configure and run a job.".into();
+                }
+                ui.label(RichText::new("Templates: LAMMPS, MOOSE, OpenFOAM, Python, custom").weak());
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("Keyboard shortcuts").clicked() {
@@ -667,6 +682,7 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
             Pane::Log => crate::panels::log_ui(self.state, ui),
             Pane::Spreadsheet => crate::panels::spreadsheet_ui(self.state, ui),
             Pane::Information => crate::panels::information_ui(self.state, ui),
+            Pane::Jobs => crate::jobs_panel::jobs_ui(self.state, ui),
         }
         egui_tiles::UiResponse::None
     }
@@ -710,6 +726,24 @@ impl eframe::App for AuraApp {
             }
         }
         st.assistant.poll(ctx);
+        // Open results of finished jobs that asked for it.
+        let to_open: Vec<(String, Vec<PathBuf>)> = {
+            let jobs = aurafx_jobs::global();
+            let mut m = jobs.lock();
+            m.jobs.iter_mut().filter(|j| j.outputs_pending_load).map(|j| {
+                j.outputs_pending_load = false;
+                (j.spec.name.clone(), j.outputs.clone())
+            }).collect()
+        };
+        for (name, outs) in to_open {
+            st.toast(format!("{name} finished: opening {} result file(s)", outs.len().min(8)), false);
+            for o in outs.into_iter().take(8) {
+                st.open_file(o);
+            }
+        }
+        if aurafx_jobs::global().lock().jobs.iter().any(|j| j.state.is_active()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
 
         egui::Panel::top("menu").show(root_ui, |ui| st.menu_bar(ui));
         egui::Panel::top("toolbar").show(root_ui, |ui| {
@@ -741,6 +775,13 @@ impl eframe::App for AuraApp {
             });
         }
 
+        let panel_req = self.state.session.lock().panel_request.take();
+        if let Some(name) = panel_req {
+            let want = name.to_lowercase();
+            if let Some(pane) = Pane::ALL.iter().copied().find(|p| p.title().to_lowercase() == want || format!("{p:?}").to_lowercase() == want) {
+                self.tree.make_active(|_, tile| matches!(tile, egui_tiles::Tile::Pane(p) if *p == pane));
+            }
+        }
         egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(2))).show(root_ui, |ui| {
             let mut behavior = TreeBehavior { state: &mut self.state };
             self.tree.ui(&mut behavior, ui);
@@ -781,7 +822,7 @@ impl eframe::App for AuraApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if let Ok(s) = serde_json::to_string(&self.tree) {
-            storage.set_string("layout", s);
+            storage.set_string("layout_v2", s);
         }
         self.state.settings.save();
     }

@@ -18,6 +18,7 @@ aurafx-pipeline = { path = "crates/aurafx-pipeline" }
 aurafx-render = { path = "crates/aurafx-render" }
 aurafx-python = { path = "crates/aurafx-python" }
 aurafx-ai = { path = "crates/aurafx-ai" }
+aurafx-jobs = { path = "crates/aurafx-jobs" }
 
 anyhow = "1"
 thiserror = "2"

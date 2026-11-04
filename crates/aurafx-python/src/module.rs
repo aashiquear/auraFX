@@ -476,6 +476,14 @@ fn screenshot(path: String, width: Option<u32>, height: Option<u32>) {
     s.revision += 1;
 }
 
+/// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
+#[pyfunction]
+fn show_panel(name: String) {
+    let mut s = session().lock();
+    s.panel_request = Some(name);
+    s.revision += 1;
+}
+
 #[pyfunction]
 fn clear() {
     let mut s = session().lock();
@@ -502,7 +510,150 @@ fn make_source_fn(py: Python<'_>, id: &'static str) -> PyResult<Py<PyAny>> {
     Ok(g.get_item(id)?.unwrap().unbind())
 }
 
+// ------------------------------------------------------------------ jobs
+
+fn job_dict<'py>(py: Python<'py>, j: &aurafx_jobs::Job, tail: usize) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("id", j.id)?;
+    d.set_item("name", &j.spec.name)?;
+    d.set_item("host", &j.spec.host.name)?;
+    d.set_item("state", j.state.label())?;
+    d.set_item("active", j.state.is_active())?;
+    d.set_item("exit_code", match j.state { aurafx_jobs::JobState::Finished(c) => Some(c), _ => None })?;
+    d.set_item("seconds", j.runtime().map(|r| r.as_secs_f64()))?;
+    let n = j.log.len();
+    d.set_item("log", j.log.iter().skip(n.saturating_sub(tail)).cloned().collect::<Vec<_>>())?;
+    d.set_item("outputs", j.outputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>())?;
+    Ok(d)
+}
+
+/// Run a shell command as a job (locally, on an SSH host, or via Slurm).
+/// gpu: None, "any", "nvidia", "amd", or e.g. "nvidia:0,1". Returns the job id.
+#[pyfunction]
+#[pyo3(signature = (command, host=None, workdir=None, gpu=None, outputs=None, auto_load=false, name=None, env=None, slurm=None, wait=false))]
+#[allow(clippy::too_many_arguments)]
+fn submit(py: Python<'_>, command: String, host: Option<String>, workdir: Option<String>, gpu: Option<String>, outputs: Option<String>, auto_load: bool, name: Option<String>, env: Option<std::collections::HashMap<String, String>>, slurm: Option<std::collections::HashMap<String, String>>, wait: bool) -> PyResult<u64> {
+    let mut spec = aurafx_jobs::JobSpec::new(name.unwrap_or_else(|| command.split_whitespace().next().unwrap_or("job").to_string()), command);
+    spec.host = aurafx_jobs::resolve_host(host.as_deref());
+    if let Some(w) = workdir {
+        spec.workdir = w;
+    } else if !spec.host.is_local() {
+        spec.workdir = "~".into();
+    }
+    spec.gpu = parse_gpu(gpu.as_deref())?;
+    spec.outputs = outputs.unwrap_or_default();
+    spec.auto_load = auto_load;
+    spec.env = env.unwrap_or_default().into_iter().collect();
+    if let Some(sl) = slurm {
+        spec.scheduler = aurafx_jobs::Scheduler::Slurm {
+            partition: sl.get("partition").cloned().unwrap_or_default(),
+            time: sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into()),
+            nodes: sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1),
+            tasks: sl.get("tasks").and_then(|v| v.parse().ok()).unwrap_or(1),
+            extra: sl.get("extra").cloned().unwrap_or_default(),
+        };
+    }
+    let jobs = aurafx_jobs::global();
+    let id = aurafx_jobs::submit(&jobs, spec);
+    if wait {
+        loop {
+            let active = jobs.lock().jobs.iter().find(|j| j.id == id).map(|j| j.state.is_active()).unwrap_or(false);
+            if !active {
+                break;
+            }
+            py.detach(|| std::thread::sleep(std::time::Duration::from_millis(200)));
+            py.check_signals()?;
+        }
+        py.detach(|| std::thread::sleep(std::time::Duration::from_millis(200)));
+    }
+    Ok(id)
+}
+
+fn parse_gpu(g: Option<&str>) -> PyResult<aurafx_jobs::GpuRequest> {
+    use aurafx_jobs::GpuRequest;
+    let Some(g) = g else { return Ok(GpuRequest::None) };
+    let (kind, ids) = g.split_once(':').unwrap_or((g, "0"));
+    let ids: Vec<u32> = ids.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    Ok(match kind.to_ascii_lowercase().as_str() {
+        "" | "none" => GpuRequest::None,
+        "any" | "gpu" => GpuRequest::Any(ids),
+        "nvidia" | "cuda" => GpuRequest::Nvidia(ids),
+        "amd" | "rocm" | "hip" => GpuRequest::Amd(ids),
+        _ => return Err(PyValueError::new_err("gpu must be 'any', 'nvidia', 'amd' optionally followed by ':0,1'")),
+    })
+}
+
+/// Status of a job (dict with state, exit_code, log tail, outputs).
+#[pyfunction]
+#[pyo3(signature = (id, tail=50))]
+fn job<'py>(py: Python<'py>, id: u64, tail: usize) -> PyResult<Bound<'py, PyDict>> {
+    let jobs = aurafx_jobs::global();
+    let m = jobs.lock();
+    let j = m.jobs.iter().find(|j| j.id == id).ok_or_else(|| PyKeyError::new_err(format!("no job {id}")))?;
+    job_dict(py, j, tail)
+}
+
+#[pyfunction]
+fn jobs<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+    let jm = aurafx_jobs::global();
+    let m = jm.lock();
+    let l = PyList::empty(py);
+    for j in &m.jobs {
+        l.append(job_dict(py, j, 5)?)?;
+    }
+    Ok(l)
+}
+
+#[pyfunction]
+fn cancel(id: u64) -> PyResult<()> {
+    aurafx_jobs::cancel(&aurafx_jobs::global(), id).map_err(err)
+}
+
+/// GPUs on a host (local by default): list of dicts.
+#[pyfunction]
+#[pyo3(signature = (host=None))]
+fn gpus<'py>(py: Python<'py>, host: Option<String>) -> PyResult<Bound<'py, PyList>> {
+    let h = aurafx_jobs::resolve_host(host.as_deref());
+    let list = py.detach(|| aurafx_jobs::gpu::query(&h));
+    let l = PyList::empty(py);
+    for g in list {
+        let d = PyDict::new(py);
+        d.set_item("vendor", format!("{:?}", g.vendor))?;
+        d.set_item("index", g.index)?;
+        d.set_item("name", g.name)?;
+        d.set_item("memory_total_mb", g.memory_total_mb)?;
+        d.set_item("memory_used_mb", g.memory_used_mb)?;
+        d.set_item("utilization", g.utilization)?;
+        d.set_item("temperature_c", g.temperature_c)?;
+        l.append(d)?;
+    }
+    Ok(l)
+}
+
+#[pyfunction]
+fn hosts() -> Vec<String> {
+    aurafx_jobs::hosts().into_iter().map(|h| h.name).collect()
+}
+
+/// Copy a file from a host into the local cache and open it.
+#[pyfunction]
+fn load_remote(host: String, path: String) -> PyResult<PyNode> {
+    let h = aurafx_jobs::resolve_host(Some(&host));
+    let name = std::path::Path::new(&path).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "remote".into());
+    let dest = aurafx_jobs::cache_dir().join("remote").join(h.name.replace(['/', '@', ':'], "_")).join(name);
+    h.fetch(&path, &dest).map_err(err)?;
+    let id = session().lock().open_file(&dest).map_err(err)?;
+    Ok(PyNode { id })
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(submit, m)?)?;
+    m.add_function(wrap_pyfunction!(job, m)?)?;
+    m.add_function(wrap_pyfunction!(jobs, m)?)?;
+    m.add_function(wrap_pyfunction!(cancel, m)?)?;
+    m.add_function(wrap_pyfunction!(gpus, m)?)?;
+    m.add_function(wrap_pyfunction!(hosts, m)?)?;
+    m.add_function(wrap_pyfunction!(load_remote, m)?)?;
     m.add_class::<PyNode>()?;
     m.add_class::<FilterCall>()?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
@@ -520,6 +671,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(view, m)?)?;
     m.add_function(wrap_pyfunction!(screenshot, m)?)?;
     m.add_function(wrap_pyfunction!(clear, m)?)?;
+    m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(colormaps, m)?)?;
     let py = m.py();
     for f in aurafx_filters::registry() {

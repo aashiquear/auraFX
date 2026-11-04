@@ -15,6 +15,7 @@ pub struct Settings {
     pub auto_run_ai_code: bool,
     pub show_orientation_axes: bool,
     pub default_colormap: String,
+    pub hosts: Vec<aurafx_jobs::Host>,
 }
 
 impl Default for Settings {
@@ -28,6 +29,7 @@ impl Default for Settings {
             auto_run_ai_code: false,
             show_orientation_axes: true,
             default_colormap: "Viridis".into(),
+            hosts: Vec::new(),
         }
     }
 }

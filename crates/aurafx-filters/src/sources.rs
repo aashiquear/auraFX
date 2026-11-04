@@ -161,20 +161,23 @@ pub fn point_source(center: [f64; 3], radius: f64, n: usize, seed: u64) -> PolyD
     PolyData::from_points(Points::new_f64(pts))
 }
 
-/// The classic VTK "Wavelet" synthetic volume (RTData).
+/// The classic VTK "Wavelet" synthetic volume (RTData), identical to vtkRTAnalyticSource.
 pub fn wavelet(extent: [i64; 6], maximum: f64, std_dev: f64) -> ImageData {
     let mut img = ImageData { extent, ..Default::default() };
     let d = img.dims();
     let mut v = Vec::with_capacity(d[0] * d[1] * d[2]);
     let (xf, yf, zf, xm, ym, zm) = (60.0, 30.0, 40.0, 10.0, 18.0, 5.0);
+    let scale = |a: i64, b: i64| if b > a { 1.0 / (b - a) as f64 } else { 1.0 };
+    let (xs, ys, zs) = (scale(extent[0], extent[1]), scale(extent[2], extent[3]), scale(extent[4], extent[5]));
+    let temp2 = 1.0 / (2.0 * std_dev * std_dev);
     for k in 0..d[2] {
-        let z = (extent[4] + k as i64) as f64;
+        let z = -((extent[4] + k as i64) as f64) * zs;
         for j in 0..d[1] {
-            let y = (extent[2] + j as i64) as f64;
+            let y = -((extent[2] + j as i64) as f64) * ys;
             for i in 0..d[0] {
-                let x = (extent[0] + i as i64) as f64;
-                let g = maximum * (-(x * x + y * y + z * z) / (2.0 * std_dev * std_dev) * 0.2).exp();
-                let val = g + xm * (xf * x / 100.0 * PI).sin() + ym * (yf * y / 100.0 * PI).sin() + zm * (zf * z / 100.0 * PI).cos();
+                let x = -((extent[0] + i as i64) as f64) * xs;
+                let sum = x * x + y * y + z * z;
+                let val = maximum * (-sum * temp2).exp() + xm * (xf * x).sin() + ym * (yf * y).sin() + zm * (zf * z).cos();
                 v.push(val as f32);
             }
         }

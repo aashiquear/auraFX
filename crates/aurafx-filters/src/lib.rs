@@ -19,6 +19,7 @@ pub mod edges;
 pub mod transform;
 pub mod glyph;
 pub mod sources;
+pub mod probe;
 
 pub use params::{ParamKind, ParamSpec, ParamValue, Params, Association};
 pub use registry::{default_array, find, registry, search, FilterDef};

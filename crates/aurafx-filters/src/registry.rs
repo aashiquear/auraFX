@@ -398,6 +398,59 @@ fn build() -> Vec<FilterDef> {
                 })
             },
         },
+        FilterDef {
+            id: "plot_over_line",
+            label: "Plot Over Line",
+            category: "Data",
+            description: "Sample values along a straight line; shows a chart of every array versus distance.",
+            keywords: &["line plot", "profile", "probe line", "graph", "sample"],
+            is_source: false,
+            params: vec![
+                v3("point1", "Point 1", [f64::NAN; 3]).help("Unset: from the minimum corner of the data bounds."),
+                v3("point2", "Point 2", [f64::NAN; 3]).help("Unset: to the maximum corner of the data bounds."),
+                i("resolution", "Resolution", 1000, 1, 1_000_000),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let b = ds.bounds();
+                let p1 = p.vec3("point1", [f64::NAN; 3]);
+                let p2 = p.vec3("point2", [f64::NAN; 3]);
+                let p1 = if p1.iter().any(|v| v.is_nan()) { b.min } else { p1 };
+                let p2 = if p2.iter().any(|v| v.is_nan()) { b.max } else { p2 };
+                Ok(DataSet::PolyData(crate::probe::plot_over_line(ds, p1, p2, p.i64("resolution", 1000) as usize)?))
+            },
+        },
+        FilterDef {
+            id: "probe_location",
+            label: "Probe Location",
+            category: "Data",
+            description: "Interpolated values at a single point.",
+            keywords: &["probe", "point value", "query", "sample point"],
+            is_source: false,
+            params: vec![v3("location", "Location", [f64::NAN; 3])],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let loc = p.vec3("location", [f64::NAN; 3]);
+                let loc = if loc.iter().any(|v| v.is_nan()) { bounds_center(ds) } else { loc };
+                let attrs = crate::probe::probe_points(ds, &[loc])?;
+                let mut pd = PolyData::from_points(Points::new_f64(loc.to_vec()));
+                pd.point_data = attrs;
+                Ok(DataSet::PolyData(pd))
+            },
+        },
+        FilterDef {
+            id: "resample_to_image",
+            label: "Resample To Image",
+            category: "Data",
+            description: "Interpolate any mesh onto a uniform grid (for volume-style analysis or export).",
+            keywords: &["regrid", "voxelize", "interpolate", "uniform grid"],
+            is_source: false,
+            params: vec![i("nx", "X samples", 50, 1, 4096), i("ny", "Y samples", 50, 1, 4096), i("nz", "Z samples", 50, 1, 4096)],
+            apply: |input, p| {
+                let dims = [p.i64("nx", 50) as usize, p.i64("ny", 50) as usize, p.i64("nz", 50) as usize];
+                Ok(DataSet::ImageData(crate::probe::resample_to_image(input.unwrap(), dims)?))
+            },
+        },
         // ---------------- Geometry ----------------
         FilterDef {
             id: "extract_surface",

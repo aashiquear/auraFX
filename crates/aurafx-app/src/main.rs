@@ -2,6 +2,7 @@
 
 mod app;
 mod assistant;
+mod charts;
 mod console;
 mod icons;
 mod jobs_panel;

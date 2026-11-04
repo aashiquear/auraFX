@@ -73,3 +73,23 @@ fn registry_search() {
     assert_eq!(r[0].id, "contour");
     assert!(search("cut").iter().any(|f| f.id == "slice"));
 }
+
+#[test]
+fn probe_and_plot_over_line() {
+    let t = td("wavelet_tets.vtu");
+    let w = run("wavelet", None, &[("half_size", 5.into())]);
+    let line = run("plot_over_line", Some(&t), &[("point1", serde_json::json!([-5, 0, 0])), ("point2", serde_json::json!([5, 0, 0])), ("resolution", 10.into())]);
+    let pd = line.point_data().unwrap();
+    let mask = pd.get("vtkValidPointMask").unwrap();
+    assert_eq!(mask.range(None), (1.0, 1.0));
+    // On grid nodes the probe must reproduce the source values exactly.
+    let rt = pd.get("RTData").unwrap();
+    let wpd = w.point_data().unwrap().get("RTData").unwrap();
+    for i in 0..=10usize {
+        // wavelet index for (x=i-5, y=0, z=0): i + 11*(5 + 11*5)
+        let expect = wpd.get(i + 11 * (5 + 11 * 5), 0);
+        assert!((rt.get(i, 0) - expect).abs() < 1e-3, "{i}: {} vs {expect}", rt.get(i, 0));
+    }
+    let img = run("resample_to_image", Some(&t), &[("nx", 6.into()), ("ny", 6.into()), ("nz", 6.into())]);
+    assert_eq!(img.n_points(), 216);
+}

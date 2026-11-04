@@ -476,6 +476,75 @@ fn screenshot(path: String, width: Option<u32>, height: Option<u32>) {
     s.revision += 1;
 }
 
+/// Add a line to the Charts panel: afx.plot(x, y, label="T max").
+#[pyfunction]
+#[pyo3(signature = (x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=false))]
+#[allow(clippy::too_many_arguments)]
+fn plot(x: Bound<'_, PyAny>, y: Option<Bound<'_, PyAny>>, label: Option<String>, title: Option<String>, xlabel: Option<String>, ylabel: Option<String>, clear: bool) -> PyResult<()> {
+    let to_vec = |v: &Bound<'_, PyAny>| -> PyResult<Vec<f64>> {
+        if let Ok(l) = v.extract::<Vec<f64>>() {
+            return Ok(l);
+        }
+        let (d, _) = numpy_to_array(v)?;
+        Ok(d.to_f64_vec())
+    };
+    let (xs, ys) = match y {
+        Some(y) => (to_vec(&x)?, to_vec(&y)?),
+        None => {
+            let ys = to_vec(&x)?;
+            ((0..ys.len()).map(|i| i as f64).collect(), ys)
+        }
+    };
+    if xs.len() != ys.len() {
+        return Err(PyValueError::new_err(format!("x has {} values but y has {}", xs.len(), ys.len())));
+    }
+    let mut s = session().lock();
+    if clear {
+        s.chart.series.clear();
+    }
+    if let Some(t) = title {
+        s.chart.title = t;
+    }
+    if let Some(t) = xlabel {
+        s.chart.x_label = t;
+    }
+    if let Some(t) = ylabel {
+        s.chart.y_label = t;
+    }
+    let n = s.chart.series.len() + 1;
+    s.add_series(label.unwrap_or_else(|| format!("series {n}")), xs, ys);
+    Ok(())
+}
+
+#[pyfunction]
+fn clear_plots() {
+    let mut s = session().lock();
+    s.chart = Default::default();
+    s.revision += 1;
+}
+
+/// Statistic of an array over every time step, plotted in the Charts panel.
+/// stat: "max", "min", "mean", "sum" or "value" (for global/field variables). Returns (times, values).
+#[pyfunction]
+#[pyo3(signature = (node, array, stat="max", plot=true))]
+fn over_time(py: Python<'_>, node: PyRef<PyNode>, array: String, stat: &str, plot: bool) -> PyResult<(Vec<f64>, Vec<f64>)> {
+    let id = node.id;
+    let stat = stat.to_string();
+    let r = py.detach(|| {
+        let mut s = session().lock();
+        let r = s.over_time(id, &array, &stat);
+        if let (Ok((x, y)), true) = (&r, plot) {
+            let name = format!("{stat}({array})");
+            if s.chart.x_label.is_empty() {
+                s.chart.x_label = "time".into();
+            }
+            s.add_series(name, x.clone(), y.clone());
+        }
+        r
+    });
+    r.map_err(err)
+}
+
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
 #[pyfunction]
 fn show_panel(name: String) {
@@ -672,6 +741,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(screenshot, m)?)?;
     m.add_function(wrap_pyfunction!(clear, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
+    m.add_function(wrap_pyfunction!(plot, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_plots, m)?)?;
+    m.add_function(wrap_pyfunction!(over_time, m)?)?;
     m.add_function(wrap_pyfunction!(colormaps, m)?)?;
     let py = m.py();
     for f in aurafx_filters::registry() {

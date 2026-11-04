@@ -23,10 +23,11 @@ pub enum Pane {
     Spreadsheet,
     Information,
     Jobs,
+    Charts,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 9] = [Pane::Pipeline, Pane::Properties, Pane::Viewport, Pane::Python, Pane::Assistant, Pane::Log, Pane::Spreadsheet, Pane::Information, Pane::Jobs];
+    pub const ALL: [Pane; 10] = [Pane::Pipeline, Pane::Properties, Pane::Viewport, Pane::Python, Pane::Assistant, Pane::Log, Pane::Spreadsheet, Pane::Information, Pane::Jobs, Pane::Charts];
     pub fn title(self) -> &'static str {
         match self {
             Pane::Pipeline => "Pipeline",
@@ -38,6 +39,7 @@ impl Pane {
             Pane::Spreadsheet => "Spreadsheet",
             Pane::Information => "Information",
             Pane::Jobs => "Simulations",
+            Pane::Charts => "Charts",
         }
     }
     pub fn icon(self) -> &'static str {
@@ -51,6 +53,7 @@ impl Pane {
             Pane::Spreadsheet => crate::icons::TABLE,
             Pane::Information => crate::icons::INFO,
             Pane::Jobs => crate::icons::ATOM,
+            Pane::Charts => crate::icons::WAVE_SINE,
         }
     }
 }
@@ -77,6 +80,7 @@ pub struct State {
     pub spreadsheet_page: usize,
     pub toasts: Vec<(String, f64, bool)>,
     pub jobs_panel: crate::jobs_panel::JobsPanel,
+    pub charts: crate::charts::ChartsState,
 }
 
 pub struct AuraApp {
@@ -93,6 +97,7 @@ pub fn default_tree() -> egui_tiles::Tree<Pane> {
     let python = tiles.insert_pane(Pane::Python);
     let log = tiles.insert_pane(Pane::Log);
     let sheet = tiles.insert_pane(Pane::Spreadsheet);
+    let charts = tiles.insert_pane(Pane::Charts);
     let assistant = tiles.insert_pane(Pane::Assistant);
     let jobs = tiles.insert_pane(Pane::Jobs);
 
@@ -102,7 +107,7 @@ pub fn default_tree() -> egui_tiles::Tree<Pane> {
     left.shares.set_share(props_tabs, 0.65);
     let left = tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(left)));
 
-    let bottom = tiles.insert_tab_tile(vec![python, log, sheet]);
+    let bottom = tiles.insert_tab_tile(vec![python, charts, sheet, log]);
     let mut center = egui_tiles::Linear::new(egui_tiles::LinearDir::Vertical, vec![viewport, bottom]);
     center.shares.set_share(viewport, 0.72);
     center.shares.set_share(bottom, 0.28);
@@ -130,7 +135,7 @@ impl AuraApp {
         spawn_pipeline_worker(session.clone(), cc.egui_ctx.clone());
         let python = PythonWorker::spawn(session.clone(), cc.egui_ctx.clone());
         let viewport = Viewport::new(cc, settings.background);
-        let tree = cc.storage.and_then(|s| s.get_string("layout_v2")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
+        let tree = cc.storage.and_then(|s| s.get_string("layout_v3")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
         let assistant = Assistant::new(&settings);
         let state = State {
             session,
@@ -153,6 +158,7 @@ impl AuraApp {
             spreadsheet_page: 0,
             toasts: Vec::new(),
             jobs_panel: crate::jobs_panel::JobsPanel::default(),
+            charts: Default::default(),
         };
         if let Some(p) = script {
             match std::fs::read_to_string(&p) {
@@ -683,6 +689,7 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
             Pane::Spreadsheet => crate::panels::spreadsheet_ui(self.state, ui),
             Pane::Information => crate::panels::information_ui(self.state, ui),
             Pane::Jobs => crate::jobs_panel::jobs_ui(self.state, ui),
+            Pane::Charts => crate::charts::charts_ui(self.state, ui),
         }
         egui_tiles::UiResponse::None
     }
@@ -822,7 +829,7 @@ impl eframe::App for AuraApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if let Ok(s) = serde_json::to_string(&self.tree) {
-            storage.set_string("layout_v2", s);
+            storage.set_string("layout_v3", s);
         }
         self.state.settings.save();
     }

@@ -30,6 +30,7 @@ egui = "0.37"
 egui-wgpu = "0.37"
 egui_extras = "0.37"
 egui_tiles = "0.18"
+egui_plot = "0.38"
 egui_commonmark = "0.26"
 wgpu = "30"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "pollster", "wayland"] }

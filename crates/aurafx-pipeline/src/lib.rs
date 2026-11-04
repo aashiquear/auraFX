@@ -6,4 +6,4 @@ pub mod session;
 pub mod colormap;
 
 pub use display::{ColorBy, DisplayProps, Representation};
-pub use session::{LogEntry, LogLevel, Node, NodeId, NodeKind, Session, SharedSession, WorkItem};
+pub use session::{stat_of, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, Session, SharedSession, WorkItem};

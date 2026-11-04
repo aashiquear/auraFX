@@ -64,6 +64,23 @@ impl Node {
     }
 }
 
+/// A line series for the chart panel (from Python or "plot over time").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChartSeries {
+    pub name: String,
+    pub x: Vec<f64>,
+    pub y: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Chart {
+    pub title: String,
+    pub x_label: String,
+    pub y_label: String,
+    pub series: Vec<ChartSeries>,
+    pub revision: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LogLevel {
     Info,
@@ -124,6 +141,8 @@ pub struct Session {
     pub screenshot_request: Option<(PathBuf, Option<u32>, Option<u32>)>,
     /// Set by Python/AI to bring a UI panel to the front (by title, case-insensitive).
     pub panel_request: Option<String>,
+    /// Series plotted from scripts / time analysis.
+    pub chart: Chart,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -543,6 +562,36 @@ impl Session {
         self.nodes.values().any(|n| n.dirty || n.running)
     }
 
+    /// Evaluate a statistic of `array` on node `id` at every time step (re-running the pipeline),
+    /// restoring the current time afterwards. `stat`: min, max, mean, sum, or `value` (field data / first tuple).
+    pub fn over_time(&mut self, id: NodeId, array: &str, stat: &str) -> Result<(Vec<f64>, Vec<f64>)> {
+        if self.times.is_empty() {
+            return Err(anyhow!("no time steps loaded"));
+        }
+        let saved = self.time_index;
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        for i in 0..self.times.len() {
+            self.set_time_index(i);
+            self.update_blocking();
+            let n = self.nodes.get(&id).ok_or_else(|| anyhow!("node {id} does not exist"))?;
+            let ds = n.output.clone().ok_or_else(|| anyhow!("{}: {}", n.name, n.error.clone().unwrap_or_else(|| "no output".into())))?;
+            xs.push(self.times[i]);
+            ys.push(stat_of(&ds, array, stat).ok_or_else(|| anyhow!("array {array:?} not found at step {i}"))?);
+        }
+        self.set_time_index(saved);
+        Ok((xs, ys))
+    }
+
+    pub fn add_series(&mut self, name: impl Into<String>, x: Vec<f64>, y: Vec<f64>) {
+        let name = name.into();
+        self.chart.series.retain(|s| s.name != name);
+        self.chart.series.push(ChartSeries { name, x, y });
+        self.chart.revision += 1;
+        self.panel_request = Some("Charts".into());
+        self.touch();
+    }
+
     // ------------------------------------------------------------------ queries
 
     pub fn active_node(&self) -> Option<&Node> {
@@ -602,4 +651,41 @@ impl Session {
         }
         s
     }
+}
+
+/// Reduce an array (searched in point, cell, then field data of every leaf) to one number.
+pub fn stat_of(ds: &DataSet, array: &str, stat: &str) -> Option<f64> {
+    let mut vals: Vec<f64> = Vec::new();
+    let mut visit = |d: &DataSet| {
+        let a = d.point_data().and_then(|a| a.get(array)).or_else(|| d.cell_data().and_then(|a| a.get(array))).or_else(|| d.field_data().get(array));
+        if let Some(a) = a {
+            for i in 0..a.len() {
+                let v = if a.ncomp == 1 { a.get(i, 0) } else { a.magnitude(i) };
+                if v.is_finite() {
+                    vals.push(v);
+                }
+            }
+        }
+    };
+    match ds {
+        DataSet::MultiBlock(mb) => {
+            if let Some(a) = mb.field_data.get(array) {
+                return Some(a.get(0, 0));
+            }
+            for (_, d) in mb.leaves() {
+                visit(d);
+            }
+        }
+        d => visit(d),
+    }
+    if vals.is_empty() {
+        return None;
+    }
+    Some(match stat {
+        "min" => vals.iter().cloned().fold(f64::INFINITY, f64::min),
+        "max" => vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        "sum" => vals.iter().sum(),
+        "value" | "first" => vals[0],
+        _ => vals.iter().sum::<f64>() / vals.len() as f64,
+    })
 }

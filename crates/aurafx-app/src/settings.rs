@@ -45,6 +45,9 @@ impl Default for Settings {
 
 impl Settings {
     pub fn path() -> Option<PathBuf> {
+        if let Some(d) = std::env::var_os("AURAFX_DATA_DIR") {
+            return Some(PathBuf::from(d).join("settings.toml"));
+        }
         directories::ProjectDirs::from("org", "aurafx", "auraFX").map(|d| d.config_dir().join("settings.toml"))
     }
 

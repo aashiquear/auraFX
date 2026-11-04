@@ -72,7 +72,7 @@ pub fn console_ui(state: &mut State, ui: &mut egui::Ui) {
             submit(state);
         }
         if ui.button("Run script…").clicked() {
-            if let Some(p) = rfd::FileDialog::new().add_filter("Python", &["py"]).pick_file() {
+            if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Python", &["py"]).pick_file() {
                 match std::fs::read_to_string(&p) {
                     Ok(code) => {
                         state.console.script_path = Some(p);

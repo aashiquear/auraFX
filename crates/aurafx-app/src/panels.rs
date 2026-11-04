@@ -750,7 +750,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
             state.spreadsheet_page += 1;
         }
         if ui.button("Export CSV…").clicked() {
-            if let Some(p) = rfd::FileDialog::new().add_filter("CSV", &["csv"]).set_file_name(format!("{name}.csv")).save_file() {
+            if let Some(p) = crate::dialogs::FileDialog::new().add_filter("CSV", &["csv"]).set_file_name(format!("{name}.csv")).save_file() {
                 let mut out = String::new();
                 let mut header: Vec<String> = Vec::new();
                 if points.is_some() {

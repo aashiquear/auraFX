@@ -263,7 +263,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
                 AnimFormat::Mp4 => ("mp4", "MP4 video"),
                 AnimFormat::Png => ("png", "PNG frames (a folder is created)"),
             };
-            if let Some(p) = rfd::FileDialog::new().add_filter(label, &[ext]).set_file_name(format!("animation.{ext}")).save_file() {
+            if let Some(p) = crate::dialogs::FileDialog::new().add_filter(label, &[ext]).set_file_name(format!("animation.{ext}")).save_file() {
                 let p = if p.extension().is_none() { p.with_extension(ext) } else { p };
                 let orbit = if d.mode == AnimMode::Orbit { Some(d.orbit_frames) } else { None };
                 let fps = d.fps;

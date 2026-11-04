@@ -5,9 +5,23 @@ edition.workspace = true
 license.workspace = true
 description = "auraFX desktop application"
 
+[lib]
+name = "aurafx_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "aurafx"
 path = "src/main.rs"
+
+[features]
+default = ["python", "native-dialogs", "linux-desktop", "persistence"]
+# Remember window layout between runs.
+persistence = ["eframe/persistence"]
+# Embedded CPython and the `afx` module.
+python = ["dep:aurafx-python"]
+# OS file dialogs (rfd). Without it an in-app file browser is used.
+native-dialogs = ["dep:rfd"]
+linux-desktop = ["eframe/x11", "eframe/wayland"]
 
 [dependencies]
 aurafx-data.workspace = true
@@ -15,7 +29,7 @@ aurafx-io.workspace = true
 aurafx-filters.workspace = true
 aurafx-pipeline.workspace = true
 aurafx-render.workspace = true
-aurafx-python.workspace = true
+aurafx-python = { workspace = true, optional = true }
 aurafx-ai.workspace = true
 aurafx-jobs.workspace = true
 anyhow.workspace = true
@@ -26,7 +40,7 @@ tracing-subscriber.workspace = true
 parking_lot.workspace = true
 glam.workspace = true
 rayon.workspace = true
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts"] }
 egui = "0.37"
 egui-wgpu = "0.37"
 egui_extras = "0.37"
@@ -34,7 +48,7 @@ egui_tiles = "0.18"
 egui_plot = "0.38"
 egui_commonmark = "0.26"
 wgpu = "30"
-rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "pollster", "wayland"] }
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "pollster", "wayland"], optional = true }
 directories = "6"
 toml = "1"
 image = { version = "0.25", default-features = false, features = ["png", "gif"] }

@@ -256,7 +256,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut p.workdir).desired_width(220.0));
                     if hosts.get(p.host).map(|h| h.is_local()).unwrap_or(true) && ui.button(icons::FOLDER_OPEN).clicked() {
-                        if let Some(d) = rfd::FileDialog::new().set_directory(&p.workdir).pick_folder() {
+                        if let Some(d) = crate::dialogs::FileDialog::new().set_directory(&p.workdir).pick_folder() {
                             p.workdir = d.display().to_string();
                         }
                     }

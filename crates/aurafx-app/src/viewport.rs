@@ -461,6 +461,11 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         if scroll.abs() > 0.0 {
             cam.zoom((1.0 + scroll as f64 * 0.002).clamp(0.5, 2.0));
         }
+        // Pinch to zoom on touch screens and trackpads.
+        let pinch = ui.input(|i| i.zoom_delta());
+        if (pinch - 1.0).abs() > 1e-4 {
+            cam.zoom(pinch as f64);
+        }
     }
     if response.double_clicked() && state.viewport.mode == InteractMode::Navigate {
         cam.reset_to_bounds(&bounds);
@@ -526,6 +531,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             if ui.put(r, egui::Button::new(format!("{} Restore last session", crate::icons::ARROW_CLOCKWISE))).clicked() {
                 state.load_state(last);
             }
+        }
+        let r = Rect::from_center_size(rect.center() + Vec2::new(0.0, 112.0), Vec2::new(220.0, 30.0));
+        if ui.put(r, egui::Button::new(format!("{} Try a sample dataset", crate::icons::CUBE))).clicked() {
+            state.open_sample("disk_out_ref.ex2");
         }
     }
     if let Some((label, cmap, (lo, hi), log)) = scalar_bar {

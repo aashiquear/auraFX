@@ -1,7 +1,18 @@
 //! Background execution of the pipeline and of Python code.
 
 use aurafx_pipeline::SharedSession;
+#[cfg(feature = "python")]
 use aurafx_python::{PythonRuntime, RunOutput};
+
+/// Output of a Python run (mirrors `aurafx_python::RunOutput` so the UI compiles without Python).
+#[cfg(not(feature = "python"))]
+#[derive(Debug, Default, Clone)]
+pub struct RunOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub error: Option<String>,
+    pub value: Option<String>,
+}
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -81,6 +92,7 @@ impl PythonWorker {
         std::thread::Builder::new()
             .name("aurafx-python".into())
             .spawn(move || {
+                #[cfg(feature = "python")]
                 let rt = match PythonRuntime::new(session) {
                     Ok(rt) => rt,
                     Err(e) => {
@@ -88,19 +100,33 @@ impl PythonWorker {
                         return;
                     }
                 };
-                *v2.lock() = PythonRuntime::version();
+                #[cfg(feature = "python")]
+                {
+                    *v2.lock() = PythonRuntime::version();
+                }
+                #[cfg(not(feature = "python"))]
+                {
+                    let _ = session;
+                    *v2.lock() = "not included in this build".into();
+                }
                 while let Ok(req) = job_rx.recv() {
                     match req {
                         PythonRequest::Run(job) => {
                             b2.store(true, std::sync::atomic::Ordering::Relaxed);
                             let t0 = Instant::now();
+                            #[cfg(feature = "python")]
                             let output = rt.run(&job.code);
+                            #[cfg(not(feature = "python"))]
+                            let output = RunOutput { error: Some("Python is not included in this build of auraFX.".into()), ..Default::default() };
                             b2.store(false, std::sync::atomic::Ordering::Relaxed);
                             let _ = res_tx.send(PythonResult { code: job.code, origin: job.origin, output, elapsed: t0.elapsed() });
                             ctx.request_repaint();
                         }
                         PythonRequest::Complete(prefix, reply) => {
+                            #[cfg(feature = "python")]
                             let _ = reply.send(rt.complete(&prefix));
+                            #[cfg(not(feature = "python"))]
+                            let _ = (prefix, reply.send(vec![]));
                         }
                     }
                 }

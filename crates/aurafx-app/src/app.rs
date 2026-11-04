@@ -101,6 +101,7 @@ pub struct State {
     pub anim_job: Option<crate::animation::AnimJob>,
     pub anim_done_tx: std::sync::mpsc::Sender<Result<PathBuf, String>>,
     pub anim_done_rx: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
+    pub file_browser: crate::dialogs::FileBrowser,
     /// The .afx file the session was last saved to / loaded from.
     pub state_path: Option<PathBuf>,
     /// Id of the 3D view `viewport` currently holds (0 = main view).
@@ -121,6 +122,8 @@ pub struct State {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutPreset {
     Full,
+    /// Everything in one tab strip (phones, small windows).
+    Compact,
     Visualize,
     Analyze,
     Script,
@@ -224,10 +227,28 @@ pub fn hide_pane(tree: &mut egui_tiles::Tree<Pane>, pane: Pane) {
     }
 }
 
+pub fn compact_tree() -> egui_tiles::Tree<Pane> {
+    let mut tiles = egui_tiles::Tiles::default();
+    let panes: Vec<_> =
+        [Pane::Viewport, Pane::Pipeline, Pane::Properties, Pane::Charts, Pane::Spreadsheet, Pane::Assistant, Pane::Jobs, Pane::Information, Pane::Log]
+            .into_iter()
+            .filter(|p| *p != Pane::Python || cfg!(feature = "python"))
+            .map(|p| tiles.insert_pane(p))
+            .collect();
+    let root = tiles.insert_tab_tile(panes);
+    #[allow(deprecated)]
+    let id = egui::Id::new("aurafx_layout");
+    egui_tiles::Tree::new(id, root, tiles)
+}
+
 pub fn apply_preset(tree: &mut egui_tiles::Tree<Pane>, preset: LayoutPreset) {
+    if preset == LayoutPreset::Compact {
+        *tree = compact_tree();
+        return;
+    }
     *tree = default_tree();
     let (hide, front): (&[Pane], &[Pane]) = match preset {
-        LayoutPreset::Full => (&[], &[]),
+        LayoutPreset::Full | LayoutPreset::Compact => (&[], &[]),
         LayoutPreset::Visualize => (&[Pane::Python, Pane::Charts, Pane::Spreadsheet, Pane::Log, Pane::Assistant, Pane::Jobs, Pane::Information], &[]),
         LayoutPreset::Analyze => (&[Pane::Jobs, Pane::Log], &[Pane::Charts, Pane::Information]),
         LayoutPreset::Script => (&[Pane::Jobs, Pane::Spreadsheet, Pane::Charts], &[Pane::Python, Pane::Assistant]),
@@ -244,6 +265,7 @@ pub fn apply_preset(tree: &mut egui_tiles::Tree<Pane>, preset: LayoutPreset) {
 pub struct AuraApp {
     pub state: State,
     pub tree: egui_tiles::Tree<Pane>,
+    layout_checked: bool,
 }
 
 pub fn default_tree() -> egui_tiles::Tree<Pane> {
@@ -319,6 +341,7 @@ impl AuraApp {
             toasts: Vec::new(),
             jobs_panel: crate::jobs_panel::JobsPanel::default(),
             charts: Default::default(),
+            file_browser: Default::default(),
             state_path: None,
             anim_dialog: Default::default(),
             anim_job: None,
@@ -339,7 +362,7 @@ impl AuraApp {
                 Err(e) => tracing::error!("cannot read script {}: {e}", p.display()),
             }
         }
-        let mut app = Self { state, tree };
+        let mut app = Self { state, tree, layout_checked: false };
         let max_id =
             app.tree.tiles.iter().filter_map(|(_, t)| if let egui_tiles::Tile::Pane(Pane::View(id)) = t { Some(*id) } else { None }).max().unwrap_or(0);
         app.state.next_view_id = max_id + 1;
@@ -422,7 +445,7 @@ impl State {
             self.save_state_to(p);
             return;
         }
-        if let Some(p) = rfd::FileDialog::new().add_filter("auraFX state", &["afx"]).set_file_name("session.afx").save_file() {
+        if let Some(p) = crate::dialogs::FileDialog::new().add_filter("auraFX state", &["afx"]).set_file_name("session.afx").save_file() {
             let p = if p.extension().is_none() { p.with_extension("afx") } else { p };
             self.save_state_to(p);
         }
@@ -456,7 +479,7 @@ impl State {
         };
         let formats = aurafx_io::writers::writable_formats(&ds);
         let stem: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
-        let mut dlg = rfd::FileDialog::new().set_file_name(format!("{stem}.{}", formats.first().map(|f| f.0).unwrap_or("csv")));
+        let mut dlg = crate::dialogs::FileDialog::new().set_file_name(format!("{stem}.{}", formats.first().map(|f| f.0).unwrap_or("csv")));
         for (e, label) in &formats {
             dlg = dlg.add_filter(*label, &[*e]);
         }
@@ -477,14 +500,35 @@ impl State {
         }
     }
 
+    /// Write an embedded sample into the documents folder and open it.
+    pub fn open_sample(&mut self, name: &str) {
+        let bytes: &[u8] = match name {
+            "disk_out_ref.ex2" => include_bytes!("../../../testdata/disk_out_ref.ex2"),
+            _ => return,
+        };
+        let dir = crate::dialogs::documents_dir().join("samples");
+        let path = dir.join(name);
+        if !path.exists() {
+            if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, bytes)) {
+                self.toast(format!("Cannot write sample: {e}"), true);
+                return;
+            }
+        }
+        self.open_file(path);
+    }
+
     pub fn last_session_path() -> PathBuf {
         aurafx_jobs::cache_dir().join("last_session.afx")
     }
 
     pub fn open_file_dialog(&mut self) {
+        if !crate::dialogs::NATIVE {
+            self.file_browser.open = true;
+            return;
+        }
         let mut exts: Vec<&str> = aurafx_io::all_extensions();
         exts.push("afx");
-        let mut dlg = rfd::FileDialog::new().add_filter("All supported", &exts);
+        let mut dlg = crate::dialogs::FileDialog::new().add_filter("All supported", &exts);
         for (e, label) in aurafx_io::supported_formats() {
             dlg = dlg.add_filter(label, e);
         }
@@ -517,7 +561,7 @@ impl State {
     }
 
     pub fn save_screenshot_dialog(&mut self) {
-        if let Some(path) = rfd::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx.png").save_file() {
+        if let Some(path) = crate::dialogs::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx.png").save_file() {
             self.viewport.request_screenshot(path, None);
         }
     }
@@ -644,6 +688,20 @@ impl State {
                     ui.close();
                     self.load_state(last);
                 }
+                ui.menu_button("Open Sample Data", |ui| {
+                    if ui.button("Heated disk in a flow (Exodus)").on_hover_text("ParaView's disk_out_ref: temperature, pressure, velocity").clicked() {
+                        ui.close();
+                        self.open_sample("disk_out_ref.ex2");
+                    }
+                    if ui.button("Wavelet volume (generated)").clicked() {
+                        ui.close();
+                        self.add_filter("wavelet");
+                    }
+                    if ui.button("Sphere (generated)").clicked() {
+                        ui.close();
+                        self.add_filter("sphere");
+                    }
+                });
                 ui.menu_button("Open Recent", |ui| {
                     if self.settings.recent_files.is_empty() {
                         ui.label("No recent files");
@@ -673,7 +731,7 @@ impl State {
                 if ui.button("Export Python trace…").clicked() {
                     ui.close();
                     let trace = self.session.lock().trace.join("\n");
-                    if let Some(p) = rfd::FileDialog::new().add_filter("Python", &["py"]).set_file_name("aurafx_trace.py").save_file() {
+                    if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Python", &["py"]).set_file_name("aurafx_trace.py").save_file() {
                         let _ = std::fs::write(p, format!("import aurafx as afx\n\n{trace}\n"));
                     }
                 }
@@ -852,6 +910,7 @@ impl State {
                     ("Analyze", LayoutPreset::Analyze, "3D view with charts, spreadsheet and statistics"),
                     ("Script", LayoutPreset::Script, "Python console and assistant beside the 3D view"),
                     ("Simulate", LayoutPreset::Simulate, "Simulation runner, logs and GPUs"),
+                    ("Compact (tabs only)", LayoutPreset::Compact, "Every panel as a tab: best on small screens"),
                 ] {
                     if ui.button(label).on_hover_text(tip).clicked() {
                         self.layout_actions.push(LayoutAction::Preset(preset));
@@ -885,6 +944,9 @@ impl State {
                     self.show_about = true;
                 }
             });
+            if ui.available_width() < 260.0 {
+                return;
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(format!("{} Ask AI", crate::icons::SPARKLE)).clicked() {
                     self.assistant.focus_input = true;
@@ -1042,7 +1104,7 @@ impl State {
                 ui.spinner();
                 ui.label("Working…");
             } else {
-                ui.label(RichText::new("●").color(crate::theme::OK));
+                ui.label(RichText::new(crate::icons::CHECK_CIRCLE).color(crate::theme::OK));
             }
             ui.label(&self.status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1222,6 +1284,13 @@ impl eframe::App for AuraApp {
     fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx_owned = root_ui.ctx().clone();
         let ctx = &ctx_owned;
+        if !self.layout_checked {
+            self.layout_checked = true;
+            // Phones and small windows start with the compact layout.
+            if ctx.content_rect().width() < 820.0 {
+                self.tree = compact_tree();
+            }
+        }
         self.state.open_panes = Pane::ALL.iter().copied().filter(|p| self.tree.tiles.find_pane(p).is_some()).collect();
         let st = &mut self.state;
         st.viewport.frame_begin(ctx, frame);
@@ -1315,6 +1384,7 @@ impl eframe::App for AuraApp {
                         "analyze" => LayoutPreset::Analyze,
                         "script" => LayoutPreset::Script,
                         "simulate" => LayoutPreset::Simulate,
+                        "compact" => LayoutPreset::Compact,
                         _ => LayoutPreset::Full,
                     };
                     self.state.layout_actions.push(LayoutAction::Preset(p));
@@ -1408,6 +1478,9 @@ impl eframe::App for AuraApp {
         st.animation_tick(ctx);
         st.animation_poll();
         crate::animation::dialog_ui(st, ctx);
+        if let Some(p) = crate::dialogs::file_browser_ui(&mut st.file_browser, ctx) {
+            st.open_file(p);
+        }
         crate::palette::palette_ui(st, ctx);
         st.settings_window(ctx);
         st.about_window(ctx);

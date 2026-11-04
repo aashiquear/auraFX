@@ -1,0 +1,17 @@
+[package]
+name = "aurafx-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Android entry point for auraFX (viewer build: no embedded Python)"
+publish = false
+
+[lib]
+name = "aurafx"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[target.'cfg(target_os = "android")'.dependencies]
+aurafx-app = { path = "../aurafx-app", default-features = false }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "android-native-activity"] }
+winit = { version = "0.30", features = ["android-native-activity"] }

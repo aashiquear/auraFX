@@ -133,7 +133,7 @@ pub fn charts_ui(state: &mut State, ui: &mut egui::Ui) {
             state.session.lock().chart = Default::default();
         }
         if ui.button(format!("{} CSV", icons::DOWNLOAD_SIMPLE)).on_hover_text("Export the plotted data").clicked() {
-            if let Some(p) = rfd::FileDialog::new().add_filter("CSV", &["csv"]).set_file_name("chart.csv").save_file() {
+            if let Some(p) = crate::dialogs::FileDialog::new().add_filter("CSV", &["csv"]).set_file_name("chart.csv").save_file() {
                 let mut out = String::from("series,x,y\n");
                 for s in &chart.series {
                     for (x, y) in s.x.iter().zip(&s.y) {

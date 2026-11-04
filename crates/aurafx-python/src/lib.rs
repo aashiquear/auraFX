@@ -22,6 +22,30 @@ pub(crate) fn session() -> &'static SharedSession {
     SESSION.get().expect("aurafx python runtime not initialized")
 }
 
+/// Installed packages ship a private CPython next to the executable. When one is found (and the
+/// user has not set PYTHONHOME), point the embedded interpreter at it.
+///
+/// Layouts: Linux AppImage / tarball `<prefix>/bin/aurafx` + `<prefix>/lib/aurafx/python`,
+/// macOS `auraFX.app/Contents/MacOS/aurafx` + `Contents/Resources/python`,
+/// Windows `aurafx.exe` + `python\`.
+pub fn bundled_python_home() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let candidates = [dir.join("../lib/aurafx/python"), dir.join("../Resources/python"), dir.join("python")];
+    candidates.into_iter().find(|c| c.join("lib").exists() || c.join("Lib").exists()).and_then(|c| c.canonicalize().ok())
+}
+
+fn use_bundled_python() {
+    if std::env::var_os("PYTHONHOME").is_some() {
+        return;
+    }
+    if let Some(home) = bundled_python_home() {
+        // SAFETY: called before the interpreter (and any other thread reading the environment) starts.
+        unsafe { std::env::set_var("PYTHONHOME", &home) };
+        tracing::info!("using bundled Python at {}", home.display());
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct RunOutput {
     pub stdout: String,
@@ -38,6 +62,7 @@ pub struct PythonRuntime {
 impl PythonRuntime {
     /// Initialize the interpreter (once per process) bound to `session`.
     pub fn new(session: SharedSession) -> Result<Self> {
+        use_bundled_python();
         if SESSION.set(session).is_err() {
             tracing::warn!("python runtime initialized twice; keeping the first session");
         }

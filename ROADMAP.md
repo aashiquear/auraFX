@@ -85,7 +85,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 
 ### 1.3 Writers
 - [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF.
-- [ ] Exodus II, CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
+- [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified in ParaView), CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG/JPEG/TIFF/BMP/EXR, screenshot with resolution override and transparent background.
 - [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.

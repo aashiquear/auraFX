@@ -324,3 +324,62 @@ fn openfoam_boundary_patches_match_paraview() {
         assert!(read_patches(&td(case), Some(1.0), &["nope".to_string()]).is_err());
     }
 }
+
+/// Write Exodus, read it back: same blocks, cells, (displaced) points, arrays and times.
+#[test]
+fn exodus_writer_roundtrip() {
+    use aurafx_data::DataSet;
+    use aurafx_io::exodus_writer::write_exodus_steps;
+    // AURAFX_KEEP_OUTPUT=<dir> keeps the written files (for checking them in ParaView).
+    let keep = std::env::var_os("AURAFX_KEEP_OUTPUT").map(std::path::PathBuf::from);
+    let dir = keep.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("aurafx-exo-{}", std::process::id())));
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["disk_out_ref.ex2", "can.ex2"] {
+        if !td(name).exists() {
+            continue;
+        }
+        let steps: Vec<(f64, std::sync::Arc<DataSet>)> = match read_file(td(name)).unwrap() {
+            Loaded::Series(s) => [0, s.steps.len() / 2, s.steps.len() - 1].iter().map(|&k| (s.times[k], load_step(&s.steps[k]).unwrap())).collect(),
+            Loaded::Static(d) => vec![(0.0, d)],
+        };
+        let out = dir.join(name.replace(".ex2", "_out.exo"));
+        let refs: Vec<(f64, &DataSet)> = steps.iter().map(|(t, d)| (*t, &**d)).collect();
+        write_exodus_steps(&refs, &out).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let back = read_file(&out).unwrap_or_else(|e| panic!("{name} read back: {e:#}"));
+        let back_steps: Vec<(f64, std::sync::Arc<DataSet>)> = match back {
+            Loaded::Series(s) => (0..s.steps.len()).map(|k| (s.times[k], load_step(&s.steps[k]).unwrap())).collect(),
+            Loaded::Static(d) => vec![(0.0, d)],
+        };
+        assert_eq!(back_steps.len(), steps.len(), "{name}: steps");
+        for ((t0, a), (t1, b)) in steps.iter().zip(&back_steps) {
+            assert_eq!(t0, t1, "{name}: time");
+            let (DataSet::MultiBlock(ma), DataSet::MultiBlock(mb)) = (&**a, &**b) else { panic!("{name}: expected blocks") };
+            let (la, lb) = (ma.leaves(), mb.leaves());
+            assert_eq!(la.len(), lb.len(), "{name}: blocks");
+            for ((na, da), (nb, db)) in la.iter().zip(&lb) {
+                assert_eq!(na.rsplit('/').next(), nb.rsplit('/').next(), "{name}: block name");
+                assert_eq!(da.n_cells(), db.n_cells(), "{name} {na}: cells");
+                assert_eq!(da.n_points(), db.n_points(), "{name} {na}: points");
+                let (pa, pb) = (da.points().unwrap(), db.points().unwrap());
+                for i in (0..pa.len()).step_by(97) {
+                    let (p, q) = (pa.get(i), pb.get(i));
+                    assert!((0..3).all(|k| (p[k] - q[k]).abs() < 1e-9), "{name} {na}: point {i} {p:?} vs {q:?}");
+                }
+                for (attrs_a, attrs_b, what) in
+                    [(da.point_data().unwrap(), db.point_data().unwrap(), "point"), (da.cell_data().unwrap(), db.cell_data().unwrap(), "cell")]
+                {
+                    for arr in attrs_a.iter().filter(|a| !["GlobalNodeId", "GlobalElementId", "ObjectId", "PedigreeElementId"].contains(&a.name.as_str())) {
+                        let other = attrs_b.get(&arr.name).unwrap_or_else(|| panic!("{name} {na}: {what} array {} missing", arr.name));
+                        assert_eq!(other.ncomp, arr.ncomp, "{name} {}", arr.name);
+                        for c in 0..arr.ncomp {
+                            assert_eq!(other.range(Some(c)), arr.range(Some(c)), "{name} {na}: {what} {} [{c}]", arr.name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if keep.is_none() {
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

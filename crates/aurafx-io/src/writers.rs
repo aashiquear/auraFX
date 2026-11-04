@@ -19,6 +19,9 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
     if !matches!(ds, DataSet::MultiBlock(_) | DataSet::Table(_)) {
         v.push(("vtk", "Legacy VTK"));
     }
+    if !matches!(ds, DataSet::Table(_)) {
+        v.push(("exo", "Exodus II"));
+    }
     v.push(("csv", "CSV (point data or table)"));
     v
 }
@@ -32,6 +35,7 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
         "csv" => write_csv(ds, path),
         "stl" => write_stl(ds, path),
         "ply" => write_ply(ds, path),
+        "e" | "exo" | "ex2" | "exii" | "g" => crate::exodus_writer::write_exodus(ds, path),
         e => bail!("don't know how to write .{e} files"),
     };
     r.with_context(|| format!("writing {}", path.display()))

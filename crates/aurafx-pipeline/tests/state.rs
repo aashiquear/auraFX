@@ -136,3 +136,22 @@ fn openfoam_patches_filter_follows_time() {
     let out = s.nodes[&p].output.clone().unwrap();
     assert_eq!(out.n_cells(), 40);
 }
+
+#[test]
+fn exodus_all_time_steps_from_a_filter() {
+    let mut s = Session::new();
+    let r = s.open_file(td("foam_ascii/case.foam")).unwrap();
+    let c = s.add_filter("cell_centers", r).unwrap();
+    let path = std::env::temp_dir().join(format!("aurafx-steps-{}.exo", std::process::id()));
+    assert_eq!(s.save_exodus_all_times(c, &path).unwrap(), 2);
+    assert_eq!(s.time_index, 0, "time restored");
+    let back = aurafx_io::read_file(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    let aurafx_io::Loaded::Series(series) = back else { panic!("expected two steps") };
+    assert_eq!(series.times, vec![0.0, 1.0]);
+    let last = aurafx_io::load_step(&series.steps[1]).unwrap();
+    assert_eq!(last.n_points(), 24);
+    let aurafx_data::DataSet::MultiBlock(mb) = &*last else { panic!("expected blocks") };
+    let leaf = mb.leaves()[0].1;
+    assert_eq!(leaf.point_data().unwrap().get("T").unwrap().range(None), (305.0, 335.0));
+}

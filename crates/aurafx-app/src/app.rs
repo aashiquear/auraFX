@@ -491,8 +491,20 @@ impl State {
         }
         if let Some(p) = dlg.save_file() {
             let p = if p.extension().is_none() { p.with_extension(formats.first().map(|f| f.0).unwrap_or("csv")) } else { p };
-            match aurafx_io::writers::write_file(&ds, &p) {
-                Ok(()) => self.toast(format!("Saved {}", p.display()), false),
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            let multi = self.session.lock().times.len() > 1;
+            let r = if multi && matches!(ext.as_str(), "exo" | "e" | "ex2" | "g") {
+                // Exodus holds every time step in one file.
+                let mut s = self.session.lock();
+                match s.active {
+                    Some(id) => s.save_exodus_all_times(id, &p).map(|n| format!("Saved {} ({n} time steps)", p.display())),
+                    None => Err(anyhow::anyhow!("nothing selected")),
+                }
+            } else {
+                aurafx_io::writers::write_file(&ds, &p).map(|_| format!("Saved {}", p.display()))
+            };
+            match r {
+                Ok(msg) => self.toast(msg, false),
                 Err(e) => self.toast(format!("{e:#}"), true),
             }
         }

@@ -5,6 +5,7 @@
 
 pub mod csv;
 pub mod exodus;
+pub mod exodus_writer;
 pub mod lammps;
 pub mod legacy_vtk;
 pub mod molecular;

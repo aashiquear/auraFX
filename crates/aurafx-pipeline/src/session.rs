@@ -736,6 +736,32 @@ impl Session {
     }
 
     /// Per-point/cell mean, min, max and standard deviation of every array over all time steps.
+    /// Write node `id` at every time step to one Exodus file. Returns the number of steps.
+    pub fn save_exodus_all_times(&mut self, id: NodeId, path: &std::path::Path) -> Result<usize> {
+        let saved = self.time_index;
+        let n = self.times.len().max(1);
+        let mut steps: Vec<(f64, Arc<DataSet>)> = Vec::with_capacity(n);
+        let r = (|| -> Result<()> {
+            for t in 0..n {
+                if self.times.len() > 1 {
+                    self.set_time_index(t);
+                }
+                self.update_blocking();
+                let node = self.nodes.get(&id).ok_or_else(|| anyhow!("node {id} does not exist"))?;
+                let ds = node.output.clone().ok_or_else(|| anyhow!("{}: {}", node.name, node.error.clone().unwrap_or_else(|| "no output".into())))?;
+                steps.push((self.times.get(t).copied().unwrap_or(0.0), ds));
+            }
+            Ok(())
+        })();
+        if self.times.len() > 1 {
+            self.set_time_index(saved);
+        }
+        r?;
+        let refs: Vec<(f64, &DataSet)> = steps.iter().map(|(t, d)| (*t, &**d)).collect();
+        aurafx_io::exodus_writer::write_exodus_steps(&refs, path)?;
+        Ok(n)
+    }
+
     pub fn temporal_statistics(&mut self, id: NodeId) -> Result<NodeId> {
         if self.times.len() < 2 {
             return Err(anyhow!("temporal statistics need a time series"));

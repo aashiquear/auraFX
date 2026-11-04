@@ -606,7 +606,18 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         ui.end_row();
                     }
                     ui.label("Color map");
-                    crate::widgets::colormap_combo(ui, "cmap", &mut d.colormap, 160.0);
+                    ui.horizontal(|ui| {
+                        let before = d.colormap.clone();
+                        if crate::widgets::colormap_combo(ui, "cmap", &mut d.colormap, 140.0) {
+                            // A different preset replaces edits; user presets carry their own points.
+                            let name = d.colormap.clone();
+                            d.colormap_stops = aurafx_pipeline::colormap::user().into_iter().find(|m| m.name == name).map(|m| m.stops);
+                            let _ = before;
+                        }
+                        if ui.button(crate::icons::PENCIL_SIMPLE).on_hover_text("Edit the color map (histogram, markers, bands, presets)").clicked() {
+                            state.cmap_editor.open = true;
+                        }
+                    });
                     ui.end_row();
                     ui.label("Range");
                     ui.horizontal(|ui| {

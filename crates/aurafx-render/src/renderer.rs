@@ -4,7 +4,7 @@
 use crate::camera::Camera;
 use crate::tessellate::{MeshData, Vertex};
 use anyhow::Result;
-use aurafx_pipeline::{colormap, DisplayProps, NodeId};
+use aurafx_pipeline::{DisplayProps, NodeId};
 use bytemuck::{Pod, Zeroable};
 use glam::DVec3;
 use std::collections::HashMap;
@@ -433,8 +433,8 @@ impl Renderer {
         &self.device
     }
 
-    fn lut_texture(&self, name: &str) -> wgpu::Texture {
-        let data = colormap::get(name).lut_rgba8();
+    fn lut_texture(&self, display: &DisplayProps) -> wgpu::Texture {
+        let data = display.effective_colormap().lut_rgba8();
         self.device.create_texture_with_data(
             &self.queue,
             &wgpu::TextureDescriptor {
@@ -536,23 +536,24 @@ impl Renderer {
                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         mapped_at_creation: false,
                     });
-                    let lut = self.lut_texture(&draw.display.colormap);
+                    let lut = self.lut_texture(&draw.display);
                     let bind_group = self.make_bind_group(&uniform, &lut);
                     self.nodes.insert(
                         draw.id,
-                        GpuNode { volume, mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap.clone(), lut, bind_group },
+                        GpuNode { volume, mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap_key(), lut, bind_group },
                     );
                 }
             }
         }
         let g = self.nodes.get(&draw.id).unwrap();
-        if g.lut_name != draw.display.colormap {
-            let lut = self.lut_texture(&draw.display.colormap);
+        let key = draw.display.colormap_key();
+        if g.lut_name != key {
+            let lut = self.lut_texture(&draw.display);
             let bind_group = self.make_bind_group(&g.uniform, &lut);
             let g = self.nodes.get_mut(&draw.id).unwrap();
             g.lut = lut;
             g.bind_group = bind_group;
-            g.lut_name = draw.display.colormap.clone();
+            g.lut_name = key;
         }
     }
 

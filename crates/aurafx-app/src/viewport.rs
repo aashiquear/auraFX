@@ -222,7 +222,7 @@ impl Viewport {
 }
 
 /// Build the draw list from the session (tessellating what changed).
-fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, String, (f64, f64), bool)>) {
+fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, colormap::ColorMap, (f64, f64), bool)>) {
     let s = state.session.lock();
     let mut draws = Vec::new();
     let mut scalar_bar = None;
@@ -257,7 +257,7 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, String, (
                         None => String::new(),
                     }
                 );
-                scalar_bar = Some((label, n.display.colormap.clone(), r, n.display.log_scale));
+                scalar_bar = Some((label, n.display.effective_colormap(), r, n.display.log_scale));
             }
         }
         if n.display.axes_grid && !mesh.bounds.is_empty() {
@@ -643,7 +643,9 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         crate::axes_grid::draw_labels(&painter, &state.viewport.camera, rect, &b, ["X", "Y", "Z"], fg);
     }
     if let Some((label, cmap, (lo, hi), log)) = scalar_bar {
-        draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log, fg);
+        let bgc = state.viewport.settings.background;
+        let plate = Color32::from_rgb((bgc[0] * 255.0) as u8, (bgc[1] * 255.0) as u8, (bgc[2] * 255.0) as u8);
+        draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log, fg, plate);
     }
     if let Some(r) = selection_rect {
         painter.rect(r, 0.0, Color32::from_rgba_unmultiplied(255, 40, 200, 30), Stroke::new(1.5, Color32::from_rgb(255, 40, 200)), egui::StrokeKind::Inside);
@@ -716,12 +718,15 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     interacted
 }
 
-fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, cmap: &str, lo: f64, hi: f64, log: bool, txt: Color32) {
-    let map = colormap::get(cmap);
+fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, map: &colormap::ColorMap, lo: f64, hi: f64, log: bool, txt: Color32, bg: Color32) {
     let bar_w = 18.0;
     let bar_h = (rect.height() * 0.45).clamp(80.0, 320.0);
     let x = rect.right() - 96.0;
     let y0 = rect.center().y - bar_h / 2.0;
+    // A soft plate behind the bar keeps its labels readable over the data.
+    let title_w = (label.len() as f32 * 7.5).max(bar_w + 70.0);
+    let plate = Rect::from_min_max(Pos2::new((x + bar_w / 2.0 - title_w / 2.0).min(x - 6.0), y0 - 28.0), Pos2::new(rect.right() - 6.0, y0 + bar_h + 10.0));
+    p.rect_filled(plate, 6.0, bg.gamma_multiply(0.72));
     let n = 64;
     for i in 0..n {
         let t0 = i as f32 / n as f32;

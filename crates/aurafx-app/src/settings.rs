@@ -22,6 +22,8 @@ pub struct Settings {
     pub show_orientation_axes: bool,
     pub default_colormap: String,
     pub hosts: Vec<aurafx_jobs::Host>,
+    /// Color maps the user saved or imported.
+    pub user_colormaps: Vec<aurafx_pipeline::colormap::ColorMap>,
 }
 
 impl Default for Settings {
@@ -39,6 +41,7 @@ impl Default for Settings {
             show_orientation_axes: true,
             default_colormap: "Viridis".into(),
             hosts: Vec::new(),
+            user_colormaps: Vec::new(),
         }
     }
 }

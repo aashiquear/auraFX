@@ -187,7 +187,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Properties panel: grouped, searchable, with inline help, units, sliders bound to data ranges, live preview, "advanced" toggle, per-filter presets, copy/paste properties between nodes.
 - [~] Pipeline browser as a graph with inline eye toggles, color-by dropdown, representation dropdown, rename, duplicate, group, disable, comments. Also a node-graph editor view.
 - [~] Contextual quick actions in the viewport (right-click: slice here, clip here, probe here, color by...).
-- [ ] Color map editor with live histogram, drag handles, presets gallery, color-blind safe set, favorites, import/export.
+- [x] Color map editor with live histogram, drag handles, presets gallery, color-blind safe set, favorites, import/export (ParaView `.json`), reverse and discrete bands.
 - [~] Onboarding (sample dataset done): sample datasets gallery, guided tours, tooltips with screenshots, "Explain this filter" via AI.
 - [ ] Keyboard-first: fully rebindable shortcuts, vim-style view navigation optional.
 - [~] Themes: dark/light/high-contrast, scalable UI (HiDPI), font size.
@@ -307,7 +307,10 @@ keyframe animation (camera and filter values on a timeline, preview, export); Op
 patches; Exodus II writer with all time steps; Extract Subset; curved quadratic cells. The
 OpenFOAM patches, the Exodus writer and Extract Subset are checked against ParaView 6.1.1.
 
-Known gaps worth doing next: color map editor; Lagrange/Bezier cell tessellation;
+Done in iteration 5: color map editor (histogram, markers, bands, reverse, user presets,
+ParaView `.json` import/export) and a readable scalar bar backing.
+
+Known gaps worth doing next: Lagrange/Bezier cell tessellation;
 client/server and distributed execution; plugin system; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

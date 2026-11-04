@@ -72,6 +72,12 @@ pub struct DisplayProps {
     pub volume_threshold: f32,
     /// Draw a labelled axes grid around the object's bounds.
     pub axes_grid: bool,
+    /// Edited color map control points; when set they replace the named preset.
+    pub colormap_stops: Option<Vec<(f32, [f32; 3])>>,
+    /// Run the color map backwards.
+    pub colormap_reverse: bool,
+    /// Number of flat color bands (0 = continuous).
+    pub colormap_bands: u32,
 }
 
 impl Default for DisplayProps {
@@ -93,6 +99,37 @@ impl Default for DisplayProps {
             volume_opacity: 1.0,
             volume_threshold: 0.0,
             axes_grid: false,
+            colormap_stops: None,
+            colormap_reverse: false,
+            colormap_bands: 0,
         }
+    }
+}
+
+impl DisplayProps {
+    /// The color map actually used: the preset or edited stops, reversed and banded as asked.
+    pub fn effective_colormap(&self) -> crate::colormap::ColorMap {
+        let mut m = match &self.colormap_stops {
+            Some(stops) if stops.len() >= 2 => crate::colormap::ColorMap::new(self.colormap.clone(), stops.clone()),
+            _ => crate::colormap::get(&self.colormap),
+        };
+        if self.colormap_reverse {
+            m = m.reversed();
+        }
+        if self.colormap_bands >= 2 {
+            m = m.banded(self.colormap_bands);
+        }
+        m
+    }
+
+    /// Changes whenever the effective color map does (for caching lookup textures).
+    pub fn colormap_key(&self) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (t, c) in self.effective_colormap().stops {
+            t.to_bits().hash(&mut h);
+            c.map(|x| x.to_bits()).hash(&mut h);
+        }
+        format!("{}#{:x}", self.colormap, h.finish())
     }
 }

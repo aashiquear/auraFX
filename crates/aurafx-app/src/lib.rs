@@ -5,6 +5,7 @@ mod app;
 mod assistant;
 mod axes_grid;
 mod charts;
+mod colormap_editor;
 mod console;
 mod dialogs;
 mod icons;

@@ -98,6 +98,7 @@ pub struct State {
     pub jobs_panel: crate::jobs_panel::JobsPanel,
     pub charts: crate::charts::ChartsState,
     pub anim_dialog: crate::animation::AnimDialog,
+    pub cmap_editor: crate::colormap_editor::ColormapEditor,
     pub anim_job: Option<crate::animation::AnimJob>,
     pub anim_done_tx: std::sync::mpsc::Sender<Result<PathBuf, String>>,
     pub anim_done_rx: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
@@ -313,6 +314,9 @@ impl AuraApp {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>, script: Option<PathBuf>) -> Self {
         let settings = Settings::load();
         aurafx_jobs::set_hosts(settings.hosts.clone());
+        for m in &settings.user_colormaps {
+            aurafx_pipeline::colormap::register_user(m.clone());
+        }
         crate::theme::install_fonts(&cc.egui_ctx);
         crate::theme::apply(&cc.egui_ctx, settings.theme, settings.ui_scale);
         egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -349,6 +353,7 @@ impl AuraApp {
             file_browser: Default::default(),
             state_path: None,
             anim_dialog: Default::default(),
+            cmap_editor: Default::default(),
             anim_job: None,
             anim_done_tx: anim_tx,
             anim_done_rx: anim_rx,
@@ -856,6 +861,10 @@ impl State {
                 ui.separator();
                 ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
                 ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
+                if ui.button(format!("{} Color Map Editor…", crate::icons::PENCIL_SIMPLE)).clicked() {
+                    ui.close();
+                    self.cmap_editor.open = true;
+                }
                 {
                     let mut s = self.session.lock();
                     let mut t = s.show_time_label;
@@ -1439,6 +1448,9 @@ impl eframe::App for AuraApp {
                         self.state.layout_actions.push(LayoutAction::Hide(p));
                     }
                 }
+                "show" if arg.eq_ignore_ascii_case("colormap") || arg.eq_ignore_ascii_case("color map editor") => {
+                    self.state.cmap_editor.open = true;
+                }
                 "show" if arg.eq_ignore_ascii_case("animation") => {
                     self.state.anim_dialog.open = true;
                     self.state.anim_dialog.mode = crate::animation::AnimMode::Keyframes;
@@ -1554,6 +1566,7 @@ impl eframe::App for AuraApp {
         st.animation_tick(ctx);
         st.animation_poll();
         crate::animation::dialog_ui(st, ctx);
+        crate::colormap_editor::editor_ui(st, ctx);
         if let Some(p) = crate::dialogs::file_browser_ui(&mut st.file_browser, ctx) {
             st.open_file(p);
         }

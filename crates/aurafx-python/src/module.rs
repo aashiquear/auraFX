@@ -41,6 +41,12 @@ fn to_json(v: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
         }
         return Ok(serde_json::Value::Object(m));
     }
+    // Nested sequences (lists of points, tuples of mixed values).
+    if !v.is_instance_of::<pyo3::types::PyString>() {
+        if let Ok(it) = v.try_iter() {
+            return Ok(serde_json::Value::Array(it.map(|x| x.and_then(|x| to_json(&x))).collect::<PyResult<Vec<_>>>()?));
+        }
+    }
     Err(PyValueError::new_err(format!("unsupported parameter value {}", v.repr()?)))
 }
 
@@ -65,7 +71,25 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
             }
             "colormap" | "cmap" => {
                 let name = val.as_str().unwrap_or("Viridis").to_string();
-                s.set_display(id, |d| d.colormap = name);
+                // User presets are copied into the object so state files stay self-contained.
+                let user = aurafx_pipeline::colormap::user().into_iter().find(|m| m.name.eq_ignore_ascii_case(&name)).map(|m| m.stops);
+                s.set_display(id, |d| {
+                    d.colormap = name;
+                    d.colormap_stops = user;
+                });
+            }
+            "cmap_points" | "colormap_points" => {
+                let pts: Vec<[f64; 4]> = serde_json::from_value(val.clone()).map_err(|_| PyValueError::new_err("cmap_points must be [[t, r, g, b], ...]"))?;
+                let stops: Vec<(f32, [f32; 3])> = pts.iter().map(|p| (p[0] as f32, [p[1] as f32, p[2] as f32, p[3] as f32])).collect();
+                s.set_display(id, |d| d.colormap_stops = if stops.len() >= 2 { Some(stops) } else { None });
+            }
+            "cmap_reverse" | "reverse_colormap" => {
+                let v = val.as_bool().unwrap_or(true);
+                s.set_display(id, |d| d.colormap_reverse = v);
+            }
+            "cmap_bands" | "bands" => {
+                let v = val.as_u64().unwrap_or(0) as u32;
+                s.set_display(id, |d| d.colormap_bands = v);
             }
             "opacity" => {
                 let o = val.as_f64().unwrap_or(1.0) as f32;
@@ -916,9 +940,33 @@ fn clear() {
     }
 }
 
+/// Names of the available color maps (built-in and user presets).
 #[pyfunction]
-fn colormaps() -> Vec<&'static str> {
+fn colormaps() -> Vec<String> {
     aurafx_pipeline::colormap::names()
+}
+
+/// Load ParaView color map presets (.json) as user presets. Returns their names.
+#[pyfunction]
+fn import_colormaps(path: String) -> PyResult<Vec<String>> {
+    let text = std::fs::read_to_string(&path).map_err(err)?;
+    let maps = aurafx_pipeline::colormap::from_paraview_json(&text).map_err(err)?;
+    let names = maps.iter().map(|m| m.name.clone()).collect();
+    for m in maps {
+        aurafx_pipeline::colormap::register_user(m);
+    }
+    Ok(names)
+}
+
+/// Define (or replace) a user color map from [[t, r, g, b], ...] with values in 0..1.
+#[pyfunction]
+fn define_colormap(name: String, points: Vec<[f64; 4]>) -> PyResult<String> {
+    if points.len() < 2 {
+        return Err(PyValueError::new_err("a color map needs at least two points"));
+    }
+    let stops = points.iter().map(|p| (p[0] as f32, [p[1] as f32, p[2] as f32, p[3] as f32])).collect();
+    aurafx_pipeline::colormap::register_user(aurafx_pipeline::colormap::ColorMap::new(name.clone(), stops));
+    Ok(name)
 }
 
 /// Build a source function for each registered source so `afx.sphere(radius=2)` works.
@@ -1143,6 +1191,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(annotate, m)?)?;
     m.add_function(wrap_pyfunction!(key_camera, m)?)?;
+    m.add_function(wrap_pyfunction!(import_colormaps, m)?)?;
+    m.add_function(wrap_pyfunction!(define_colormap, m)?)?;
     m.add_function(wrap_pyfunction!(animation, m)?)?;
     m.add_function(wrap_pyfunction!(animation_time, m)?)?;
     m.add_function(wrap_pyfunction!(clear_keyframes, m)?)?;

@@ -105,7 +105,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Clip ★ (plane, box, sphere, cylinder, cone, annulus, scalar, crinkle, inside-out)
 - [~] Slice ★ (plane, box, sphere, cylinder, multiple offsets, crinkle, merge points; Axis-Aligned Slice; Slice With Plane; Slice Along PolyLine; Slice Generic Dataset)
 - [~] Threshold ★ (between/below/above, all-points/any-point, component modes)
-- [ ] Extract Subset ★ (VOI, sample rate, include boundary; Extract Subset With Seed)
+- [~] Extract Subset ★ (VOI, sample rate, include boundary done, verified against ParaView; Extract Subset With Seed todo)
 - [~] Glyph ★ (arrow, cone, sphere, cylinder, line, 2D glyph, custom source; scale/orient by array; masking strategies), Glyph With Custom Source, Tensor Glyph, Normal Glyphs
 - [~] Stream Tracer ★ (RK2/RK4/RK45, point cloud and line seeds, surface streamlines, vorticity), Stream Tracer With Custom Source, Evenly Spaced Streamlines 2D
 - [~] Warp By Vector ★, Warp By Scalar ★

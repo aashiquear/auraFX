@@ -582,3 +582,115 @@ pub fn tube(ds: &DataSet, radius: f64, sides: usize, scale_by: Option<&str>) -> 
     }
     Ok(PolyData { points: Points::new_f64(pts), polys, point_data: pd.point_data.gather(&src), ..Default::default() })
 }
+
+/// Extract Subset: a box of grid indices (`voi`, inclusive, in the grid's own index space;
+/// NaN = whole extent) sampled every `rate` points, from image, rectilinear or structured data.
+pub fn extract_subset(ds: &DataSet, voi_min: [f64; 3], voi_max: [f64; 3], rate: [f64; 3], include_boundary: bool) -> Result<DataSet> {
+    let extent = match ds {
+        DataSet::ImageData(d) => d.extent,
+        DataSet::RectilinearGrid(d) => d.extent,
+        DataSet::StructuredGrid(d) => d.extent,
+        DataSet::MultiBlock(_) => bail!("apply Extract Subset to a single grid (use Extract Block first)"),
+        _ => bail!("Extract Subset works on image, rectilinear and structured grids"),
+    };
+    // Selected point indices per axis (absolute), and the matching cell indices.
+    let mut idx: [Vec<i64>; 3] = Default::default();
+    for a in 0..3 {
+        let (e0, e1) = (extent[2 * a], extent[2 * a + 1]);
+        let lo = if voi_min[a].is_finite() { (voi_min[a].round() as i64).clamp(e0, e1) } else { e0 };
+        let hi = if voi_max[a].is_finite() { (voi_max[a].round() as i64).clamp(e0, e1) } else { e1 };
+        if hi < lo {
+            bail!("the subset is empty along {} ({lo} > {hi})", ["i", "j", "k"][a]);
+        }
+        let r = (rate[a].round() as i64).max(1);
+        let mut v: Vec<i64> = (lo..=hi).step_by(r as usize).collect();
+        if include_boundary && *v.last().unwrap() != hi {
+            v.push(hi);
+        }
+        idx[a] = v;
+    }
+    let dims_in = [(extent[1] - extent[0] + 1) as usize, (extent[3] - extent[2] + 1) as usize, (extent[5] - extent[4] + 1) as usize];
+    let cdims_in = dims_in.map(|d| d.saturating_sub(1).max(1));
+    let n = [idx[0].len(), idx[1].len(), idx[2].len()];
+    let mut pts = Vec::with_capacity(n[0] * n[1] * n[2]);
+    for &k in &idx[2] {
+        for &j in &idx[1] {
+            for &i in &idx[0] {
+                pts.push((i - extent[0]) as usize + dims_in[0] * ((j - extent[2]) as usize + dims_in[1] * (k - extent[4]) as usize));
+            }
+        }
+    }
+    // Each output cell takes the value of the input cell at its lower corner.
+    let cn = n.map(|d| d.saturating_sub(1).max(1));
+    let mut cells = Vec::with_capacity(cn[0] * cn[1] * cn[2]);
+    let c = |a: usize, t: usize| ((idx[a][t.min(idx[a].len() - 1)] - extent[2 * a]) as usize).min(cdims_in[a] - 1);
+    for kk in 0..cn[2] {
+        for jj in 0..cn[1] {
+            for ii in 0..cn[0] {
+                cells.push(c(0, ii) + cdims_in[0] * (c(1, jj) + cdims_in[1] * c(2, kk)));
+            }
+        }
+    }
+    let new_extent = [0, n[0] as i64 - 1, 0, n[1] as i64 - 1, 0, n[2] as i64 - 1];
+    let uniform_rate = |a: usize| idx[a].windows(2).all(|w| w[1] - w[0] == idx[a].get(1).map(|x| x - idx[a][0]).unwrap_or(1));
+    Ok(match ds {
+        DataSet::ImageData(d) if (0..3).all(uniform_rate) => {
+            let step = |a: usize| idx[a].get(1).map(|x| x - idx[a][0]).unwrap_or(1) as f64;
+            let off = [d.spacing[0] * idx[0][0] as f64, d.spacing[1] * idx[1][0] as f64, d.spacing[2] * idx[2][0] as f64];
+            let m = &d.direction;
+            let origin = [
+                d.origin[0] + m[0] * off[0] + m[1] * off[1] + m[2] * off[2],
+                d.origin[1] + m[3] * off[0] + m[4] * off[1] + m[5] * off[2],
+                d.origin[2] + m[6] * off[0] + m[7] * off[1] + m[8] * off[2],
+            ];
+            DataSet::ImageData(ImageData {
+                extent: new_extent,
+                origin,
+                spacing: [d.spacing[0] * step(0), d.spacing[1] * step(1), d.spacing[2] * step(2)],
+                direction: d.direction,
+                point_data: d.point_data.gather(&pts),
+                cell_data: d.cell_data.gather(&cells),
+                field_data: d.field_data.clone(),
+            })
+        }
+        DataSet::ImageData(d) => {
+            // The boundary sample made the spacing uneven: return a rectilinear grid.
+            let axis = |a: usize| idx[a].iter().map(|&i| d.origin[a] + d.spacing[a] * i as f64).collect::<Vec<_>>();
+            DataSet::RectilinearGrid(RectilinearGrid {
+                extent: new_extent,
+                x: axis(0),
+                y: axis(1),
+                z: axis(2),
+                point_data: d.point_data.gather(&pts),
+                cell_data: d.cell_data.gather(&cells),
+                field_data: d.field_data.clone(),
+            })
+        }
+        DataSet::RectilinearGrid(d) => {
+            let pick = |v: &Vec<f64>, a: usize| idx[a].iter().map(|&i| v[(i - extent[2 * a]) as usize]).collect::<Vec<_>>();
+            DataSet::RectilinearGrid(RectilinearGrid {
+                extent: new_extent,
+                x: pick(&d.x, 0),
+                y: pick(&d.y, 1),
+                z: pick(&d.z, 2),
+                point_data: d.point_data.gather(&pts),
+                cell_data: d.cell_data.gather(&cells),
+                field_data: d.field_data.clone(),
+            })
+        }
+        DataSet::StructuredGrid(d) => {
+            let mut coords = Vec::with_capacity(pts.len() * 3);
+            for &p in &pts {
+                coords.extend_from_slice(&d.points.get(p));
+            }
+            DataSet::StructuredGrid(StructuredGrid {
+                extent: new_extent,
+                points: Points::new_f64(coords),
+                point_data: d.point_data.gather(&pts),
+                cell_data: d.cell_data.gather(&cells),
+                field_data: d.field_data.clone(),
+            })
+        }
+        _ => unreachable!(),
+    })
+}

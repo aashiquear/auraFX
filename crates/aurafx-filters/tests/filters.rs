@@ -216,3 +216,31 @@ fn stream_tracer_follows_rotation() {
     let tube = run("tube", Some(&st), &[("radius", 0.1.into())]);
     assert!(tube.n_cells() > 100);
 }
+
+#[test]
+fn extract_subset_crops_and_samples() {
+    use aurafx_data::DataSet;
+    let img = aurafx_filters::sources::wavelet([-10, 10, -10, 10, -10, 10], 255.0, 0.5);
+    let src = DataSet::ImageData(img.clone());
+    let out = aurafx_filters::geometry::extract_subset(&src, [-5.0; 3], [5.0; 3], [2.0; 3], false).unwrap();
+    let DataSet::ImageData(o) = &out else { panic!("image stays an image") };
+    assert_eq!(o.dims(), [6, 6, 6]);
+    assert_eq!(o.spacing, [2.0, 2.0, 2.0]);
+    assert_eq!(o.origin, [-5.0, -5.0, -5.0]);
+    // ParaView 6.1.1: Wavelet -> Extract Subset (VOI -5..5, rate 2): RTData 147.6765..268.4889, 125 cells.
+    let (lo, hi) = o.point_data.get("RTData").unwrap().range(None);
+    assert!((lo - 147.676_528_930_664).abs() < 1e-3 && (hi - 268.488_922_119_141).abs() < 1e-3, "{lo} {hi}");
+    assert_eq!(out.n_cells(), 125);
+    // Point (a, b, c) of the subset is input index (-5 + 2a, ...).
+    let (a_in, a_out) = (img.point_data.get("RTData").unwrap(), o.point_data.get("RTData").unwrap());
+    for (a, b, c) in [(0, 0, 0), (5, 2, 1), (3, 5, 4)] {
+        let (i, j, k) = (5 - 5 + 2 * a, 5 - 5 + 2 * b, 5 - 5 + 2 * c); // -5 is index 5 of 21
+        let src_idx = (i + 5) + 21 * ((j + 5) + 21 * (k + 5));
+        assert_eq!(a_out.get(a + 6 * (b + 6 * c), 0), a_in.get(src_idx, 0));
+    }
+    // Rate 3 over 0..10 with the boundary kept: 0, 3, 6, 9, 10 -> uneven, so rectilinear.
+    let r = aurafx_filters::geometry::extract_subset(&src, [0.0; 3], [10.0; 3], [3.0; 3], true).unwrap();
+    let DataSet::RectilinearGrid(g) = &r else { panic!("uneven spacing gives a rectilinear grid") };
+    assert_eq!(g.x, vec![0.0, 3.0, 6.0, 9.0, 10.0]);
+    assert!(aurafx_filters::geometry::extract_subset(&src, [5.0; 3], [2.0; 3], [1.0; 3], false).is_err());
+}

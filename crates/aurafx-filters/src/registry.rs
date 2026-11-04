@@ -867,6 +867,33 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| crate::geometry::extract_block(input.unwrap(), &p.str("blocks")),
         },
         FilterDef {
+            id: "extract_subset",
+            label: "Extract Subset",
+            category: "Common",
+            description: "Crop an image or structured grid to a box of grid indices, optionally keeping every n-th point.",
+            keywords: &["voi", "crop", "subsample", "downsample", "stride", "region", "ijk", "index"],
+            is_source: false,
+            params: vec![
+                v3("voi_min", "From index (i, j, k)", [f64::NAN; 3]).help("First grid index kept along each axis; leave unset for the start of the grid."),
+                v3("voi_max", "To index (i, j, k)", [f64::NAN; 3]).help("Last grid index kept along each axis; leave unset for the end of the grid."),
+                v3("rate", "Every n-th point", [1.0, 1.0, 1.0]).help("Sample rate along i, j and k (2 keeps every other point)."),
+                b("include_boundary", "Include last index", false).help("Always keep the last index even when the sample rate skips it."),
+            ],
+            apply: |input, p| {
+                let v = |k: &str, d: [f64; 3]| match p.get(k) {
+                    Some(ParamValue::Vec3(x)) => *x,
+                    _ => d,
+                };
+                crate::geometry::extract_subset(
+                    input.unwrap(),
+                    v("voi_min", [f64::NAN; 3]),
+                    v("voi_max", [f64::NAN; 3]),
+                    v("rate", [1.0; 3]),
+                    p.bool("include_boundary", false),
+                )
+            },
+        },
+        FilterDef {
             id: "openfoam_patches",
             label: "Boundary Patches (OpenFOAM)",
             category: "Data",

@@ -686,6 +686,17 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
         (d, Association::Cells) => (d.cell_data().cloned(), d.n_cells(), None),
     };
     let Some(attrs) = attrs else { return };
+    // Optional filter to the 3D-view selection.
+    let sel_rows: Option<Vec<usize>> = {
+        let s = state.session.lock();
+        let assoc = if table_mode { Association::Points } else { state.spreadsheet_assoc };
+        s.selection.as_ref().filter(|sel| Some(sel.node) == s.active && sel.assoc == assoc).map(|sel| sel.ids.iter().copied().filter(|&i| i < n_rows).collect())
+    };
+    if let Some(rows) = &sel_rows {
+        ui.checkbox(&mut state.spreadsheet_only_selected, format!("Only selected ({})", rows.len()));
+    }
+    let row_map: Option<Vec<usize>> = sel_rows.filter(|_| state.spreadsheet_only_selected);
+    let n_rows = row_map.as_ref().map(|r| r.len()).unwrap_or(n_rows);
     let page_size = 200;
     let pages = n_rows.div_ceil(page_size).max(1);
     state.spreadsheet_page = state.spreadsheet_page.min(pages - 1);
@@ -759,6 +770,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
     .body(|body| {
         body.rows(18.0, end - start, |mut row| {
             let i = start + row.index();
+            let i = row_map.as_ref().map(|m| m[i]).unwrap_or(i);
             row.col(|ui| {
                 ui.label(i.to_string());
             });

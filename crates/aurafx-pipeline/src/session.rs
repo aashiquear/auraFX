@@ -101,6 +101,15 @@ pub struct Chart {
     pub revision: u64,
 }
 
+/// Cells or points selected in the 3D view (flattened indices across blocks).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Selection {
+    pub node: NodeId,
+    pub assoc: aurafx_filters::Association,
+    pub ids: Vec<usize>,
+    pub revision: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LogLevel {
     Info,
@@ -173,6 +182,8 @@ pub struct Session {
     pub pending_camera: Option<crate::state::CameraState>,
     /// The UI's current camera, mirrored so scripts can save it.
     pub camera_state: Option<crate::state::CameraState>,
+    pub selection: Option<Selection>,
+    selection_counter: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -398,6 +409,9 @@ impl Session {
             if let Some(n) = self.nodes.get_mut(&p) {
                 n.visible = true;
             }
+        }
+        if self.selection.as_ref().map(|s| to_remove.contains(&s.node)).unwrap_or(false) {
+            self.selection = None;
         }
         if self.active.map(|a| to_remove.contains(&a)).unwrap_or(false) {
             self.active = parent.or_else(|| self.nodes.keys().last().copied());
@@ -681,6 +695,36 @@ impl Session {
         self.chart.revision += 1;
         self.app_commands.push("show Charts".into());
         self.touch();
+    }
+
+    pub fn set_selection(&mut self, node: NodeId, assoc: aurafx_filters::Association, mut ids: Vec<usize>) {
+        ids.sort_unstable();
+        ids.dedup();
+        self.selection_counter += 1;
+        self.selection = Some(Selection { node, assoc, ids, revision: self.selection_counter });
+        self.touch();
+    }
+
+    pub fn clear_selection(&mut self) {
+        if self.selection.take().is_some() {
+            self.touch();
+        }
+    }
+
+    /// Add an Extract Selection filter for the current selection.
+    pub fn extract_selection(&mut self) -> Result<NodeId> {
+        let sel = self.selection.clone().ok_or_else(|| anyhow!("nothing is selected"))?;
+        let id = self.add_filter("extract_selection", sel.node)?;
+        let n = self.nodes.get_mut(&id).unwrap();
+        n.params
+            .set("attribute", aurafx_filters::ParamValue::Str(if sel.assoc == aurafx_filters::Association::Points { "Points".into() } else { "Cells".into() }));
+        n.params.set("ids", aurafx_filters::ParamValue::Floats(sel.ids.iter().map(|&i| i as f64).collect()));
+        if let Some(src) = self.nodes.get_mut(&sel.node) {
+            src.visible = true;
+        }
+        self.selection = None;
+        self.mark_dirty(id);
+        Ok(id)
     }
 
     // ------------------------------------------------------------------ queries

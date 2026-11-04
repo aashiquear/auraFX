@@ -621,6 +621,49 @@ fn hide_panel(name: String) {
     app_command(format!("hide {name}"));
 }
 
+/// Select cells (or points) of a node by flattened index; shown highlighted in the 3D view.
+#[pyfunction]
+#[pyo3(signature = (node, ids, assoc="cells"))]
+fn select(node: PyRef<PyNode>, ids: Vec<usize>, assoc: &str) {
+    let a = if assoc.starts_with("point") { Association::Points } else { Association::Cells };
+    session().lock().set_selection(node.id, a, ids);
+}
+
+/// Current selection as (node, assoc, ids), or None.
+#[pyfunction]
+fn selection() -> Option<(PyNode, String, Vec<usize>)> {
+    session().lock().selection.clone().map(|s| (PyNode { id: s.node }, if s.assoc == Association::Points { "points".into() } else { "cells".into() }, s.ids))
+}
+
+#[pyfunction]
+fn clear_selection() {
+    session().lock().clear_selection();
+}
+
+/// Turn the selection into an Extract Selection node.
+#[pyfunction]
+fn extract_selection() -> PyResult<PyNode> {
+    session().lock().extract_selection().map(|id| PyNode { id }).map_err(err)
+}
+
+/// Values of every array of `node` at a point: {"name": value, ...}. Points outside the data return {}.
+#[pyfunction]
+fn probe<'py>(py: Python<'py>, node: PyRef<PyNode>, point: [f64; 3]) -> PyResult<Bound<'py, PyDict>> {
+    let ds = node.output()?;
+    let attrs = aurafx_filters::probe::probe_points(&ds, &[point]).map_err(err)?;
+    let d = PyDict::new(py);
+    if attrs.get("vtkValidPointMask").map(|m| m.get(0, 0) == 1.0).unwrap_or(false) {
+        for a in attrs.iter().filter(|a| a.name != "vtkValidPointMask") {
+            if a.ncomp == 1 {
+                d.set_item(&a.name, a.get(0, 0))?;
+            } else {
+                d.set_item(&a.name, a.tuple(0))?;
+            }
+        }
+    }
+    Ok(d)
+}
+
 #[pyfunction]
 fn undo() -> Option<String> {
     session().lock().undo()
@@ -851,6 +894,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(set_theme, m)?)?;
     m.add_function(wrap_pyfunction!(undo, m)?)?;
+    m.add_function(wrap_pyfunction!(select, m)?)?;
+    m.add_function(wrap_pyfunction!(selection, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_selection, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_selection, m)?)?;
+    m.add_function(wrap_pyfunction!(probe, m)?)?;
     m.add_function(wrap_pyfunction!(redo, m)?)?;
     m.add_function(wrap_pyfunction!(save_state, m)?)?;
     m.add_function(wrap_pyfunction!(load_state, m)?)?;

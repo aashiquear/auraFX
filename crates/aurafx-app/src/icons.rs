@@ -52,3 +52,6 @@ pub const SQUARE: &str = "\u{E45E}";
 pub const ATOM: &str = "\u{E5E4}";
 pub const CROSSHAIR: &str = "\u{E1D6}";
 pub const CPU: &str = "\u{E610}";
+pub const ARROWS_OUT_CARDINAL: &str = "\u{E0A4}";
+pub const SELECTION: &str = "\u{E69A}";
+pub const DOTS_NINE: &str = "\u{E1FC}";

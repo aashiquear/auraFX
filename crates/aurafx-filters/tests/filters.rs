@@ -127,3 +127,16 @@ fn analysis_filters() {
     let st = run("descriptive_statistics", Some(&ds), &[]);
     assert!(st.n_cells() >= 1);
 }
+
+#[test]
+fn selection_filters() {
+    let t = td("wavelet_tets.vtu");
+    let sel = run("extract_selection", Some(&t), &[("ids", serde_json::json!([0, 1, 2, 10]))]);
+    assert_eq!(sel.n_cells(), 4);
+    assert!(sel.cell_data().unwrap().get("vtkOriginalCellIds").is_some());
+    let fd = run("find_data", Some(&t), &[("expression", "RTData > 200".into())]);
+    assert!(fd.n_cells() > 0 && fd.n_cells() < t.n_cells());
+    let fp = run("find_data", Some(&t), &[("attribute", "Points".into()), ("expression", "RTData > 200".into())]);
+    let r = fp.point_data().unwrap().get("RTData").unwrap().range(None);
+    assert!(r.0 > 200.0, "{r:?}");
+}

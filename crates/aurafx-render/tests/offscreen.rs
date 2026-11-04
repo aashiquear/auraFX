@@ -27,7 +27,7 @@ fn render_can_offscreen() {
     let mut cam = Camera::default();
     cam.set_view([1.0, 0.0, 0.0], [0.0, 0.0, 1.0], &ds.bounds());
     eprintln!("cam eye {:?} target {:?} near {} far {}", cam.eye, cam.target, cam.near, cam.far);
-    r.render(&cam, &[NodeDraw { id: 1, mesh, display: d }], &RenderSettings::default());
+    r.render(&cam, &[NodeDraw { id: 1, mesh, display: d, overlay: false }], &RenderSettings::default());
     let (w, h, px) = r.read_pixels().unwrap();
     let bg = px[0..4].to_vec();
     let differing = px.chunks(4).filter(|c| c[..3] != bg[..3]).count();

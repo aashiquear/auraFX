@@ -32,6 +32,8 @@ pub struct NodeDraw {
     pub id: NodeId,
     pub mesh: Arc<MeshData>,
     pub display: DisplayProps,
+    /// Drawn last, ignoring depth (selection highlights that must show through surfaces).
+    pub overlay: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +77,9 @@ pub struct Renderer {
     pipe_tris_blend: wgpu::RenderPipeline,
     pipe_lines: wgpu::RenderPipeline,
     pipe_points: wgpu::RenderPipeline,
+    pipe_overlay_tris: wgpu::RenderPipeline,
+    pipe_overlay_lines: wgpu::RenderPipeline,
+    pipe_overlay_points: wgpu::RenderPipeline,
     nodes: HashMap<NodeId, GpuNode>,
     pub adapter_info: String,
 }
@@ -132,44 +137,49 @@ impl Renderer {
             ..Default::default()
         });
 
-        let make_pipeline = |label: &str, vs: &str, fs: &str, topology: wgpu::PrimitiveTopology, step: wgpu::VertexStepMode, blend: bool, bias: bool| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vs),
-                    buffers: &[Some(vertex_layout(step))],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(fs),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: COLOR_FORMAT,
-                        blend: Some(if blend { wgpu::BlendState::ALPHA_BLENDING } else { wgpu::BlendState::REPLACE }),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState { topology, cull_mode: None, ..Default::default() },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(!blend),
-                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                    stencil: Default::default(),
-                    bias: if bias { wgpu::DepthBiasState { constant: 2, slope_scale: 1.0, clamp: 0.0 } } else { Default::default() },
-                }),
-                multisample: wgpu::MultisampleState { count: MSAA, ..Default::default() },
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let pipe_tris = make_pipeline("tris", "vs_mesh", "fs_mesh", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Vertex, false, true);
-        let pipe_tris_blend =
-            make_pipeline("tris blend", "vs_mesh", "fs_mesh", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Vertex, true, true);
-        let pipe_lines = make_pipeline("lines", "vs_mesh", "fs_line", wgpu::PrimitiveTopology::LineList, wgpu::VertexStepMode::Vertex, true, false);
-        let pipe_points = make_pipeline("points", "vs_point", "fs_point", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Instance, true, false);
+        let make_pipeline =
+            |label: &str, vs: &str, fs: &str, topology: wgpu::PrimitiveTopology, step: wgpu::VertexStepMode, blend: bool, bias: bool, overlay: bool| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some(vs),
+                        buffers: &[Some(vertex_layout(step))],
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(fs),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: COLOR_FORMAT,
+                            blend: Some(if blend { wgpu::BlendState::ALPHA_BLENDING } else { wgpu::BlendState::REPLACE }),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState { topology, cull_mode: None, ..Default::default() },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: DEPTH_FORMAT,
+                        depth_write_enabled: Some(!blend && !overlay),
+                        depth_compare: Some(if overlay { wgpu::CompareFunction::Always } else { wgpu::CompareFunction::LessEqual }),
+                        stencil: Default::default(),
+                        bias: if bias { wgpu::DepthBiasState { constant: 2, slope_scale: 1.0, clamp: 0.0 } } else { Default::default() },
+                    }),
+                    multisample: wgpu::MultisampleState { count: MSAA, ..Default::default() },
+                    multiview_mask: None,
+                    cache: None,
+                })
+            };
+        use wgpu::PrimitiveTopology::{LineList, TriangleList};
+        use wgpu::VertexStepMode::{Instance, Vertex};
+        let pipe_tris = make_pipeline("tris", "vs_mesh", "fs_mesh", TriangleList, Vertex, false, true, false);
+        let pipe_tris_blend = make_pipeline("tris blend", "vs_mesh", "fs_mesh", TriangleList, Vertex, true, true, false);
+        let pipe_lines = make_pipeline("lines", "vs_mesh", "fs_line", LineList, Vertex, true, false, false);
+        let pipe_points = make_pipeline("points", "vs_point", "fs_point", TriangleList, Instance, true, false, false);
+        let pipe_overlay_tris = make_pipeline("overlay tris", "vs_mesh", "fs_mesh", TriangleList, Vertex, true, false, true);
+        let pipe_overlay_lines = make_pipeline("overlay lines", "vs_mesh", "fs_line", LineList, Vertex, true, false, true);
+        let pipe_overlay_points = make_pipeline("overlay points", "vs_point", "fs_point", TriangleList, Instance, true, false, true);
 
         let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16);
         Self {
@@ -188,6 +198,9 @@ impl Renderer {
             pipe_tris_blend,
             pipe_lines,
             pipe_points,
+            pipe_overlay_tris,
+            pipe_overlay_lines,
+            pipe_overlay_points,
             nodes: HashMap::new(),
             adapter_info,
         }
@@ -394,25 +407,30 @@ impl Renderer {
                 }),
                 ..Default::default()
             });
-            // Opaque first, then translucent.
+            // Opaque first, then translucent, then overlays.
             let mut order: Vec<&NodeDraw> = draws.iter().collect();
-            order.sort_by(|a, b| (b.display.opacity >= 1.0).cmp(&(a.display.opacity >= 1.0)));
+            order.sort_by_key(|d| (d.overlay, d.display.opacity < 1.0));
             for d in order {
                 let g = &self.nodes[&d.id];
                 pass.set_bind_group(0, &g.bind_group, &[]);
                 let translucent = d.display.opacity < 1.0;
+                let (pt, pl, pp) = if d.overlay {
+                    (&self.pipe_overlay_tris, &self.pipe_overlay_lines, &self.pipe_overlay_points)
+                } else {
+                    (if translucent { &self.pipe_tris_blend } else { &self.pipe_tris }, &self.pipe_lines, &self.pipe_points)
+                };
                 if let Some((buf, n)) = &g.tris {
-                    pass.set_pipeline(if translucent { &self.pipe_tris_blend } else { &self.pipe_tris });
+                    pass.set_pipeline(pt);
                     pass.set_vertex_buffer(0, buf.slice(..));
                     pass.draw(0..*n, 0..1);
                 }
                 if let Some((buf, n)) = &g.lines {
-                    pass.set_pipeline(&self.pipe_lines);
+                    pass.set_pipeline(pl);
                     pass.set_vertex_buffer(0, buf.slice(..));
                     pass.draw(0..*n, 0..1);
                 }
                 if let Some((buf, n)) = &g.points {
-                    pass.set_pipeline(&self.pipe_points);
+                    pass.set_pipeline(pp);
                     pass.set_vertex_buffer(0, buf.slice(..));
                     pass.draw(0..6, 0..*n);
                 }

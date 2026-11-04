@@ -15,6 +15,7 @@ pub mod edges;
 pub mod glyph;
 pub mod outline;
 pub mod probe;
+pub mod selection;
 pub mod slice;
 pub mod sources;
 pub mod surface;

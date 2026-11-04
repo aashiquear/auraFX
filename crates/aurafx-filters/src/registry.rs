@@ -561,6 +561,47 @@ fn build() -> Vec<FilterDef> {
                 })
             },
         },
+        FilterDef {
+            id: "extract_selection",
+            label: "Extract Selection",
+            category: "Data",
+            description: "Extract the selected cells or points as a new dataset.",
+            keywords: &["selection", "extract", "subset", "pick", "cells", "points"],
+            is_source: false,
+            params: vec![
+                choice("attribute", "Selection of", &["Cells", "Points"], "Cells"),
+                ParamSpec::new("ids", "Ids", ParamKind::Floats, ParamValue::Floats(vec![]))
+                    .help("Flattened cell or point indices (filled in by the 3D view's selection tools)."),
+            ],
+            apply: |input, p| {
+                let assoc = if p.str("attribute") == "Points" { Association::Points } else { Association::Cells };
+                let ids: Vec<usize> = p.floats("ids").into_iter().filter(|v| *v >= 0.0).map(|v| v as usize).collect();
+                crate::selection::extract_ids(input.unwrap(), assoc, &ids)
+            },
+        },
+        FilterDef {
+            id: "find_data",
+            label: "Find Data",
+            category: "Data",
+            description: "Extract cells or points matching a condition, e.g. Temp > 600 & Pres < 0.1.",
+            keywords: &["query", "search", "where", "condition", "select"],
+            is_source: false,
+            params: vec![
+                choice("attribute", "Find", &["Cells", "Points"], "Cells"),
+                ParamSpec::new("expression", "Condition", ParamKind::Expression, ParamValue::Str(String::new()))
+                    .help("Calculator syntax; non-zero means selected. Examples: T > 300, mag(V) >= 2 & coordsZ < 0"),
+            ],
+            apply: |input, p| {
+                let assoc = if p.str("attribute") == "Points" { Association::Points } else { Association::Cells };
+                let expr = p.str("expression");
+                let ds = input.unwrap();
+                if expr.trim().is_empty() {
+                    return Err(anyhow!("enter a condition, e.g. Temp > 600"));
+                }
+                let ids = crate::selection::find_ids(ds, assoc, &expr)?;
+                crate::selection::extract_ids(ds, assoc, &ids)
+            },
+        },
         // ---------------- Geometry ----------------
         FilterDef {
             id: "extract_surface",

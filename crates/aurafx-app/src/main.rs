@@ -8,6 +8,7 @@ mod icons;
 mod jobs_panel;
 mod palette;
 mod panels;
+mod pick;
 mod settings;
 mod theme;
 mod viewport;

@@ -222,6 +222,24 @@ impl PyNode {
         self.clone()
     }
 
+    /// Show this object in another 3D view. `view` is a view number (0 = main view) or
+    /// "right"/"down" to open a new view holding only this object. By default it is moved
+    /// (hidden in the other views); keep=True shows it there as well.
+    #[pyo3(signature = (view, keep=false))]
+    fn send_to_view(&self, view: &Bound<'_, PyAny>, keep: bool) -> PyResult<PyNode> {
+        let target = if let Ok(i) = view.extract::<u32>() {
+            i.to_string()
+        } else {
+            let s: String = view.extract()?;
+            if !["right", "down"].contains(&s.as_str()) {
+                return Err(PyValueError::new_err("view must be a view number, 'right' or 'down'"));
+            }
+            s
+        };
+        app_command(format!("send {} {target}{}", self.id, if keep { " keep" } else { "" }));
+        Ok(self.clone())
+    }
+
     fn delete(&self) {
         session().lock().remove_node(self.id);
     }

@@ -60,3 +60,6 @@ pub const ROWS: &str = "\u{E5A2}";
 pub const LINK: &str = "\u{E2E2}";
 pub const LINK_BREAK: &str = "\u{E2E4}";
 pub const RULER: &str = "\u{E6B8}";
+pub const ARROW_SQUARE_OUT: &str = "\u{E5DE}";
+pub const SQUARE_SPLIT_HORIZONTAL: &str = "\u{E870}";
+pub const SQUARE_SPLIT_VERTICAL: &str = "\u{E874}";

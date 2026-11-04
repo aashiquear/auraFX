@@ -113,6 +113,8 @@ pub struct State {
     pub next_view_id: u32,
     pub pending_activate: Option<u32>,
     pub camera_match_from: Option<u32>,
+    /// Frame the visible data once this view becomes active (views made for a single object).
+    pub fit_view_on_activate: Option<u32>,
     /// Panes currently in the layout (refreshed every frame).
     pub open_panes: Vec<Pane>,
     /// Layout changes requested by menus, applied after the menu bar is drawn.
@@ -139,6 +141,9 @@ pub enum LayoutAction {
     SplitView {
         from: u32,
         vertical: bool,
+        /// Show only this object in the new view (otherwise copy the visible objects of `from`);
+        /// the flag keeps it visible in the other views instead of moving it.
+        only: Option<(NodeId, bool)>,
     },
 }
 
@@ -353,6 +358,7 @@ impl AuraApp {
             next_view_id: 1,
             pending_activate: None,
             camera_match_from: None,
+            fit_view_on_activate: None,
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
         };
@@ -909,11 +915,11 @@ impl State {
                 ui.separator();
                 ui.label(RichText::new("3D views").weak());
                 if ui.button(format!("{} New view side by side", crate::icons::COLUMNS)).clicked() {
-                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: false });
+                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: false, only: None });
                     ui.close();
                 }
                 if ui.button(format!("{} New view above / below", crate::icons::ROWS)).clicked() {
-                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: true });
+                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: true, only: None });
                     ui.close();
                 }
                 let all_linked = self.viewport.linked && self.views.values().all(|v| v.linked);
@@ -1284,7 +1290,7 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
         };
         if let Some(id) = active {
             let many = !self.state.views.is_empty();
-            let name = if id == 0 { "3D View".to_string() } else { format!("3D View {}", id + 1) };
+            let name = crate::views::view_title(id);
             let mark = if many && id == self.state.active_view { " (active)" } else { "" };
             let link = if many
                 && (if id == self.state.active_view { self.state.viewport.linked } else { self.state.views.get(&id).map(|v| v.linked).unwrap_or(false) })
@@ -1428,7 +1434,34 @@ impl eframe::App for AuraApp {
                 }
                 "split" => {
                     let vertical = matches!(arg, "down" | "below" | "vertical" | "up");
-                    self.state.layout_actions.push(LayoutAction::SplitView { from: self.state.active_view, vertical });
+                    self.state.layout_actions.push(LayoutAction::SplitView { from: self.state.active_view, vertical, only: None });
+                }
+                // "send <node> <view>|right|down [keep]": move (or with keep, also show) an object in a view.
+                "send" => {
+                    let mut it = arg.split_whitespace();
+                    let node = it.next().and_then(|n| n.parse::<NodeId>().ok());
+                    let target = it.next().unwrap_or("right");
+                    let keep = it.next() == Some("keep");
+                    match (node, target) {
+                        (Some(node), "right" | "down") => {
+                            self.state.layout_actions.push(LayoutAction::SplitView {
+                                from: self.state.active_view,
+                                vertical: target == "down",
+                                only: Some((node, keep)),
+                            });
+                        }
+                        (Some(node), v) => match v.parse::<u32>() {
+                            Ok(view) if self.state.view_ids().contains(&view) => {
+                                if keep {
+                                    self.state.set_shown_in(view, node, true);
+                                } else {
+                                    self.state.move_to_view(node, view);
+                                }
+                            }
+                            _ => self.state.toast(format!("No 3D view {v}"), true),
+                        },
+                        _ => {}
+                    }
                 }
                 "link" => self.state.link_all_views(arg != "off"),
                 "match" => self.state.camera_match_from = Some(self.state.active_view),
@@ -1457,9 +1490,9 @@ impl eframe::App for AuraApp {
                 LayoutAction::Show(p) => show_pane(&mut self.tree, p),
                 LayoutAction::Hide(p) => hide_pane(&mut self.tree, p),
                 LayoutAction::Preset(pr) => apply_preset(&mut self.tree, pr),
-                LayoutAction::SplitView { from, vertical } => {
+                LayoutAction::SplitView { from, vertical, only } => {
                     let anchor = self.tree.tiles.find_pane(&crate::views::pane_for(from)).or_else(|| self.tree.tiles.find_pane(&Pane::Viewport));
-                    let id = self.state.new_view();
+                    let id = self.state.new_view_with(only);
                     let new_pane = self.tree.tiles.insert_pane(Pane::View(id));
                     let tabs = self.tree.tiles.insert_tab_tile(vec![new_pane]);
                     match anchor.and_then(|a| self.tree.tiles.parent_of(a)).or(anchor) {

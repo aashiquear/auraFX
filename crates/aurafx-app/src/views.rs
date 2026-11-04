@@ -28,7 +28,61 @@ pub fn pane_for(id: u32) -> Pane {
     }
 }
 
+/// Tab title of view `id` (the first view is "3D View", the next ones "3D View 2", "3D View 3", ...).
+pub fn view_title(id: u32) -> String {
+    if id == 0 {
+        "3D View".to_string()
+    } else {
+        format!("3D View {}", id + 1)
+    }
+}
+
 impl State {
+    /// Every open 3D view, in creation order.
+    pub fn view_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = std::iter::once(self.active_view).chain(self.views.keys().copied()).collect();
+        ids.sort();
+        ids
+    }
+
+    /// Is `node` shown in view `view`?
+    pub fn shown_in(&self, view: u32, node: NodeId) -> bool {
+        if view == self.active_view {
+            return self.session.lock().nodes.get(&node).map(|n| n.visible).unwrap_or(false);
+        }
+        match self.view_visibility.get(&view) {
+            Some(set) => set.contains(&node),
+            None => self.session.lock().nodes.get(&node).map(|n| n.visible).unwrap_or(false),
+        }
+    }
+
+    /// Show or hide `node` in view `view` only.
+    pub fn set_shown_in(&mut self, view: u32, node: NodeId, on: bool) {
+        if view == self.active_view {
+            self.session.lock().set_visible(node, on);
+            return;
+        }
+        if !self.view_visibility.contains_key(&view) {
+            let current = self.visible_set();
+            self.view_visibility.insert(view, current);
+        }
+        let set = self.view_visibility.get_mut(&view).unwrap();
+        if on {
+            set.insert(node);
+        } else {
+            set.remove(&node);
+        }
+        self.session.lock().revision += 1;
+    }
+
+    /// Show `node` in `view` and hide it in every other view.
+    pub fn move_to_view(&mut self, node: NodeId, view: u32) {
+        for v in self.view_ids() {
+            self.set_shown_in(v, node, v == view);
+        }
+        self.status = format!("Moved to {}", view_title(view));
+    }
+
     fn visible_set(&self) -> HashSet<NodeId> {
         self.session.lock().nodes.values().filter(|n| n.visible).map(|n| n.id).collect()
     }
@@ -42,13 +96,34 @@ impl State {
     }
 
     /// Create a new view that starts as a copy of the active one (camera, visibility, link).
+    /// With `only`, the new view shows just that object, which is hidden in the other views
+    /// unless `keep`.
+    pub fn new_view_with(&mut self, only: Option<(NodeId, bool)>) -> u32 {
+        let id = self.new_view();
+        if let Some((node, keep)) = only {
+            if !keep {
+                for v in self.view_ids() {
+                    self.set_shown_in(v, node, false);
+                }
+            }
+            self.view_visibility.insert(id, std::iter::once(node).collect());
+            // Frame the object (same viewing direction), unless the camera is shared with linked views.
+            if !self.views.get(&id).map(|v| v.linked).unwrap_or(false) {
+                self.fit_view_on_activate = Some(id);
+            }
+        }
+        id
+    }
+
     pub fn new_view(&mut self) -> u32 {
         let id = self.next_view_id.max(1);
         self.next_view_id = id + 1;
         let mut v = Viewport::with_render_state(self.viewport.render_state(), self.settings.background, id);
         v.camera = self.viewport.camera.clone();
         v.linked = self.viewport.linked;
-        v.mark_camera_initialized();
+        if self.viewport.camera_initialized() {
+            v.mark_camera_initialized();
+        }
         self.views.insert(id, v);
         let vis = self.visible_set();
         self.view_visibility.insert(id, vis);
@@ -103,6 +178,10 @@ impl State {
     pub fn views_end_frame(&mut self, open: &[u32]) {
         if let Some(id) = self.pending_activate.take() {
             self.activate_view(id);
+        }
+        if self.fit_view_on_activate == Some(self.active_view) {
+            self.fit_view_on_activate = None;
+            self.session.lock().camera_request = Some(aurafx_pipeline::session::CameraRequest::ResetToBounds);
         }
         // The active view's pane was closed: fall back to another open view.
         if !open.contains(&self.active_view) {

@@ -133,6 +133,39 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                         ui.close();
                     }
                     ui.separator();
+                    let views = state.view_ids();
+                    if views.len() > 1 {
+                        ui.menu_button(format!("{} Move to view", crate::icons::ARROW_SQUARE_OUT), |ui| {
+                            ui.label(RichText::new("Show it there, hide it everywhere else").weak().small());
+                            for &v in &views {
+                                if ui.button(crate::views::view_title(v)).clicked() {
+                                    state.move_to_view(r.id, v);
+                                    ui.close();
+                                }
+                            }
+                        });
+                        ui.menu_button(format!("{} Show in views", crate::icons::EYE), |ui| {
+                            for &v in &views {
+                                let mut on = state.shown_in(v, r.id);
+                                if ui.checkbox(&mut on, crate::views::view_title(v)).changed() {
+                                    state.set_shown_in(v, r.id, on);
+                                }
+                            }
+                        });
+                    }
+                    ui.menu_button(format!("{} Move to new view", crate::icons::SQUARE_SPLIT_HORIZONTAL), |ui| {
+                        ui.label(RichText::new("Opens a 3D view with only this object").weak().small());
+                        let from = state.active_view;
+                        if ui.button(format!("{} Side by side", crate::icons::SQUARE_SPLIT_HORIZONTAL)).clicked() {
+                            state.layout_actions.push(crate::app::LayoutAction::SplitView { from, vertical: false, only: Some((r.id, false)) });
+                            ui.close();
+                        }
+                        if ui.button(format!("{} Above / below", crate::icons::SQUARE_SPLIT_VERTICAL)).clicked() {
+                            state.layout_actions.push(crate::app::LayoutAction::SplitView { from, vertical: true, only: Some((r.id, false)) });
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
                     ui.menu_button("Add filter", |ui| {
                         for f in aurafx_filters::registry().iter().filter(|f| !f.is_source) {
                             if ui.button(f.label).clicked() {

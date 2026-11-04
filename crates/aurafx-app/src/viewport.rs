@@ -190,6 +190,10 @@ impl Viewport {
         self.renderer.as_ref().ok_or_else(|| anyhow::anyhow!("no renderer"))?.save_png(path)
     }
 
+    pub fn camera_initialized(&self) -> bool {
+        self.camera_initialized
+    }
+
     pub fn mark_camera_initialized(&mut self) {
         self.camera_initialized = true;
     }
@@ -754,10 +758,10 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
                 ui.separator();
                 let vid = state.viewport.id;
                 if ui.small_button(icons::COLUMNS).on_hover_text("Split: add a 3D view to the right").clicked() {
-                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: false });
+                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: false, only: None });
                 }
                 if ui.small_button(icons::ROWS).on_hover_text("Split: add a 3D view below").clicked() {
-                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true });
+                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true, only: None });
                 }
                 ui.menu_button(icons::CUBE, |ui| {
                     ui.label(egui::RichText::new("Look from").weak());

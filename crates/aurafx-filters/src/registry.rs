@@ -9,6 +9,17 @@ use std::sync::{Arc, OnceLock};
 pub type ApplyFn = fn(Option<&DataSet>, &Params) -> Result<DataSet>;
 pub type MultiApplyFn = fn(&[&DataSet], &Params) -> Result<DataSet>;
 
+pub type TemporalFn = fn(&crate::temporal::TemporalCtx, &Params) -> Result<DataSet>;
+
+/// Filters that read their input at several times (Temporal Interpolator, Particle Tracer).
+#[derive(Clone, Copy)]
+pub struct Temporal {
+    pub apply: TemporalFn,
+    /// The time steps the output has, given the input's (empty: the output does not change
+    /// with time, e.g. Temporal Statistics).
+    pub output_times: fn(&Params, &[f64]) -> Vec<f64>,
+}
+
 /// Filters that take more than one input. The pipeline input is input 0; the others are the
 /// node's extra inputs, chosen in the Properties panel or passed from Python.
 #[derive(Clone, Copy)]
@@ -35,6 +46,8 @@ pub struct FilterDef {
     pub apply: ApplyFn,
     /// Set for filters with more than one input.
     pub multi: Option<MultiInput>,
+    /// Set for filters that need their input at other times than the current one.
+    pub temporal: Option<Temporal>,
 }
 
 impl std::fmt::Debug for FilterDef {
@@ -54,6 +67,19 @@ impl FilterDef {
         (self.apply)(input, params)
     }
     /// Run with every input (the pipeline input first). Single-input filters use the first.
+    /// Run a temporal filter with access to its input over time.
+    pub fn run_temporal(&self, ctx: &crate::temporal::TemporalCtx, params: &Params) -> Result<DataSet> {
+        match &self.temporal {
+            Some(t) => (t.apply)(ctx, params),
+            None => {
+                let d = (ctx.fetch)(ctx.time)?;
+                let mut all: Vec<&DataSet> = vec![&d];
+                all.extend(ctx.extra.iter().map(|x| &**x));
+                self.run_multi(&all, params)
+            }
+        }
+    }
+
     pub fn run_multi(&self, inputs: &[&DataSet], params: &Params) -> Result<DataSet> {
         match &self.multi {
             Some(m) => {
@@ -181,6 +207,78 @@ pub fn default_array(ds: &DataSet, want_vector: bool) -> Option<(Association, St
     ds_for.cell_data().and_then(pick).map(|n| (Association::Cells, n))
 }
 
+/// Particle Tracer, Particle Path and Streak Line share everything but their output.
+fn particle_def(id: &'static str, label: &'static str, description: &'static str, reinject: i64) -> FilterDef {
+    fn run(ctx: &crate::temporal::TemporalCtx, p: &Params, out: crate::temporal::ParticleOutput) -> Result<DataSet> {
+        let first = (ctx.fetch)(ctx.input_times.first().copied().unwrap_or(ctx.time))?;
+        let (_, vectors) = array_or_default(&first, p, "vectors", true)?;
+        let seeds: Vec<[f64; 3]> = match ctx.extra.first() {
+            Some(s) => {
+                let pts = s.points().ok_or_else(|| anyhow!("the seed input has no points"))?;
+                (0..pts.len()).map(|i| pts.get(i)).collect()
+            }
+            None => {
+                let b = first.bounds();
+                let nan3 = |k: &str, d: [f64; 3]| {
+                    let v = p.vec3(k, [f64::NAN; 3]);
+                    if v.iter().any(|x| x.is_nan()) {
+                        d
+                    } else {
+                        v
+                    }
+                };
+                // Default seeds: a line across the middle half of the data's diagonal.
+                let (lo, hi) = (b.min, b.max);
+                let at = |f: f64| [lo[0] + f * (hi[0] - lo[0]), lo[1] + f * (hi[1] - lo[1]), lo[2] + f * (hi[2] - lo[2])];
+                crate::streamlines::line_seeds(nan3("point1", at(0.25)), nan3("point2", at(0.75)), p.i64("seeds", 10).max(1) as usize)
+            }
+        };
+        let start = p.f64("start_time", f64::NAN);
+        let opt = crate::temporal::ParticleOptions {
+            vectors,
+            reinject_every: p.i64("reinject_every", 0).max(0) as usize,
+            start_time: if start.is_nan() { f64::NEG_INFINITY } else { start },
+            terminal_speed: p.f64("terminal_speed", 1e-12),
+        };
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        serde_json::to_string(p).unwrap_or_default().hash(&mut h);
+        for s in &seeds {
+            for c in s {
+                c.to_bits().hash(&mut h);
+            }
+        }
+        crate::temporal::particles(ctx, &seeds, &opt, out, h.finish())
+    }
+    FilterDef {
+        id,
+        label,
+        category: "Temporal",
+        description,
+        keywords: &["particles", "pathlines", "streaklines", "unsteady flow", "advection", "trajectories", "lagrangian"],
+        is_source: false,
+        temporal: Some(Temporal {
+            apply: match reinject {
+                0 if id == "particle_tracer" => |ctx, p| run(ctx, p, crate::temporal::ParticleOutput::Tracer),
+                0 => |ctx, p| run(ctx, p, crate::temporal::ParticleOutput::Path),
+                _ => |ctx, p| run(ctx, p, crate::temporal::ParticleOutput::Streak),
+            },
+            output_times: |_, t| t.to_vec(),
+        }),
+        multi: Some(MultiInput { label: "Seeds", min: 1, max: Some(2), apply: |_, _| Err(anyhow!("particle filters need time steps")) }),
+        params: vec![
+            vec_param("vectors", "Vectors"),
+            i("reinject_every", "Release again every N steps (0 = once)", reinject, 0, 1_000_000),
+            v3("point1", "Seed line start (no seed input)", [f64::NAN; 3]),
+            v3("point2", "Seed line end (no seed input)", [f64::NAN; 3]),
+            i("seeds", "Seeds on the line", 10, 1, 100_000),
+            f("start_time", "Start time", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).advanced(),
+            f("terminal_speed", "Terminal speed", 1e-12, 0.0, f64::INFINITY).advanced(),
+        ],
+        apply: |input, _| Ok(input.unwrap().clone()),
+    }
+}
+
 fn array_or_default(ds: &DataSet, p: &Params, key: &str, vector: bool) -> Result<(Association, String)> {
     p.array(key).or_else(|| default_array(ds, vector)).ok_or_else(|| anyhow!("no suitable array for '{key}'"))
 }
@@ -222,6 +320,7 @@ fn build() -> Vec<FilterDef> {
             description: "Cut the data with a plane or sphere and show the values on the cut surface.",
             keywords: &["cut", "plane", "section", "cross section"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 choice("type", "Cut type", &["Plane", "Sphere"], "Plane"),
@@ -272,6 +371,7 @@ fn build() -> Vec<FilterDef> {
             description: "Cut away part of the data with a plane, box, sphere or scalar value.",
             keywords: &["cut", "remove", "half", "crop", "cutaway"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 choice("type", "Clip type", &["Plane", "Box", "Sphere", "Scalar"], "Plane"),
@@ -322,6 +422,7 @@ fn build() -> Vec<FilterDef> {
             description: "Isosurfaces (3D) or isolines (2D) where a scalar equals given values.",
             keywords: &["isosurface", "isoline", "level set", "marching cubes", "iso"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 arr_param("array", "Contour by"),
@@ -352,6 +453,7 @@ fn build() -> Vec<FilterDef> {
             description: "Keep only cells whose values fall within a range.",
             keywords: &["filter", "range", "between", "select", "cutoff"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 arr_param("array", "Scalars"),
@@ -388,6 +490,7 @@ fn build() -> Vec<FilterDef> {
             description: "Compute a new array from an expression of existing arrays and coordinates.",
             keywords: &["expression", "formula", "math", "compute", "derived"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 choice("attribute", "Attribute", &["Points", "Cells"], "Points"),
@@ -416,6 +519,7 @@ fn build() -> Vec<FilterDef> {
             description: "Displace points by a vector field (e.g. displacement) times a scale factor.",
             keywords: &["deform", "displacement", "displace", "deformed shape"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![vec_param("vectors", "Vectors"), f("scale", "Scale factor", 1.0, f64::NEG_INFINITY, f64::INFINITY)],
             apply: |input, p| {
@@ -432,6 +536,7 @@ fn build() -> Vec<FilterDef> {
             description: "Displace points along a direction (or normals) by a scalar value.",
             keywords: &["height", "elevation", "carpet plot", "deform"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 arr_param("array", "Scalars"),
@@ -453,6 +558,7 @@ fn build() -> Vec<FilterDef> {
             description: "Draw arrows, spheres or cubes at points, oriented and scaled by arrays.",
             keywords: &["arrows", "vectors", "quiver", "hedgehog", "markers"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 choice("shape", "Shape", &["Arrow", "Line", "Sphere", "Cube"], "Arrow"),
@@ -494,6 +600,7 @@ fn build() -> Vec<FilterDef> {
             description: "Sample values along a straight line; shows a chart of every array versus distance.",
             keywords: &["line plot", "profile", "probe line", "graph", "sample"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 v3("point1", "Point 1", [f64::NAN; 3]).help("Unset: from the minimum corner of the data bounds."),
@@ -517,6 +624,7 @@ fn build() -> Vec<FilterDef> {
             description: "Interpolated values at a single point.",
             keywords: &["probe", "point value", "query", "sample point"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![v3("location", "Location", [f64::NAN; 3])],
             apply: |input, p| {
@@ -536,6 +644,7 @@ fn build() -> Vec<FilterDef> {
             description: "Interpolate any mesh onto a uniform grid (for volume-style analysis or export).",
             keywords: &["regrid", "voxelize", "interpolate", "uniform grid"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![i("nx", "X samples", 50, 1, 4096), i("ny", "Y samples", 50, 1, 4096), i("nz", "Z samples", 50, 1, 4096)],
             apply: |input, p| {
@@ -550,6 +659,7 @@ fn build() -> Vec<FilterDef> {
             description: "Distribution of an array as a table of bins (shown in the Charts panel).",
             keywords: &["distribution", "bins", "frequency", "pdf"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 arr_param("array", "Array"),
@@ -573,6 +683,7 @@ fn build() -> Vec<FilterDef> {
             description: "Count, min, max, mean, standard deviation, median and sum of every array.",
             keywords: &["stats", "mean", "average", "std", "summary"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| Ok(DataSet::Table(crate::analysis::descriptive_statistics(input.unwrap())?)),
@@ -584,6 +695,7 @@ fn build() -> Vec<FilterDef> {
             description: "Volume (or area/length) and the integral of every array over the domain.",
             keywords: &["integral", "total", "volume", "area", "mass", "sum"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| Ok(DataSet::Table(crate::analysis::integrate_variables(input.unwrap())?)),
@@ -595,6 +707,7 @@ fn build() -> Vec<FilterDef> {
             description: "Spatial gradient of a point scalar (adds <name>_gradient).",
             keywords: &["derivative", "slope", "grad", "flux"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![ParamSpec::new(
                 "array",
@@ -616,6 +729,7 @@ fn build() -> Vec<FilterDef> {
             description: "Extract the selected cells or points as a new dataset.",
             keywords: &["selection", "extract", "subset", "pick", "cells", "points"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 choice("attribute", "Selection of", &["Cells", "Points"], "Cells"),
@@ -635,6 +749,7 @@ fn build() -> Vec<FilterDef> {
             description: "Extract cells or points matching a condition, e.g. Temp > 600 & Pres < 0.1.",
             keywords: &["query", "search", "where", "condition", "select"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 choice("attribute", "Find", &["Cells", "Points"], "Cells"),
@@ -660,6 +775,7 @@ fn build() -> Vec<FilterDef> {
             description: "Outer surface of a volume mesh as polygons.",
             keywords: &["skin", "boundary", "faces", "exterior"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| Ok(DataSet::PolyData(crate::surface::extract_surface(input.unwrap())?)),
@@ -671,6 +787,7 @@ fn build() -> Vec<FilterDef> {
             description: "Bounding box of the data as lines.",
             keywords: &["bounding box", "bbox", "frame"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| Ok(DataSet::PolyData(crate::outline::outline(input.unwrap()))),
@@ -682,6 +799,7 @@ fn build() -> Vec<FilterDef> {
             description: "All unique cell edges as lines.",
             keywords: &["wireframe", "edges", "mesh lines"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::edges::extract_edges(d)?))),
@@ -693,6 +811,7 @@ fn build() -> Vec<FilterDef> {
             description: "Boundary and sharp edges of a surface.",
             keywords: &["silhouette", "crease", "sharp", "boundary edges"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![f("angle", "Feature angle", 30.0, 0.0, 180.0), b("boundary", "Boundary edges", true), b("sharp", "Sharp edges", true)],
             apply: |input, p| {
@@ -712,6 +831,7 @@ fn build() -> Vec<FilterDef> {
             description: "Translate, rotate and scale the data.",
             keywords: &["move", "rotate", "scale", "translate", "affine"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![v3("translate", "Translate", [0.0; 3]), v3("rotate", "Rotate (deg)", [0.0; 3]), v3("scale", "Scale", [1.0; 3])],
             apply: |input, p| {
@@ -727,6 +847,7 @@ fn build() -> Vec<FilterDef> {
             description: "A point at the center of every cell, carrying the cell data.",
             keywords: &["centroids", "centers"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::attributes::cell_centers(d)?))),
@@ -738,6 +859,7 @@ fn build() -> Vec<FilterDef> {
             description: "Combine all blocks of a multi-block dataset into one mesh.",
             keywords: &["append", "combine", "flatten"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| match input.unwrap() {
@@ -752,6 +874,7 @@ fn build() -> Vec<FilterDef> {
             description: "Combine several datasets into one unstructured grid. Arrays present in every input are kept.",
             keywords: &["append", "combine", "merge", "join", "concatenate", "multiple inputs"],
             is_source: false,
+            temporal: None,
             multi: Some(MultiInput {
                 label: "Inputs",
                 min: 1,
@@ -768,6 +891,7 @@ fn build() -> Vec<FilterDef> {
             description: "Combine several surface meshes into one polygonal mesh.",
             keywords: &["append", "combine", "merge polydata", "join surfaces"],
             is_source: false,
+            temporal: None,
             multi: Some(MultiInput { label: "Inputs", min: 1, max: None, apply: |inputs, _| Ok(DataSet::PolyData(crate::append::append_geometry(inputs)?)) }),
             params: vec![],
             apply: |input, _| Ok(DataSet::PolyData(crate::append::append_geometry(&[input.unwrap()])?)),
@@ -779,6 +903,7 @@ fn build() -> Vec<FilterDef> {
             description: "Copy the arrays of other inputs with the same number of points or cells onto the first input.",
             keywords: &["merge arrays", "combine fields", "add arrays", "join attributes"],
             is_source: false,
+            temporal: None,
             multi: Some(MultiInput { label: "Inputs", min: 1, max: None, apply: |inputs, _| crate::append::append_attributes(inputs) }),
             params: vec![],
             apply: |input, _| Ok(input.unwrap().clone()),
@@ -790,6 +915,7 @@ fn build() -> Vec<FilterDef> {
             description: "Sample this data's arrays at the points of another mesh (the destination).",
             keywords: &["probe", "interpolate onto", "map fields", "transfer", "sample on mesh", "project"],
             is_source: false,
+            temporal: None,
             multi: Some(MultiInput {
                 label: "Destination mesh",
                 min: 2,
@@ -801,6 +927,95 @@ fn build() -> Vec<FilterDef> {
             params: vec![b("pass_point_arrays", "Keep destination point arrays", false), b("pass_cell_arrays", "Keep destination cell arrays", false)],
             apply: |_, _| Err(anyhow!("Resample With Dataset needs a destination mesh; choose it in Properties")),
         },
+        // ---------------- Temporal ----------------
+        FilterDef {
+            id: "temporal_interpolator",
+            label: "Temporal Interpolator",
+            category: "Temporal",
+            description: "Blend the two nearest time steps so any time in between can be shown; optionally add regular time steps.",
+            keywords: &["interpolate time", "smooth animation", "in-between steps", "resample time"],
+            is_source: false,
+            temporal: Some(Temporal {
+                apply: |ctx, _| crate::temporal::temporal_interpolator(ctx),
+                output_times: |p, t| crate::temporal::interpolator_times(p.f64("interval", 0.0), t),
+            }),
+            multi: None,
+            params: vec![f("interval", "Time step spacing (0 = input steps)", 0.0, 0.0, f64::INFINITY)],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "temporal_shift_scale",
+            label: "Temporal Shift Scale",
+            category: "Temporal",
+            description: "Shift and stretch the time axis: output time = (input time + pre shift) x scale + post shift.",
+            keywords: &["time offset", "time scale", "align time", "shift time"],
+            is_source: false,
+            temporal: Some(Temporal {
+                apply: |ctx, p| crate::temporal::temporal_shift_scale(ctx, p.f64("pre_shift", 0.0), p.f64("scale", 1.0), p.f64("post_shift", 0.0)),
+                output_times: |p, t| crate::temporal::shift_scale_times(p.f64("pre_shift", 0.0), p.f64("scale", 1.0), p.f64("post_shift", 0.0), t),
+            }),
+            multi: None,
+            params: vec![
+                f("pre_shift", "Pre shift", 0.0, f64::NEG_INFINITY, f64::INFINITY),
+                f("scale", "Scale", 1.0, f64::NEG_INFINITY, f64::INFINITY),
+                f("post_shift", "Post shift", 0.0, f64::NEG_INFINITY, f64::INFINITY),
+            ],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "temporal_array_operator",
+            label: "Temporal Array Operator",
+            category: "Temporal",
+            description: "Combine an array at two time steps (+ - * /), e.g. the change since the previous step.",
+            keywords: &["difference over time", "change", "delta", "time derivative", "compare steps"],
+            is_source: false,
+            temporal: Some(Temporal {
+                apply: |ctx, p| {
+                    let now = (ctx.fetch)(ctx.time)?;
+                    let (assoc, name) = array_or_default(&now, p, "array", false)?;
+                    crate::temporal::temporal_array_operator(
+                        ctx,
+                        &crate::temporal::ArrayOp {
+                            points: assoc == Association::Points,
+                            array: &name,
+                            op: &p.str("operator"),
+                            relative: p.bool("relative", true),
+                            shift: p.i64("shift", -1),
+                            first: p.i64("first_step", 0),
+                            second: p.i64("second_step", 0),
+                            suffix: &p.str("suffix"),
+                        },
+                    )
+                },
+                output_times: |p, t| if p.bool("relative", true) { t.to_vec() } else { Vec::new() },
+            }),
+            multi: None,
+            params: vec![
+                arr_param("array", "Array"),
+                choice("operator", "Operator", &["+", "-", "*", "/"], "-"),
+                b("relative", "Relative to the current step", true),
+                i("shift", "Step shift (relative)", -1, -100_000, 100_000),
+                i("first_step", "First step index", 0, 0, 1_000_000),
+                i("second_step", "Second step index", 0, 0, 1_000_000),
+                s("suffix", "Output name suffix (default _add/_sub/_mul/_div)", "").advanced(),
+            ],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "temporal_statistics",
+            label: "Temporal Statistics",
+            category: "Temporal",
+            description: "Average, minimum, maximum and standard deviation of every array over all time steps.",
+            keywords: &["time average", "mean over time", "max over time", "std over time"],
+            is_source: false,
+            temporal: Some(Temporal { apply: |ctx, _| crate::temporal::temporal_statistics(ctx), output_times: |_, _| Vec::new() }),
+            multi: None,
+            params: vec![],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        particle_def("particle_tracer", "Particle Tracer", "Particles released at seed points, carried by a time-varying flow; shows where they are now.", 0),
+        particle_def("particle_path", "Particle Path", "The path each particle released at the seeds has followed through a time-varying flow (pathlines).", 0),
+        particle_def("streak_line", "Streak Line", "For each seed, a line through all particles it released so far, like dye in a flow.", 1),
         // ---------------- Data ----------------
         FilterDef {
             id: "cell_data_to_point_data",
@@ -809,6 +1024,7 @@ fn build() -> Vec<FilterDef> {
             description: "Average cell values onto the points for smooth coloring.",
             keywords: &["interpolate", "smooth", "nodal"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![b("pass_cell_data", "Pass cell data", false)],
             apply: |input, p| {
@@ -831,6 +1047,7 @@ fn build() -> Vec<FilterDef> {
             description: "Average point values onto the cells.",
             keywords: &["elemental", "average"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![b("pass_point_data", "Pass point data", false)],
             apply: |input, p| {
@@ -853,6 +1070,7 @@ fn build() -> Vec<FilterDef> {
             description: "Streamlines of a vector field from seeds on a line or in a sphere.",
             keywords: &["streamlines", "flow", "trajectories", "integrate", "velocity", "field lines"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 vec_param("vectors", "Vectors"),
@@ -908,6 +1126,7 @@ fn build() -> Vec<FilterDef> {
             description: "Turn lines (e.g. streamlines) into 3D tubes.",
             keywords: &["pipe", "thick lines", "streamtubes", "cylinder"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 f("radius", "Radius", f64::NAN, 0.0, f64::INFINITY).help("Unset: 0.5% of the data size."),
@@ -930,6 +1149,7 @@ fn build() -> Vec<FilterDef> {
             description: "Compute normals of a surface (adds a Normals array).",
             keywords: &["normals", "orientation", "shading"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![b("flip", "Flip normals", false), b("cell_normals", "Also cell normals", false)],
             apply: |input, p| {
@@ -943,6 +1163,7 @@ fn build() -> Vec<FilterDef> {
             description: "Merge duplicate points and remove unused ones.",
             keywords: &["merge points", "duplicate", "weld", "tolerance"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![f("tolerance", "Tolerance", 0.0, 0.0, f64::INFINITY)],
             apply: |input, p| per_leaf(input.unwrap(), &|d| crate::geometry::clean(d, p.f64("tolerance", 0.0))),
@@ -954,6 +1175,7 @@ fn build() -> Vec<FilterDef> {
             description: "Label connected regions (RegionId) and optionally keep only one.",
             keywords: &["regions", "islands", "components", "fragments", "largest"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![s("extract", "Keep", "all").help("'all', 'largest' or a region number")],
             apply: |input, p| per_leaf(input.unwrap(), &|d| crate::geometry::connectivity(d, &p.str("extract"))),
@@ -965,6 +1187,7 @@ fn build() -> Vec<FilterDef> {
             description: "Keep some blocks of a multi-block dataset (by name or index).",
             keywords: &["block", "part", "subset", "element block", "material"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![s("blocks", "Blocks", "0").help("Comma-separated names or indices, e.g. 0,2 or Block 1")],
             apply: |input, p| crate::geometry::extract_block(input.unwrap(), &p.str("blocks")),
@@ -976,6 +1199,7 @@ fn build() -> Vec<FilterDef> {
             description: "Crop an image or structured grid to a box of grid indices, optionally keeping every n-th point.",
             keywords: &["voi", "crop", "subsample", "downsample", "stride", "region", "ijk", "index"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 v3("voi_min", "From index (i, j, k)", [f64::NAN; 3]).help("First grid index kept along each axis; leave unset for the start of the grid."),
@@ -1004,6 +1228,7 @@ fn build() -> Vec<FilterDef> {
             description: "Show the boundary patches (inlet, outlet, walls, ...) of an OpenFOAM case with their boundary values.",
             keywords: &["openfoam", "foam", "patch", "boundary", "wall", "inlet", "outlet", "mesh regions"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![s("patches", "Patches", "").help("Comma-separated patch names; leave empty for all patches")],
             apply: |input, p| openfoam_patches(input.unwrap(), &p.str("patches")),
@@ -1015,6 +1240,7 @@ fn build() -> Vec<FilterDef> {
             description: "Shrink cells toward their centers to see the mesh structure.",
             keywords: &["explode", "cells", "mesh"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![f("factor", "Factor", 0.8, 0.0, 1.0)],
             apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::geometry::shrink(d, p.f64("factor", 0.8))?))),
@@ -1026,6 +1252,7 @@ fn build() -> Vec<FilterDef> {
             description: "Mirror the data across a plane (symmetric models).",
             keywords: &["mirror", "symmetry"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![
                 choice("plane", "Plane", &["X", "Y", "Z"], "X"),
@@ -1048,6 +1275,7 @@ fn build() -> Vec<FilterDef> {
             description: "Scalar that increases along a direction (height coloring).",
             keywords: &["height", "gradient color", "z value"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![v3("low_point", "Low point", [f64::NAN; 3]), v3("high_point", "High point", [f64::NAN; 3])],
             apply: |input, p| {
@@ -1068,6 +1296,7 @@ fn build() -> Vec<FilterDef> {
             description: "Volume, area and length of every cell.",
             keywords: &["volume", "area", "length", "measure"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| per_leaf(input.unwrap(), &crate::geometry::cell_size),
@@ -1079,6 +1308,7 @@ fn build() -> Vec<FilterDef> {
             description: "Edge ratio and minimum angle of every cell (find distorted elements).",
             keywords: &["quality", "aspect ratio", "skew", "distortion", "jacobian"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| per_leaf(input.unwrap(), &crate::geometry::mesh_quality),
@@ -1090,6 +1320,7 @@ fn build() -> Vec<FilterDef> {
             description: "Laplacian smoothing of a surface.",
             keywords: &["laplacian", "fair", "denoise"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![i("iterations", "Iterations", 20, 1, 10_000), f("relaxation", "Relaxation", 0.1, 0.0, 1.0)],
             apply: |input, p| {
@@ -1103,6 +1334,7 @@ fn build() -> Vec<FilterDef> {
             description: "Split surface polygons into triangles.",
             keywords: &["triangles", "polygons"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::geometry::triangulate(d)?))),
@@ -1114,6 +1346,7 @@ fn build() -> Vec<FilterDef> {
             description: "Split every cell into tetrahedra.",
             keywords: &["tets", "simplices"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![],
             apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::geometry::tetrahedralize(d)?))),
@@ -1125,6 +1358,7 @@ fn build() -> Vec<FilterDef> {
             description: "Keep a subset of points (every Nth, at most a maximum count).",
             keywords: &["subsample", "decimate points", "thin"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![i("stride", "Every Nth", 2, 1, 1_000_000), i("max_points", "Maximum points", 5000, 1, 100_000_000)],
             apply: |input, p| {
@@ -1140,6 +1374,7 @@ fn build() -> Vec<FilterDef> {
             description: "Copy one component of a vector/tensor into a scalar array.",
             keywords: &["component", "x", "y", "z"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![vec_param("array", "Array"), i("component", "Component", 0, 0, 8)],
             apply: |input, p| {
@@ -1156,6 +1391,7 @@ fn build() -> Vec<FilterDef> {
             description: "Give an array a new name.",
             keywords: &["rename", "label"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![arr_param("array", "Array"), s("new_name", "New name", "renamed")],
             apply: |input, p| {
@@ -1172,6 +1408,7 @@ fn build() -> Vec<FilterDef> {
             description: "Keep only the listed arrays (smaller data, faster export).",
             keywords: &["remove arrays", "filter arrays", "keep"],
             is_source: false,
+            temporal: None,
             multi: None,
             params: vec![s("point_arrays", "Point arrays", "").help("Comma-separated names; empty keeps none"), s("cell_arrays", "Cell arrays", "")],
             apply: |input, p| {
@@ -1188,6 +1425,7 @@ fn build() -> Vec<FilterDef> {
             description: "A polygonal sphere.",
             keywords: &["ball", "shape"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![
                 v3("center", "Center", [0.0; 3]),
@@ -1211,6 +1449,7 @@ fn build() -> Vec<FilterDef> {
             description: "A polygonal cone.",
             keywords: &["shape"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![
                 v3("center", "Center", [0.0; 3]),
@@ -1236,6 +1475,7 @@ fn build() -> Vec<FilterDef> {
             description: "A capped cylinder along Y.",
             keywords: &["tube", "shape"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![
                 v3("center", "Center", [0.0; 3]),
@@ -1259,6 +1499,7 @@ fn build() -> Vec<FilterDef> {
             description: "An axis-aligned box.",
             keywords: &["cube", "shape"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![v3("center", "Center", [0.0; 3]), v3("size", "Size", [1.0; 3])],
             apply: |_, p| Ok(DataSet::PolyData(crate::sources::cube(p.vec3("center", [0.0; 3]), p.vec3("size", [1.0; 3])))),
@@ -1270,6 +1511,7 @@ fn build() -> Vec<FilterDef> {
             description: "A subdivided rectangle.",
             keywords: &["quad", "grid", "shape"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![
                 v3("origin", "Origin", [-0.5, -0.5, 0.0]),
@@ -1295,6 +1537,7 @@ fn build() -> Vec<FilterDef> {
             description: "A straight polyline.",
             keywords: &["segment"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![v3("point1", "Point 1", [-0.5, 0.0, 0.0]), v3("point2", "Point 2", [0.5, 0.0, 0.0]), i("resolution", "Resolution", 10, 1, 1_000_000)],
             apply: |_, p| {
@@ -1312,6 +1555,7 @@ fn build() -> Vec<FilterDef> {
             description: "Random points inside a sphere.",
             keywords: &["random", "points", "seeds"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![
                 v3("center", "Center", [0.0; 3]),
@@ -1335,6 +1579,7 @@ fn build() -> Vec<FilterDef> {
             description: "Synthetic 3D scalar volume, handy for trying filters.",
             keywords: &["test data", "volume", "example", "rtdata"],
             is_source: true,
+            temporal: None,
             multi: None,
             params: vec![
                 i("half_size", "Half size", 10, 1, 512),

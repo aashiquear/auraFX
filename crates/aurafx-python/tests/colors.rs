@@ -37,4 +37,12 @@ fn python_api_behaviour() {
     );
     assert!(out.error.is_none(), "{:?}", out.error);
     assert_eq!(out.stdout.trim(), "2\nTrue\nTrue True\n1\nTrue");
+
+    // Temporal filters: default seed line, and node method with keyword parameters.
+    let rot = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/rotating.pvd");
+    let out = rt.run(&format!(
+        "f = afx.load({rot:?})\nt = f.particle_tracer(seeds=5)\nprint(t.info()['n_points'])\ni = f.temporal_interpolator(interval=0.5)\nprint(len(afx.times()))\nd = f.temporal_array_operator(array=['POINTS', 'T'])\nprint('T_sub' in str(d.info()))"
+    ));
+    assert!(out.error.is_none(), "{:?}", out.error);
+    assert_eq!(out.stdout.trim(), "5\n9\nTrue");
 }

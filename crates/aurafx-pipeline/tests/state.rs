@@ -220,3 +220,126 @@ fn multi_input_filters_run_follow_their_inputs_and_survive_state_files() {
     assert!(out.point_data().unwrap().get("vtkValidPointMask").is_some());
     assert!(s.set_extra_inputs(r, vec![a, c]).is_err(), "resample takes one destination");
 }
+
+/// testdata/rotating.pvd: rigid rotation about z with angular speed 1 + t, steps 0, 0.25 .. 2.
+/// A particle released at angle 0 at t = 0 is at angle t + t^2/2, at the same radius.
+#[test]
+fn temporal_filters_on_a_rotating_flow() {
+    use aurafx_data::DataSet;
+    let mut s = Session::new();
+    let r = s.open_file(td("rotating.pvd")).unwrap();
+    assert_eq!(s.times.len(), 9);
+    let seeds = s.add_source("line").unwrap();
+    s.set_param(seeds, "point1", ParamValue::Vec3([0.3, 0.0, 0.0]));
+    s.set_param(seeds, "point2", ParamValue::Vec3([0.6, 0.0, 0.0]));
+    s.set_param(seeds, "resolution", ParamValue::Int(3));
+    let tracer = s.add_filter_multi("particle_tracer", &[r, seeds]).unwrap();
+    let path = s.add_filter_multi("particle_path", &[r, seeds]).unwrap();
+    let streak = s.add_filter_multi("streak_line", &[r, seeds]).unwrap();
+    let out = |s: &Session, id| -> std::sync::Arc<DataSet> {
+        let n = &s.nodes[&id];
+        n.output.clone().unwrap_or_else(|| panic!("{}: {:?}", n.name, n.error))
+    };
+    let check_angles = |ds: &DataSet, t: f64| {
+        let want = t + t * t / 2.0;
+        let pts = ds.points().unwrap();
+        assert_eq!(pts.len(), 4);
+        for i in 0..4 {
+            let p = pts.get(i);
+            let (rad, ang) = (p[0].hypot(p[1]), p[1].atan2(p[0]));
+            let d = (ang - want).rem_euclid(std::f64::consts::TAU);
+            let d = d.min(std::f64::consts::TAU - d);
+            assert!(d < 2e-4, "t {t}: angle {ang} want {want}");
+            assert!((rad - (0.3 + 0.1 * i as f64)).abs() < 1e-4, "radius {rad}");
+        }
+    };
+    // Play forward one step at a time (incremental), then compare with a fresh jump to the end.
+    for k in 0..9 {
+        s.set_time_index(k);
+        s.update_blocking();
+        check_angles(&out(&s, tracer), s.times[k]);
+    }
+    let tr = out(&s, tracer);
+    let pd = tr.point_data().unwrap();
+    for name in ["velocity", "T", "ParticleId", "InjectedPointId", "InjectionStepId", "ParticleAge"] {
+        assert!(pd.get(name).is_some(), "missing {name}");
+    }
+    assert_eq!(pd.get("ParticleAge").unwrap().range(None), (2.0, 2.0));
+    // T = x + t sampled at the particles.
+    let (p0, t0) = (tr.points().unwrap().get(0), pd.get("T").unwrap().get(0, 0));
+    assert!((t0 - (p0[0] + 2.0)).abs() < 1e-6);
+    let p = out(&s, path);
+    assert_eq!((p.n_points(), p.n_cells()), (36, 4), "4 paths through 9 steps");
+    // Arrays recorded along the paths: T = x + t, and every particle was released at t = 0.
+    let (pp, pt, age) = (p.points().unwrap(), p.point_data().unwrap().get("T").unwrap(), p.point_data().unwrap().get("ParticleAge").unwrap());
+    for i in 0..p.n_points() {
+        assert!((pt.get(i, 0) - (pp.get(i)[0] + age.get(i, 0))).abs() < 1e-6, "path point {i}");
+    }
+    let st = out(&s, streak);
+    assert_eq!((st.n_points(), st.n_cells()), (36, 4), "4 streaks of 9 particles each");
+    // Restart from scratch (seed moved, then back) and jump straight to the end: same answer.
+    s.set_time_index(0);
+    s.set_param(seeds, "resolution", ParamValue::Int(3));
+    s.mark_dirty(seeds);
+    s.set_time_index(8);
+    s.update_blocking();
+    check_angles(&out(&s, tracer), 2.0);
+    // Between steps (time from another reader's steps is not needed: interpolate in time).
+    s.set_time_index(0);
+    s.update_blocking();
+    let p = out(&s, path);
+    assert_eq!((p.n_points(), p.n_cells()), (4, 4), "at the start each path is one point");
+
+    // Temporal Interpolator with a 0.1 spacing adds time steps; T = x + t at t = 0.1.
+    let ti = s.add_filter("temporal_interpolator", r).unwrap();
+    s.set_param(ti, "interval", ParamValue::Float(0.1));
+    assert_eq!(s.times.len(), 21 + 4, "0..2 by 0.1 plus 0.25, 0.75, 1.25, 1.75");
+    let k = s.times.iter().position(|&t| (t - 0.1).abs() < 1e-9).unwrap();
+    s.set_time_index(k);
+    s.update_blocking();
+    let d = out(&s, ti);
+    assert!((d.point_data().unwrap().get("T").unwrap().get(0, 0) - (-0.9)).abs() < 1e-12);
+    s.remove_node(ti);
+    assert_eq!(s.times.len(), 9);
+
+    // Temporal Shift Scale: (t + 1) * 2 + 0.5 -> 2.5 .. 6.5; at 2.5 the input is at t = 0.
+    let ss = s.add_filter("temporal_shift_scale", r).unwrap();
+    s.set_param(ss, "pre_shift", ParamValue::Float(1.0));
+    s.set_param(ss, "scale", ParamValue::Float(2.0));
+    s.set_param(ss, "post_shift", ParamValue::Float(0.5));
+    assert!(s.times.iter().any(|&t| (t - 6.5).abs() < 1e-12));
+    let k = s.times.iter().position(|&t| (t - 2.5).abs() < 1e-12).unwrap();
+    s.set_time_index(k);
+    s.update_blocking();
+    assert_eq!(out(&s, ss).point_data().unwrap().get("T").unwrap().get(0, 0), -1.0);
+    s.remove_node(ss);
+
+    // Temporal Array Operator (ParaView: T_sub = 0.25 relative to the previous step,
+    // -1 between steps 0 and 4).
+    let ta = s.add_filter("temporal_array_operator", r).unwrap();
+    s.set_param(ta, "array", ParamValue::Array { assoc: aurafx_filters::Association::Points, name: "T".into() });
+    s.set_time_index(4);
+    s.update_blocking();
+    let (lo, hi) = out(&s, ta).point_data().unwrap().get("T_sub").unwrap().range(None);
+    assert!((lo - 0.25).abs() < 1e-12 && (hi - 0.25).abs() < 1e-12);
+    s.set_time_index(0);
+    s.update_blocking();
+    assert_eq!(out(&s, ta).point_data().unwrap().get("T_sub").unwrap().range(None), (0.0, 0.0), "first step compares with itself");
+    s.set_param(ta, "relative", ParamValue::Bool(false));
+    s.set_param(ta, "second_step", ParamValue::Int(4));
+    s.update_blocking();
+    let (lo, hi) = out(&s, ta).point_data().unwrap().get("T_sub").unwrap().range(None);
+    assert!((lo + 1.0).abs() < 1e-12 && (hi + 1.0).abs() < 1e-12);
+
+    // Temporal Statistics is a live filter: mean of T = x + t over t in 0..2 is x + 1.
+    let ts = s.temporal_statistics(r).unwrap();
+    s.update_blocking();
+    let d = out(&s, ts);
+    let avg = d.point_data().unwrap().get("T_average").unwrap();
+    assert!((avg.get(0, 0) - 0.0).abs() < 1e-12, "x = -1 at point 0, mean t = 1");
+    assert_eq!(s.nodes[&ts].def().unwrap().id, "temporal_statistics");
+    // Its result does not depend on the current time, so changing time does not recompute it.
+    s.set_time_index(3);
+    s.update_blocking();
+    assert!(std::sync::Arc::ptr_eq(&d, &out(&s, ts)));
+}

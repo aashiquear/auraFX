@@ -472,8 +472,11 @@ fn inputs_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId, m: aurafx_filters
             ui.end_row();
             if single {
                 ui.label(m.label);
-                let cur = extra.first().map(|e| e.1.clone()).unwrap_or_else(|| "(choose)".into());
+                let cur = extra.first().map(|e| e.1.clone()).unwrap_or_else(|| if m.min < 2 { "(none)".into() } else { "(choose)".into() });
                 egui::ComboBox::from_id_salt(("dest", id)).selected_text(cur).show_ui(ui, |ui| {
+                    if m.min < 2 && ui.selectable_label(extra.is_empty(), "(none)").clicked() {
+                        new_extra = Some(Vec::new());
+                    }
                     for (cid, cname) in extra.iter().chain(candidates.iter()) {
                         if ui.selectable_label(extra.first().map(|e| e.0) == Some(*cid), cname).clicked() {
                             new_extra = Some(vec![*cid]);

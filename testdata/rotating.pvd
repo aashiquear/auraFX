@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<VTKFile type="Collection" version="0.1"><Collection><DataSet timestep="0" file="rotating/rot_0.vti"/><DataSet timestep="0.25" file="rotating/rot_1.vti"/><DataSet timestep="0.5" file="rotating/rot_2.vti"/><DataSet timestep="0.75" file="rotating/rot_3.vti"/><DataSet timestep="1" file="rotating/rot_4.vti"/><DataSet timestep="1.25" file="rotating/rot_5.vti"/><DataSet timestep="1.5" file="rotating/rot_6.vti"/><DataSet timestep="1.75" file="rotating/rot_7.vti"/><DataSet timestep="2" file="rotating/rot_8.vti"/></Collection></VTKFile>

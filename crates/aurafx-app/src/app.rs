@@ -519,14 +519,6 @@ impl State {
         }
     }
 
-    pub fn temporal_statistics(&mut self) {
-        let active = self.session.lock().active;
-        match active {
-            Some(a) => self.python.run(format!("afx.temporal_statistics(afx.get('{a}'))"), "menu"),
-            None => self.toast("Select a time-dependent node first", true),
-        }
-    }
-
     /// Write an embedded sample into the documents folder and open it.
     pub fn open_sample(&mut self, name: &str) {
         let bytes: &[u8] = match name {
@@ -832,18 +824,15 @@ impl State {
                                 self.add_filter(f.id);
                             }
                         }
+                        if cat == "Temporal" {
+                            ui.separator();
+                            if ui.button("Plot Over Time…").on_hover_text("Open the Charts panel's over-time tools").clicked() {
+                                ui.close();
+                                self.layout_actions.push(LayoutAction::Show(Pane::Charts));
+                            }
+                        }
                     });
                 }
-                ui.menu_button("Temporal", |ui| {
-                    if ui.button("Temporal Statistics").on_hover_text("Mean, min, max and std. deviation of every array over all time steps").clicked() {
-                        ui.close();
-                        self.temporal_statistics();
-                    }
-                    if ui.button("Plot Over Time…").on_hover_text("Open the Charts panel's over-time tools").clicked() {
-                        ui.close();
-                        self.layout_actions.push(LayoutAction::Show(Pane::Charts));
-                    }
-                });
                 ui.separator();
                 if ui.button("Search…    Ctrl+K").clicked() {
                     ui.close();

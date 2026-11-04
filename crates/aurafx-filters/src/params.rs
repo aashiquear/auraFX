@@ -177,6 +177,15 @@ impl Params {
                 }
             }
             serde_json::Value::String(s) => ParamValue::Str(s.clone()),
+            // ParaView style ['POINTS', 'T'] / ['CELLS', 'T'].
+            serde_json::Value::Array(a)
+                if a.len() == 2 && a[0].as_str().is_some_and(|x| matches!(x.to_ascii_uppercase().as_str(), "POINTS" | "CELLS")) && a[1].is_string() =>
+            {
+                ParamValue::Array {
+                    assoc: if a[0].as_str().unwrap().eq_ignore_ascii_case("cells") { Association::Cells } else { Association::Points },
+                    name: a[1].as_str().unwrap().to_string(),
+                }
+            }
             serde_json::Value::Array(a) => {
                 let f: Vec<f64> = a.iter().filter_map(|x| x.as_f64()).collect();
                 if f.len() == 3 && f.len() == a.len() {

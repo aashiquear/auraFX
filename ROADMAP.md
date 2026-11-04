@@ -49,7 +49,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Demand-driven DAG: sources -> filters -> representations, with dirty tracking and memoized outputs.
 - [x] Multi-input filters: extra inputs per node, scheduled and invalidated like the main input, kept in undo and state files, cycles rejected.
 - [~] Per-node progress and cancellation; background execution off the UI thread.
-- [~] Time-aware execution (request a time step, temporal filters that need multiple steps).
+- [x] Time-aware execution: temporal filters read their input at any time (the upstream pipeline is re-evaluated on the worker thread), add or remap time steps, keep state between runs (particles advance incrementally) and skip re-running when their result does not depend on time.
 - [ ] Streaming/pieces for huge datasets; ghost-cell generation.
 - [x] Undo/redo of every pipeline and property change.
 - [~] State files (`.afx` JSON/TOML) and ParaView `.pvsm` import (best effort).
@@ -114,7 +114,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Plot Over Line ★, Plot Data, Plot Data Over Time, Plot Selection Over Time, Plot Global Variables Over Time, Plot On Intersection Curves, Plot On Sorted Lines, Plot Over Lines From Custom Source
 
 ### 2.2 Data analysis
-- [~] Histogram ★, Histogram 2D, Descriptive Statistics, Contingency Statistics, Multicorrelative Statistics, Principal Component Analysis, K-Means, Compute Quartiles, Extract Statistical Model Tables, Generate Statistics, Integrate Variables ★, Min Max, Scatter Plot, Table FFT, FFT Of Selection Over Time, Temporal Statistics ★, Compute Derivatives, Gradient ★, Gradient Magnitude, Curvature, Elevation, Mesh Quality, Cell Quality, Boundary Mesh Quality, Cell Size, Polyline Length, Count Cell Faces, Count Cell Vertices, Validate Cells, Overlapping Cells Detector, Vortex Cores, Yield Criteria, Tensor Principal Invariants, Surface Flow, Minkowski Filter, OpenTURNS: OT Density Map, OT Kernel Smoothing
+- [~] Histogram ★, Histogram 2D, Descriptive Statistics, Contingency Statistics, Multicorrelative Statistics, Principal Component Analysis, K-Means, Compute Quartiles, Extract Statistical Model Tables, Generate Statistics, Integrate Variables ★, Min Max, Scatter Plot, Table FFT, FFT Of Selection Over Time, Temporal Statistics ★ (live filter), Compute Derivatives, Gradient ★, Gradient Magnitude, Curvature, Elevation, Mesh Quality, Cell Quality, Boundary Mesh Quality, Cell Size, Polyline Length, Count Cell Faces, Count Cell Vertices, Validate Cells, Overlapping Cells Detector, Vortex Cores, Yield Criteria, Tensor Principal Invariants, Surface Flow, Minkowski Filter, OpenTURNS: OT Density Map, OT Kernel Smoothing
 
 ### 2.3 Alphabetical / geometry and topology
 - [~] Append Attributes, Append Datasets ★, Append Geometry (done, checked against ParaView), Append Reduce, Append Molecule, Append Selections
@@ -125,8 +125,8 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Triangulate ★, Tetrahedralize ★, Tessellate, Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
 - [ ] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics
 - [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR, Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
-- [ ] Particle Tracer, Particle Path, Streak Line, Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
-- [ ] Temporal Interpolator, Temporal Shift Scale, Temporal Snap-to-TimeStep, Temporal Cache, Temporal Array Operator, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
+- [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
+- [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [ ] Hyper Tree Grid: Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [ ] AMR: Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [ ] Cell Grid: Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
@@ -318,6 +318,16 @@ Probing image and rectilinear data is now trilinear like VTK (it was split into 
 Point/Cell Data conversions keep structured types and drop the source arrays as ParaView does
 (a "Pass" option keeps them), and a `Cells::default()` bug that lost the first appended cell
 is fixed.
+
+Done in iteration 7: time-aware pipeline execution and the first temporal filters: Particle
+Tracer, Particle Path and Streak Line (incremental while playing; seeds from any dataset or a
+line), Temporal Interpolator (in-between and regular time steps), Temporal Shift Scale,
+Temporal Array Operator and a live Temporal Statistics. Interpolator, Shift Scale and Array
+Operator match ParaView 6.1.1. The particle filters are checked against the exact paths of
+`testdata/rotating.pvd` instead: ParaView advects each interval with the velocity at its end
+(4.25 rad instead of 4.0 at t = 2) and its Streak Line output mixes seeds and has empty cells;
+auraFX interpolates the velocity linearly in time and builds one streak per seed. Particle ids
+are unique per particle (ParaView restarts them at every release).
 
 Known gaps worth doing next: Lagrange/Bezier cell tessellation;
 client/server and distributed execution; plugin system; Slurm runs not yet exercised on real

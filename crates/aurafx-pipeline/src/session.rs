@@ -15,6 +15,120 @@ use std::time::Instant;
 pub type NodeId = u64;
 pub type SharedSession = Arc<Mutex<Session>>;
 
+/// Memory a temporal filter keeps between runs (e.g. particles already advanced).
+#[derive(Clone, Default)]
+pub struct TemporalState(pub Arc<std::sync::Mutex<Option<Box<dyn std::any::Any + Send>>>>);
+
+impl std::fmt::Debug for TemporalState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TemporalState")
+    }
+}
+
+/// The upstream pipeline of a temporal filter in a form that can be evaluated at any time on
+/// a worker thread: readers load the step for the requested time, filters re-run.
+enum Plan {
+    /// Does not change with time.
+    Fixed(Arc<DataSet>),
+    /// A reader with time steps; `current` is the step it already holds.
+    Series { series: TimeSeries, current: Option<(usize, Arc<DataSet>)> },
+    /// An ordinary filter (the first input is the pipeline input).
+    Run { def: Arc<FilterDef>, params: Params, inputs: Vec<Plan> },
+    /// A temporal filter further upstream.
+    Temporal { def: Arc<FilterDef>, params: Params, input: Box<Plan>, extra: Vec<Arc<DataSet>>, state: TemporalState },
+}
+
+type PlanCache = std::sync::Mutex<std::collections::HashMap<(usize, u64), Arc<DataSet>>>;
+
+impl Plan {
+    fn times(&self) -> Vec<f64> {
+        match self {
+            Plan::Fixed(_) => Vec::new(),
+            Plan::Series { series, .. } => series.times.clone(),
+            Plan::Run { inputs, .. } => union_times(inputs.iter().map(|p| p.times())),
+            Plan::Temporal { def, params, input, .. } => (def.temporal.unwrap().output_times)(params, &input.times()),
+        }
+    }
+
+    fn key(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        match self {
+            Plan::Fixed(d) => (Arc::as_ptr(d) as usize).hash(h),
+            Plan::Series { series, .. } => {
+                for (t, s) in series.times.iter().zip(&series.steps) {
+                    t.to_bits().hash(h);
+                    match s {
+                        aurafx_data::TimeStepRef::Loaded(d) => (Arc::as_ptr(d) as usize).hash(h),
+                        other => format!("{other:?}").hash(h),
+                    }
+                }
+            }
+            Plan::Run { def, params, inputs } => {
+                def.id.hash(h);
+                serde_json::to_string(params).unwrap_or_default().hash(h);
+                for i in inputs {
+                    i.key(h);
+                }
+            }
+            Plan::Temporal { def, params, input, extra, .. } => {
+                def.id.hash(h);
+                serde_json::to_string(params).unwrap_or_default().hash(h);
+                input.key(h);
+                for e in extra {
+                    (Arc::as_ptr(e) as usize).hash(h);
+                }
+            }
+        }
+    }
+
+    fn fingerprint(&self) -> u64 {
+        use std::hash::Hasher;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.key(&mut h);
+        h.finish()
+    }
+
+    fn eval(&self, t: f64, cache: &PlanCache) -> Result<Arc<DataSet>> {
+        let ck = (self as *const Plan as usize, t.to_bits());
+        if let Some(d) = cache.lock().unwrap().get(&ck) {
+            return Ok(d.clone());
+        }
+        let out = match self {
+            Plan::Fixed(d) => return Ok(d.clone()),
+            Plan::Series { series, current } => {
+                let eps = 1e-12 * (1.0 + t.abs());
+                let k = series.times.iter().rposition(|&x| x <= t + eps).unwrap_or(0);
+                match current {
+                    Some((i, d)) if *i == k => d.clone(),
+                    _ => aurafx_io::load_step(series.steps.get(k).ok_or_else(|| anyhow!("time step {k} missing"))?)?,
+                }
+            }
+            Plan::Run { def, params, inputs } => {
+                let ins: Vec<Arc<DataSet>> = inputs.iter().map(|p| p.eval(t, cache)).collect::<Result<_>>()?;
+                let refs: Vec<&DataSet> = ins.iter().map(|d| &**d).collect();
+                Arc::new(def.run_multi(&refs, params)?)
+            }
+            Plan::Temporal { def, params, input, extra, state } => Arc::new(run_temporal(def, params, input, extra, state, t, cache)?),
+        };
+        cache.lock().unwrap().insert(ck, out.clone());
+        Ok(out)
+    }
+}
+
+fn union_times(lists: impl Iterator<Item = Vec<f64>>) -> Vec<f64> {
+    let mut t: Vec<f64> = lists.flatten().collect();
+    t.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    t.dedup_by(|a, b| (*a - *b).abs() <= 1e-12 * (1.0 + a.abs()));
+    t
+}
+
+fn run_temporal(def: &FilterDef, params: &Params, input: &Plan, extra: &[Arc<DataSet>], state: &TemporalState, t: f64, cache: &PlanCache) -> Result<DataSet> {
+    let times = input.times();
+    let fetch = |tau: f64| input.eval(tau, cache);
+    let ctx = aurafx_filters::temporal::TemporalCtx { time: t, input_times: &times, fetch: &fetch, extra, state: &state.0, key: input.fingerprint() };
+    def.run_temporal(&ctx, params)
+}
+
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     Reader { path: PathBuf, loaded: Loaded },
@@ -48,6 +162,11 @@ pub struct Node {
     /// When watching, jump to the newest time step after a reload.
     pub follow_latest: bool,
     pub(crate) file_signature: u64,
+    /// Kept between runs of temporal filters.
+    pub temporal_state: TemporalState,
+    /// (upstream + parameter fingerprint, time) of a temporal filter's current output, so a
+    /// time change does not re-run filters whose result does not depend on it.
+    pub(crate) temporal_key: Option<(u64, f64)>,
 }
 
 impl Node {
@@ -72,6 +191,8 @@ impl Node {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            temporal_state: TemporalState::default(),
+            temporal_key: None,
         }
     }
 
@@ -155,6 +276,7 @@ enum WorkKind {
     LoadStep { step: aurafx_data::TimeStepRef, index: usize },
     Static(Arc<DataSet>),
     Run { def: Arc<FilterDef>, params: Params, input: Option<Arc<DataSet>>, extra: Vec<Arc<DataSet>> },
+    Temporal { def: Arc<FilterDef>, params: Params, input: Plan, extra: Vec<Arc<DataSet>>, state: TemporalState, time: f64 },
 }
 
 impl WorkItem {
@@ -168,6 +290,10 @@ impl WorkItem {
                 def.run_multi(&all, params).map(Arc::new)
             }
             WorkKind::Run { def, params, input, .. } => def.run(input.as_deref(), params).map(Arc::new),
+            WorkKind::Temporal { def, params, input, extra, state, time } => {
+                let cache = PlanCache::default();
+                run_temporal(def, params, input, extra, state, *time, &cache).map(Arc::new)
+            }
         }
     }
 }
@@ -312,6 +438,8 @@ impl Session {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            temporal_state: TemporalState::default(),
+            temporal_key: None,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -349,6 +477,8 @@ impl Session {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            temporal_state: TemporalState::default(),
+            temporal_key: None,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -390,6 +520,8 @@ impl Session {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            temporal_state: TemporalState::default(),
+            temporal_key: None,
         };
         // ParaView-style: hide the input when adding a filter that replaces its look.
         if matches!(
@@ -406,6 +538,10 @@ impl Session {
                 | "cell_data_to_point_data"
                 | "point_data_to_cell_data"
                 | "merge_blocks"
+                | "temporal_interpolator"
+                | "temporal_shift_scale"
+                | "temporal_array_operator"
+                | "temporal_statistics"
         ) {
             if let Some(n) = self.nodes.get_mut(&input) {
                 n.visible = false;
@@ -420,6 +556,9 @@ impl Session {
             _ => {}
         }
         self.trace.push(format!("{} = {}.{}()", self.py_var(id), self.py_var(input), def.id));
+        if def.temporal.is_some() {
+            self.rebuild_times();
+        }
         self.touch();
         Ok(id)
     }
@@ -627,19 +766,93 @@ impl Session {
             }
         }
         self.generation += 1;
+        // Temporal filters derive their time steps from their parameters and inputs.
+        if self.nodes.get(&id).and_then(|n| n.def()).is_some_and(|d| d.temporal.is_some()) {
+            self.rebuild_times();
+        }
         self.touch();
     }
 
     // ------------------------------------------------------------------ time
 
     fn rebuild_times(&mut self) {
-        let mut t: Vec<f64> = self.nodes.values().filter_map(|n| n.series()).flat_map(|s| s.times.iter().copied()).collect();
-        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        t.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
+        let before = self.current_time();
+        let ids: Vec<NodeId> = self.nodes.keys().copied().collect();
+        let t = union_times(ids.into_iter().map(|id| self.node_times(id, 0)));
+        if t == self.times {
+            return;
+        }
         self.times = t;
+        // Stay at the same time value when filters add or remove time steps.
+        self.time_index = match before {
+            Some(b) => self.times.iter().rposition(|&x| x <= b + 1e-12 * (1.0 + b.abs())).unwrap_or(0),
+            None => 0,
+        };
         if self.time_index >= self.times.len() {
             self.time_index = self.times.len().saturating_sub(1);
         }
+    }
+
+    /// Time steps of a node's output: a reader's steps, mapped through temporal filters,
+    /// united over the inputs of ordinary filters.
+    pub fn node_times(&self, id: NodeId, depth: usize) -> Vec<f64> {
+        let Some(n) = self.nodes.get(&id) else { return Vec::new() };
+        if depth > 256 {
+            return Vec::new();
+        }
+        match &n.kind {
+            NodeKind::Reader { loaded: Loaded::Series(s), .. } => s.times.clone(),
+            NodeKind::Reader { .. } | NodeKind::Source { .. } => Vec::new(),
+            NodeKind::Filter { def } => match def.temporal {
+                Some(t) => (t.output_times)(&n.params, &n.input.map(|i| self.node_times(i, depth + 1)).unwrap_or_default()),
+                None => union_times(n.input.iter().chain(n.extra_inputs.iter()).map(|&i| self.node_times(i, depth + 1))),
+            },
+        }
+    }
+
+    /// Whether a node's output can change with time (a reader with steps somewhere upstream).
+    fn time_dependent(&self, id: NodeId, depth: usize) -> bool {
+        let Some(n) = self.nodes.get(&id) else { return false };
+        if depth > 256 {
+            return false;
+        }
+        match &n.kind {
+            NodeKind::Reader { loaded: Loaded::Series(_), .. } => true,
+            NodeKind::Reader { .. } | NodeKind::Source { .. } => false,
+            NodeKind::Filter { .. } => n.input.iter().chain(n.extra_inputs.iter()).any(|&i| self.time_dependent(i, depth + 1)),
+        }
+    }
+
+    /// Build the evaluable upstream pipeline of node `id` (all of it is clean when called).
+    fn plan(&self, id: NodeId, depth: usize) -> Result<Plan> {
+        let n = self.nodes.get(&id).ok_or_else(|| anyhow!("node {id} does not exist"))?;
+        let data = || n.output.clone().ok_or_else(|| anyhow!("input \"{}\" has no data", n.name));
+        if depth > 256 {
+            return Err(anyhow!("pipeline too deep"));
+        }
+        if !self.time_dependent(id, 0) {
+            return Ok(Plan::Fixed(data()?));
+        }
+        Ok(match &n.kind {
+            NodeKind::Reader { loaded: Loaded::Series(s), .. } => Plan::Series { series: s.clone(), current: n.output_time_index.zip(n.output.clone()) },
+            NodeKind::Reader { .. } | NodeKind::Source { .. } => Plan::Fixed(data()?),
+            NodeKind::Filter { def } if def.temporal.is_some() => Plan::Temporal {
+                def: def.clone(),
+                params: n.params.clone(),
+                input: Box::new(self.plan(n.input.ok_or_else(|| anyhow!("no input"))?, depth + 1)?),
+                extra: n
+                    .extra_inputs
+                    .iter()
+                    .map(|e| self.nodes.get(e).and_then(|x| x.output.clone()).ok_or_else(|| anyhow!("an input has no data")))
+                    .collect::<Result<_>>()?,
+                state: n.temporal_state.clone(),
+            },
+            NodeKind::Filter { def } => Plan::Run {
+                def: def.clone(),
+                params: n.params.clone(),
+                inputs: n.input.iter().chain(n.extra_inputs.iter()).map(|&i| self.plan(i, depth + 1)).collect::<Result<_>>()?,
+            },
+        })
     }
 
     pub fn current_time(&self) -> Option<f64> {
@@ -733,7 +946,45 @@ impl Session {
                         self.touch();
                         continue;
                     }
-                    WorkKind::Run { def: def.clone(), params: n.params.clone(), input: n.input.and_then(|i| self.nodes[&i].output.clone()), extra }
+                    if def.temporal.is_some() {
+                        match n.input.ok_or_else(|| anyhow!("no input")).and_then(|i| self.plan(i, 0)) {
+                            Ok(plan) => {
+                                let time = self.current_time().or_else(|| plan.times().first().copied()).unwrap_or(0.0);
+                                let key = {
+                                    use std::hash::{Hash, Hasher};
+                                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                                    plan.key(&mut h);
+                                    serde_json::to_string(&n.params).unwrap_or_default().hash(&mut h);
+                                    for e in &extra {
+                                        (Arc::as_ptr(e) as usize).hash(&mut h);
+                                    }
+                                    h.finish()
+                                };
+                                let time_free = (def.temporal.unwrap().output_times)(&n.params, &plan.times()).is_empty();
+                                if n.output.is_some() && n.temporal_key.is_some_and(|(k, t)| k == key && (time_free || t == time)) {
+                                    let nm = self.nodes.get_mut(&id).unwrap();
+                                    nm.dirty = false;
+                                    self.touch();
+                                    continue;
+                                }
+                                let (def, params, state) = (def.clone(), n.params.clone(), n.temporal_state.clone());
+                                self.nodes.get_mut(&id).unwrap().temporal_key = Some((key, time));
+                                WorkKind::Temporal { def, params, input: plan, extra, state, time }
+                            }
+                            Err(e) => {
+                                let nm = self.nodes.get_mut(&id).unwrap();
+                                nm.error = Some(format!("{e:#}"));
+                                nm.output = None;
+                                nm.info = None;
+                                nm.dirty = false;
+                                self.data_revision += 1;
+                                self.touch();
+                                continue;
+                            }
+                        }
+                    } else {
+                        WorkKind::Run { def: def.clone(), params: n.params.clone(), input: n.input.and_then(|i| self.nodes[&i].output.clone()), extra }
+                    }
                 }
             };
             let nm = self.nodes.get_mut(&id).unwrap();
@@ -793,6 +1044,7 @@ impl Session {
             }
             Err(e) => {
                 let name = n.name.clone();
+                n.temporal_key = None;
                 n.error = Some(format!("{e:#}"));
                 n.output = None;
                 n.info = None;
@@ -880,97 +1132,12 @@ impl Session {
         Ok(n)
     }
 
+    /// Add a live Temporal Statistics filter (average/min/max/stddev over all time steps).
     pub fn temporal_statistics(&mut self, id: NodeId) -> Result<NodeId> {
-        if self.times.len() < 2 {
+        if self.node_times(id, 0).len() < 2 {
             return Err(anyhow!("temporal statistics need a time series"));
         }
-        let saved = self.time_index;
-        let name = self.nodes.get(&id).map(|n| n.name.clone()).ok_or_else(|| anyhow!("node {id} does not exist"))?;
-        struct Acc {
-            sum: Vec<f64>,
-            sq: Vec<f64>,
-            min: Vec<f64>,
-            max: Vec<f64>,
-            ncomp: usize,
-        }
-        let mut template: Option<DataSet> = None;
-        // (leaf index, is_cell, array name) -> accumulator
-        let mut accs: indexmap::IndexMap<(usize, bool, String), Acc> = indexmap::IndexMap::new();
-        let steps = self.times.len();
-        for t in 0..steps {
-            self.set_time_index(t);
-            self.update_blocking();
-            let n = self.nodes.get(&id).ok_or_else(|| anyhow!("node removed"))?;
-            let ds = n.output.clone().ok_or_else(|| anyhow!("{}: {}", n.name, n.error.clone().unwrap_or_else(|| "no output".into())))?;
-            let leaves = aurafx_filters::selection::flat_leaves(&ds);
-            if template.is_none() {
-                template = Some((*ds).clone());
-            }
-            for (li, (leaf, _, _)) in leaves.iter().enumerate() {
-                for (is_cell, attrs) in [(false, leaf.point_data()), (true, leaf.cell_data())] {
-                    let Some(attrs) = attrs else { continue };
-                    for a in attrs.iter().filter(|a| a.scalar_type() != aurafx_data::ScalarType::String) {
-                        let len = a.data.len();
-                        let e = accs.entry((li, is_cell, a.name.clone())).or_insert_with(|| Acc {
-                            sum: vec![0.0; len],
-                            sq: vec![0.0; len],
-                            min: vec![f64::INFINITY; len],
-                            max: vec![f64::NEG_INFINITY; len],
-                            ncomp: a.ncomp,
-                        });
-                        if e.sum.len() != len {
-                            continue; // topology changed; skip this array at this step
-                        }
-                        for i in 0..len {
-                            let v = a.data.get_f64(i);
-                            e.sum[i] += v;
-                            e.sq[i] += v * v;
-                            e.min[i] = e.min[i].min(v);
-                            e.max[i] = e.max[i].max(v);
-                        }
-                    }
-                }
-            }
-        }
-        self.set_time_index(saved);
-        let mut out = template.ok_or_else(|| anyhow!("no data"))?;
-        let nf = steps as f64;
-        let fill = |leaf: &mut DataSet, li: usize, accs: &indexmap::IndexMap<(usize, bool, String), Acc>| {
-            for ((l, is_cell, name), a) in accs {
-                if *l != li {
-                    continue;
-                }
-                let attrs = if *is_cell { leaf.cell_data_mut() } else { leaf.point_data_mut() };
-                let Some(attrs) = attrs else { continue };
-                attrs.remove(name);
-                let mean: Vec<f64> = a.sum.iter().map(|s| s / nf).collect();
-                let std: Vec<f64> = a.sq.iter().zip(&mean).map(|(q, m)| (q / nf - m * m).max(0.0).sqrt()).collect();
-                attrs.insert(aurafx_data::Array::new(format!("{name}_average"), a.ncomp, aurafx_data::ArrayData::F64(mean)));
-                attrs.insert(aurafx_data::Array::new(format!("{name}_minimum"), a.ncomp, aurafx_data::ArrayData::F64(a.min.clone())));
-                attrs.insert(aurafx_data::Array::new(format!("{name}_maximum"), a.ncomp, aurafx_data::ArrayData::F64(a.max.clone())));
-                attrs.insert(aurafx_data::Array::new(format!("{name}_stddev"), a.ncomp, aurafx_data::ArrayData::F64(std)));
-            }
-        };
-        match &mut out {
-            DataSet::MultiBlock(mb) => {
-                fn walk(mb: &mut aurafx_data::MultiBlock, li: &mut usize, f: &mut dyn FnMut(&mut DataSet, usize)) {
-                    for (_, b) in mb.blocks.iter_mut() {
-                        match b {
-                            Some(DataSet::MultiBlock(inner)) => walk(inner, li, f),
-                            Some(d) => {
-                                f(d, *li);
-                                *li += 1;
-                            }
-                            None => {}
-                        }
-                    }
-                }
-                let mut li = 0;
-                walk(mb, &mut li, &mut |d, i| fill(d, i, &accs));
-            }
-            d => fill(d, 0, &accs),
-        }
-        Ok(self.add_data(&format!("{name} temporal statistics"), out))
+        self.add_filter("temporal_statistics", id)
     }
 
     pub fn add_series(&mut self, name: impl Into<String>, x: Vec<f64>, y: Vec<f64>) {

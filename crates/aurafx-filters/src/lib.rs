@@ -22,9 +22,10 @@ pub mod slice;
 pub mod sources;
 pub mod streamlines;
 pub mod surface;
+pub mod temporal;
 pub mod threshold;
 pub mod transform;
 pub mod warp;
 
 pub use params::{param_from_json, param_to_json, Association, ParamKind, ParamSpec, ParamValue, Params};
-pub use registry::{default_array, find, registry, search, FilterDef, MultiInput};
+pub use registry::{default_array, find, registry, search, FilterDef, MultiInput, Temporal};

@@ -63,7 +63,10 @@ pub struct Renderer {
     pub width: u32,
     pub height: u32,
     color: wgpu::Texture,
+    /// sRGB view used as the resolve target (hardware encodes linear -> sRGB).
     color_view: wgpu::TextureView,
+    /// Plain-format view of the same bytes for display by egui (which expects gamma-encoded data).
+    display_view: wgpu::TextureView,
     msaa_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
     bgl: wgpu::BindGroupLayout,
@@ -153,7 +156,7 @@ impl Renderer {
         let pipe_lines = make_pipeline("lines", "vs_mesh", "fs_line", wgpu::PrimitiveTopology::LineList, wgpu::VertexStepMode::Vertex, true, false);
         let pipe_points = make_pipeline("points", "vs_point", "fs_point", wgpu::PrimitiveTopology::TriangleList, wgpu::VertexStepMode::Instance, true, false);
 
-        let (color, color_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16);
+        let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16);
         Self {
             device,
             queue,
@@ -161,6 +164,7 @@ impl Renderer {
             height: 16,
             color,
             color_view,
+            display_view,
             msaa_view,
             depth_view,
             bgl,
@@ -174,7 +178,7 @@ impl Renderer {
         }
     }
 
-    fn make_targets(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::Texture, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
+    fn make_targets(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::Texture, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
         let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
         let color = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("viewport color"),
@@ -182,9 +186,9 @@ impl Renderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: COLOR_FORMAT,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
+            view_formats: &[COLOR_FORMAT],
         });
         let msaa = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("viewport msaa"),
@@ -206,10 +210,11 @@ impl Renderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        let cv = color.create_view(&Default::default());
+        let cv = color.create_view(&wgpu::TextureViewDescriptor { format: Some(COLOR_FORMAT), ..Default::default() });
+        let disp = color.create_view(&wgpu::TextureViewDescriptor { format: Some(wgpu::TextureFormat::Rgba8Unorm), ..Default::default() });
         let mv = msaa.create_view(&Default::default());
         let dv = depth.create_view(&Default::default());
-        (color, cv, mv, dv)
+        (color, cv, disp, mv, dv)
     }
 
     /// Returns true if the target was recreated (the UI must re-register the texture).
@@ -218,9 +223,10 @@ impl Renderer {
         if w == self.width && h == self.height {
             return false;
         }
-        let (c, cv, mv, dv) = Self::make_targets(&self.device, w, h);
+        let (c, cv, disp, mv, dv) = Self::make_targets(&self.device, w, h);
         self.color = c;
         self.color_view = cv;
+        self.display_view = disp;
         self.msaa_view = mv;
         self.depth_view = dv;
         self.width = w;
@@ -228,8 +234,9 @@ impl Renderer {
         true
     }
 
+    /// View to hand to the UI for display.
     pub fn color_view(&self) -> &wgpu::TextureView {
-        &self.color_view
+        &self.display_view
     }
 
     pub fn device(&self) -> &wgpu::Device {
@@ -331,7 +338,7 @@ impl Renderer {
         for d in draws {
             let g = &self.nodes[&d.id];
             let origin = DVec3::from_array(d.mesh.origin);
-            let vp = camera.view_proj_f32(aspect, -origin);
+            let vp = camera.view_proj_f32(aspect, origin);
             let cam_rel = (camera.eye - origin).as_vec3();
             let (lo, hi) = d.mesh.scalar_range.unwrap_or((0.0, 1.0));
             let u = NodeUniform {
@@ -434,4 +441,34 @@ impl Renderer {
 fn srgb_to_linear(c: f32) -> f64 {
     let c = c as f64;
     if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+/// Create a renderer on a headless device (no window), for batch rendering and tests.
+pub fn headless(width: u32, height: u32) -> Result<Renderer> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let adapter = pollster_block(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }))?;
+    let info = adapter.get_info();
+    let (device, queue) = pollster_block(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
+    let mut r = Renderer::new(device, queue, format!("{} ({:?})", info.name, info.backend));
+    r.resize(width, height);
+    Ok(r)
+}
+
+fn pollster_block<F: std::future::Future>(f: F) -> F::Output {
+    // Minimal executor: wgpu's native futures resolve without an external reactor.
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    fn noop(_: *const ()) {}
+    fn clone(p: *const ()) -> RawWaker {
+        RawWaker::new(p, &VTABLE)
+    }
+    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
+    let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
+    let mut cx = Context::from_waker(&waker);
+    let mut f = std::pin::pin!(f);
+    loop {
+        if let Poll::Ready(v) = f.as_mut().poll(&mut cx) {
+            return v;
+        }
+        std::thread::yield_now();
+    }
 }

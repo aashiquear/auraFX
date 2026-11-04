@@ -39,11 +39,22 @@ impl DataSetInfo {
     pub fn of(ds: &DataSet) -> Self {
         let (pa, ca) = match ds {
             DataSet::MultiBlock(m) => {
-                let first = m.leaves().into_iter().next().map(|(_, d)| d);
-                (
-                    first.and_then(|d| d.point_data()).map(arrays).unwrap_or_default(),
-                    first.and_then(|d| d.cell_data()).map(arrays).unwrap_or_default(),
-                )
+                // Arrays present in the first leaf, with ranges merged over every leaf that has them.
+                let leaves = m.leaves();
+                let merge = |get: &dyn Fn(&DataSet) -> Option<&Attributes>| -> Vec<ArrayInfo> {
+                    let Some(first) = leaves.first().and_then(|(_, d)| get(d)) else { return vec![] };
+                    let mut out = arrays(first);
+                    for a in &mut out {
+                        for (_, d) in leaves.iter().skip(1) {
+                            if let Some(x) = get(d).and_then(|at| at.get(&a.name)) {
+                                let r = x.range(None);
+                                a.range = (a.range.0.min(r.0), a.range.1.max(r.1));
+                            }
+                        }
+                    }
+                    out
+                };
+                (merge(&|d: &DataSet| d.point_data()), merge(&|d: &DataSet| d.cell_data()))
             }
             DataSet::Table(t) => (arrays(&t.columns), vec![]),
             _ => (ds.point_data().map(arrays).unwrap_or_default(), ds.cell_data().map(arrays).unwrap_or_default()),

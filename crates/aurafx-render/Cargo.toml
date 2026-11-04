@@ -16,3 +16,7 @@ rayon.workspace = true
 tracing.workspace = true
 wgpu = "30"
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+aurafx-io.workspace = true
+pollster = "0.4"

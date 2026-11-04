@@ -3,7 +3,9 @@
 //! Entry point: [`read_file`], which sniffs the format from the extension (and a few
 //! magic bytes) and returns either a single dataset or a lazily-loaded time series.
 
+pub mod exodus;
 pub mod lammps;
+pub mod netcdf3;
 pub mod legacy_vtk;
 pub mod xml_vtk;
 pub mod csv;
@@ -25,6 +27,7 @@ pub enum Loaded {
 /// (extension, description) pairs for file dialogs.
 pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
     vec![
+        (&["e", "exo", "ex2", "exii", "g", "gen"], "Exodus II"),
         (&["vtk"], "Legacy VTK"),
         (&["vtu", "vtp", "vti", "vtr", "vts", "vtt"], "VTK XML"),
         (&["pvtu", "pvtp", "pvti", "pvtr", "pvts"], "VTK XML (parallel)"),
@@ -54,6 +57,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     let path = path.as_ref();
     let ext = ext_of(path);
     let loaded = match ext.as_str() {
+        "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),
         "vtu" | "vtp" | "vti" | "vtr" | "vts" | "vtt" | "pvtu" | "pvtp" | "pvti" | "pvtr" | "pvts" | "vtm" | "vtmb" => {
             Loaded::Static(Arc::new(xml_vtk::read(path)?))
@@ -69,6 +73,8 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
                 Loaded::Static(Arc::new(legacy_vtk::read(path)?))
             } else if head.starts_with(b"<?xml") || head.starts_with(b"<VTKFile") {
                 Loaded::Static(Arc::new(xml_vtk::read(path)?))
+            } else if head.starts_with(b"CDF") {
+                exodus::open(path)?
             } else if head.starts_with(b"ITEM: TIMESTEP") {
                 lammps::open(path)?
             } else {
@@ -90,7 +96,13 @@ pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
                 load_step(first)
             }
         },
-        TimeStepRef::FileFrame { path, frame } => lammps::read_frame(path, *frame).map(Arc::new),
+        TimeStepRef::FileFrame { path, frame } => {
+            if exodus::is_exodus_ext(path) {
+                exodus::read_step(path, *frame).map(Arc::new)
+            } else {
+                lammps::read_frame(path, *frame).map(Arc::new)
+            }
+        }
     }
 }
 

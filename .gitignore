@@ -6,3 +6,7 @@ __pycache__/
 *.pyc
 .DS_Store
 /dist
+# Large sample data (copied from ParaView examples or generated; see testdata/README.md)
+/testdata/can.ex2
+/testdata/bake.e
+/testdata/fcc_melt.dump

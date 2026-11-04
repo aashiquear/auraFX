@@ -112,3 +112,28 @@ fn lammps_dump_and_gz() {
         }
     }
 }
+
+#[test]
+fn exodus_examples() {
+    for (name, min_blocks) in [("disk_out_ref.ex2", 1), ("can.ex2", 2), ("bake.e", 1)] {
+        let p = td(name);
+        if !p.exists() {
+            eprintln!("skipping {name}: not present");
+            continue;
+        }
+        let loaded = read_file(&p).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let ds = match loaded {
+            Loaded::Static(d) => d,
+            Loaded::Series(s) => {
+                assert!(s.times.len() > 1);
+                load_step(s.steps.last().unwrap()).unwrap()
+            }
+        };
+        let aurafx_data::DataSet::MultiBlock(mb) = &*ds else { panic!("{name}: expected multiblock") };
+        let leaves = mb.leaves();
+        assert!(leaves.len() >= min_blocks, "{name}: {} blocks", leaves.len());
+        assert!(ds.n_cells() > 0 && ds.n_points() > 0);
+        let info = aurafx_data::DataSetInfo::of(&ds);
+        eprintln!("{name}: {}", info.summary());
+    }
+}

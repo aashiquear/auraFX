@@ -287,3 +287,86 @@ fn quadratic_cells_render_curved() {
         .sum();
     assert!(area > 4.0 && area < 4.3, "consistent winding, area {area}");
 }
+
+fn multi(id: &str, inputs: &[&DataSet], set: &[(&str, serde_json::Value)]) -> Result<DataSet, String> {
+    let def = find(id).unwrap_or_else(|| panic!("no filter {id}"));
+    let mut p = def.default_params();
+    for (k, v) in set {
+        p.set_json(k, v);
+    }
+    def.run_multi(inputs, &p).map_err(|e| format!("{e:#}"))
+}
+
+#[test]
+fn append_filters_match_paraview() {
+    use serde_json::json;
+    // ParaView 6.1.1: Append Datasets(Wavelet -3..3, same shifted by 10 in x) -> 686 points,
+    // 432 cells, RTData 37.3531..263.4803.
+    let w = DataSet::ImageData(aurafx_filters::sources::wavelet([-3, 3, -3, 3, -3, 3], 255.0, 0.5));
+    let mut shifted = w.clone();
+    if let DataSet::ImageData(i) = &mut shifted {
+        i.origin[0] += 10.0;
+    }
+    let a = multi("append_datasets", &[&w, &shifted], &[]).unwrap();
+    assert!(matches!(a, DataSet::UnstructuredGrid(_)));
+    assert_eq!((a.n_points(), a.n_cells()), (686, 432));
+    let (lo, hi) = a.point_data().unwrap().get("RTData").unwrap().range(None);
+    assert!((lo - 37.3531).abs() < 1e-3 && (hi - 263.4803).abs() < 1e-3, "{lo} {hi}");
+    assert!((a.bounds().max[0] - 13.0).abs() < 1e-12);
+
+    // Sphere + Cone (our sources tessellate differently from VTK's, so counts are the sums).
+    // Arrays that only one input has (the sphere's Normals) are dropped, as in ParaView.
+    let s = run("sphere", None, &[("theta", json!(8)), ("phi", json!(8))]);
+    let c = run("cone", None, &[]);
+    assert!(s.point_data().unwrap().get("Normals").is_some() && c.point_data().unwrap().get("Normals").is_none());
+    let (np, nc) = (s.n_points() + c.n_points(), s.n_cells() + c.n_cells());
+    let a = multi("append_datasets", &[&s, &c], &[]).unwrap();
+    assert_eq!((a.n_points(), a.n_cells()), (np, nc));
+    assert!(a.point_data().unwrap().get("Normals").is_none());
+    let g = multi("append_geometry", &[&s, &c], &[]).unwrap();
+    let DataSet::PolyData(pg) = &g else { panic!("append geometry gives polydata") };
+    assert_eq!((g.n_points(), g.n_cells()), (np, nc));
+    // Cone polygons index the cone's points, which come after the sphere's.
+    let ns = s.n_points() as u32;
+    assert!(pg.polys.iter().any(|(_, p)| p.iter().all(|&i| i >= ns)));
+    assert!(multi("append_geometry", &[&s, &w], &[]).unwrap_err().contains("polygonal"));
+
+    // Append Attributes(Wavelet, Elevation(Wavelet)): RTData, RTData_input_1, Elevation.
+    let e = run("elevation", Some(&w), &[]);
+    let at = multi("append_attributes", &[&w, &e], &[]).unwrap();
+    let names: Vec<&str> = at.point_data().unwrap().names().collect();
+    assert_eq!(names, ["RTData", "RTData_input_1", "Elevation"]);
+    assert!(matches!(at, DataSet::ImageData(_)));
+    assert!(multi("append_attributes", &[&w, &s], &[]).is_err());
+}
+
+#[test]
+fn resample_with_dataset_matches_paraview() {
+    use serde_json::json;
+    // ParaView 6.1.1: Resample With Dataset(source Wavelet -10..10, destination Sphere r=12,
+    // 16x16): 226 points, 104 valid, sum(RTData) 12917.279 (0 outside), max 149.4725.
+    let w = DataSet::ImageData(aurafx_filters::sources::wavelet([-10, 10, -10, 10, -10, 10], 255.0, 0.5));
+    let s = run("sphere", None, &[("radius", json!(12.0)), ("theta", json!(16)), ("phi", json!(16))]);
+    let r = multi("resample_with_dataset", &[&w, &s], &[]).unwrap();
+    assert!(matches!(r, DataSet::PolyData(_)));
+    let pd = r.point_data().unwrap();
+    let mask = pd.get("vtkValidPointMask").unwrap();
+    assert_eq!(mask.scalar_type(), ScalarType::U8);
+    let valid: f64 = (0..r.n_points()).map(|i| mask.get(i, 0)).sum();
+    assert_eq!((r.n_points(), valid as usize), (226, 104));
+    let rt = pd.get("RTData").unwrap();
+    let sum: f64 = (0..r.n_points()).map(|i| rt.get(i, 0)).sum();
+    let (_, hi) = rt.range(None);
+    assert!((sum - 12917.279).abs() < 0.05, "sum {sum}");
+    assert!((hi - 149.4725).abs() < 1e-3, "max {hi}");
+    assert!(pd.get("Normals").is_none(), "destination arrays are not passed by default");
+    let keep = multi("resample_with_dataset", &[&w, &s], &[("pass_point_arrays", json!(true))]).unwrap();
+    assert!(keep.point_data().unwrap().get("Normals").is_some());
+    // Cell data of the source becomes point data (ParaView: same 104 valid, sum 12773.920).
+    let cd = run("point_data_to_cell_data", Some(&w), &[]);
+    let r = multi("resample_with_dataset", &[&cd, &s], &[]).unwrap();
+    let rt = r.point_data().unwrap().get("RTData").unwrap();
+    let sum: f64 = (0..r.n_points()).map(|i| rt.get(i, 0)).sum();
+    assert!((sum - 12773.92).abs() < 0.05, "cell sum {sum}");
+    assert!(multi("resample_with_dataset", &[&w], &[]).unwrap_err().contains("destination"));
+}

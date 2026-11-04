@@ -21,6 +21,7 @@ pub struct NodeSnap {
     pub kind: KindSnap,
     pub params: Params,
     pub input: Option<NodeId>,
+    pub extra_inputs: Vec<NodeId>,
     pub visible: bool,
     pub display: DisplayProps,
     pub auto_colored: bool,
@@ -64,6 +65,7 @@ impl Session {
                     kind: kind_snap(n),
                     params: n.params.clone(),
                     input: n.input,
+                    extra_inputs: n.extra_inputs.clone(),
                     visible: n.visible,
                     display: n.display.clone(),
                     auto_colored: n.auto_colored,
@@ -92,12 +94,13 @@ impl Session {
                     }
                 }
             };
-            if !reuse || node.params != ns.params || node.input != ns.input {
+            if !reuse || node.params != ns.params || node.input != ns.input || node.extra_inputs != ns.extra_inputs {
                 changed.push(ns.id);
             }
             node.name = ns.name.clone();
             node.params = ns.params.clone();
             node.input = ns.input;
+            node.extra_inputs = ns.extra_inputs.clone();
             node.visible = ns.visible;
             node.display = ns.display.clone();
             node.auto_colored = ns.auto_colored;
@@ -221,6 +224,7 @@ impl Session {
                     "type": what,
                     "relative_path": rel,
                     "input": n.input,
+                    "extra_inputs": n.extra_inputs,
                     "visible": n.visible,
                     "params": params,
                     "display": n.display,
@@ -287,6 +291,7 @@ impl Session {
                 kind,
                 params,
                 input: n.get("input").and_then(|v| v.as_u64()),
+                extra_inputs: n.get("extra_inputs").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default(),
                 visible: n.get("visible").and_then(|v| v.as_bool()).unwrap_or(true),
                 display: n.get("display").cloned().and_then(|d| serde_json::from_value(d).ok()).unwrap_or_default(),
                 auto_colored: true,

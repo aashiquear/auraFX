@@ -41,7 +41,12 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
         dirty: bool,
         error: Option<String>,
         summary: String,
+        selected: bool,
+        /// Names of the extra inputs of multi-input filters.
+        extra: Vec<String>,
     }
+    state.pipeline_selection.retain(|n| state.session.lock().nodes.contains_key(n));
+    let multi_sel = state.pipeline_selection.clone();
     let rows: Vec<Row> = {
         let s = state.session.lock();
         let depth_of = |mut id: NodeId| {
@@ -81,6 +86,8 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                     dirty: n.dirty,
                     error: n.error.clone(),
                     summary: n.info.as_ref().map(|i| format!("{}: {} points, {} cells", i.kind, i.n_points, i.n_cells)).unwrap_or_default(),
+                    selected: multi_sel.contains(&id),
+                    extra: n.extra_inputs.iter().filter_map(|e| s.nodes.get(e)).map(|e| e.name.clone()).collect(),
                 }
             })
             .collect()
@@ -90,6 +97,20 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
         ui.label(RichText::new("Nothing loaded yet.").weak());
         ui.label(RichText::new("Open a file, drop one onto the window, or add a source from the Sources menu.").weak().small());
         return;
+    }
+    if multi_sel.len() >= 2 {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(format!("{} selected", multi_sel.len())).strong());
+            for (id, label) in [("append_datasets", "Append"), ("append_attributes", "Append arrays")] {
+                let tip = aurafx_filters::find(id).map(|d| d.description).unwrap_or_default();
+                if ui.small_button(label).on_hover_text(tip).clicked() {
+                    state.add_filter(id);
+                }
+            }
+            if ui.small_button("Clear").on_hover_text("Select only the active node").clicked() {
+                state.pipeline_selection.clear();
+            }
+        });
     }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for r in rows {
@@ -105,11 +126,40 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                 } else if !r.visible {
                     text = text.weak();
                 }
-                let resp = ui.selectable_label(r.active, text);
-                let hover = if let Some(e) = &r.error { format!("{}\nERROR: {e}", r.kind) } else { format!("{}\n{}", r.kind, r.summary) };
+                let resp = ui.selectable_label(r.active || r.selected, text);
+                let mut hover = if let Some(e) = &r.error { format!("{}\nERROR: {e}", r.kind) } else { format!("{}\n{}", r.kind, r.summary) };
+                if !r.extra.is_empty() {
+                    hover += &format!("\nAlso reads: {}", r.extra.join(", "));
+                }
+                hover += "\nCtrl+click to select several (for Append and other multi-input filters)";
                 let resp = resp.on_hover_text(hover);
                 if resp.clicked() {
-                    state.session.lock().active = Some(r.id);
+                    let ctrl = ui.input(|i| i.modifiers.command);
+                    let mut s = state.session.lock();
+                    if ctrl {
+                        let sel = &mut state.pipeline_selection;
+                        if sel.is_empty() {
+                            sel.extend(s.active.filter(|&a| a != r.id));
+                        }
+                        if let Some(k) = sel.iter().position(|&x| x == r.id) {
+                            sel.remove(k);
+                            if s.active == Some(r.id) {
+                                s.active = sel.last().copied();
+                            }
+                        } else {
+                            sel.push(r.id);
+                            s.active = Some(r.id);
+                        }
+                        if sel.len() < 2 {
+                            sel.clear();
+                        }
+                    } else {
+                        state.pipeline_selection.clear();
+                        s.active = Some(r.id);
+                    }
+                }
+                if !r.extra.is_empty() {
+                    ui.label(RichText::new(format!("+{}", r.extra.len())).weak().small()).on_hover_text(format!("Also reads: {}", r.extra.join(", ")));
                 }
                 if resp.double_clicked() {
                     state.rename_target = Some((r.id, r.name.clone()));
@@ -166,6 +216,16 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                         }
                     });
                     ui.separator();
+                    if r.selected && multi_sel.len() >= 2 {
+                        ui.menu_button(format!("{} Combine {} selected", crate::icons::PLUS, multi_sel.len()), |ui| {
+                            for f in aurafx_filters::registry().iter().filter(|f| f.multi.is_some_and(|m| m.max.is_none_or(|x| x >= multi_sel.len()))) {
+                                if ui.button(f.label).on_hover_text(f.description).clicked() {
+                                    state.add_filter(f.id);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
                     ui.menu_button("Add filter", |ui| {
                         for f in aurafx_filters::registry().iter().filter(|f| !f.is_source) {
                             if ui.button(f.label).clicked() {
@@ -385,6 +445,78 @@ fn param_widget(
     out
 }
 
+/// Inputs of a multi-input filter: the pipeline input plus extra inputs that can be added,
+/// removed or (for single-extra filters like Resample With Dataset) picked from a list.
+fn inputs_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId, m: aurafx_filters::MultiInput) {
+    let (primary, extra, candidates) = {
+        let s = state.session.lock();
+        let Some(n) = s.nodes.get(&id) else { return };
+        let name = |i: &NodeId| s.nodes.get(i).map(|x| x.name.clone()).unwrap_or_default();
+        let below = s.downstream(id);
+        let primary = n.input.map(|i| name(&i)).unwrap_or_default();
+        let extra: Vec<(NodeId, String)> = n.extra_inputs.iter().map(|e| (*e, name(e))).collect();
+        let candidates: Vec<(NodeId, String)> = s
+            .nodes
+            .values()
+            .filter(|x| !below.contains(&x.id) && Some(x.id) != n.input && !n.extra_inputs.contains(&x.id))
+            .map(|x| (x.id, x.name.clone()))
+            .collect();
+        (primary, extra, candidates)
+    };
+    let single = m.max == Some(2);
+    let mut new_extra: Option<Vec<NodeId>> = None;
+    egui::CollapsingHeader::new(RichText::new("Inputs").strong()).default_open(true).show(ui, |ui| {
+        egui::Grid::new(("inputs", id)).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+            ui.label(if single { "Data" } else { "Input 1" });
+            ui.label(RichText::new(&primary).strong());
+            ui.end_row();
+            if single {
+                ui.label(m.label);
+                let cur = extra.first().map(|e| e.1.clone()).unwrap_or_else(|| "(choose)".into());
+                egui::ComboBox::from_id_salt(("dest", id)).selected_text(cur).show_ui(ui, |ui| {
+                    for (cid, cname) in extra.iter().chain(candidates.iter()) {
+                        if ui.selectable_label(extra.first().map(|e| e.0) == Some(*cid), cname).clicked() {
+                            new_extra = Some(vec![*cid]);
+                        }
+                    }
+                });
+                ui.end_row();
+            } else {
+                for (k, (eid, ename)) in extra.iter().enumerate() {
+                    ui.label(format!("Input {}", k + 2));
+                    ui.horizontal(|ui| {
+                        ui.label(ename);
+                        if ui.small_button(crate::icons::TRASH).on_hover_text("Remove this input").clicked() {
+                            new_extra = Some(extra.iter().map(|e| e.0).filter(|x| x != eid).collect());
+                        }
+                    });
+                    ui.end_row();
+                }
+            }
+        });
+        if !single && m.max.is_none_or(|mx| extra.len() + 1 < mx) {
+            egui::ComboBox::from_id_salt(("add_input", id)).selected_text(format!("{} Add input…", crate::icons::PLUS)).show_ui(ui, |ui| {
+                if candidates.is_empty() {
+                    ui.label(RichText::new("No other datasets in the pipeline").weak());
+                }
+                for (cid, cname) in &candidates {
+                    if ui.button(cname).clicked() {
+                        let mut v: Vec<NodeId> = extra.iter().map(|e| e.0).collect();
+                        v.push(*cid);
+                        new_extra = Some(v);
+                    }
+                }
+            });
+        }
+    });
+    if let Some(v) = new_extra {
+        let r = state.session.lock().set_extra_inputs(id, v);
+        if let Err(e) = r {
+            state.toast(format!("{e:#}"), true);
+        }
+    }
+}
+
 pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
     let snapshot = {
         let s = state.session.lock();
@@ -494,6 +626,9 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
         if let Some(i) = src_info {
             arrays.extend(i.point_arrays.iter().map(|a| (Association::Points, a.name.clone(), a.ncomp)));
             arrays.extend(i.cell_arrays.iter().map(|a| (Association::Cells, a.name.clone(), a.ncomp)));
+        }
+        if let Some(m) = def.as_ref().and_then(|d| d.multi) {
+            inputs_ui(state, ui, id, m);
         }
         if let Some(def) = &def {
             egui::CollapsingHeader::new(RichText::new("Parameters").strong())

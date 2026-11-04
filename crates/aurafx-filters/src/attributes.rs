@@ -5,9 +5,10 @@ use anyhow::{anyhow, Result};
 use aurafx_data::*;
 
 /// Average cell arrays onto points. Empty `names` means all arrays.
-pub fn cell_to_point(ds: &DataSet, names: &[String]) -> Result<DataSet> {
-    let ds = as_explicit(ds).into_owned();
-    let (points, _, cd, _) = parts(&ds).ok_or_else(|| anyhow!("cell_to_point: unsupported dataset"))?;
+pub fn cell_to_point(input: &DataSet, names: &[String]) -> Result<DataSet> {
+    let ds = as_explicit(input);
+    let ds = &*ds;
+    let (points, _, cd, _) = parts(ds).ok_or_else(|| anyhow!("cell_to_point: unsupported dataset"))?;
     let n = points.len();
     let mut new_arrays = Vec::new();
     let mut counts = vec![0u32; n];
@@ -21,7 +22,7 @@ pub fn cell_to_point(ds: &DataSet, names: &[String]) -> Result<DataSet> {
         }
         let nc = arr.ncomp;
         let mut sum = vec![0.0f64; n * nc];
-        for_each_cell(&ds, |cid, _, pts, _| {
+        for_each_cell(ds, |cid, _, pts, _| {
             for &p in pts {
                 let p = p as usize;
                 for c in 0..nc {
@@ -44,8 +45,9 @@ pub fn cell_to_point(ds: &DataSet, names: &[String]) -> Result<DataSet> {
         a.component_names = arr.component_names.clone();
         new_arrays.push(a);
     }
-    let mut out = ds;
-    let pd = out.point_data_mut().unwrap();
+    // Structured inputs stay structured (cell and point order match the explicit copy).
+    let mut out = input.clone();
+    let pd = out.point_data_mut().ok_or_else(|| anyhow!("cell_to_point: unsupported dataset"))?;
     for a in new_arrays {
         if pd.scalars().is_none() && a.ncomp == 1 {
             pd.insert_active(AttributeKind::Scalars, a);
@@ -57,9 +59,10 @@ pub fn cell_to_point(ds: &DataSet, names: &[String]) -> Result<DataSet> {
 }
 
 /// Average point arrays onto cells.
-pub fn point_to_cell(ds: &DataSet, names: &[String]) -> Result<DataSet> {
-    let ds = as_explicit(ds).into_owned();
-    let (_, pd, _, _) = parts(&ds).ok_or_else(|| anyhow!("point_to_cell: unsupported dataset"))?;
+pub fn point_to_cell(input: &DataSet, names: &[String]) -> Result<DataSet> {
+    let ds = as_explicit(input);
+    let ds = &*ds;
+    let (_, pd, _, _) = parts(ds).ok_or_else(|| anyhow!("point_to_cell: unsupported dataset"))?;
     let ncells = ds.n_cells();
     let mut new_arrays = Vec::new();
     for arr in pd.iter() {
@@ -71,7 +74,7 @@ pub fn point_to_cell(ds: &DataSet, names: &[String]) -> Result<DataSet> {
         }
         let nc = arr.ncomp;
         let mut out = vec![0.0f64; ncells * nc];
-        for_each_cell(&ds, |cid, _, pts, _| {
+        for_each_cell(ds, |cid, _, pts, _| {
             let k = pts.len().max(1) as f64;
             for &p in pts {
                 for c in 0..nc {
@@ -84,8 +87,8 @@ pub fn point_to_cell(ds: &DataSet, names: &[String]) -> Result<DataSet> {
         a.component_names = arr.component_names.clone();
         new_arrays.push(a);
     }
-    let mut out = ds;
-    let cd = out.cell_data_mut().unwrap();
+    let mut out = input.clone();
+    let cd = out.cell_data_mut().ok_or_else(|| anyhow!("point_to_cell: unsupported dataset"))?;
     for a in new_arrays {
         if cd.scalars().is_none() && a.ncomp == 1 {
             cd.insert_active(AttributeKind::Scalars, a);

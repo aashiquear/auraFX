@@ -30,4 +30,11 @@ fn python_api_behaviour() {
         rt.run("afx.select(d, [0, 1, 2])\nprint(len(afx.selection()[2]))\nprint(round(afx.probe(d, [0, 0, 0])['Temp']) > 0)\nprint(afx.undo() is not None)");
     assert!(out.error.is_none(), "{:?}", out.error);
     assert_eq!(out.stdout.trim(), "3\nTrue\nTrue");
+
+    // Multi-input filters: module function, node method with positional inputs, set_inputs.
+    let out = rt.run(
+        "a = afx.sphere()\nb = afx.cone()\nj = afx.append_datasets(a, b)\nprint(len(j.inputs))\nk = a.append_datasets(b)\nprint([n.id for n in k.inputs] == [a.id, b.id])\nw = afx.wavelet()\nr = w.resample_with_dataset(a)\nprint(r.info()['n_points'] == a.info()['n_points'], 'vtkValidPointMask' in str(r.info()))\nj.set_inputs()\nprint(len(j.inputs))\nprint(j.activate().id == afx.active().id)",
+    );
+    assert!(out.error.is_none(), "{:?}", out.error);
+    assert_eq!(out.stdout.trim(), "2\nTrue\nTrue True\n1\nTrue");
 }

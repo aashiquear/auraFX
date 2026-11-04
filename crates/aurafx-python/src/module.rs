@@ -155,9 +155,12 @@ struct FilterCall {
 
 #[pymethods]
 impl FilterCall {
-    #[pyo3(signature = (**kwargs))]
-    fn __call__(&self, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
-        let id = session().lock().add_filter(&self.filter_id, self.input).map_err(err)?;
+    /// `node.append_datasets(other, ...)`: positional nodes are extra inputs of multi-input filters.
+    #[pyo3(signature = (*args, **kwargs))]
+    fn __call__(&self, args: Vec<PyRef<PyNode>>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+        let mut inputs = vec![self.input];
+        inputs.extend(args.iter().map(|n| n.id));
+        let id = session().lock().add_filter_multi(&self.filter_id, &inputs).map_err(err)?;
         apply_kwargs(id, kwargs)?;
         Ok(PyNode { id })
     }
@@ -193,6 +196,33 @@ impl PyNode {
                 Err(pyo3::exceptions::PyAttributeError::new_err(format!("Node has no attribute or filter named '{name}'. Try afx.filters() to list filters.")))
             }
         }
+    }
+
+    /// All inputs of this node: the pipeline input first, then the extra inputs of
+    /// multi-input filters.
+    #[getter]
+    fn inputs(&self) -> PyResult<Vec<PyNode>> {
+        let s = session().lock();
+        let n = s.nodes.get(&self.id).ok_or_else(|| PyKeyError::new_err("node no longer exists"))?;
+        Ok(n.input.iter().chain(n.extra_inputs.iter()).map(|&id| PyNode { id }).collect())
+    }
+
+    /// Make this the active node (the one the Properties panel and new filters use).
+    fn activate(&self) -> PyResult<PyNode> {
+        let mut s = session().lock();
+        if !s.nodes.contains_key(&self.id) {
+            return Err(PyKeyError::new_err("node no longer exists"));
+        }
+        s.active = Some(self.id);
+        s.touch();
+        Ok(self.clone())
+    }
+
+    /// Replace the extra inputs of a multi-input filter: `app.set_inputs(b, c)`.
+    #[pyo3(signature = (*nodes))]
+    fn set_inputs(&self, nodes: Vec<PyRef<PyNode>>) -> PyResult<PyNode> {
+        session().lock().set_extra_inputs(self.id, nodes.iter().map(|n| n.id).collect()).map_err(err)?;
+        Ok(self.clone())
     }
 
     /// Set parameters / display options: node.set(normal=[0,0,1], opacity=0.5).
@@ -494,6 +524,16 @@ fn apply(filter_id: String, input: Option<PyRef<PyNode>>, kwargs: Option<&Bound<
             None => s.add_source(&filter_id).map_err(err)?,
         }
     };
+    apply_kwargs(id, kwargs)?;
+    Ok(PyNode { id })
+}
+
+/// Add a multi-input filter: `afx.apply_multi("append_datasets", [a, b, c])`.
+#[pyfunction]
+#[pyo3(signature = (filter_id, inputs, **kwargs))]
+fn apply_multi(filter_id: String, inputs: Vec<PyRef<PyNode>>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+    let ids: Vec<NodeId> = inputs.iter().map(|n| n.id).collect();
+    let id = session().lock().add_filter_multi(&filter_id, &ids).map_err(err)?;
     apply_kwargs(id, kwargs)?;
     Ok(PyNode { id })
 }
@@ -979,6 +1019,16 @@ fn make_source_fn(py: Python<'_>, id: &'static str) -> PyResult<Py<PyAny>> {
     Ok(g.get_item(id)?.unwrap().unbind())
 }
 
+/// `afx.append_datasets(a, b, c, **kw)` for multi-input filters.
+fn make_multi_fn(py: Python<'_>, id: &'static str) -> PyResult<Py<PyAny>> {
+    let code = format!("def {id}(*inputs, **kw):\n    import aurafx\n    return aurafx.apply_multi('{id}', list(inputs), **kw)\n{id}.__doc__ = aurafx_doc\n");
+    let doc = aurafx_filters::find(id).map(|f| f.description.to_string()).unwrap_or_default();
+    let g = PyDict::new(py);
+    g.set_item("aurafx_doc", doc)?;
+    py.run(&std::ffi::CString::new(code).unwrap(), Some(&g), None)?;
+    Ok(g.get_item(id)?.unwrap().unbind())
+}
+
 // ------------------------------------------------------------------ jobs
 
 fn job_dict<'py>(py: Python<'py>, j: &aurafx_jobs::Job, tail: usize) -> PyResult<Bound<'py, PyDict>> {
@@ -1174,6 +1224,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FilterCall>()?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;
+    m.add_function(wrap_pyfunction!(apply_multi, m)?)?;
     m.add_function(wrap_pyfunction!(nodes, m)?)?;
     m.add_function(wrap_pyfunction!(active, m)?)?;
     m.add_function(wrap_pyfunction!(get, m)?)?;
@@ -1225,6 +1276,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     for f in aurafx_filters::registry() {
         if f.is_source {
             m.add(f.id, make_source_fn(py, f.id)?)?;
+        } else if f.multi.is_some() {
+            m.add(f.id, make_multi_fn(py, f.id)?)?;
         }
     }
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

@@ -16,13 +16,39 @@ pub struct Locator {
     lo: [f64; 3],
     size: [f64; 3],
     tol: f64,
+    /// Axis-aligned grids (image, rectilinear) are located directly and interpolated
+    /// trilinearly, as VTK does for voxels.
+    grid: Option<[Vec<f64>; 3]>,
 }
 
+/// The cell containing a point and the interpolation weights of its first `n` points.
 pub struct Hit {
     pub cell: usize,
-    pub ids: [u32; 4],
-    pub w: [f64; 4],
+    pub ids: [u32; 8],
+    pub w: [f64; 8],
     pub n: usize,
+}
+
+/// Grid coordinates along each axis when `ds` is an axis-aligned image or rectilinear grid.
+fn grid_axes(ds: &DataSet) -> Option<[Vec<f64>; 3]> {
+    match ds {
+        DataSet::ImageData(im) => {
+            let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+            if im.direction.iter().zip(identity).any(|(a, b)| (a - b).abs() > 1e-12) {
+                return None;
+            }
+            let d = im.dims();
+            let ax = |a: usize| (0..d[a]).map(|i| im.origin[a] + (im.extent[2 * a] + i as i64) as f64 * im.spacing[a]).collect::<Vec<_>>();
+            let axes = [ax(0), ax(1), ax(2)];
+            // Negative spacing would need reversed searches; leave those to the general path.
+            axes.iter().all(|v| v.windows(2).all(|w| w[1] > w[0])).then_some(axes)
+        }
+        DataSet::RectilinearGrid(g) => {
+            let axes = [g.x.clone(), g.y.clone(), g.z.clone()];
+            (axes.iter().all(|v| !v.is_empty() && v.windows(2).all(|w| w[1] > w[0]))).then_some(axes)
+        }
+        _ => None,
+    }
 }
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -37,6 +63,12 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 
 impl Locator {
     pub fn new(ds: &DataSet) -> Result<(Self, std::borrow::Cow<'_, DataSet>)> {
+        if let Some(axes) = grid_axes(ds) {
+            let b = ds.bounds();
+            let tol = b.diagonal().max(1e-30) * 1e-6;
+            let loc = Self { pts: Vec::new(), simplices: Vec::new(), bins: Vec::new(), dims: [1; 3], lo: b.min, size: b.size(), tol, grid: Some(axes) };
+            return Ok((loc, as_explicit(ds)));
+        }
         let ds = as_explicit(ds);
         let (points, ..) = parts(&ds).ok_or_else(|| anyhow!("probe: unsupported dataset type"))?;
         let pts: Vec<[f64; 3]> = (0..points.len()).map(|i| points.get(i)).collect();
@@ -63,7 +95,7 @@ impl Locator {
             ((s[2] / maxs) * target as f64).ceil().max(1.0) as usize,
         ];
         let size = [s[0].max(tol) / dims[0] as f64, s[1].max(tol) / dims[1] as f64, s[2].max(tol) / dims[2] as f64];
-        let mut loc = Self { pts, simplices, bins: vec![Vec::new(); dims[0] * dims[1] * dims[2]], dims, lo: b.min, size, tol };
+        let mut loc = Self { pts, simplices, bins: vec![Vec::new(); dims[0] * dims[1] * dims[2]], dims, lo: b.min, size, tol, grid: None };
         for (si, (ids, _, k)) in loc.simplices.iter().enumerate() {
             let mut mn = [f64::INFINITY; 3];
             let mut mx = [f64::NEG_INFINITY; 3];
@@ -96,7 +128,60 @@ impl Locator {
         out
     }
 
+    fn find_grid(&self, axes: &[Vec<f64>; 3], p: [f64; 3]) -> Option<Hit> {
+        let mut idx = [0usize; 3];
+        let mut t = [0.0f64; 3];
+        let n = [axes[0].len(), axes[1].len(), axes[2].len()];
+        for a in 0..3 {
+            let v = &axes[a];
+            let (lo, hi) = (v[0], v[v.len() - 1]);
+            if p[a] < lo - self.tol || p[a] > hi + self.tol {
+                return None;
+            }
+            if v.len() == 1 {
+                continue;
+            }
+            // Index of the interval containing p (last interval for the upper bound).
+            // Interval containing p, floored like VTK's structured coordinates (no snapping), so a
+            // point on a face shared by two cells reports the upper cell, as in ParaView.
+            let i = v.partition_point(|&x| x <= p[a]).saturating_sub(1).min(v.len() - 2);
+            idx[a] = i;
+            t[a] = ((p[a] - v[i]) / (v[i + 1] - v[i])).clamp(0.0, 1.0);
+        }
+        let mut hit = Hit { cell: 0, ids: [0; 8], w: [0.0; 8], n: 0 };
+        let cd = [n[0].saturating_sub(1).max(1), n[1].saturating_sub(1).max(1)];
+        hit.cell = idx[0] + cd[0] * (idx[1] + cd[1] * idx[2]);
+        for corner in 0..8usize {
+            let mut w = 1.0;
+            let mut q = idx;
+            let mut skip = false;
+            for a in 0..3 {
+                let up = corner >> a & 1 == 1;
+                if n[a] == 1 {
+                    skip |= up;
+                    continue;
+                }
+                if up {
+                    q[a] += 1;
+                    w *= t[a];
+                } else {
+                    w *= 1.0 - t[a];
+                }
+            }
+            if skip {
+                continue;
+            }
+            hit.ids[hit.n] = (q[0] + n[0] * (q[1] + n[1] * q[2])) as u32;
+            hit.w[hit.n] = w;
+            hit.n += 1;
+        }
+        Some(hit)
+    }
+
     pub fn find(&self, p: [f64; 3]) -> Option<Hit> {
+        if let Some(axes) = &self.grid {
+            return self.find_grid(axes, p);
+        }
         for a in 0..3 {
             if p[a] < self.lo[a] - self.tol || p[a] > self.lo[a] + self.size[a] * self.dims[a] as f64 + self.tol {
                 return None;
@@ -104,17 +189,28 @@ impl Locator {
         }
         let b = self.bin_index(p, true);
         let bi = b[0] + self.dims[0] * (b[1] + self.dims[1] * b[2]);
+        // A point on a face shared by cells is reported in the lowest-numbered cell.
+        let mut best: Option<Hit> = None;
         for &si in &self.bins[bi] {
             let (ids, cell, k) = self.simplices[si as usize];
+            if best.as_ref().is_some_and(|h| h.cell <= cell as usize) {
+                continue;
+            }
             if k == 4 {
                 if let Some(w) = self.bary_tet(p, ids) {
-                    return Some(Hit { cell: cell as usize, ids, w, n: 4 });
+                    let mut h = Hit { cell: cell as usize, ids: [0; 8], w: [0.0; 8], n: 4 };
+                    h.ids[..4].copy_from_slice(&ids);
+                    h.w[..4].copy_from_slice(&w);
+                    best = Some(h);
                 }
             } else if let Some(w) = self.bary_tri(p, ids) {
-                return Some(Hit { cell: cell as usize, ids, w: [w[0], w[1], w[2], 0.0], n: 3 });
+                let mut h = Hit { cell: cell as usize, ids: [0; 8], w: [0.0; 8], n: 3 };
+                h.ids[..3].copy_from_slice(&ids[..3]);
+                h.w[..3].copy_from_slice(&w);
+                best = Some(h);
             }
         }
-        None
+        best
     }
 
     fn bary_tet(&self, p: [f64; 3], t: [u32; 4]) -> Option<[f64; 4]> {

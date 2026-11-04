@@ -155,3 +155,68 @@ fn exodus_all_time_steps_from_a_filter() {
     let leaf = mb.leaves()[0].1;
     assert_eq!(leaf.point_data().unwrap().get("T").unwrap().range(None), (305.0, 335.0));
 }
+
+#[test]
+fn multi_input_filters_run_follow_their_inputs_and_survive_state_files() {
+    let mut s = Session::new();
+    let a = s.add_source("sphere").unwrap();
+    let b = s.add_source("cone").unwrap();
+    let c = s.add_source("box").unwrap();
+    let app = s.add_filter_multi("append_datasets", &[a, b]).unwrap();
+    assert_eq!(s.nodes[&app].extra_inputs, vec![b]);
+    assert!(!s.nodes[&a].visible && !s.nodes[&b].visible, "appending hides its inputs");
+    assert!(s.trace.last().unwrap().contains("= afx.append_datasets(sphere, cone)"), "{:?}", s.trace.last());
+    s.update_blocking();
+    let n = |s: &Session, id| s.nodes[&id].output.as_ref().map(|o| o.n_points()).unwrap_or(0);
+    assert_eq!(n(&s, app), n(&s, a) + n(&s, b));
+
+    // Editing an extra input re-runs the filter.
+    s.set_param(b, "resolution", ParamValue::Int(12));
+    assert!(s.nodes[&app].dirty);
+    s.update_blocking();
+    assert_eq!(n(&s, app), n(&s, a) + n(&s, b));
+
+    // A downstream node cannot become an input (no cycles); a filter on one input can't take more.
+    let sh = s.add_filter("shrink", app).unwrap();
+    assert!(s.set_extra_inputs(app, vec![sh]).is_err());
+    assert!(s.set_extra_inputs(sh, vec![c]).is_err());
+    s.set_extra_inputs(app, vec![b, c]).unwrap();
+    s.update_blocking();
+    assert_eq!(n(&s, app), n(&s, a) + n(&s, b) + n(&s, c));
+    assert!(s.describe().contains(&format!("more inputs = [{b}] [{c}]")));
+
+    // State files keep the extra inputs.
+    let dir = std::env::temp_dir().join(format!("afx_multi_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let f = dir.join("multi.afx");
+    s.save_state(&f, None).unwrap();
+    let mut t = Session::new();
+    t.load_state(&f).unwrap();
+    t.update_blocking();
+    assert_eq!(t.nodes[&app].extra_inputs, vec![b, c]);
+    assert_eq!(n(&t, app), n(&s, app));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Undo goes back to two inputs.
+    s.undo();
+    assert_eq!(s.nodes[&app].extra_inputs, vec![b]);
+
+    // Deleting an extra input keeps the filter and drops the reference.
+    s.remove_node(b);
+    assert!(s.nodes.contains_key(&app));
+    assert!(s.nodes[&app].extra_inputs.is_empty());
+    s.update_blocking();
+    assert_eq!(n(&s, app), n(&s, a));
+
+    // Resample With Dataset needs its destination: error first, result once it is set.
+    let w = s.add_source("wavelet").unwrap();
+    let r = s.add_filter("resample_with_dataset", w).unwrap();
+    s.update_blocking();
+    assert!(s.nodes[&r].error.as_deref().unwrap_or("").contains("destination"));
+    s.set_extra_inputs(r, vec![a]).unwrap();
+    s.update_blocking();
+    let out = s.nodes[&r].output.clone().expect("resampled");
+    assert_eq!(out.n_points(), n(&s, a));
+    assert!(out.point_data().unwrap().get("vtkValidPointMask").is_some());
+    assert!(s.set_extra_inputs(r, vec![a, c]).is_err(), "resample takes one destination");
+}

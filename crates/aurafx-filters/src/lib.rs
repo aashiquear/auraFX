@@ -7,6 +7,7 @@ pub mod registry;
 pub mod simplex;
 
 pub mod analysis;
+pub mod append;
 pub mod attributes;
 pub mod calculator;
 pub mod clip;
@@ -26,4 +27,4 @@ pub mod transform;
 pub mod warp;
 
 pub use params::{param_from_json, param_to_json, Association, ParamKind, ParamSpec, ParamValue, Params};
-pub use registry::{default_array, find, registry, search, FilterDef};
+pub use registry::{default_array, find, registry, search, FilterDef, MultiInput};

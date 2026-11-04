@@ -94,6 +94,9 @@ pub struct State {
     pub spreadsheet_assoc: Association,
     pub spreadsheet_page: usize,
     pub spreadsheet_only_selected: bool,
+    /// Nodes selected together in the Pipeline browser (Ctrl+click), in click order. Empty
+    /// when only the active node is selected. Multi-input filters take these as inputs.
+    pub pipeline_selection: Vec<aurafx_pipeline::NodeId>,
     pub toasts: Vec<(String, f64, bool)>,
     pub jobs_panel: crate::jobs_panel::JobsPanel,
     pub charts: crate::charts::ChartsState,
@@ -347,6 +350,7 @@ impl AuraApp {
             spreadsheet_assoc: Association::Points,
             spreadsheet_page: 0,
             spreadsheet_only_selected: true,
+            pipeline_selection: Vec::new(),
             toasts: Vec::new(),
             jobs_panel: crate::jobs_panel::JobsPanel::default(),
             charts: Default::default(),
@@ -570,8 +574,15 @@ impl State {
     pub fn add_filter(&mut self, id: &str) {
         let mut s = self.session.lock();
         let def = aurafx_filters::find(id);
+        self.pipeline_selection.retain(|n| s.nodes.contains_key(n));
+        let multi = def.as_ref().is_some_and(|d| d.multi.is_some()) && self.pipeline_selection.len() >= 2;
         let r = match (def.as_ref().map(|d| d.is_source), s.active) {
             (Some(true), _) => s.add_source(id),
+            // Several nodes selected in the Pipeline browser: they become the filter's inputs.
+            (Some(false), _) if multi => {
+                let inputs = std::mem::take(&mut self.pipeline_selection);
+                s.add_filter_multi(id, &inputs)
+            }
             (Some(false), Some(a)) => s.add_filter(id, a),
             (Some(false), None) => Err(anyhow::anyhow!("Select a dataset first (or open a file) to apply {}", def.as_ref().unwrap().label)),
             (None, _) => Err(anyhow::anyhow!("Unknown filter {id}")),

@@ -29,6 +29,8 @@ pub struct Node {
     pub kind: NodeKind,
     pub params: Params,
     pub input: Option<NodeId>,
+    /// Further inputs of multi-input filters (Append Datasets, Resample With Dataset).
+    pub extra_inputs: Vec<NodeId>,
     pub visible: bool,
     pub display: DisplayProps,
     pub output: Option<Arc<DataSet>>,
@@ -56,6 +58,7 @@ impl Node {
             kind,
             params,
             input,
+            extra_inputs: Vec::new(),
             visible: true,
             display: DisplayProps::default(),
             output: None,
@@ -151,7 +154,7 @@ pub struct WorkItem {
 enum WorkKind {
     LoadStep { step: aurafx_data::TimeStepRef, index: usize },
     Static(Arc<DataSet>),
-    Run { def: Arc<FilterDef>, params: Params, input: Option<Arc<DataSet>> },
+    Run { def: Arc<FilterDef>, params: Params, input: Option<Arc<DataSet>>, extra: Vec<Arc<DataSet>> },
 }
 
 impl WorkItem {
@@ -160,7 +163,11 @@ impl WorkItem {
         match &self.kind {
             WorkKind::Static(ds) => Ok(ds.clone()),
             WorkKind::LoadStep { step, .. } => aurafx_io::load_step(step),
-            WorkKind::Run { def, params, input } => def.run(input.as_deref(), params).map(Arc::new),
+            WorkKind::Run { def, params, input, extra } if def.multi.is_some() => {
+                let all: Vec<&DataSet> = input.iter().chain(extra.iter()).map(|d| &**d).collect();
+                def.run_multi(&all, params).map(Arc::new)
+            }
+            WorkKind::Run { def, params, input, .. } => def.run(input.as_deref(), params).map(Arc::new),
         }
     }
 }
@@ -251,7 +258,7 @@ impl Session {
         self.revision += 1;
     }
 
-    fn touch(&mut self) {
+    pub fn touch(&mut self) {
         self.revision += 1;
     }
 
@@ -291,6 +298,7 @@ impl Session {
             kind: NodeKind::Reader { path: path.clone(), loaded },
             params: Params::default(),
             input: None,
+            extra_inputs: Vec::new(),
             visible: true,
             display: DisplayProps::default(),
             output: None,
@@ -327,6 +335,7 @@ impl Session {
             params: def.default_params(),
             kind: NodeKind::Source { def: def.clone() },
             input: None,
+            extra_inputs: Vec::new(),
             visible: true,
             display: DisplayProps::default(),
             output: None,
@@ -367,6 +376,7 @@ impl Session {
             params: def.default_params(),
             kind: NodeKind::Filter { def: def.clone() },
             input: Some(input),
+            extra_inputs: Vec::new(),
             visible: true,
             display,
             output: None,
@@ -414,6 +424,78 @@ impl Session {
         Ok(id)
     }
 
+    /// Downstream nodes of `id` (through primary and extra inputs), including `id`.
+    pub fn downstream(&self, id: NodeId) -> Vec<NodeId> {
+        let mut out = vec![id];
+        let mut i = 0;
+        while i < out.len() {
+            let cur = out[i];
+            for n in self.nodes.values() {
+                if (n.input == Some(cur) || n.extra_inputs.contains(&cur)) && !out.contains(&n.id) {
+                    out.push(n.id);
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// Set the extra inputs of a multi-input filter (everything after its pipeline input).
+    pub fn set_extra_inputs(&mut self, id: NodeId, inputs: Vec<NodeId>) -> Result<()> {
+        let n = self.nodes.get(&id).ok_or_else(|| anyhow!("node {id} does not exist"))?;
+        let def = n.def().cloned().ok_or_else(|| anyhow!("{} is not a filter", n.name))?;
+        let m = def.multi.ok_or_else(|| anyhow!("{} takes a single input", def.label))?;
+        if let Some(max) = m.max {
+            if inputs.len() + 1 > max {
+                return Err(anyhow!("{} takes at most {} input(s) besides its pipeline input", def.label, max - 1));
+            }
+        }
+        let below = self.downstream(id);
+        for e in &inputs {
+            let x = self.nodes.get(e).ok_or_else(|| anyhow!("input node {e} does not exist"))?;
+            if below.contains(e) {
+                return Err(anyhow!("\"{}\" is computed from \"{}\", so it cannot also be its input", x.name, self.nodes[&id].name));
+            }
+        }
+        if self.nodes[&id].extra_inputs == inputs {
+            return Ok(());
+        }
+        self.checkpoint(format!("Inputs of {}", self.nodes[&id].name));
+        let names: Vec<String> = inputs.iter().map(|e| self.py_var(*e)).collect();
+        self.trace.push(format!("{}.set_inputs({})", self.py_var(id), names.join(", ")));
+        self.nodes.get_mut(&id).unwrap().extra_inputs = inputs;
+        self.mark_dirty(id);
+        Ok(())
+    }
+
+    /// Add a multi-input filter on `inputs` (the first is its pipeline input).
+    pub fn add_filter_multi(&mut self, filter_id: &str, inputs: &[NodeId]) -> Result<NodeId> {
+        let first = *inputs.first().ok_or_else(|| anyhow!("no inputs given"))?;
+        let trace_len = self.trace.len();
+        let id = self.add_filter(filter_id, first)?;
+        if inputs.len() > 1 {
+            self.suspend_undo += 1;
+            let r = self.set_extra_inputs(id, inputs[1..].to_vec());
+            self.suspend_undo -= 1;
+            if let Err(e) = r {
+                self.remove_node(id);
+                return Err(e);
+            }
+            // Appending replaces the look of its inputs, as in ParaView.
+            if matches!(filter_id, "append_datasets" | "append_geometry" | "append_attributes") {
+                for i in inputs {
+                    if let Some(n) = self.nodes.get_mut(i) {
+                        n.visible = false;
+                    }
+                }
+            }
+            let names: Vec<String> = inputs.iter().map(|e| self.py_var(*e)).collect();
+            self.trace.truncate(trace_len);
+            self.trace.push(format!("{} = afx.{}({})", self.py_var(id), filter_id, names.join(", ")));
+        }
+        Ok(id)
+    }
+
     pub fn remove_node(&mut self, id: NodeId) {
         if let Some(n) = self.nodes.get(&id) {
             let label = format!("Delete {}", n.name);
@@ -431,6 +513,16 @@ impl Session {
             i += 1;
         }
         let parent = self.nodes.get(&id).and_then(|n| n.input);
+        let mut lost_input = Vec::new();
+        for n in self.nodes.values_mut() {
+            if !to_remove.contains(&n.id) && n.extra_inputs.iter().any(|e| to_remove.contains(e)) {
+                n.extra_inputs.retain(|e| !to_remove.contains(e));
+                lost_input.push(n.id);
+            }
+        }
+        for l in lost_input {
+            self.mark_dirty(l);
+        }
         for r in &to_remove {
             if let Some(n) = self.nodes.shift_remove(r) {
                 if let NodeKind::Reader { path, loaded } = n.kind {
@@ -520,12 +612,16 @@ impl Session {
 
     pub fn mark_dirty(&mut self, id: NodeId) {
         let mut stack = vec![id];
+        let mut seen = std::collections::HashSet::new();
         while let Some(cur) = stack.pop() {
+            if !seen.insert(cur) {
+                continue;
+            }
             if let Some(n) = self.nodes.get_mut(&cur) {
                 n.dirty = true;
             }
             for n in self.nodes.values() {
-                if n.input == Some(cur) {
+                if n.input == Some(cur) || n.extra_inputs.contains(&cur) {
                     stack.push(n.id);
                 }
             }
@@ -598,6 +694,9 @@ impl Session {
                     _ => continue,
                 }
             }
+            if n.extra_inputs.iter().any(|e| self.nodes.get(e).map(|x| x.dirty || x.running).unwrap_or(false)) {
+                continue;
+            }
             let kind = match &n.kind {
                 NodeKind::Reader { loaded: Loaded::Static(ds), .. } => WorkKind::Static(ds.clone()),
                 NodeKind::Reader { loaded: Loaded::Series(s), .. } => {
@@ -613,9 +712,28 @@ impl Session {
                     }
                     WorkKind::LoadStep { step: s.steps[index].clone(), index }
                 }
-                NodeKind::Source { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: None },
+                NodeKind::Source { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: None, extra: Vec::new() },
                 NodeKind::Filter { def } => {
-                    WorkKind::Run { def: def.clone(), params: n.params.clone(), input: n.input.and_then(|i| self.nodes[&i].output.clone()) }
+                    let mut extra = Vec::new();
+                    let mut missing = None;
+                    for e in &n.extra_inputs {
+                        match self.nodes.get(e) {
+                            Some(x) if x.output.is_some() => extra.push(x.output.clone().unwrap()),
+                            Some(x) => missing = Some(format!("input \"{}\" has no data", x.name)),
+                            None => {}
+                        }
+                    }
+                    if let Some(msg) = missing {
+                        let nm = self.nodes.get_mut(&id).unwrap();
+                        nm.error = Some(msg);
+                        nm.output = None;
+                        nm.info = None;
+                        nm.dirty = false;
+                        self.data_revision += 1;
+                        self.touch();
+                        continue;
+                    }
+                    WorkKind::Run { def: def.clone(), params: n.params.clone(), input: n.input.and_then(|i| self.nodes[&i].output.clone()), extra }
                 }
             };
             let nm = self.nodes.get_mut(&id).unwrap();
@@ -970,6 +1088,10 @@ impl Session {
             s += &format!("- [{}] \"{}\" ({}), {}", n.id, n.name, n.type_label(), vis);
             if let Some(inp) = n.input {
                 s += &format!(", input = [{}]", inp);
+            }
+            if !n.extra_inputs.is_empty() {
+                let e: Vec<String> = n.extra_inputs.iter().map(|e| format!("[{e}]")).collect();
+                s += &format!(", more inputs = {}", e.join(" "));
             }
             if self.active == Some(n.id) {
                 s += ", ACTIVE";

@@ -47,6 +47,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 
 ### 0.3 Pipeline engine (`aurafx-pipeline`)
 - [x] Demand-driven DAG: sources -> filters -> representations, with dirty tracking and memoized outputs.
+- [x] Multi-input filters: extra inputs per node, scheduled and invalidated like the main input, kept in undo and state files, cycles rejected.
 - [~] Per-node progress and cancellation; background execution off the UI thread.
 - [~] Time-aware execution (request a time step, temporal filters that need multiple steps).
 - [ ] Streaming/pieces for huge datasets; ghost-cell generation.
@@ -116,14 +117,14 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Histogram ★, Histogram 2D, Descriptive Statistics, Contingency Statistics, Multicorrelative Statistics, Principal Component Analysis, K-Means, Compute Quartiles, Extract Statistical Model Tables, Generate Statistics, Integrate Variables ★, Min Max, Scatter Plot, Table FFT, FFT Of Selection Over Time, Temporal Statistics ★, Compute Derivatives, Gradient ★, Gradient Magnitude, Curvature, Elevation, Mesh Quality, Cell Quality, Boundary Mesh Quality, Cell Size, Polyline Length, Count Cell Faces, Count Cell Vertices, Validate Cells, Overlapping Cells Detector, Vortex Cores, Yield Criteria, Tensor Principal Invariants, Surface Flow, Minkowski Filter, OpenTURNS: OT Density Map, OT Kernel Smoothing
 
 ### 2.3 Alphabetical / geometry and topology
-- [ ] Append Attributes, Append Datasets ★, Append Geometry, Append Reduce, Append Molecule, Append Selections
+- [~] Append Attributes, Append Datasets ★, Append Geometry (done, checked against ParaView), Append Reduce, Append Molecule, Append Selections
 - [~] Cell Centers ★, Cell Data to Point Data ★, Point Data to Cell Data ★, Field Data to Attribute, Pass Arrays ★, Rename Arrays, Extract Component ★, Merge Vector Components, Extract Attributes, Coordinates, Global Point And Cell Ids, Point And Cell Ids, Process Ids, Block Ids, Overlapping AMR Level Ids, Random Attributes, Random Vectors
 - [~] Clean ★, Clean to Grid, Clean Cells to Grid, Merge Blocks ★, Convert To Multi Block, Convert To Partitioned DataSet Collection, Convert AMR dataset to Multiblock, Convert To Point Cloud, Convert To Cell Grid, Convert Polyhedral Cells, Convert Into Molecule, Convert Selection, Image Data To AMR, Image Data To Uniform Grid, Image Data to Point Set, Rectilinear Data to Point Set, Table To Points ★, Table To Structured Grid, Transpose Table, Points Matching Transform
 - [~] Connectivity ★, Rectilinear Grid Connectivity, Extract Surface ★, Extract Edges, Feature Edges ★, Feature Edges Region Ids, Extract Region Surface, Extract Enclosed Points, Extract Cells By Region, Extract Cells By Type, Extract Cells Along Line, Extract Cells Along Lines (custom source), Extract Location, Extract Ghost Cells, Ghost Cells, Remove Ghost Information, Extract Selection ★, Extract Time Steps, Extract Particles Over Time, Extract AMR Blocks, Extract CTH Parts, Geometry Filter, Outline ★, Outline Corners, Outline Curvilinear DataSet, Outline Generic DataSet, Bounding Ruler
 - [~] Transform ★, Axis-Aligned Transform, Reflect, Axis-Aligned Reflect, Shrink, Explode DataSet, Crop, Image Shrink, Align Image Origins, Stitch Image Data With Ghosts
 - [~] Triangulate ★, Tetrahedralize ★, Tessellate, Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
 - [ ] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics
-- [~] Resample To Image ★, Resample With Dataset ★, Resample To Line, Resample AMR, Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
+- [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR, Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
 - [ ] Particle Tracer, Particle Path, Streak Line, Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
 - [ ] Temporal Interpolator, Temporal Shift Scale, Temporal Snap-to-TimeStep, Temporal Cache, Temporal Array Operator, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [ ] Hyper Tree Grid: Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
@@ -309,6 +310,14 @@ OpenFOAM patches, the Exodus writer and Extract Subset are checked against ParaV
 
 Done in iteration 5: color map editor (histogram, markers, bands, reverse, user presets,
 ParaView `.json` import/export) and a readable scalar bar backing.
+
+Done in iteration 6: multi-input filters in the pipeline (Ctrl+click several objects, then
+Append; an Inputs section in Properties; `afx.append_datasets(a, b)`), with Append Datasets,
+Append Geometry, Append Attributes and Resample With Dataset checked against ParaView 6.1.1.
+Probing image and rectilinear data is now trilinear like VTK (it was split into tetrahedra),
+Point/Cell Data conversions keep structured types and drop the source arrays as ParaView does
+(a "Pass" option keeps them), and a `Cells::default()` bug that lost the first appended cell
+is fixed.
 
 Known gaps worth doing next: Lagrange/Bezier cell tessellation;
 client/server and distributed execution; plugin system; Slurm runs not yet exercised on real

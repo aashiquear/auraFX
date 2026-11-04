@@ -243,7 +243,7 @@ impl CellType {
 }
 
 /// Cell connectivity in VTK 9 layout: `offsets.len() == n_cells + 1`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cells {
     pub connectivity: Vec<u32>,
     pub offsets: Vec<u32>,
@@ -251,6 +251,12 @@ pub struct Cells {
     pub types: Vec<CellType>,
     /// For polyhedra: faces stream (VTK-style) keyed by cell index. Rarely used.
     pub polyhedron_faces: Option<Vec<Vec<Vec<u32>>>>,
+}
+
+impl Default for Cells {
+    fn default() -> Self {
+        Cells::new()
+    }
 }
 
 impl Cells {
@@ -283,6 +289,9 @@ impl Cells {
     }
 
     pub fn push(&mut self, ty: CellType, pts: &[u32]) {
+        if self.offsets.is_empty() {
+            self.offsets.push(0);
+        }
         self.connectivity.extend_from_slice(pts);
         self.offsets.push(self.connectivity.len() as u32);
         self.types.push(ty);
@@ -297,6 +306,9 @@ impl Cells {
     }
 
     pub fn append(&mut self, other: &Cells, point_offset: u32) {
+        if self.offsets.is_empty() {
+            self.offsets.push(0);
+        }
         let base = self.connectivity.len() as u32;
         self.connectivity.extend(other.connectivity.iter().map(|&c| c + point_offset));
         self.offsets.extend(other.offsets.iter().skip(1).map(|&o| o + base));

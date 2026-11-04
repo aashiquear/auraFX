@@ -83,6 +83,10 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_f64().unwrap_or(0.0) as f32;
                 s.set_display(id, |d| d.volume_threshold = v);
             }
+            "axes_grid" | "grid" => {
+                let v = val.as_bool().unwrap_or(true);
+                s.set_display(id, |d| d.axes_grid = v);
+            }
             "point_size" => {
                 let v = val.as_f64().unwrap_or(4.0) as f32;
                 s.set_display(id, |d| d.point_size = v);

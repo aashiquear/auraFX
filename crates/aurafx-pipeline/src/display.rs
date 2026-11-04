@@ -70,6 +70,8 @@ pub struct DisplayProps {
     pub volume_opacity: f32,
     /// Volume rendering: values below this fraction of the range are fully transparent.
     pub volume_threshold: f32,
+    /// Draw a labelled axes grid around the object's bounds.
+    pub axes_grid: bool,
 }
 
 impl Default for DisplayProps {
@@ -90,6 +92,7 @@ impl Default for DisplayProps {
             edge_color: [0.0, 0.0, 0.0],
             volume_opacity: 1.0,
             volume_threshold: 0.0,
+            axes_grid: false,
         }
     }
 }

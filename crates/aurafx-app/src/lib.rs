@@ -3,6 +3,7 @@
 mod animation;
 mod app;
 mod assistant;
+mod axes_grid;
 mod charts;
 mod console;
 mod dialogs;

@@ -31,6 +31,10 @@ pub struct Viewport {
     pub settings: RenderSettings,
     texture: Option<egui::TextureId>,
     meshes: HashMap<NodeId, CachedMesh>,
+    /// Axes grid geometry per object: (bounds + far-face key, mesh).
+    grid_meshes: HashMap<NodeId, ([u64; 7], Arc<MeshData>)>,
+    /// Bounds of the objects with an axes grid this frame (for the labels).
+    grid_boxes: Vec<aurafx_data::Bounds>,
     start: Instant,
     frame_times: Vec<f64>,
     last_frame: f64,
@@ -109,6 +113,8 @@ pub struct PickResult {
 }
 
 pub const SELECTION_NODE_ID: NodeId = u64::MAX;
+/// Axes grid of node `n` is drawn with id `GRID_NODE_ID_BASE | n`.
+const GRID_NODE_ID_BASE: NodeId = 1 << 62;
 
 fn display_key(d: &DisplayProps) -> String {
     format!("{:?}|{:?}|{:?}|{}", d.representation, d.color_by, d.range, d.lighting)
@@ -133,6 +139,8 @@ impl Viewport {
             settings: RenderSettings { background, background_top: None },
             texture: None,
             meshes: HashMap::new(),
+            grid_meshes: HashMap::new(),
+            grid_boxes: Vec::new(),
             start: Instant::now(),
             frame_times: Vec::new(),
             last_frame: 0.0,
@@ -218,6 +226,7 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, String, (
     let s = state.session.lock();
     let mut draws = Vec::new();
     let mut scalar_bar = None;
+    state.viewport.grid_boxes.clear();
     let live: Vec<NodeId> = s.nodes.keys().copied().collect();
     state.viewport.meshes.retain(|id, _| live.contains(id));
     for n in s.nodes.values() {
@@ -251,8 +260,35 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, String, (
                 scalar_bar = Some((label, n.display.colormap.clone(), r, n.display.log_scale));
             }
         }
+        if n.display.axes_grid && !mesh.bounds.is_empty() {
+            let b = mesh.bounds;
+            let back = crate::axes_grid::back_sides(&state.viewport.camera, &b);
+            let mut key = [0u64; 7];
+            for a in 0..3 {
+                key[a] = b.min[a].to_bits();
+                key[a + 3] = b.max[a].to_bits();
+            }
+            key[6] = back.iter().enumerate().map(|(i, &f)| (f as u64) << i).sum();
+            let grid = match state.viewport.grid_meshes.get(&n.id).filter(|(k, _)| *k == key) {
+                Some((_, m)) => m.clone(),
+                None => {
+                    let m = Arc::new(crate::axes_grid::build_mesh(&b, back));
+                    state.viewport.grid_meshes.insert(n.id, (key, m.clone()));
+                    m
+                }
+            };
+            let bg = state.viewport.settings.background;
+            let lum = 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2];
+            let mut d = DisplayProps::default();
+            d.solid_color = if lum > 0.5 { [0.55, 0.55, 0.58] } else { [0.42, 0.43, 0.47] };
+            d.lighting = false;
+            d.show_scalar_bar = false;
+            draws.push(NodeDraw { id: GRID_NODE_ID_BASE | n.id, mesh: grid, display: d, overlay: false });
+            state.viewport.grid_boxes.push(b);
+        }
         draws.push(NodeDraw { id: n.id, mesh, display: n.display.clone(), overlay: false });
     }
+    state.viewport.grid_meshes.retain(|id, _| live.contains(id));
     // Selection highlight.
     if let Some(sel) = s.selection.clone() {
         let cached = state.viewport.selection_mesh.as_ref().filter(|(r, _)| *r == sel.revision).map(|(_, m)| m.clone());
@@ -602,6 +638,9 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         if ui.put(r, egui::Button::new(format!("{} Try a sample dataset", crate::icons::CUBE))).clicked() {
             state.open_sample("disk_out_ref.ex2");
         }
+    }
+    for b in state.viewport.grid_boxes.clone() {
+        crate::axes_grid::draw_labels(&painter, &state.viewport.camera, rect, &b, ["X", "Y", "Z"], fg);
     }
     if let Some((label, cmap, (lo, hi), log)) = scalar_bar {
         draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log, fg);

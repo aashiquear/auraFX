@@ -631,6 +631,9 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.label("Lighting");
                 ui.checkbox(&mut d.lighting, "");
                 ui.end_row();
+                ui.label("Axes grid");
+                ui.checkbox(&mut d.axes_grid, "").on_hover_text("Grid lines and tick labels around this object's bounds");
+                ui.end_row();
             });
             if d != display {
                 state.session.lock().set_display(id, |x| *x = d);

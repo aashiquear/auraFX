@@ -7,9 +7,12 @@ pub mod csv;
 pub mod exodus;
 pub mod lammps;
 pub mod legacy_vtk;
+pub mod molecular;
 pub mod netcdf3;
+pub mod openfoam;
 pub mod series;
 pub mod stl;
+pub mod surfaces;
 pub mod writers;
 pub mod xml_vtk;
 
@@ -35,8 +38,13 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vtm", "vtmb"], "VTK multi-block"),
         (&["pvd"], "ParaView data collection"),
         (&["dump", "lammpstrj", "dump.gz", "lammpstrj.gz"], "LAMMPS dump"),
+        (&["xyz", "extxyz"], "XYZ / extended XYZ"),
+        (&["data", "lmp"], "LAMMPS data file"),
+        (&["foam"], "OpenFOAM case"),
         (&["csv", "tsv", "txt"], "Delimited text"),
         (&["stl"], "Stereolithography"),
+        (&["ply"], "PLY surface"),
+        (&["obj"], "Wavefront OBJ"),
     ]
 }
 
@@ -67,6 +75,11 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "dump" | "lammpstrj" | "dump.gz" | "lammpstrj.gz" | "atom" => lammps::open(path)?,
         "csv" | "tsv" | "txt" => Loaded::Static(Arc::new(csv::read(path)?)),
         "stl" => Loaded::Static(Arc::new(stl::read(path)?)),
+        "ply" => Loaded::Static(Arc::new(surfaces::read_ply(path)?)),
+        "obj" => Loaded::Static(Arc::new(surfaces::read_obj(path)?)),
+        "xyz" | "extxyz" => molecular::read_xyz(path)?,
+        "data" | "lmp" => Loaded::Static(Arc::new(molecular::read_lammps_data(path)?)),
+        "foam" => openfoam::open(path)?,
         _ => {
             // Sniff a few magic bytes.
             let head = std::fs::read(path).ok().map(|b| b[..b.len().min(64)].to_vec()).unwrap_or_default();
@@ -98,7 +111,9 @@ pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
             }
         },
         TimeStepRef::FileFrame { path, frame } => {
-            if exodus::is_exodus_ext(path) {
+            if path.extension().map(|e| e == "foam").unwrap_or(false) {
+                openfoam::read_time(path, *frame).map(Arc::new)
+            } else if exodus::is_exodus_ext(path) {
                 exodus::read_step(path, *frame).map(Arc::new)
             } else {
                 lammps::read_frame(path, *frame).map(Arc::new)

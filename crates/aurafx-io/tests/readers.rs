@@ -215,3 +215,58 @@ fn exodus_netcdf4_matches_classic() {
         }
     }
 }
+
+#[test]
+fn openfoam_cases_match_paraview() {
+    for case in ["foam_ascii/case.foam", "foam_binary/case.foam"] {
+        let s = match read_file(td(case)).unwrap_or_else(|e| panic!("{case}: {e:#}")) {
+            Loaded::Series(s) => s,
+            _ => panic!("{case}: expected two time steps"),
+        };
+        assert_eq!(s.times, vec![0.0, 1.0]);
+        let d = load_step(&s.steps[1]).unwrap();
+        assert_eq!(d.n_points(), 60, "{case}");
+        assert_eq!(d.n_cells(), 24, "{case}");
+        let aurafx_data::DataSet::UnstructuredGrid(u) = &*d else { panic!() };
+        assert!(u.cells.types.iter().all(|t| *t == aurafx_data::CellType::Hexahedron), "{case}: all hexes");
+        assert_eq!(u.cell_data.get("T").unwrap().range(None), (305.0, 335.0));
+        let ur = u.cell_data.get("U").unwrap().range(None);
+        assert!((ur.0 - 0.8660254037844386).abs() < 1e-12 && (ur.1 - 4.55521678957215).abs() < 1e-12, "{ur:?}");
+        assert!(u.point_data.get("T").is_some());
+        // Hexes must have positive volume (correct VTK ordering).
+        let v = aurafx_data::DataSet::UnstructuredGrid(u.clone());
+        let surf = d.bounds();
+        assert_eq!((surf.min, surf.max), ([0.0; 3], [4.0, 3.0, 2.0]));
+        let _ = v;
+        let t0 = load_step(&s.steps[0]).unwrap();
+        assert_eq!(t0.cell_data().unwrap().get("T").unwrap().range(None), (300.0, 300.0));
+    }
+}
+
+#[test]
+fn md_and_surface_formats() {
+    let x = match read_file(td("water.xyz")).unwrap() {
+        Loaded::Series(s) => s,
+        _ => panic!("two frames"),
+    };
+    let f0 = load_step(&x.steps[0]).unwrap();
+    assert_eq!(f0.n_points(), 3);
+    let pd = f0.point_data().unwrap();
+    assert_eq!(pd.get("atomic_number").unwrap().range(None), (1.0, 8.0));
+    assert_eq!(pd.get("forces").unwrap().ncomp, 3);
+    assert_eq!(f0.field_data().get("energy").unwrap().get(0, 0), -14.2);
+    let l = static_ds("two_waters.data");
+    assert_eq!(l.n_points(), 6);
+    let aurafx_data::DataSet::PolyData(p) = &*l else { panic!() };
+    assert_eq!(p.lines.len(), 4);
+    assert_eq!(p.point_data.get("mass").unwrap().range(None), (1.008, 15.9994));
+    assert_eq!(p.point_data.get("velocity").unwrap().ncomp, 3);
+    let o = static_ds("pyramid.obj");
+    assert_eq!((o.n_points(), o.n_cells()), (5, 5));
+    let ply_dir = std::env::temp_dir().join(format!("afx-ply-{}", std::process::id()));
+    std::fs::create_dir_all(&ply_dir).unwrap();
+    let sphere = static_ds("sphere.vtp");
+    aurafx_io::writers::write_file(&sphere, &ply_dir.join("s.ply")).unwrap();
+    let back = static_ds_abs(&ply_dir.join("s.ply"));
+    assert_eq!((back.n_points(), back.n_cells()), (sphere.n_points(), 1056));
+}

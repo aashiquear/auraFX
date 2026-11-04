@@ -396,7 +396,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui) {
         painter.text(
             c + Vec2::new(0.0, 30.0),
             egui::Align2::CENTER_CENTER,
-            "Supported: VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd), LAMMPS dumps, STL, CSV",
+            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd), OpenFOAM, LAMMPS dump/data, XYZ, STL, PLY, OBJ, CSV",
             egui::FontId::proportional(12.0),
             fg_weak,
         );

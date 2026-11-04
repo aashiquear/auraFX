@@ -931,11 +931,7 @@ impl State {
                 }
                 if color_by.is_some() {
                     let mut m = cmap.clone();
-                    egui::ComboBox::from_id_salt("tb_cmap").selected_text(&m).width(150.0).show_ui(ui, |ui| {
-                        for n in aurafx_pipeline::colormap::names() {
-                            ui.selectable_value(&mut m, n.to_string(), n);
-                        }
-                    });
+                    crate::widgets::colormap_combo(ui, "tb_cmap", &mut m, 150.0);
                     if m != cmap {
                         self.session.lock().set_display(id, |d| d.colormap = m);
                     }

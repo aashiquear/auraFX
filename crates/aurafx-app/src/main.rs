@@ -13,6 +13,7 @@ mod pick;
 mod settings;
 mod theme;
 mod viewport;
+mod widgets;
 mod worker;
 
 use std::sync::Arc;

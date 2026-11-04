@@ -541,11 +541,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         ui.end_row();
                     }
                     ui.label("Color map");
-                    egui::ComboBox::from_id_salt("cmap").selected_text(&d.colormap).show_ui(ui, |ui| {
-                        for n in aurafx_pipeline::colormap::names() {
-                            ui.selectable_value(&mut d.colormap, n.to_string(), n);
-                        }
-                    });
+                    crate::widgets::colormap_combo(ui, "cmap", &mut d.colormap, 160.0);
                     ui.end_row();
                     ui.label("Range");
                     ui.horizontal(|ui| {

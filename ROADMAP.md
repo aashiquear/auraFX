@@ -302,7 +302,12 @@ Python 3.12 + NumPy; volume rendering that depth-merges with opaque geometry; vi
 selection through a GPU id pass; text annotations, time label and ruler; decomposed OpenFOAM
 cases.
 
-Known gaps worth doing next: Lagrange/Bezier cell tessellation;
+Done in iteration 4: sending objects to 3D views from the right-click menu; data axes grid;
+keyframe animation (camera and filter values on a timeline, preview, export); OpenFOAM boundary
+patches; Exodus II writer with all time steps; Extract Subset; curved quadratic cells. The
+OpenFOAM patches, the Exodus writer and Extract Subset are checked against ParaView 6.1.1.
+
+Known gaps worth doing next: color map editor; Lagrange/Bezier cell tessellation;
 client/server and distributed execution; plugin system; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

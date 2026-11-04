@@ -451,6 +451,57 @@ fn build() -> Vec<FilterDef> {
                 Ok(DataSet::ImageData(crate::probe::resample_to_image(input.unwrap(), dims)?))
             },
         },
+        FilterDef {
+            id: "histogram",
+            label: "Histogram",
+            category: "Data",
+            description: "Distribution of an array as a table of bins (shown in the Charts panel).",
+            keywords: &["distribution", "bins", "frequency", "pdf"],
+            is_source: false,
+            params: vec![arr_param("array", "Array"), s("component", "Component", ""), i("bins", "Bins", 64, 1, 100_000), f("lower", "Range min", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).advanced(), f("upper", "Range max", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).advanced()],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (a, n) = array_or_default(ds, p, "array", false)?;
+                let (lo, hi) = (p.f64("lower", f64::NAN), p.f64("upper", f64::NAN));
+                let range = if lo.is_finite() && hi.is_finite() { Some((lo, hi)) } else { None };
+                Ok(DataSet::Table(crate::analysis::histogram(ds, a, &n, comp(p), p.i64("bins", 64) as usize, range)?))
+            },
+        },
+        FilterDef {
+            id: "descriptive_statistics",
+            label: "Descriptive Statistics",
+            category: "Data",
+            description: "Count, min, max, mean, standard deviation, median and sum of every array.",
+            keywords: &["stats", "mean", "average", "std", "summary"],
+            is_source: false,
+            params: vec![],
+            apply: |input, _| Ok(DataSet::Table(crate::analysis::descriptive_statistics(input.unwrap())?)),
+        },
+        FilterDef {
+            id: "integrate_variables",
+            label: "Integrate Variables",
+            category: "Data",
+            description: "Volume (or area/length) and the integral of every array over the domain.",
+            keywords: &["integral", "total", "volume", "area", "mass", "sum"],
+            is_source: false,
+            params: vec![],
+            apply: |input, _| Ok(DataSet::Table(crate::analysis::integrate_variables(input.unwrap())?)),
+        },
+        FilterDef {
+            id: "gradient",
+            label: "Gradient",
+            category: "Data",
+            description: "Spatial gradient of a point scalar (adds <name>_gradient).",
+            keywords: &["derivative", "slope", "grad", "flux"],
+            is_source: false,
+            params: vec![ParamSpec::new("array", "Scalar", ParamKind::Array { scalar_only: true, vector_only: false }, ParamValue::Array { assoc: Association::Points, name: String::new() })],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", false)?;
+                    crate::analysis::gradient(d, &n)
+                })
+            },
+        },
         // ---------------- Geometry ----------------
         FilterDef {
             id: "extract_surface",

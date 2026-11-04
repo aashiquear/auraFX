@@ -93,3 +93,34 @@ fn probe_and_plot_over_line() {
     let img = run("resample_to_image", Some(&t), &[("nx", 6.into()), ("ny", 6.into()), ("nz", 6.into())]);
     assert_eq!(img.n_points(), 216);
 }
+
+#[test]
+fn analysis_filters() {
+    // Box of size 2x3x4 -> volume 24 when tetrahedralized via a structured image.
+    let mut img = aurafx_data::ImageData { extent: [0, 2, 0, 3, 0, 4], ..Default::default() };
+    let n = img.n_points();
+    let pts = img.points();
+    // f = 2x + 3y - z -> gradient (2, 3, -1) exactly.
+    let f: Vec<f64> = (0..n).map(|i| {
+        let p = pts.get(i);
+        2.0 * p[0] + 3.0 * p[1] - p[2]
+    }).collect();
+    img.point_data.insert(aurafx_data::Array::scalars_f64("f", f));
+    let ds = DataSet::ImageData(img);
+    let it = run("integrate_variables", Some(&ds), &[]);
+    let DataSet::Table(t) = &it else { panic!() };
+    assert!((t.column("Volume").unwrap().get(0, 0) - 24.0).abs() < 1e-9);
+    // integral of f over [0,2]x[0,3]x[0,4] = 2*(2*3*4)/2*2... compute: ∫2x = 2*(4/2)*3*4 = 48, ∫3y = 3*(9/2)*2*4 = 108, ∫-z = -(16/2)*2*3 = -48 -> 108
+    assert!((t.column("f").unwrap().get(0, 0) - 108.0).abs() < 1e-6);
+    let g = run("gradient", Some(&ds), &[("array", "f".into())]);
+    let ga = g.point_data().unwrap().get("f_gradient").unwrap();
+    for i in 0..ga.len() {
+        assert!((ga.get(i, 0) - 2.0).abs() < 1e-9 && (ga.get(i, 1) - 3.0).abs() < 1e-9 && (ga.get(i, 2) + 1.0).abs() < 1e-9);
+    }
+    let h = run("histogram", Some(&ds), &[("array", "f".into()), ("bins", 10.into())]);
+    let DataSet::Table(ht) = &h else { panic!() };
+    let total: f64 = (0..10).map(|i| ht.column("f_count").unwrap().get(i, 0)).sum();
+    assert_eq!(total as usize, n);
+    let st = run("descriptive_statistics", Some(&ds), &[]);
+    assert!(st.n_cells() >= 1);
+}

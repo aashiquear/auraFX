@@ -55,9 +55,19 @@ pub fn charts_ui(state: &mut State, ui: &mut egui::Ui) {
     if cs.last_node != active && !cols.is_empty() {
         cs.last_node = active;
         cs.selected.clear();
-        cs.x_axis = if cols.iter().any(|c| c.0 == "arc_length") { "arc_length".into() } else { "(index)".into() };
-        // Default: plot the first couple of meaningful arrays.
-        for (n, _) in cols.iter().filter(|c| c.0 != "arc_length" && c.0 != "vtkValidPointMask" && !c.0.ends_with("Id")).take(1) {
+        let is_table = matches!(ds.as_deref(), Some(DataSet::Table(_)));
+        cs.x_axis = if cols.iter().any(|c| c.0 == "arc_length") {
+            "arc_length".into()
+        } else if cols.iter().any(|c| c.0 == "bin_center") {
+            "bin_center".into()
+        } else if is_table && cols.len() > 1 {
+            cols[0].0.clone()
+        } else {
+            "(index)".into()
+        };
+        // Default: plot the first meaningful array.
+        let skip = |n: &str| n == cs.x_axis || matches!(n, "arc_length" | "vtkValidPointMask" | "bin_start" | "bin_end") || n.ends_with("Id");
+        if let Some((n, _)) = cols.iter().find(|c| !skip(&c.0)) {
             cs.selected.insert(n.clone());
         }
     }

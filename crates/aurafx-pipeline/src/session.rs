@@ -304,6 +304,12 @@ impl Session {
         }
         self.nodes.insert(id, node);
         self.active = Some(id);
+        // Show table-like results where they can be read.
+        match def.id {
+            "histogram" | "plot_over_line" => self.panel_request = Some("Charts".into()),
+            "descriptive_statistics" | "integrate_variables" | "probe_location" => self.panel_request = Some("Spreadsheet".into()),
+            _ => {}
+        }
         self.trace.push(format!("{} = {}.{}()", self.py_var(id), self.py_var(input), def.id));
         self.touch();
         Ok(id)

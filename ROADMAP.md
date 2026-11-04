@@ -27,7 +27,7 @@ one ships something usable on its own.
 - [x] App icon and branding assets (`assets/icons`, `assets/branding`).
 - [~] CI: build + test on Linux/macOS/Windows, clippy, rustfmt (workflow written, not yet run on GitHub).
 - [~] Packaging: AppImage, tar.gz + `install.sh`, `.dmg`, Windows installer + zip, Android APK, unsigned iOS IPA (done); `.deb`, MSIX, Flatpak (todo).
-- [ ] Crash reporting and structured logs (`tracing`), log panel in the UI.
+- [~] Crash reporting and structured logs (`tracing`), log panel in the UI. (Logs and log panel done; crash reporting todo.)
 - [~] Settings system (TOML in platform config dir), settings UI with search.
 - [ ] Plugin ABI (dynamic Rust crates + Python plugins) and plugin manager UI.
 
@@ -36,12 +36,12 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Typed arrays: i8..i64, u8..u64, f32, f64, with N components; string arrays.
 - [x] Attribute sets: point data, cell data, field data; active scalars/vectors/normals/tcoords/tensors; global IDs; ghost arrays.
 - [x] Datasets: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`, `UnstructuredGrid`, `Table`, `PointCloud`/particles.
-- [ ] Composite: `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid`.
+- [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid`.
 - [x] Cell types: all VTK linear types (vertex, line, polyline, tri, quad, polygon, tet, hex, wedge, pyramid, pentagonal/hexagonal prism, polyhedron).
 - [ ] Higher-order: quadratic, Lagrange and Bezier cells with tessellation.
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
-- [ ] Selections: IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
-- [ ] Spatial structures: point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
+- [~] Selections (IDs, rectangle/frustum, visible-only, threshold query done): IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
+- [~] Spatial structures (cell locator for probe and stream tracer done): point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
 - [ ] Out-of-core/mmap-backed arrays for files larger than RAM.
 - [ ] Unit and physical-quantity metadata on arrays.
 
@@ -85,10 +85,10 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 
 ### 1.3 Writers
 - [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF.
-- [~] Exodus II, CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
-- [ ] CSV, STL, PLY, OBJ, glTF, Houdini `.geo`.
+- [ ] Exodus II, CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
+- [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG/JPEG/TIFF/BMP/EXR, screenshot with resolution override and transparent background.
-- [ ] Animation: PNG sequence, MP4/WebM (ffmpeg feature), GIF.
+- [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
 - [ ] Scene export: glTF, OBJ, X3D, VRML, POV-Ray, PDF/SVG vector (GL2PS-equivalent), WebGL/HTML interactive scene.
 - [ ] Extracts and Catalyst-style in-situ scripts.
 
@@ -107,9 +107,9 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Threshold ★ (between/below/above, all-points/any-point, component modes)
 - [ ] Extract Subset ★ (VOI, sample rate, include boundary; Extract Subset With Seed)
 - [~] Glyph ★ (arrow, cone, sphere, cylinder, line, 2D glyph, custom source; scale/orient by array; masking strategies), Glyph With Custom Source, Tensor Glyph, Normal Glyphs
-- [ ] Stream Tracer ★ (RK2/RK4/RK45, point cloud and line seeds, surface streamlines, vorticity), Stream Tracer With Custom Source, Evenly Spaced Streamlines 2D
+- [~] Stream Tracer ★ (RK2/RK4/RK45, point cloud and line seeds, surface streamlines, vorticity), Stream Tracer With Custom Source, Evenly Spaced Streamlines 2D
 - [~] Warp By Vector ★, Warp By Scalar ★
-- [ ] Group Datasets, Extract Block, Extract Level
+- [~] Group Datasets, Extract Block (done), Extract Level
 - [~] Plot Over Line ★, Plot Data, Plot Data Over Time, Plot Selection Over Time, Plot Global Variables Over Time, Plot On Intersection Curves, Plot On Sorted Lines, Plot Over Lines From Custom Source
 
 ### 2.2 Data analysis
@@ -121,7 +121,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Clean ★, Clean to Grid, Clean Cells to Grid, Merge Blocks ★, Convert To Multi Block, Convert To Partitioned DataSet Collection, Convert AMR dataset to Multiblock, Convert To Point Cloud, Convert To Cell Grid, Convert Polyhedral Cells, Convert Into Molecule, Convert Selection, Image Data To AMR, Image Data To Uniform Grid, Image Data to Point Set, Rectilinear Data to Point Set, Table To Points ★, Table To Structured Grid, Transpose Table, Points Matching Transform
 - [~] Connectivity ★, Rectilinear Grid Connectivity, Extract Surface ★, Extract Edges, Feature Edges ★, Feature Edges Region Ids, Extract Region Surface, Extract Enclosed Points, Extract Cells By Region, Extract Cells By Type, Extract Cells Along Line, Extract Cells Along Lines (custom source), Extract Location, Extract Ghost Cells, Ghost Cells, Remove Ghost Information, Extract Selection ★, Extract Time Steps, Extract Particles Over Time, Extract AMR Blocks, Extract CTH Parts, Geometry Filter, Outline ★, Outline Corners, Outline Curvilinear DataSet, Outline Generic DataSet, Bounding Ruler
 - [~] Transform ★, Axis-Aligned Transform, Reflect, Axis-Aligned Reflect, Shrink, Explode DataSet, Crop, Image Shrink, Align Image Origins, Stitch Image Data With Ghosts
-- [ ] Triangulate ★, Tetrahedralize ★, Tessellate, Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
+- [~] Triangulate ★, Tetrahedralize ★, Tessellate, Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
 - [ ] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics
 - [~] Resample To Image ★, Resample With Dataset ★, Resample To Line, Resample AMR, Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
 - [ ] Particle Tracer, Particle Path, Streak Line, Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
@@ -136,8 +136,8 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Programmable: Programmable Filter ★ (Python), Programmable Source, Python Calculator ★, Live Programmable Source, Color By Array, OME TIFF Channel Calculator, Threshold Table, Field Arrays From File
 
 ### 2.4 Sources
-- [ ] Geometric: Sphere ★, Cone ★, Cylinder ★, Box ★, Plane ★, Line ★, Disk, Ellipse, Arrow, Axes, Superquadric, Point Source, PolyLine Source, PolyPoint Source, Spline Source, Outline Source
-- [ ] Synthetic data: Wavelet ★, Mandelbrot, Fast Uniform Grid, Hierarchical Fractal, Hyper Tree Grid (+Random), AMR Gaussian Pulse, Data Object Generator, Unstructured Cell Types, Partitioned DataSet Collection Source, Cell Grid Source, Spatio Temporal Harmonics Uniform Grid, Time Source, Trivial Producer
+- [~] Geometric: Sphere ★, Cone ★, Cylinder ★, Box ★, Plane ★, Line ★, Disk, Ellipse, Arrow, Axes, Superquadric, Point Source, PolyLine Source, PolyPoint Source, Spline Source, Outline Source
+- [~] Synthetic data: Wavelet ★, Mandelbrot, Fast Uniform Grid, Hierarchical Fractal, Hyper Tree Grid (+Random), AMR Gaussian Pulse, Data Object Generator, Unstructured Cell Types, Partitioned DataSet Collection Source, Cell Grid Source, Spatio Temporal Harmonics Uniform Grid, Time Source, Trivial Producer
 - [ ] Selection sources (ID, global ID, pedigree ID, location, frustum, threshold, value, block, query, composite/hierarchical ID)
 
 ### 2.5 Filter infrastructure
@@ -155,12 +155,12 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [x] Scalar coloring with color maps (ColorBrewer, viridis family, ParaView presets, imported `.json/.xml`), range modes (auto, custom, time-wide), log scale, discrete, NaN/above/below colors, opacity transfer functions, per-component or magnitude, categorical.
 - [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture.
 - [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
-- [ ] Lighting: key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
+- [~] Lighting (headlight and MSAA done): key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
 - [ ] Surface LIC, ray tracing (OSPRay/Embree- or Rust path tracer, optional), environment maps/skyboxes, materials editor.
-- [ ] Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
-- [ ] Widgets: implicit plane, box, sphere, cylinder, cone, annulus, frustum, line, polyline, spline, handle/point, distance, protractor, ruler, slider, light, coordinate frame, four-lines, contour, display-sized plane, text, logo, equalizer, progress bar.
+- [~] Axes grid (orientation axes, scalar bars and text done; axes grid todo): Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
+- [~] Widgets (implicit plane and ruler done): implicit plane, box, sphere, cylinder, cone, annulus, frustum, line, polyline, spline, handle/point, distance, protractor, ruler, slider, light, coordinate frame, four-lines, contour, display-sized plane, text, logo, equalizer, progress bar.
 - [~] Selection: by click/rubber band/polygon on points/cells/blocks, through-frustum, by query (`field > value`, nearest, etc.), grow/shrink, invert, hover tooltips and interactive labels, "Find Data" panel.
-- [ ] Picking tools: point probe, coordinate readout, interactive cell/point info.
+- [~] Picking tools: point probe, coordinate readout, interactive cell/point info.
 - [ ] Stereo (anaglyph, crystal eyes, interlaced, side-by-side), VR (OpenXR) later.
 - [ ] Huge data: LOD, frustum/occlusion culling, instanced glyphs, GPU-resident meshes, mesh streaming, remote render with image streaming.
 
@@ -188,10 +188,10 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Pipeline browser as a graph with inline eye toggles, color-by dropdown, representation dropdown, rename, duplicate, group, disable, comments. Also a node-graph editor view.
 - [~] Contextual quick actions in the viewport (right-click: slice here, clip here, probe here, color by...).
 - [ ] Color map editor with live histogram, drag handles, presets gallery, color-blind safe set, favorites, import/export.
-- [ ] Onboarding: sample datasets gallery, guided tours, tooltips with screenshots, "Explain this filter" via AI.
+- [~] Onboarding (sample dataset done): sample datasets gallery, guided tours, tooltips with screenshots, "Explain this filter" via AI.
 - [ ] Keyboard-first: fully rebindable shortcuts, vim-style view navigation optional.
 - [~] Themes: dark/light/high-contrast, scalable UI (HiDPI), font size.
-- [ ] Session recovery after crash, autosave of state.
+- [~] Session recovery after crash, autosave of state. (Last session restored on start.)
 - [ ] Accessibility: screen-reader labels, keyboard navigation, color-blind color maps by default.
 - [ ] Localization framework.
 - [~] Notifications/toasts for background jobs and errors, with "show details" and "ask AI why".
@@ -208,7 +208,7 @@ with cancel), everything searchable, every action scriptable, every panel option
   - Zero-copy NumPy views of arrays (`mesh.point_data["disp"]` returns an ndarray), `to_pandas()`/`to_polars()`, `from_numpy(...)`.
   - Helpers: `afx.fit(x, y, model)`, `afx.stats(...)`, `afx.plot(...)` (opens a chart view), `afx.export(...)`.
 - [~] Python trace recorder (UI -> script), script "macros" toolbar, scheduled/batch runs (`aurafx --script run.py`), headless mode (`aurafx-batch`).
-- [ ] Bundled scientific stack management: detect/install numpy, scipy, pandas, polars, matplotlib, h5py, netCDF4, scikit-learn, torch (CUDA/ROCm wheels), with a UI for environments.
+- [~] Bundled scientific stack management (packages ship Python 3.12 + NumPy): detect/install numpy, scipy, pandas, polars, matplotlib, h5py, netCDF4, scikit-learn, torch (CUDA/ROCm wheels), with a UI for environments.
 - [ ] Programmable filter/source with NumPy and typed dataset wrappers.
 - [ ] Jupyter kernel exposure (drive auraFX from a notebook) and notebook panel inside the app.
 - [ ] Custom Python plugins (reader, filter, panel) with hot-reload.
@@ -221,7 +221,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Subscription/OAuth sign-in for hosted providers; API keys stored in the OS keyring.
 - [x] Chat panel with Markdown rendering, code blocks with "Run in Python console", conversation history per project.
 - [~] Context awareness: the model sees pipeline state, selected dataset summaries (arrays, ranges, bounds, time steps), camera, recent errors and logs, without uploading raw data unless asked.
-- [ ] Tools the model can call: load file, add filter, set property, color by, take screenshot (and view it), run Python, read a chart's data, search docs, run a simulation job.
+- [~] Tools the model can call (agent mode acts through generated Python): load file, add filter, set property, color by, take screenshot (and view it), run Python, read a chart's data, search docs, run a simulation job.
 - [~] Modes: "Explain", "Do it for me" (agentic with confirmation per step), "Write a script", "Debug this error".
 - [ ] Natural-language filter creation ("show me regions where von Mises stress > 300 MPa").
 - [ ] Anomaly and feature detection helpers (outliers in fields, mesh quality problems, time-series change points).
@@ -266,7 +266,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Golden-image render tests, filter regression tests against VTK outputs, reader conformance suite with sample files for every format.
 - [ ] Benchmarks vs ParaView (load time, filter time, frame rate) published in docs.
 - [ ] User guide, filter reference (auto-generated from property metadata), Python API docs, tutorials, example gallery.
-- [ ] Contributing guide, code of conduct, issue templates, plugin cookbook.
+- [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook.
 
 ---
 

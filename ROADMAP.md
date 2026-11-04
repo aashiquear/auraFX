@@ -275,13 +275,13 @@ with cancel), everything searchable, every action scriptable, every panel option
 | Phase | Target | Contents |
 |---|---|---|
 | P0 Skeleton | done | Workspace, data model, legacy VTK + VTU/VTP + LAMMPS readers, wgpu render view, docking UI, command palette, Python console, AI chat (Ollama/Anthropic/OpenAI) |
-| P1 Daily driver | in progress | Exodus, PVD/time series, core ★ filters, color maps + scalar bar, spreadsheet + line chart, screenshots, state files, settings |
-| P2 Analysis | | Statistics/data-analysis filters, selection + Find Data, Python API breadth, Python trace, programmable filter, charts breadth |
-| P3 Simulation | | Job runner local + SSH, templates, sweeps, watch folders, remote file browser, GPU monitoring |
-| P4 Rendering depth | | Volume rendering, widgets, lighting/SSAO/EDL, animation + keyframes, exporters, LIC, ray tracing |
-| P5 Breadth | | Remaining readers/writers/filters from the catalog, AMR/HTG/molecule/cell-grid types, higher-order cells |
-| P6 Scale | | Client/server, distributed, in-situ, collaboration, out-of-core |
-| P7 Polish | | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
+| P1 Daily driver | mostly done | Exodus, PVD/time series, core ★ filters, color maps + scalar bar, spreadsheet + line chart, screenshots, state files, settings |
+| P2 Analysis | mostly done | Statistics/data-analysis filters, selection + Find Data, Python API breadth, Python trace, programmable filter, charts breadth |
+| P3 Simulation | mostly done (Slurm untested) | Job runner local + SSH, templates, sweeps, watch folders, remote file browser, GPU monitoring |
+| P4 Rendering depth | in progress | Volume rendering, widgets, lighting/SSAO/EDL, animation + keyframes, exporters, LIC, ray tracing |
+| P5 Breadth | started | Remaining readers/writers/filters from the catalog, AMR/HTG/molecule/cell-grid types, higher-order cells |
+| P6 Scale | not started | Client/server, distributed, in-situ, collaboration, out-of-core |
+| P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
 
 ---
 

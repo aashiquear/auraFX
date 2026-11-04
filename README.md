@@ -31,14 +31,15 @@ plan, with every ParaView 6.1.1 reader, filter and view mapped to a phase, is in
 
 | Area | Status |
 |---|---|
-| **Readers** | Exodus II (`.e .exo .ex2 .g`, NetCDF-3, time steps, nodal/element/global variables, element blocks, displacements), VTK legacy `.vtk` (ASCII/binary, all dataset types), VTK XML `.vtu .vtp .vti .vtr .vts .vtt` (inline/appended/base64, zlib/LZ4), parallel `.pvtu …`, `.vtm` multiblock, `.pvd` time collections, LAMMPS text dumps (`.dump`, `.lammpstrj`, `.gz`, multi-frame, scaled/unwrapped coordinates, vector grouping), STL, CSV |
-| **Filters** | Slice, Clip (plane/box/sphere/scalar), Contour, Threshold, Calculator (expression language), Warp By Vector/Scalar, Glyph, Extract Surface, Extract Edges, Feature Edges, Outline, Transform, Cell Centers, Merge Blocks, Cell↔Point Data, Plot Over Line, Probe Location, Resample To Image, Histogram, Descriptive Statistics, Integrate Variables, Gradient |
-| **Sources** | Sphere, Cone, Cylinder, Box, Plane, Line, Point Cloud, Wavelet (identical to VTK's) |
-| **Rendering** | wgpu (Vulkan / Metal / DX12 / GL), MSAA, crease-angle shading, surface / surface-with-edges / wireframe / points (sphere impostors) / outline, 18 color maps, log scale, scalar bar, orientation axes, translucency, headless offscreen rendering |
-| **UI** | Dockable panels, command palette (Ctrl+K), auto-apply properties, color-by toolbar, time player, spreadsheet with CSV export, charts, information panel, log, drag-and-drop, recent files, screenshot export, Python trace export |
-| **Python** | Embedded interpreter with `afx` module, NumPy arrays in and out, console with completion and history, `--script` startup scripts |
-| **AI** | Ollama (honours `OLLAMA_HOST`), Anthropic, OpenAI-compatible servers; streaming chat; pipeline-aware context; one-click "Run code"; "Ask AI to fix" on errors; send a job log to the AI |
-| **Simulations** | Local, SSH (uses your `~/.ssh/config`), Slurm; NVIDIA/AMD GPU selection; live logs; cancel; result download and auto-open; GPU monitor (nvidia-smi / rocm-smi); remote file browser |
+| **Readers** | Exodus II (NetCDF-3 and NetCDF-4/HDF5, time steps, nodal/element/global variables, blocks, displacements), VTK legacy and XML (`.vtk .vtu .vtp .vti .vtr .vts .vtt`, parallel, `.vtm`, `.pvd`), OpenFOAM cases (ASCII/binary/gzip), LAMMPS dumps (multi-frame, gzip) and data files, XYZ / extended XYZ, STL, PLY, OBJ, CSV |
+| **Writers** | VTK XML (all types + multiblock), legacy VTK, CSV, STL, PLY — all verified readable by ParaView |
+| **Filters (44 + 8 sources)** | Slice, Clip, Contour, Threshold, Calculator, Warp, Glyph, Stream Tracer, Tube, Plot Over Line, Probe, Resample To Image, Histogram, Descriptive Statistics, Integrate Variables, Gradient, Find Data, Extract Selection, Connectivity, Clean, Surface Normals, Smooth, Shrink, Reflect, Extract Block, Cell Size, Mesh Quality, Elevation, Triangulate, Tetrahedralize, Mask Points, Temporal Statistics and more |
+| **Rendering** | wgpu (Vulkan / Metal / DX12 / GL), MSAA, crease-angle shading, surface / edges / wireframe / points / outline / **GPU volume rendering**, 18 color maps with previews, log scale, scalar bar, translucency, X-ray selection highlight, headless rendering |
+| **Interaction** | Pick values on surfaces, rectangle cell/point selection, interactive slice/clip plane widget, camera presets, time player |
+| **UI** | Dark, light or system theme; Windows menu with panel toggles and layout presets; command palette (Ctrl+K); undo/redo; `.afx` session files and last-session restore; charts; spreadsheet; animation export (GIF, MP4, PNG) |
+| **Python** | Embedded interpreter with the `afx` module, NumPy in and out, console with completion, `--script`, trace export |
+| **AI** | Ollama (honours `OLLAMA_HOST`), Anthropic, OpenAI-compatible; streaming; pipeline-aware; **agent mode** runs code and iterates on results |
+| **Simulations** | Local, SSH and Slurm jobs; NVIDIA/AMD GPU selection; parameter sweeps; live logs; auto-open results; **live reload** of files a running solver writes; GPU monitor; remote file browser |
 
 ## Building
 
@@ -71,6 +72,8 @@ T = m.array("temperature")                       # NumPy array
 m.add_array("T_celsius", T - 273.15)
 afx.plot(range(len(T)), T, label="T")            # Charts panel
 afx.view("iso"); afx.screenshot("slice.png")
+afx.save_animation("run.gif")                    # every time step, or orbit=72 for a turntable
+afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 
 # Run a simulation on a remote GPU machine and open the result when it finishes
 afx.submit("lmp -sf gpu -pk gpu 1 -in in.melt", host="rocm-server", workdir="~/runs/melt",

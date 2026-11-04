@@ -25,7 +25,7 @@ one ships something usable on its own.
 ### 0.1 Workspace and tooling
 - [x] Cargo workspace with one crate per subsystem (see `docs/ARCHITECTURE.md`).
 - [x] App icon and branding assets (`assets/icons`, `assets/branding`).
-- [ ] CI: build + test on Linux/macOS/Windows, clippy, rustfmt.
+- [~] CI: build + test on Linux/macOS/Windows, clippy, rustfmt (workflow written, not yet run on GitHub).
 - [ ] Packaging: AppImage, `.deb`, `.dmg`, MSIX, Flatpak; Linux `.desktop` + icon install.
 - [ ] Crash reporting and structured logs (`tracing`), log panel in the UI.
 - [~] Settings system (TOML in platform config dir), settings UI with search.
@@ -50,8 +50,8 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [~] Per-node progress and cancellation; background execution off the UI thread.
 - [~] Time-aware execution (request a time step, temporal filters that need multiple steps).
 - [ ] Streaming/pieces for huge datasets; ghost-cell generation.
-- [ ] Undo/redo of every pipeline and property change.
-- [ ] State files (`.afx` JSON/TOML) and ParaView `.pvsm` import (best effort).
+- [x] Undo/redo of every pipeline and property change.
+- [~] State files (`.afx` JSON/TOML) and ParaView `.pvsm` import (best effort).
 - [~] Python trace: every UI action recorded as an equivalent `aurafx` Python call.
 
 ---
@@ -73,7 +73,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [ ] VTKHDF (`.vtkhdf`), HDF5 generic browser.
 
 ### 1.2 Tier 2 (simulation ecosystem)
-- [ ] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories).
+- [~] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories).
 - [ ] EnSight Gold (`.case`), Tecplot ASCII/binary, CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [ ] NetCDF CF/MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y.
 - [ ] Molecular: PDB, Gaussian Cube, CML, VASP (POSCAR/CHGCAR/OUTCAR), XYZ molecules.
@@ -84,8 +84,8 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [ ] Every remaining reader in the catalog, tracked per entry in `docs/reference/format-matrix.md`.
 
 ### 1.3 Writers
-- [ ] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF.
-- [ ] Exodus II, CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
+- [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF.
+- [~] Exodus II, CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
 - [ ] CSV, STL, PLY, OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG/JPEG/TIFF/BMP/EXR, screenshot with resolution override and transparent background.
 - [ ] Animation: PNG sequence, MP4/WebM (ffmpeg feature), GIF.
@@ -154,7 +154,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [x] Surface rendering with flat/Gouraud/PBR shading; backface handling.
 - [x] Scalar coloring with color maps (ColorBrewer, viridis family, ParaView presets, imported `.json/.xml`), range modes (auto, custom, time-wide), log scale, discrete, NaN/above/below colors, opacity transfer functions, per-component or magnitude, categorical.
 - [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture.
-- [ ] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
+- [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
 - [ ] Lighting: key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
 - [ ] Surface LIC, ray tracing (OSPRay/Embree- or Rust path tracer, optional), environment maps/skyboxes, materials editor.
 - [ ] Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
@@ -166,12 +166,12 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 
 ### 3.2 Other views
 - [~] Line chart ★ (multiple series, log axes, styles, legends, markers, selection link), Bar chart, Point chart, XY bar chart, Histogram view, Box chart / Quartile chart, Plot matrix (scatter matrix), Parallel coordinates, Image chart, Comparative views (render/line chart), Slice view, Orthographic slice view, Spreadsheet view ★ (point/cell/field/row data, sort, filter, column visibility, precision, export CSV), Python view (matplotlib embedded), Spreadsheet of selection.
-- [ ] Layouts: split horizontally/vertically, tabs, link cameras, link views, link selections, maximize, save/restore layouts, multiple windows/monitors.
+- [~] Layouts: split horizontally/vertically, tabs, link cameras, link views, link selections, maximize, save/restore layouts, multiple windows/monitors.
 
 ### 3.3 Animation and time
 - [~] Time toolbar (play, step, loop, time value entry, snap to steps, real-time, sequence modes), time inspector.
 - [ ] Animation view: keyframes for any property (ramp, linear, exponential, sinusoid, boolean), camera paths (orbit, path, interpolate), Python cue, comparative cues.
-- [ ] Save animation at any resolution/format with frame-rate control; stride; preview.
+- [~] Save animation at any resolution/format with frame-rate control; stride; preview.
 
 ---
 
@@ -236,10 +236,10 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Local executor with live stdout/stderr streaming, log search, kill/pause, resource monitoring (CPU, GPU via NVML/ROCm-SMI).
 - [~] Templates: LAMMPS, MOOSE, OpenFOAM, Abaqus/CalculiX, GROMACS, custom shell/Python.
 - [~] Python pipeline runs: define a pipeline in Python (pre -> run -> post), run as a job, auto-load outputs when done.
-- [ ] Parameter sweeps and ensembles with a results table and comparative views.
+- [x] Parameter sweeps and ensembles with a results table and comparative views.
 - [~] Remote executor over SSH: connect (key, agent, password, jump hosts, 2FA prompts), remote file browser, sync inputs/outputs (rsync-style), run under nohup/tmux, Slurm/PBS/LSF submission and queue monitoring, reconnect to running jobs.
 - [ ] Remote rendering/data server mode: run `aurafx-server` on the GPU box, stream geometry or images to the local client.
-- [ ] Watch folders: auto-refresh when the solver writes a new step.
+- [x] Watch folders: auto-refresh when the solver writes a new step.
 
 ---
 
@@ -285,7 +285,22 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 ---
 
-## Status (2026-11-03)
+## Status (2026-11-04)
+
+Done in iteration 2 (on top of iteration 1 below): light/dark/system themes; Windows menu with
+panel toggles and layout presets; undo/redo; `.afx` state files and last-session restore;
+writers (VTK XML, legacy, CSV, STL, PLY); picking, rectangle selection, Extract Selection, Find
+Data; 18 more filters including Stream Tracer and Tube; Temporal Statistics; GPU volume
+rendering; animation export; interactive plane widget; AI agent mode; NetCDF-4 Exodus;
+OpenFOAM, XYZ, LAMMPS data, PLY and OBJ readers; live file watching; parameter sweeps; CI.
+
+Known gaps worth doing next: boundary patches and decomposed cases in the OpenFOAM reader;
+selection of visible cells only (needs an ID buffer); volume rendering that depth-merges with
+opaque geometry; higher-order cell tessellation; client/server and distributed execution;
+plugin system; packaging (AppImage, installers); Slurm and CI runs not yet exercised on real
+infrastructure.
+
+## Status (2026-11-03, iteration 1)
 
 Built in the first iteration, all exercised by tests or by driving the real app:
 

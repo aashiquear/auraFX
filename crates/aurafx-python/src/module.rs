@@ -873,6 +873,34 @@ fn parse_gpu(g: Option<&str>) -> PyResult<aurafx_jobs::GpuRequest> {
     })
 }
 
+/// Parameter sweep: one job per value; "{var}" in the command is replaced and each run gets
+/// its own folder <workdir>/<var>_<value>. Returns the job ids.
+#[pyfunction]
+#[pyo3(signature = (command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=false))]
+#[allow(clippy::too_many_arguments)]
+fn sweep(
+    command: String,
+    var: String,
+    values: Vec<Bound<'_, PyAny>>,
+    host: Option<String>,
+    workdir: Option<String>,
+    gpu: Option<String>,
+    outputs: Option<String>,
+    auto_load: bool,
+) -> PyResult<Vec<u64>> {
+    let vals: Vec<String> = values.iter().map(|v| v.str().map(|s| s.to_string())).collect::<PyResult<_>>()?;
+    let mut base = aurafx_jobs::JobSpec::new(format!("sweep {var}"), command);
+    base.host = aurafx_jobs::resolve_host(host.as_deref());
+    if let Some(w) = workdir {
+        base.workdir = w;
+    }
+    base.gpu = parse_gpu(gpu.as_deref())?;
+    base.outputs = outputs.unwrap_or_default();
+    base.auto_load = auto_load;
+    let jobs = aurafx_jobs::global();
+    Ok(aurafx_jobs::sweep(&base, &var, &vals).into_iter().map(|s| aurafx_jobs::submit(&jobs, s)).collect())
+}
+
 /// Status of a job (dict with state, exit_code, log tail, outputs).
 #[pyfunction]
 #[pyo3(signature = (id, tail=50))]
@@ -939,6 +967,7 @@ fn load_remote(host: String, path: String) -> PyResult<PyNode> {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(submit, m)?)?;
     m.add_function(wrap_pyfunction!(job, m)?)?;
+    m.add_function(wrap_pyfunction!(sweep, m)?)?;
     m.add_function(wrap_pyfunction!(jobs, m)?)?;
     m.add_function(wrap_pyfunction!(cancel, m)?)?;
     m.add_function(wrap_pyfunction!(gpus, m)?)?;

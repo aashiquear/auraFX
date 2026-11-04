@@ -34,6 +34,8 @@ pub struct JobsPanel {
     pub auto_load: bool,
     pub env: String,
     pub command_override: Option<String>,
+    pub sweep_var: String,
+    pub sweep_values: String,
     pub selected: Option<JobId>,
     pub log_filter: String,
     // Host editor
@@ -81,6 +83,8 @@ impl Default for JobsPanel {
             auto_load: true,
             env: String::new(),
             command_override: None,
+            sweep_var: String::new(),
+            sweep_values: String::new(),
             selected: None,
             log_filter: String::new(),
             new_host_name: String::new(),
@@ -295,6 +299,15 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.label("Environment");
                 ui.add(egui::TextEdit::multiline(&mut p.env).desired_rows(1).hint_text("OMP_NUM_THREADS=8 (one per line)"));
                 ui.end_row();
+                ui.label("Sweep");
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut p.sweep_var).hint_text("variable").desired_width(70.0));
+                    ui.label("=");
+                    ui.add(egui::TextEdit::singleline(&mut p.sweep_values).hint_text("300, 350, 400").desired_width(140.0));
+                })
+                .response
+                .on_hover_text("Run one job per value. {variable} in the command is replaced; each run gets its own folder <workdir>/<variable>_<value>.");
+                ui.end_row();
                 ui.label("Result files");
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut p.outputs).desired_width(160.0));
@@ -327,8 +340,15 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                         spec.scheduler =
                             Scheduler::Slurm { partition: p.partition.clone(), time: p.time.clone(), nodes: p.nodes, tasks: p.np, extra: p.extra.clone() };
                     }
-                    let id = aurafx_jobs::submit(&aurafx_jobs::global(), spec);
-                    p.selected = Some(id);
+                    let values: Vec<String> = p.sweep_values.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
+                    if !p.sweep_var.trim().is_empty() && !values.is_empty() {
+                        for s in aurafx_jobs::sweep(&spec, p.sweep_var.trim(), &values) {
+                            p.selected = Some(aurafx_jobs::submit(&aurafx_jobs::global(), s));
+                        }
+                    } else {
+                        let id = aurafx_jobs::submit(&aurafx_jobs::global(), spec);
+                        p.selected = Some(id);
+                    }
                 }
                 if p.command_override.is_some() && ui.small_button("Reset command").clicked() {
                     p.command_override = None;

@@ -252,6 +252,9 @@ pub struct JobSpec {
     pub outputs: String,
     #[serde(default)]
     pub auto_load: bool,
+    /// Create the working directory before running (used by sweeps).
+    #[serde(default)]
+    pub create_workdir: bool,
 }
 
 impl JobSpec {
@@ -266,6 +269,7 @@ impl JobSpec {
             scheduler: Scheduler::Direct,
             outputs: String::new(),
             auto_load: false,
+            create_workdir: false,
         }
     }
 
@@ -274,6 +278,9 @@ impl JobSpec {
         let mut s = String::new();
         for (k, v) in self.env.iter().cloned().chain(self.gpu.env()) {
             s += &format!("export {k}={}\n", shell_quote(&v));
+        }
+        if self.create_workdir {
+            s += &format!("mkdir -p {}\n", shell_quote(&self.workdir));
         }
         s += &format!("cd {} || exit 97\n", shell_quote(&self.workdir));
         s += &self.command;
@@ -655,6 +662,25 @@ mod tests {
     }
 
     #[test]
+    fn sweep_jobs() {
+        let jobs: SharedJobs = Arc::new(Mutex::new(JobManager { next: 1, ..Default::default() }));
+        let dir = std::env::temp_dir().join(format!("aurafx-sweep-{}", std::process::id()));
+        let mut base = JobSpec::new("sweep", "echo T={T} > result.txt; cat $AURAFX_BASE_DIR/marker 2>/dev/null; echo $T");
+        base.workdir = dir.display().to_string();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("marker"), "base-ok\n").unwrap();
+        let specs = sweep(&base, "T", &["300".into(), "350".into()]);
+        let ids: Vec<JobId> = specs.into_iter().map(|s| submit(&jobs, s)).collect();
+        for id in &ids {
+            assert_eq!(wait(&jobs, *id), JobState::Finished(0));
+        }
+        assert_eq!(std::fs::read_to_string(dir.join("T_350/result.txt")).unwrap().trim(), "T=350");
+        let m = jobs.lock();
+        assert!(m.jobs[0].log.iter().any(|l| l == "base-ok"));
+        assert!(m.jobs[1].log.iter().any(|l| l == "350"));
+    }
+
+    #[test]
     fn cancel_kills() {
         let jobs: SharedJobs = Arc::new(Mutex::new(JobManager { next: 1, ..Default::default() }));
         let mut spec = JobSpec::new("sleep", "sleep 30");
@@ -689,4 +715,25 @@ pub fn resolve_host(name: Option<&str>) -> Host {
             setup: String::new(),
         }),
     }
+}
+
+/// Expand a job into a parameter sweep: one job per value, each in `<workdir>/<var>_<value>`,
+/// with `{var}` replaced in the command and `AURAFX_BASE_DIR` pointing at the original directory.
+pub fn sweep(base: &JobSpec, var: &str, values: &[String]) -> Vec<JobSpec> {
+    values
+        .iter()
+        .map(|v| {
+            let mut s = base.clone();
+            let tag = format!("{{{var}}}");
+            s.command = base.command.replace(&tag, v);
+            s.name = format!("{} [{var}={v}]", base.name);
+            let safe: String = v.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
+            s.workdir = format!("{}/{var}_{safe}", base.workdir.trim_end_matches('/'));
+            s.create_workdir = true;
+            s.env.push(("AURAFX_BASE_DIR".into(), base.workdir.clone()));
+            s.env.push((var.to_uppercase(), v.clone()));
+            s.outputs = base.outputs.replace(&tag, v);
+            s
+        })
+        .collect()
 }

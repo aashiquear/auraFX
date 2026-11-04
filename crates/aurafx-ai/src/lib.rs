@@ -353,7 +353,7 @@ API cheat sheet:\n\
 - afx.<source>(**params) for sources (sphere, cone, wavelet, plane, line, box, cylinder, point_source)\n\
 - afx.time(index); afx.times(); afx.view('+x'|'-y'|'iso'|[x,y,z]); afx.reset_camera(); afx.screenshot('file.png'); afx.describe(); afx.run()\n\
 - afx.plot(x, y, label=...); afx.over_time(node, 'array', stat='max'); afx.show_panel('Charts'); afx.hide_panel('Log'); afx.layout('analyze'); afx.set_theme('light')\n\
-- afx.submit('cmd', host=None, workdir=..., gpu='amd:0', outputs='*.e', auto_load=True) runs simulations; afx.job(id); afx.gpus()\n\
+- afx.submit('cmd', host=None, workdir=..., gpu='amd:0', outputs='*.e', auto_load=True) runs simulations; afx.job(id); afx.gpus(); afx.sweep('lmp -var T {{T}} -in in.lj', 'T', [300, 350], workdir=...); node.watch() live-reloads a file a running job writes\n\
 - numpy is available as np; standard scientific Python can be used on arrays.\n\n\
 Available filters/sources (id: description):\n{filter_catalog}\n\n\
 Current pipeline state:\n{pipeline_description}"

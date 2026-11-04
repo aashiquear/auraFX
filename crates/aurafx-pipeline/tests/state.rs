@@ -72,3 +72,18 @@ fn save_and_load_state() {
     assert!(tcl.params.get("origin").unwrap().as_vec3().unwrap()[0].is_nan());
     assert!(tcl.error.is_none());
 }
+
+#[test]
+fn temporal_statistics_of_lammps() {
+    let mut s = Session::new();
+    let r = s.open_file(td("lammps_small.dump")).unwrap();
+    s.update_blocking();
+    let ts = s.temporal_statistics(r).unwrap();
+    s.update_blocking();
+    let out = s.nodes[&ts].output.clone().unwrap();
+    let pd = out.point_data().unwrap();
+    // "type" is 1,1,2,2 at both steps: average equals the value, stddev 0.
+    let avg = pd.get("type_average").unwrap();
+    assert_eq!((0..4).map(|i| avg.get(i, 0)).collect::<Vec<_>>(), vec![1.0, 1.0, 2.0, 2.0]);
+    assert_eq!(pd.get("type_stddev").unwrap().range(None), (0.0, 0.0));
+}

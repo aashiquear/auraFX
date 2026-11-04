@@ -749,6 +749,283 @@ fn build() -> Vec<FilterDef> {
             params: vec![],
             apply: |input, _| per_leaf(input.unwrap(), &|d| crate::attributes::point_to_cell(d, &[])),
         },
+        FilterDef {
+            id: "stream_tracer",
+            label: "Stream Tracer",
+            category: "Common",
+            description: "Streamlines of a vector field from seeds on a line or in a sphere.",
+            keywords: &["streamlines", "flow", "trajectories", "integrate", "velocity", "field lines"],
+            is_source: false,
+            params: vec![
+                vec_param("vectors", "Vectors"),
+                choice("seed_type", "Seeds", &["Line", "Point Cloud"], "Point Cloud"),
+                v3("point1", "Line start", [f64::NAN; 3]),
+                v3("point2", "Line end", [f64::NAN; 3]),
+                v3("center", "Cloud center", [f64::NAN; 3]),
+                f("radius", "Cloud radius", f64::NAN, 0.0, f64::INFINITY),
+                i("seeds", "Number of seeds", 100, 1, 100_000),
+                choice("direction", "Direction", &["Both", "Forward", "Backward"], "Both"),
+                i("max_steps", "Max steps", 2000, 1, 1_000_000).advanced(),
+                f("step", "Step (fraction of size)", 0.005, 1e-6, 1.0).advanced(),
+                f("max_length", "Max length (fraction of size)", 2.0, 0.0, 1000.0).advanced(),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let b = ds.bounds();
+                let (_, vname) = array_or_default(ds, p, "vectors", true)?;
+                let nan3 = |k: &str, d: [f64; 3]| {
+                    let v = p.vec3(k, [f64::NAN; 3]);
+                    if v.iter().any(|x| x.is_nan()) {
+                        d
+                    } else {
+                        v
+                    }
+                };
+                let n = p.i64("seeds", 100) as usize;
+                let seeds = if p.str("seed_type") == "Line" {
+                    crate::streamlines::line_seeds(nan3("point1", b.min), nan3("point2", b.max), n)
+                } else {
+                    let r = p.f64("radius", f64::NAN);
+                    crate::streamlines::sphere_seeds(nan3("center", b.center()), if r.is_nan() { 0.1 * b.diagonal() } else { r }, n)
+                };
+                let opt = crate::streamlines::StreamOptions {
+                    vectors: vname,
+                    direction: match p.str("direction").as_str() {
+                        "Forward" => crate::streamlines::Direction::Forward,
+                        "Backward" => crate::streamlines::Direction::Backward,
+                        _ => crate::streamlines::Direction::Both,
+                    },
+                    max_steps: p.i64("max_steps", 2000) as usize,
+                    max_length: p.f64("max_length", 2.0) * b.diagonal(),
+                    step_fraction: p.f64("step", 0.005),
+                    terminal_speed: 1e-12,
+                };
+                Ok(DataSet::PolyData(crate::streamlines::stream_tracer(ds, &seeds, &opt)?))
+            },
+        },
+        FilterDef {
+            id: "tube",
+            label: "Tube",
+            category: "Geometry",
+            description: "Turn lines (e.g. streamlines) into 3D tubes.",
+            keywords: &["pipe", "thick lines", "streamtubes", "cylinder"],
+            is_source: false,
+            params: vec![
+                f("radius", "Radius", f64::NAN, 0.0, f64::INFINITY).help("Unset: 0.5% of the data size."),
+                i("sides", "Sides", 12, 3, 64),
+                arr_param("scale_by", "Vary radius by").advanced(),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let r = p.f64("radius", f64::NAN);
+                    let r = if r.is_nan() { 0.005 * d.bounds().diagonal() } else { r };
+                    let sb = p.array("scale_by").map(|(_, n)| n);
+                    Ok(DataSet::PolyData(crate::geometry::tube(d, r, p.i64("sides", 12) as usize, sb.as_deref())?))
+                })
+            },
+        },
+        FilterDef {
+            id: "surface_normals",
+            label: "Surface Normals",
+            category: "Geometry",
+            description: "Compute normals of a surface (adds a Normals array).",
+            keywords: &["normals", "orientation", "shading"],
+            is_source: false,
+            params: vec![b("flip", "Flip normals", false), b("cell_normals", "Also cell normals", false)],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::geometry::surface_normals(d, p.bool("flip", false), p.bool("cell_normals", false))?)))
+            },
+        },
+        FilterDef {
+            id: "clean",
+            label: "Clean",
+            category: "Geometry",
+            description: "Merge duplicate points and remove unused ones.",
+            keywords: &["merge points", "duplicate", "weld", "tolerance"],
+            is_source: false,
+            params: vec![f("tolerance", "Tolerance", 0.0, 0.0, f64::INFINITY)],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| crate::geometry::clean(d, p.f64("tolerance", 0.0))),
+        },
+        FilterDef {
+            id: "connectivity",
+            label: "Connectivity",
+            category: "Geometry",
+            description: "Label connected regions (RegionId) and optionally keep only one.",
+            keywords: &["regions", "islands", "components", "fragments", "largest"],
+            is_source: false,
+            params: vec![s("extract", "Keep", "all").help("'all', 'largest' or a region number")],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| crate::geometry::connectivity(d, &p.str("extract"))),
+        },
+        FilterDef {
+            id: "extract_block",
+            label: "Extract Block",
+            category: "Geometry",
+            description: "Keep some blocks of a multi-block dataset (by name or index).",
+            keywords: &["block", "part", "subset", "element block", "material"],
+            is_source: false,
+            params: vec![s("blocks", "Blocks", "0").help("Comma-separated names or indices, e.g. 0,2 or Block 1")],
+            apply: |input, p| crate::geometry::extract_block(input.unwrap(), &p.str("blocks")),
+        },
+        FilterDef {
+            id: "shrink",
+            label: "Shrink",
+            category: "Geometry",
+            description: "Shrink cells toward their centers to see the mesh structure.",
+            keywords: &["explode", "cells", "mesh"],
+            is_source: false,
+            params: vec![f("factor", "Factor", 0.8, 0.0, 1.0)],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::geometry::shrink(d, p.f64("factor", 0.8))?))),
+        },
+        FilterDef {
+            id: "reflect",
+            label: "Reflect",
+            category: "Geometry",
+            description: "Mirror the data across a plane (symmetric models).",
+            keywords: &["mirror", "symmetry"],
+            is_source: false,
+            params: vec![
+                choice("plane", "Plane", &["X", "Y", "Z"], "X"),
+                f("position", "Position", 0.0, f64::NEG_INFINITY, f64::INFINITY),
+                b("copy_input", "Keep original", true),
+            ],
+            apply: |input, p| {
+                let axis = match p.str("plane").as_str() {
+                    "Y" => 1,
+                    "Z" => 2,
+                    _ => 0,
+                };
+                per_leaf(input.unwrap(), &|d| crate::geometry::reflect(d, axis, p.f64("position", 0.0), p.bool("copy_input", true)))
+            },
+        },
+        FilterDef {
+            id: "elevation",
+            label: "Elevation",
+            category: "Data",
+            description: "Scalar that increases along a direction (height coloring).",
+            keywords: &["height", "gradient color", "z value"],
+            is_source: false,
+            params: vec![v3("low_point", "Low point", [f64::NAN; 3]), v3("high_point", "High point", [f64::NAN; 3])],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let b = d.bounds();
+                    let lo = p.vec3("low_point", [f64::NAN; 3]);
+                    let hi = p.vec3("high_point", [f64::NAN; 3]);
+                    let lo = if lo.iter().any(|x| x.is_nan()) { [b.center()[0], b.center()[1], b.min[2]] } else { lo };
+                    let hi = if hi.iter().any(|x| x.is_nan()) { [b.center()[0], b.center()[1], b.max[2]] } else { hi };
+                    crate::geometry::elevation(d, lo, hi, (0.0, 1.0))
+                })
+            },
+        },
+        FilterDef {
+            id: "cell_size",
+            label: "Cell Size",
+            category: "Data",
+            description: "Volume, area and length of every cell.",
+            keywords: &["volume", "area", "length", "measure"],
+            is_source: false,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &crate::geometry::cell_size),
+        },
+        FilterDef {
+            id: "mesh_quality",
+            label: "Mesh Quality",
+            category: "Data",
+            description: "Edge ratio and minimum angle of every cell (find distorted elements).",
+            keywords: &["quality", "aspect ratio", "skew", "distortion", "jacobian"],
+            is_source: false,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &crate::geometry::mesh_quality),
+        },
+        FilterDef {
+            id: "smooth",
+            label: "Smooth",
+            category: "Geometry",
+            description: "Laplacian smoothing of a surface.",
+            keywords: &["laplacian", "fair", "denoise"],
+            is_source: false,
+            params: vec![i("iterations", "Iterations", 20, 1, 10_000), f("relaxation", "Relaxation", 0.1, 0.0, 1.0)],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::geometry::smooth(d, p.i64("iterations", 20) as usize, p.f64("relaxation", 0.1))?)))
+            },
+        },
+        FilterDef {
+            id: "triangulate",
+            label: "Triangulate",
+            category: "Geometry",
+            description: "Split surface polygons into triangles.",
+            keywords: &["triangles", "polygons"],
+            is_source: false,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::geometry::triangulate(d)?))),
+        },
+        FilterDef {
+            id: "tetrahedralize",
+            label: "Tetrahedralize",
+            category: "Geometry",
+            description: "Split every cell into tetrahedra.",
+            keywords: &["tets", "simplices"],
+            is_source: false,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::geometry::tetrahedralize(d)?))),
+        },
+        FilterDef {
+            id: "mask_points",
+            label: "Mask Points",
+            category: "Geometry",
+            description: "Keep a subset of points (every Nth, at most a maximum count).",
+            keywords: &["subsample", "decimate points", "thin"],
+            is_source: false,
+            params: vec![i("stride", "Every Nth", 2, 1, 1_000_000), i("max_points", "Maximum points", 5000, 1, 100_000_000)],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    Ok(DataSet::PolyData(crate::geometry::mask_points(d, p.i64("stride", 2) as usize, p.i64("max_points", 5000) as usize)?))
+                })
+            },
+        },
+        FilterDef {
+            id: "extract_component",
+            label: "Extract Component",
+            category: "Data",
+            description: "Copy one component of a vector/tensor into a scalar array.",
+            keywords: &["component", "x", "y", "z"],
+            is_source: false,
+            params: vec![vec_param("array", "Array"), i("component", "Component", 0, 0, 8)],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (a, n) = array_or_default(d, p, "array", true)?;
+                    crate::geometry::extract_component(d, &n, p.i64("component", 0) as usize, a == Association::Cells)
+                })
+            },
+        },
+        FilterDef {
+            id: "rename_array",
+            label: "Rename Array",
+            category: "Data",
+            description: "Give an array a new name.",
+            keywords: &["rename", "label"],
+            is_source: false,
+            params: vec![arr_param("array", "Array"), s("new_name", "New name", "renamed")],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", false)?;
+                    crate::geometry::rename_array(d, &n, &p.str("new_name"))
+                })
+            },
+        },
+        FilterDef {
+            id: "pass_arrays",
+            label: "Pass Arrays",
+            category: "Data",
+            description: "Keep only the listed arrays (smaller data, faster export).",
+            keywords: &["remove arrays", "filter arrays", "keep"],
+            is_source: false,
+            params: vec![s("point_arrays", "Point arrays", "").help("Comma-separated names; empty keeps none"), s("cell_arrays", "Cell arrays", "")],
+            apply: |input, p| {
+                let split = |k: &str| p.str(k).split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>();
+                let (pa, ca) = (split("point_arrays"), split("cell_arrays"));
+                per_leaf(input.unwrap(), &|d| Ok(crate::attributes::pass_arrays(d, &pa, &ca)))
+            },
+        },
         // ---------------- Sources ----------------
         FilterDef {
             id: "sphere",

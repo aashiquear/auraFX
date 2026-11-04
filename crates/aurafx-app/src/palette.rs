@@ -53,6 +53,13 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
             }
         }),
         ("Play / pause time", "animation", |s| s.playing = !s.playing),
+        ("Temporal Statistics", "time average mean max min std over time", |s| s.temporal_statistics()),
+        ("Save data…", "export write vtu vtk csv stl", |s| s.save_data_dialog()),
+        ("Save state…", "session afx save", |s| s.save_state_dialog(false)),
+        ("Undo", "revert back", |s| s.undo()),
+        ("Redo", "again", |s| s.redo()),
+        ("Light theme", "appearance bright white", |s| s.session.lock().app_commands.push("theme light".into())),
+        ("Dark theme", "appearance night black", |s| s.session.lock().app_commands.push("theme dark".into())),
         ("Settings", "preferences ai python theme", |s| s.show_settings = true),
         ("Ask the AI assistant", "chat help", |s| s.assistant.focus_input = true),
         ("Python quick reference", "help api cheat sheet", |s| s.console.show_help = true),

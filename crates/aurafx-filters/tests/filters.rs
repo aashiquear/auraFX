@@ -140,3 +140,79 @@ fn selection_filters() {
     let r = fp.point_data().unwrap().get("RTData").unwrap().range(None);
     assert!(r.0 > 200.0, "{r:?}");
 }
+
+#[test]
+fn geometry_batch() {
+    let sph = run("sphere", None, &[("theta", 24.into()), ("phi", 24.into())]);
+    let n = run("surface_normals", Some(&sph), &[]);
+    let na = n.point_data().unwrap().get("Normals").unwrap();
+    // Outward normals: dot(normal, position) > 0 for a sphere at the origin.
+    let pts = n.points().unwrap();
+    for i in 0..pts.len() {
+        let p = pts.get(i);
+        assert!(p[0] * na.get(i, 0) + p[1] * na.get(i, 1) + p[2] * na.get(i, 2) > 0.0);
+    }
+    // Shrink duplicates points; Clean merges them back.
+    let t = td("wavelet_tets.vtu");
+    let sh = run("shrink", Some(&t), &[("factor", 1.0.into())]);
+    assert!(sh.n_points() > t.n_points());
+    let cl = run("clean", Some(&sh), &[]);
+    assert_eq!(cl.n_points(), t.n_points());
+    // Two separate boxes -> two regions.
+    let refl = run("reflect", Some(&run("box", None, &[("center", serde_json::json!([2, 0, 0]))])), &[]);
+    let merged = run("merge_blocks", Some(&refl), &[]);
+    let conn = run("connectivity", Some(&merged), &[]);
+    assert_eq!(conn.field_data().get("NumberOfRegions").unwrap().get(0, 0), 2.0);
+    let largest = run("connectivity", Some(&merged), &[("extract", "largest".into())]);
+    assert_eq!(largest.n_cells(), 6);
+    // Cell size of the wavelet image (1x1x1 voxels) sums to 1000.
+    let w = run("wavelet", None, &[("half_size", 5.into())]);
+    let cs = run("cell_size", Some(&w), &[]);
+    let vol = cs.cell_data().unwrap().get("Volume").unwrap();
+    let total: f64 = (0..vol.len()).map(|i| vol.get(i, 0)).sum();
+    assert!((total - 1000.0).abs() < 1e-6);
+    let q = run("mesh_quality", Some(&w), &[]);
+    assert!((q.cell_data().unwrap().get("EdgeRatio").unwrap().range(None).1 - 1.0).abs() < 1e-9);
+    assert!((q.cell_data().unwrap().get("MinAngle").unwrap().range(None).0 - 90.0).abs() < 1e-6);
+    let tet = run("tetrahedralize", Some(&w), &[]);
+    assert_eq!(tet.n_cells(), 5000);
+    let tri = run("triangulate", Some(&run("box", None, &[])), &[]);
+    assert_eq!(tri.n_cells(), 12);
+}
+
+#[test]
+fn stream_tracer_follows_rotation() {
+    // Rigid rotation about z: v = (-y, x, 0). Streamlines are circles: radius stays constant.
+    let w = run("wavelet", None, &[("half_size", 8.into())]);
+    let c = run("calculator", Some(&w), &[("expression", "vec(-coordsY, coordsX, 0)".into()), ("result", "v".into())]);
+    let st = run(
+        "stream_tracer",
+        Some(&c),
+        &[
+            ("vectors", "v".into()),
+            ("seed_type", "Line".into()),
+            ("point1", serde_json::json!([2, 0, 0])),
+            ("point2", serde_json::json!([5, 0, 0])),
+            ("seeds", 4.into()),
+            ("direction", "Forward".into()),
+            ("max_length", 1.0.into()),
+        ],
+    );
+    let DataSet::PolyData(pd) = &st else { panic!() };
+    assert_eq!(pd.lines.len(), 4);
+    for l in 0..pd.lines.len() {
+        let cell = pd.lines.cell(l);
+        let r0 = {
+            let p = pd.points.get(cell[0] as usize);
+            (p[0] * p[0] + p[1] * p[1]).sqrt()
+        };
+        for &i in cell {
+            let p = pd.points.get(i as usize);
+            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+            assert!((r - r0).abs() < 0.02 * r0, "line {l}: radius drifted {r0} -> {r}");
+        }
+        assert!(cell.len() > 20);
+    }
+    let tube = run("tube", Some(&st), &[("radius", 0.1.into())]);
+    assert!(tube.n_cells() > 100);
+}

@@ -587,6 +587,32 @@ fn app_command(cmd: String) {
     s.revision += 1;
 }
 
+/// Mean/min/max/stddev of every array over all time steps, as a new node.
+#[pyfunction]
+fn temporal_statistics(py: Python<'_>, node: PyRef<PyNode>) -> PyResult<PyNode> {
+    let id = node.id;
+    py.detach(|| session().lock().temporal_statistics(id)).map(|id| PyNode { id }).map_err(err)
+}
+
+/// Add a dataset built from NumPy arrays as a point cloud node: afx.points_from(xyz, temperature=t).
+#[pyfunction]
+#[pyo3(signature = (xyz, name="points", **arrays))]
+fn points_from(xyz: Bound<'_, PyAny>, name: &str, arrays: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+    let (pts, nc) = numpy_to_array(&xyz)?;
+    if nc != 3 {
+        return Err(PyValueError::new_err("xyz must have shape (N, 3)"));
+    }
+    let mut pd = aurafx_data::PolyData::from_points(aurafx_data::Points::from_array(pts));
+    if let Some(a) = arrays {
+        for (k, v) in a.iter() {
+            let (d, c) = numpy_to_array(&v)?;
+            pd.point_data.insert(aurafx_data::Array::new(k.extract::<String>()?, c, d));
+        }
+    }
+    let id = session().lock().add_data(name, DataSet::PolyData(pd));
+    Ok(PyNode { id })
+}
+
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
 #[pyfunction]
 fn show_panel(name: String) {
@@ -907,6 +933,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(plot, m)?)?;
     m.add_function(wrap_pyfunction!(clear_plots, m)?)?;
     m.add_function(wrap_pyfunction!(over_time, m)?)?;
+    m.add_function(wrap_pyfunction!(temporal_statistics, m)?)?;
+    m.add_function(wrap_pyfunction!(points_from, m)?)?;
     m.add_function(wrap_pyfunction!(colormaps, m)?)?;
     let py = m.py();
     for f in aurafx_filters::registry() {

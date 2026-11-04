@@ -688,6 +688,114 @@ impl Session {
         Ok((xs, ys))
     }
 
+    /// Add an in-memory dataset as a pipeline node (results computed by scripts or analyses).
+    pub fn add_data(&mut self, name: &str, ds: DataSet) -> NodeId {
+        self.checkpoint(format!("Add {name}"));
+        let id = self.alloc();
+        let path = PathBuf::from(format!("memory://{name}"));
+        let mut node =
+            Node::new(id, self.unique_name(name), NodeKind::Reader { path, loaded: Loaded::Static(Arc::new(ds)) }, aurafx_filters::Params::default(), None);
+        node.dirty = true;
+        self.nodes.insert(id, node);
+        self.active = Some(id);
+        self.touch();
+        id
+    }
+
+    /// Per-point/cell mean, min, max and standard deviation of every array over all time steps.
+    pub fn temporal_statistics(&mut self, id: NodeId) -> Result<NodeId> {
+        if self.times.len() < 2 {
+            return Err(anyhow!("temporal statistics need a time series"));
+        }
+        let saved = self.time_index;
+        let name = self.nodes.get(&id).map(|n| n.name.clone()).ok_or_else(|| anyhow!("node {id} does not exist"))?;
+        struct Acc {
+            sum: Vec<f64>,
+            sq: Vec<f64>,
+            min: Vec<f64>,
+            max: Vec<f64>,
+            ncomp: usize,
+        }
+        let mut template: Option<DataSet> = None;
+        // (leaf index, is_cell, array name) -> accumulator
+        let mut accs: indexmap::IndexMap<(usize, bool, String), Acc> = indexmap::IndexMap::new();
+        let steps = self.times.len();
+        for t in 0..steps {
+            self.set_time_index(t);
+            self.update_blocking();
+            let n = self.nodes.get(&id).ok_or_else(|| anyhow!("node removed"))?;
+            let ds = n.output.clone().ok_or_else(|| anyhow!("{}: {}", n.name, n.error.clone().unwrap_or_else(|| "no output".into())))?;
+            let leaves = aurafx_filters::selection::flat_leaves(&ds);
+            if template.is_none() {
+                template = Some((*ds).clone());
+            }
+            for (li, (leaf, _, _)) in leaves.iter().enumerate() {
+                for (is_cell, attrs) in [(false, leaf.point_data()), (true, leaf.cell_data())] {
+                    let Some(attrs) = attrs else { continue };
+                    for a in attrs.iter().filter(|a| a.scalar_type() != aurafx_data::ScalarType::String) {
+                        let len = a.data.len();
+                        let e = accs.entry((li, is_cell, a.name.clone())).or_insert_with(|| Acc {
+                            sum: vec![0.0; len],
+                            sq: vec![0.0; len],
+                            min: vec![f64::INFINITY; len],
+                            max: vec![f64::NEG_INFINITY; len],
+                            ncomp: a.ncomp,
+                        });
+                        if e.sum.len() != len {
+                            continue; // topology changed; skip this array at this step
+                        }
+                        for i in 0..len {
+                            let v = a.data.get_f64(i);
+                            e.sum[i] += v;
+                            e.sq[i] += v * v;
+                            e.min[i] = e.min[i].min(v);
+                            e.max[i] = e.max[i].max(v);
+                        }
+                    }
+                }
+            }
+        }
+        self.set_time_index(saved);
+        let mut out = template.ok_or_else(|| anyhow!("no data"))?;
+        let nf = steps as f64;
+        let fill = |leaf: &mut DataSet, li: usize, accs: &indexmap::IndexMap<(usize, bool, String), Acc>| {
+            for ((l, is_cell, name), a) in accs {
+                if *l != li {
+                    continue;
+                }
+                let attrs = if *is_cell { leaf.cell_data_mut() } else { leaf.point_data_mut() };
+                let Some(attrs) = attrs else { continue };
+                attrs.remove(name);
+                let mean: Vec<f64> = a.sum.iter().map(|s| s / nf).collect();
+                let std: Vec<f64> = a.sq.iter().zip(&mean).map(|(q, m)| (q / nf - m * m).max(0.0).sqrt()).collect();
+                attrs.insert(aurafx_data::Array::new(format!("{name}_average"), a.ncomp, aurafx_data::ArrayData::F64(mean)));
+                attrs.insert(aurafx_data::Array::new(format!("{name}_minimum"), a.ncomp, aurafx_data::ArrayData::F64(a.min.clone())));
+                attrs.insert(aurafx_data::Array::new(format!("{name}_maximum"), a.ncomp, aurafx_data::ArrayData::F64(a.max.clone())));
+                attrs.insert(aurafx_data::Array::new(format!("{name}_stddev"), a.ncomp, aurafx_data::ArrayData::F64(std)));
+            }
+        };
+        match &mut out {
+            DataSet::MultiBlock(mb) => {
+                fn walk(mb: &mut aurafx_data::MultiBlock, li: &mut usize, f: &mut dyn FnMut(&mut DataSet, usize)) {
+                    for (_, b) in mb.blocks.iter_mut() {
+                        match b {
+                            Some(DataSet::MultiBlock(inner)) => walk(inner, li, f),
+                            Some(d) => {
+                                f(d, *li);
+                                *li += 1;
+                            }
+                            None => {}
+                        }
+                    }
+                }
+                let mut li = 0;
+                walk(mb, &mut li, &mut |d, i| fill(d, i, &accs));
+            }
+            d => fill(d, 0, &accs),
+        }
+        Ok(self.add_data(&format!("{name} temporal statistics"), out))
+    }
+
     pub fn add_series(&mut self, name: impl Into<String>, x: Vec<f64>, y: Vec<f64>) {
         let name = name.into();
         self.chart.series.retain(|s| s.name != name);

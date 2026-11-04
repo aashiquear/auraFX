@@ -432,7 +432,7 @@ fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, cmap: &str, lo: f
     let map = colormap::get(cmap);
     let bar_w = 18.0;
     let bar_h = (rect.height() * 0.45).clamp(80.0, 320.0);
-    let x = rect.right() - 70.0;
+    let x = rect.right() - 96.0;
     let y0 = rect.center().y - bar_h / 2.0;
     let n = 64;
     for i in 0..n {

@@ -202,6 +202,8 @@ pub struct Session {
     pub selection: Option<Selection>,
     selection_counter: u64,
     pub annotations: Vec<Annotation>,
+    /// Keyframe animation (camera keys and parameter tracks).
+    pub animation: crate::animation::Animation,
     /// Show "t = …" in the 3D views.
     pub show_time_label: bool,
     /// Animation export requested by a script: (output path, fps, orbit frames or None for time steps).

@@ -9,6 +9,8 @@ use std::path::PathBuf;
 pub enum AnimMode {
     Time,
     Orbit,
+    /// Camera keyframes and parameter tracks (and optionally time steps).
+    Keyframes,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,11 +26,17 @@ pub struct AnimDialog {
     pub format: AnimFormat,
     pub fps: f32,
     pub orbit_frames: usize,
+    /// Animation time (0..1) shown in the keyframe editor.
+    pub t: f64,
+    /// Live preview: (start instant, t at start).
+    pub preview: Option<(std::time::Instant, f64)>,
+    /// Parameter chosen for a new track.
+    pub track_key: String,
 }
 
 impl Default for AnimDialog {
     fn default() -> Self {
-        Self { open: false, mode: AnimMode::Time, format: AnimFormat::Gif, fps: 10.0, orbit_frames: 72 }
+        Self { open: false, mode: AnimMode::Time, format: AnimFormat::Gif, fps: 10.0, orbit_frames: 72, t: 0.0, preview: None, track_key: String::new() }
     }
 }
 
@@ -45,6 +53,8 @@ pub struct AnimJob {
     pub settle: u32,
     pub start_time_index: usize,
     pub start_camera: Option<aurafx_render::Camera>,
+    /// Animated parameter values before the export (restored afterwards).
+    pub start_params: Vec<(aurafx_pipeline::NodeId, String, aurafx_filters::params::ParamValue)>,
 }
 
 pub fn ffmpeg_available() -> bool {
@@ -58,7 +68,25 @@ pub fn ffmpeg_available() -> bool {
 }
 
 impl State {
+    /// Show animation time `t` (0..1) of the keyframe animation.
+    pub fn apply_animation_time(&mut self, t: f64) {
+        let mut s = self.session.lock();
+        if let Some(c) = s.apply_animation(t) {
+            s.pending_camera = Some(c);
+        }
+    }
+
     pub fn start_animation(&mut self, out: PathBuf, fps: f32, orbit: Option<usize>) {
+        let keyframed = !self.session.lock().animation.is_empty();
+        let mode = match orbit {
+            Some(_) => AnimMode::Orbit,
+            None if keyframed => AnimMode::Keyframes,
+            None => AnimMode::Time,
+        };
+        self.start_animation_mode(out, fps, mode, orbit.unwrap_or(72));
+    }
+
+    pub fn start_animation_mode(&mut self, out: PathBuf, fps: f32, mode: AnimMode, orbit_frames: usize) {
         let format = match out.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) {
             Some(e) if e == "mp4" => AnimFormat::Mp4,
             Some(e) if e == "png" => AnimFormat::Png,
@@ -69,10 +97,12 @@ impl State {
             return;
         }
         let ntimes = self.session.lock().times.len();
-        let (mode, total) = match orbit {
-            Some(n) => (AnimMode::Orbit, n.max(2)),
-            None if ntimes > 1 => (AnimMode::Time, ntimes),
-            None => (AnimMode::Orbit, 72),
+        let kf_frames = self.session.lock().animation.frames.max(2);
+        let (mode, total) = match mode {
+            AnimMode::Orbit => (AnimMode::Orbit, orbit_frames.max(2)),
+            AnimMode::Keyframes => (AnimMode::Keyframes, kf_frames),
+            AnimMode::Time if ntimes > 1 => (AnimMode::Time, ntimes),
+            AnimMode::Time => (AnimMode::Orbit, 72),
         };
         let stem = out.file_stem().and_then(|s| s.to_str()).unwrap_or("frames").to_string();
         let dir = if format == AnimFormat::Png { out.with_file_name(&stem) } else { std::env::temp_dir().join(format!("aurafx-anim-{}", std::process::id())) };
@@ -81,27 +111,35 @@ impl State {
             return;
         }
         let start_time_index = self.session.lock().time_index;
-        if mode == AnimMode::Time {
-            self.session.lock().set_time_index(0);
+        let start_params = self.session.lock().animated_params();
+        let start_camera = Some(self.viewport.camera.clone());
+        self.anim_dialog.preview = None;
+        match mode {
+            AnimMode::Time => self.session.lock().set_time_index(0),
+            AnimMode::Keyframes => self.apply_animation_time(0.0),
+            AnimMode::Orbit => {}
         }
         self.playing = false;
-        self.anim_job = Some(AnimJob {
-            out,
-            dir,
-            format,
-            fps: fps.max(0.5),
-            mode,
-            total,
-            frame: 0,
-            settle: 3,
-            start_time_index,
-            start_camera: Some(self.viewport.camera.clone()),
-        });
+        self.anim_job = Some(AnimJob { out, dir, format, fps: fps.max(0.5), mode, total, frame: 0, settle: 3, start_time_index, start_camera, start_params });
         self.status = format!("Recording {total} frames…");
     }
 
     /// Called after the 3D view rendered this frame.
     pub fn animation_tick(&mut self, ctx: &egui::Context) {
+        // Live preview of the keyframe animation (no recording).
+        if let Some((start, t0)) = self.anim_dialog.preview {
+            let frames = self.session.lock().animation.frames.max(2) as f64;
+            let t = t0 + start.elapsed().as_secs_f64() * self.anim_dialog.fps as f64 / (frames - 1.0);
+            let t = if t >= 1.0 {
+                self.anim_dialog.preview = None;
+                1.0
+            } else {
+                t
+            };
+            self.anim_dialog.t = t;
+            self.apply_animation_time(t);
+            ctx.request_repaint();
+        }
         let Some(job) = self.anim_job.as_mut() else { return };
         ctx.request_repaint();
         if self.session.lock().is_busy() {
@@ -121,8 +159,12 @@ impl State {
         job.frame += 1;
         if job.frame >= job.total {
             let job = self.anim_job.take().unwrap();
-            if job.mode == AnimMode::Time {
-                self.session.lock().set_time_index(job.start_time_index);
+            if job.mode != AnimMode::Orbit {
+                let mut s = self.session.lock();
+                s.set_time_index(job.start_time_index);
+                for (n, k, v) in &job.start_params {
+                    s.set_param_quiet(*n, k, v.clone());
+                }
             }
             if let Some(c) = job.start_camera.clone() {
                 self.viewport.camera = c;
@@ -132,6 +174,19 @@ impl State {
         }
         match job.mode {
             AnimMode::Time => self.session.lock().set_time_index(job.frame),
+            AnimMode::Keyframes => {
+                let t = job.frame as f64 / (job.total - 1) as f64;
+                let cam = self.session.lock().apply_animation(t);
+                if let Some(c) = cam {
+                    let vc = &mut self.viewport.camera;
+                    vc.eye = glam::DVec3::from_array(c.eye);
+                    vc.target = glam::DVec3::from_array(c.target);
+                    vc.up = glam::DVec3::from_array(c.up);
+                    vc.fov_y_deg = c.fov_y_deg;
+                    vc.orthographic = c.orthographic;
+                    vc.ortho_height = c.ortho_height;
+                }
+            }
             AnimMode::Orbit => {
                 let step = 1.0 / job.total as f64;
                 // `rotate` takes fractions of a half turn.
@@ -220,22 +275,30 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    let mut start: Option<(PathBuf, f32, Option<usize>)> = None;
+    let mut start: Option<(PathBuf, f32, AnimMode, usize)> = None;
     let ntimes = state.session.lock().times.len();
-    egui::Window::new("Save Animation").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
-        let d = &mut state.anim_dialog;
-        if ntimes < 2 {
-            d.mode = AnimMode::Orbit;
-        }
-        egui::Grid::new("anim").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.label("Animate");
+    egui::Window::new("Animation").open(&mut open).collapsible(false).resizable(false).default_width(420.0).show(ctx, |ui| {
+        {
+            let d = &mut state.anim_dialog;
+            if ntimes < 2 && d.mode == AnimMode::Time {
+                d.mode = AnimMode::Orbit;
+            }
             ui.horizontal(|ui| {
+                ui.label("Animate");
                 ui.add_enabled_ui(ntimes > 1, |ui| {
                     ui.radio_value(&mut d.mode, AnimMode::Time, format!("Time steps ({ntimes})"));
                 });
-                ui.radio_value(&mut d.mode, AnimMode::Orbit, "Orbit camera 360°");
+                ui.radio_value(&mut d.mode, AnimMode::Orbit, "Orbit 360°");
+                ui.radio_value(&mut d.mode, AnimMode::Keyframes, "Keyframes");
             });
-            ui.end_row();
+        }
+        if state.anim_dialog.mode == AnimMode::Keyframes {
+            ui.separator();
+            keyframe_editor(state, ui, ntimes);
+        }
+        ui.separator();
+        let d = &mut state.anim_dialog;
+        egui::Grid::new("anim").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
             if d.mode == AnimMode::Orbit {
                 ui.label("Frames");
                 ui.add(egui::DragValue::new(&mut d.orbit_frames).range(8..=1440));
@@ -256,8 +319,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
             ui.end_row();
         });
         ui.label(RichText::new("Frames are captured at the current 3D view size.").weak().small());
-        ui.separator();
-        if ui.button(RichText::new("Save…").strong()).clicked() {
+        if ui.button(RichText::new(format!("{} Save…", crate::icons::FLOPPY_DISK)).strong()).clicked() {
             let (ext, label) = match d.format {
                 AnimFormat::Gif => ("gif", "Animated GIF"),
                 AnimFormat::Mp4 => ("mp4", "MP4 video"),
@@ -265,17 +327,183 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
             };
             if let Some(p) = crate::dialogs::FileDialog::new().add_filter(label, &[ext]).set_file_name(format!("animation.{ext}")).save_file() {
                 let p = if p.extension().is_none() { p.with_extension(ext) } else { p };
-                let orbit = if d.mode == AnimMode::Orbit { Some(d.orbit_frames) } else { None };
-                let fps = d.fps;
-                d.open = false;
-                start = Some((p, fps, orbit));
+                start = Some((p, d.fps, d.mode, d.orbit_frames));
             }
         }
     });
     if !open {
         state.anim_dialog.open = false;
+        state.anim_dialog.preview = None;
     }
-    if let Some((p, fps, orbit)) = start {
-        state.start_animation(p, fps, orbit);
+    if let Some((p, fps, mode, frames)) = start {
+        state.start_animation_mode(p, fps, mode, frames);
+    }
+}
+
+/// Timeline editor: scrub, camera keyframes, parameter tracks.
+fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
+    use aurafx_filters::params::ParamValue;
+    use aurafx_pipeline::animation::animatable;
+    let numeric = |v: &ParamValue| matches!(v, ParamValue::Float(_) | ParamValue::Int(_) | ParamValue::Vec3(_));
+    let anim = state.session.lock().animation.clone();
+    let mut changed = anim.clone();
+    let mut t = state.anim_dialog.t;
+    let pct = |t: f64| format!("{:.0}%", t * 100.0);
+
+    // Timeline with keyframe ticks.
+    ui.horizontal(|ui| {
+        let playing = state.anim_dialog.preview.is_some();
+        let icon = if playing { crate::icons::PAUSE } else { crate::icons::PLAY };
+        if ui.button(icon).on_hover_text("Preview").clicked() {
+            state.anim_dialog.preview = if playing { None } else { Some((std::time::Instant::now(), if t >= 1.0 { 0.0 } else { t })) };
+        }
+        let r = ui.add(egui::Slider::new(&mut t, 0.0..=1.0).show_value(false).trailing_fill(true));
+        let rect = r.rect;
+        let painter = ui.painter();
+        let x = |t: f64| egui::lerp(rect.left() + 6.0..=rect.right() - 6.0, t as f32);
+        for k in &anim.camera {
+            painter.circle_filled(egui::pos2(x(k.t), rect.top() + 2.0), 3.5, crate::theme::ACCENT);
+        }
+        for tr in &anim.tracks {
+            for k in &tr.keys {
+                painter.circle_filled(egui::pos2(x(k.t), rect.bottom() - 2.0), 3.0, egui::Color32::from_rgb(80, 200, 255));
+            }
+        }
+        ui.label(pct(t));
+        if r.changed() {
+            state.anim_dialog.preview = None;
+            state.anim_dialog.t = t;
+            state.apply_animation_time(t);
+        }
+    });
+    ui.label(
+        RichText::new("Move the slider, set up the view or a filter value, then add a keyframe. Orange dots are camera keys, blue dots parameter keys.")
+            .weak()
+            .small(),
+    );
+
+    // Camera keys.
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("{} Camera", crate::icons::VIDEO_CAMERA)).strong());
+        if ui.button(format!("{} Key view at {}", crate::icons::PLUS, pct(t))).clicked() {
+            let cam = state.camera_state();
+            changed.key_camera(t, cam);
+        }
+    });
+    let mut remove_cam = None;
+    for (i, k) in anim.camera.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+            if ui.small_button(pct(k.t)).on_hover_text("Jump here").clicked() {
+                state.anim_dialog.t = k.t;
+                state.apply_animation_time(k.t);
+            }
+            if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this keyframe").clicked() {
+                remove_cam = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove_cam {
+        changed.camera.remove(i);
+    }
+
+    // Parameter tracks.
+    ui.add_space(4.0);
+    let (active, params): (Option<(aurafx_pipeline::NodeId, String)>, Vec<(String, String)>) = {
+        let s = state.session.lock();
+        match s.active_node() {
+            Some(n) => {
+                let labels: std::collections::HashMap<String, String> =
+                    n.def().map(|d| d.params.iter().map(|p| (p.key.clone(), p.label.clone())).collect()).unwrap_or_default();
+                let ps = n.params.0.iter().filter(|(_, v)| numeric(v)).map(|(k, _)| (k.clone(), labels.get(k).cloned().unwrap_or_else(|| k.clone()))).collect();
+                (Some((n.id, n.name.clone())), ps)
+            }
+            None => (None, vec![]),
+        }
+    };
+    ui.label(RichText::new(format!("{} Filter values", crate::icons::SLIDERS_HORIZONTAL)).strong());
+    match &active {
+        Some((id, name)) if !params.is_empty() => {
+            ui.horizontal(|ui| {
+                if !params.iter().any(|(k, _)| *k == state.anim_dialog.track_key) {
+                    state.anim_dialog.track_key = params[0].0.clone();
+                }
+                let cur = params.iter().find(|(k, _)| *k == state.anim_dialog.track_key).map(|(_, l)| l.clone()).unwrap_or_default();
+                egui::ComboBox::from_id_salt("track_key").selected_text(format!("{name} · {cur}")).show_ui(ui, |ui| {
+                    for (k, l) in &params {
+                        ui.selectable_value(&mut state.anim_dialog.track_key, k.clone(), l);
+                    }
+                });
+                if ui.button(format!("{} Key value at {}", crate::icons::PLUS, pct(t))).on_hover_text("Records the current value of this property").clicked() {
+                    let key = state.anim_dialog.track_key.clone();
+                    let (v, spec) = {
+                        let s = state.session.lock();
+                        let n = s.nodes.get(id);
+                        (n.and_then(|n| n.params.get(&key).cloned()), n.and_then(|n| n.def()).and_then(|d| d.params.iter().find(|p| p.key == key).cloned()))
+                    };
+                    // "Auto" values are filled in from the data, as when editing them in Properties.
+                    let v = match (v, spec) {
+                        (Some(v), _) if animatable(&v) => Some(v),
+                        (Some(_), Some(spec)) => Some(crate::panels::auto_fill(state, *id, &spec)).filter(animatable),
+                        _ => None,
+                    };
+                    if let Some(v) = v {
+                        changed.key_param(*id, &state.anim_dialog.track_key, t, v);
+                    }
+                }
+            });
+        }
+        _ => {
+            ui.label(RichText::new("Select a filter (for example a Slice or Contour) to animate its values.").weak().small());
+        }
+    }
+    let names: std::collections::HashMap<aurafx_pipeline::NodeId, String> = state.session.lock().nodes.values().map(|n| (n.id, n.name.clone())).collect();
+    let mut remove_track = None;
+    let mut remove_key = None;
+    for (ti, tr) in anim.tracks.iter().enumerate() {
+        let Some(name) = names.get(&tr.node) else { continue };
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(16.0);
+            ui.label(format!("{name} · {}", tr.key));
+            for (ki, k) in tr.keys.iter().enumerate() {
+                let txt = match &k.value {
+                    aurafx_filters::params::ParamValue::Float(v) => aurafx_data::info::g(*v),
+                    aurafx_filters::params::ParamValue::Int(v) => v.to_string(),
+                    aurafx_filters::params::ParamValue::Vec3(v) => {
+                        format!("({}, {}, {})", aurafx_data::info::g(v[0]), aurafx_data::info::g(v[1]), aurafx_data::info::g(v[2]))
+                    }
+                    _ => String::new(),
+                };
+                if ui.small_button(format!("{} = {txt}", pct(k.t))).on_hover_text("Click to delete this keyframe").clicked() {
+                    remove_key = Some((ti, ki));
+                }
+            }
+            if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this track").clicked() {
+                remove_track = Some(ti);
+            }
+        });
+    }
+    if let Some((ti, ki)) = remove_key {
+        changed.tracks[ti].keys.remove(ki);
+    }
+    if let Some(ti) = remove_track {
+        changed.tracks.remove(ti);
+    }
+    changed.tracks.retain(|tr| !tr.keys.is_empty());
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        if ntimes > 1 {
+            ui.checkbox(&mut changed.animate_time, format!("Also play the {ntimes} time steps"));
+        }
+        ui.label("Frames");
+        ui.add(egui::DragValue::new(&mut changed.frames).range(2..=3600));
+    });
+    if !anim.is_empty() && ui.small_button("Clear all keyframes").clicked() {
+        changed.camera.clear();
+        changed.tracks.clear();
+    }
+    if changed != anim {
+        state.session.lock().animation = changed;
     }
 }

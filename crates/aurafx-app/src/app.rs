@@ -730,7 +730,7 @@ impl State {
                     ui.close();
                     self.save_screenshot_dialog();
                 }
-                if ui.button("Save Animation…").on_hover_text("Time steps or a camera orbit, as GIF, MP4 or PNG frames").clicked() {
+                if ui.button("Animation…").on_hover_text("Time steps, a camera orbit or keyframes, saved as GIF, MP4 or PNG frames").clicked() {
                     ui.close();
                     self.anim_dialog.open = true;
                 }
@@ -1426,6 +1426,10 @@ impl eframe::App for AuraApp {
                     if let Some(p) = find(arg) {
                         self.state.layout_actions.push(LayoutAction::Hide(p));
                     }
+                }
+                "show" if arg.eq_ignore_ascii_case("animation") => {
+                    self.state.anim_dialog.open = true;
+                    self.state.anim_dialog.mode = crate::animation::AnimMode::Keyframes;
                 }
                 "show" => {
                     if let Some(p) = find(arg) {

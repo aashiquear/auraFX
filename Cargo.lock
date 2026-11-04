@@ -280,6 +280,7 @@ dependencies = [
  "aurafx-data",
  "aurafx-filters",
  "aurafx-io",
+ "glam",
  "indexmap",
  "parking_lot",
  "serde",

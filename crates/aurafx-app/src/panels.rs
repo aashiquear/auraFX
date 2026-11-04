@@ -205,7 +205,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
 // ------------------------------------------------------------------ properties
 
 /// Fill an "auto" (NaN) parameter from the data when the user wants to edit it explicitly.
-fn auto_fill(state: &State, id: NodeId, spec: &ParamSpec) -> ParamValue {
+pub(crate) fn auto_fill(state: &State, id: NodeId, spec: &ParamSpec) -> ParamValue {
     let s = state.session.lock();
     let node = &s.nodes[&id];
     let input = node.input.and_then(|i| s.nodes.get(&i)).or(Some(node));

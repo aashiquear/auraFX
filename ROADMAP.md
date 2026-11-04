@@ -170,7 +170,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 
 ### 3.3 Animation and time
 - [~] Time toolbar (play, step, loop, time value entry, snap to steps, real-time, sequence modes), time inspector.
-- [ ] Animation view: keyframes for any property (ramp, linear, exponential, sinusoid, boolean), camera paths (orbit, path, interpolate), Python cue, comparative cues.
+- [~] Animation view (camera keyframes, numeric property tracks with linear ramps, time scrubbing and preview done; easing modes, Python cue, comparative cues todo): keyframes for any property (ramp, linear, exponential, sinusoid, boolean), camera paths (orbit, path, interpolate), Python cue, comparative cues.
 - [~] Save animation at any resolution/format with frame-rate control; stride; preview.
 
 ---

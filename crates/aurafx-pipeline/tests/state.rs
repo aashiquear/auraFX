@@ -87,3 +87,28 @@ fn temporal_statistics_of_lammps() {
     assert_eq!((0..4).map(|i| avg.get(i, 0)).collect::<Vec<_>>(), vec![1.0, 1.0, 2.0, 2.0]);
     assert_eq!(pd.get("type_stddev").unwrap().range(None), (0.0, 0.0));
 }
+
+#[test]
+fn keyframes_drive_the_pipeline_and_survive_state_files() {
+    let mut s = Session::new();
+    let r = s.open_file(td("wavelet_tets.vtu")).unwrap();
+    let sl = s.add_filter("slice", r).unwrap();
+    s.set_param(sl, "normal", ParamValue::Vec3([0.0, 0.0, 1.0]));
+    s.animation.key_param(sl, "origin", 0.0, ParamValue::Vec3([0.0, 0.0, -5.0]));
+    s.animation.key_param(sl, "origin", 1.0, ParamValue::Vec3([0.0, 0.0, 5.0]));
+    let cam = |x: f64| CameraState { eye: [x, 0.0, 0.0], target: [0.0; 3], up: [0.0, 0.0, 1.0], fov_y_deg: 30.0, orthographic: false, ortho_height: 1.0 };
+    s.animation.key_camera(0.0, cam(10.0));
+    s.animation.key_camera(1.0, cam(20.0));
+    let c = s.apply_animation(0.75).unwrap();
+    assert!((c.eye[0] - 10.0 * 2f64.powf(0.75)).abs() < 1e-9);
+    s.update_blocking();
+    let z = s.nodes[&sl].output.as_ref().unwrap().bounds();
+    assert!((z.min[2] - 2.5).abs() < 1e-6 && (z.max[2] - 2.5).abs() < 1e-6, "slice at z = 2.5: {z:?}");
+
+    let path = std::env::temp_dir().join(format!("aurafx-kf-{}.afx", std::process::id()));
+    s.save_state(&path, None).unwrap();
+    let mut s2 = Session::new();
+    s2.load_state(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    assert_eq!(s2.animation, s.animation);
+}

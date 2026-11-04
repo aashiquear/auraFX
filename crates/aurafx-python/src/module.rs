@@ -244,6 +244,30 @@ impl PyNode {
         Ok(self.clone())
     }
 
+    /// Keyframe parameter `param` at animation time t (0..1). Without `value`, the current value is used.
+    #[pyo3(signature = (param, t, value=None))]
+    fn key(&self, param: &str, t: f64, value: Option<&Bound<'_, PyAny>>) -> PyResult<PyNode> {
+        let mut s = session().lock();
+        let current = s.nodes.get(&self.id).and_then(|n| n.params.get(param).cloned()).ok_or_else(|| PyKeyError::new_err(format!("no parameter '{param}'")))?;
+        let v = match value {
+            None => current,
+            Some(v) => {
+                if let Ok(x) = v.extract::<[f64; 3]>() {
+                    aurafx_filters::params::ParamValue::Vec3(x)
+                } else if let (aurafx_filters::params::ParamValue::Int(_), Ok(i)) = (&current, v.extract::<i64>()) {
+                    aurafx_filters::params::ParamValue::Int(i)
+                } else {
+                    aurafx_filters::params::ParamValue::Float(v.extract::<f64>()?)
+                }
+            }
+        };
+        if !aurafx_pipeline::animation::animatable(&v) {
+            return Err(PyValueError::new_err(format!("'{param}' is not a number or 3-vector")));
+        }
+        s.animation.key_param(self.id, param, t.clamp(0.0, 1.0), v);
+        Ok(self.clone())
+    }
+
     fn delete(&self) {
         session().lock().remove_node(self.id);
     }
@@ -824,12 +848,53 @@ fn load_state(path: String) -> PyResult<()> {
     session().lock().load_state(std::path::Path::new(&path)).map(|_| ()).map_err(err)
 }
 
-/// Record an animation: time steps (default) or a 360° camera orbit (orbit=frames).
+/// Record an animation: keyframes if any were added (key_camera / node.key), otherwise time
+/// steps, or a 360° camera orbit with orbit=frames.
 /// The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).
 #[pyfunction]
 #[pyo3(signature = (path, fps=10.0, orbit=None))]
 fn save_animation(path: String, fps: f32, orbit: Option<usize>) {
     session().lock().animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
+}
+
+/// Keyframe the current 3D view camera at animation time t (0..1).
+#[pyfunction]
+fn key_camera(t: f64) -> PyResult<()> {
+    let mut s = session().lock();
+    let cam = s.camera_state.ok_or_else(|| PyRuntimeError::new_err("no 3D view yet"))?;
+    s.animation.key_camera(t.clamp(0.0, 1.0), cam);
+    Ok(())
+}
+
+/// Keyframe animation settings: number of frames, and whether time steps play along.
+#[pyfunction]
+#[pyo3(signature = (frames=None, time=None))]
+fn animation(frames: Option<usize>, time: Option<bool>) -> (usize, bool) {
+    let mut s = session().lock();
+    if let Some(f) = frames {
+        s.animation.frames = f.max(2);
+    }
+    if let Some(t) = time {
+        s.animation.animate_time = t;
+    }
+    (s.animation.frames, s.animation.animate_time)
+}
+
+/// Show the keyframe animation at time t (0..1).
+#[pyfunction]
+fn animation_time(t: f64) {
+    let mut s = session().lock();
+    if let Some(c) = s.apply_animation(t) {
+        s.pending_camera = Some(c);
+    }
+}
+
+/// Remove every camera keyframe and parameter track.
+#[pyfunction]
+fn clear_keyframes() {
+    let mut s = session().lock();
+    s.animation.camera.clear();
+    s.animation.tracks.clear();
 }
 
 #[pyfunction]
@@ -1067,6 +1132,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(annotate, m)?)?;
+    m.add_function(wrap_pyfunction!(key_camera, m)?)?;
+    m.add_function(wrap_pyfunction!(animation, m)?)?;
+    m.add_function(wrap_pyfunction!(animation_time, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_keyframes, m)?)?;
     m.add_function(wrap_pyfunction!(clear_annotations, m)?)?;
     m.add_function(wrap_pyfunction!(time_label, m)?)?;
     m.add_function(wrap_pyfunction!(set_theme, m)?)?;

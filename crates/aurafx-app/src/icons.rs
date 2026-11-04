@@ -63,3 +63,6 @@ pub const RULER: &str = "\u{E6B8}";
 pub const ARROW_SQUARE_OUT: &str = "\u{E5DE}";
 pub const SQUARE_SPLIT_HORIZONTAL: &str = "\u{E870}";
 pub const SQUARE_SPLIT_VERTICAL: &str = "\u{E874}";
+pub const VIDEO_CAMERA: &str = "\u{E4DA}";
+pub const SLIDERS_HORIZONTAL: &str = "\u{E434}";
+pub const FLOPPY_DISK: &str = "\u{E248}";

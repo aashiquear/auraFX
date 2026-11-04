@@ -109,6 +109,15 @@ pub struct Chart {
     pub revision: u64,
 }
 
+/// A text label drawn over the 3D views.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Annotation {
+    pub text: String,
+    /// "upper left", "upper right", "lower left", "lower right", "upper center", "lower center".
+    pub corner: String,
+    pub size: f32,
+}
+
 /// Cells or points selected in the 3D view (flattened indices across blocks).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Selection {
@@ -192,6 +201,9 @@ pub struct Session {
     pub camera_state: Option<crate::state::CameraState>,
     pub selection: Option<Selection>,
     selection_counter: u64,
+    pub annotations: Vec<Annotation>,
+    /// Show "t = …" in the 3D views.
+    pub show_time_label: bool,
     /// Animation export requested by a script: (output path, fps, orbit frames or None for time steps).
     pub animation_request: Option<(PathBuf, f32, Option<usize>)>,
 }

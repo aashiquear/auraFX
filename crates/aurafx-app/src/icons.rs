@@ -59,3 +59,4 @@ pub const COLUMNS: &str = "\u{E546}";
 pub const ROWS: &str = "\u{E5A2}";
 pub const LINK: &str = "\u{E2E2}";
 pub const LINK_BREAK: &str = "\u{E2E4}";
+pub const RULER: &str = "\u{E6B8}";

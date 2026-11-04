@@ -236,6 +236,8 @@ impl Session {
             "time_index": self.time_index,
             "camera": camera,
             "chart": self.chart,
+            "annotations": self.annotations,
+            "show_time_label": self.show_time_label,
         });
         std::fs::write(path, serde_json::to_string_pretty(&doc)?).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
@@ -295,6 +297,8 @@ impl Session {
         if let Some(c) = doc.get("chart").cloned().and_then(|c| serde_json::from_value::<Chart>(c).ok()) {
             self.chart = c;
         }
+        self.annotations = doc.get("annotations").cloned().and_then(|a| serde_json::from_value(a).ok()).unwrap_or_default();
+        self.show_time_label = doc.get("show_time_label").and_then(|v| v.as_bool()).unwrap_or(false);
         let cam = doc.get("camera").cloned().and_then(|c| serde_json::from_value::<CameraState>(c).ok());
         self.pending_camera = cam;
         self.log(LogLevel::Info, format!("Loaded state {}", path.display()));

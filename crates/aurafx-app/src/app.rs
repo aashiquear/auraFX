@@ -838,6 +838,33 @@ impl State {
                 ui.separator();
                 ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
                 ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
+                {
+                    let mut s = self.session.lock();
+                    let mut t = s.show_time_label;
+                    if ui.checkbox(&mut t, "Time label").changed() {
+                        s.show_time_label = t;
+                    }
+                }
+                ui.menu_button("Annotations", |ui| {
+                    let id = ui.make_persistent_id("new_note");
+                    let mut text: String = ui.data_mut(|d| d.get_temp(id)).unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut text).hint_text("text").desired_width(160.0));
+                    });
+                    ui.data_mut(|d| d.insert_temp(id, text.clone()));
+                    ui.horizontal_wrapped(|ui| {
+                        for corner in ["upper left", "upper right", "lower right", "upper center", "lower center"] {
+                            if ui.small_button(corner).clicked() && !text.trim().is_empty() {
+                                self.session.lock().annotations.push(aurafx_pipeline::Annotation { text: text.clone(), corner: corner.into(), size: 16.0 });
+                                ui.data_mut(|d| d.remove::<String>(id));
+                            }
+                        }
+                    });
+                    let n = self.session.lock().annotations.len();
+                    if ui.add_enabled(n > 0, egui::Button::new(format!("Clear {n} annotation(s)"))).clicked() {
+                        self.session.lock().annotations.clear();
+                    }
+                });
                 ui.separator();
                 ui.label("Theme");
                 for m in crate::theme::ThemeMode::ALL {

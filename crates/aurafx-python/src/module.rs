@@ -642,6 +642,31 @@ fn points_from(xyz: Bound<'_, PyAny>, name: &str, arrays: Option<&Bound<'_, PyDi
     Ok(PyNode { id })
 }
 
+/// Add a text label to the 3D views. corner: "upper left", "upper right", "lower right", "upper center", "lower center".
+#[pyfunction]
+#[pyo3(signature = (text, corner="upper left", size=16.0))]
+fn annotate(text: String, corner: &str, size: f32) {
+    let mut s = session().lock();
+    s.annotations.push(aurafx_pipeline::Annotation { text, corner: corner.to_string(), size });
+    s.revision += 1;
+}
+
+#[pyfunction]
+fn clear_annotations() {
+    let mut s = session().lock();
+    s.annotations.clear();
+    s.revision += 1;
+}
+
+/// Show (or hide) the current time in the 3D views.
+#[pyfunction]
+#[pyo3(signature = (on=true))]
+fn time_label(on: bool) {
+    let mut s = session().lock();
+    s.show_time_label = on;
+    s.revision += 1;
+}
+
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
 #[pyfunction]
 fn show_panel(name: String) {
@@ -1019,6 +1044,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(clear, m)?)?;
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
+    m.add_function(wrap_pyfunction!(annotate, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_annotations, m)?)?;
+    m.add_function(wrap_pyfunction!(time_label, m)?)?;
     m.add_function(wrap_pyfunction!(set_theme, m)?)?;
     m.add_function(wrap_pyfunction!(split_view, m)?)?;
     m.add_function(wrap_pyfunction!(link_views, m)?)?;

@@ -7,5 +7,5 @@ pub mod session;
 pub mod state;
 
 pub use display::{ColorBy, DisplayProps, Representation};
-pub use session::{stat_of, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, Selection, Session, SharedSession, WorkItem};
+pub use session::{stat_of, Annotation, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, Selection, Session, SharedSession, WorkItem};
 pub use state::{CameraState, Snapshot};

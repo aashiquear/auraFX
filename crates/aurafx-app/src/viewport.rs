@@ -45,6 +45,8 @@ pub struct Viewport {
     pending_id_pick: Option<(NodeId, [u32; 4], bool, bool)>,
     /// Select every cell inside the rectangle, including hidden ones.
     pub select_through: bool,
+    /// Ruler end points (0, 1 or 2 picked so far).
+    pub ruler: Vec<glam::DVec3>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +96,8 @@ fn draw_plane_widget(p: &egui::Painter, cam: &Camera, rect: Rect, o: glam::DVec3
 pub enum InteractMode {
     Navigate,
     Pick,
+    /// Click two surface points to measure the distance between them.
+    Ruler,
     SelectCells,
     SelectPoints,
 }
@@ -141,6 +145,7 @@ impl Viewport {
             widget_drag: None,
             pending_id_pick: None,
             select_through: false,
+            ruler: Vec::new(),
         }
     }
 
@@ -363,9 +368,13 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             if i.consume_key(egui::Modifiers::NONE, egui::Key::P) {
                 state.viewport.mode = InteractMode::Pick;
             }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::M) {
+                state.viewport.mode = InteractMode::Ruler;
+            }
             if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 state.viewport.mode = InteractMode::Navigate;
                 state.viewport.pick = None;
+                state.viewport.ruler.clear();
             }
         });
     }
@@ -488,6 +497,32 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     if response.double_clicked() && state.viewport.mode == InteractMode::Navigate {
         cam.reset_to_bounds(&bounds);
     }
+    // Ruler: each click adds an end point on the surface under the cursor.
+    if response.clicked() && state.viewport.mode == InteractMode::Ruler {
+        if let Some(pos) = response.interact_pointer_pos() {
+            let ray = crate::pick::screen_ray(&state.viewport.camera, rect, pos);
+            let visible: std::collections::HashSet<NodeId> = state.session.lock().nodes.values().filter(|n| n.visible).map(|n| n.id).collect();
+            let meshes: Vec<(NodeId, Arc<MeshData>)> =
+                state.viewport.meshes.iter().filter(|(id, _)| visible.contains(*id)).map(|(id, c)| (*id, c.mesh.clone())).collect();
+            let radius = state.viewport.camera.world_per_pixel(rect.height() as f64) * 6.0;
+            if let Some(hit) = crate::pick::raycast(&ray, &meshes, radius) {
+                if state.viewport.ruler.len() >= 2 {
+                    state.viewport.ruler.clear();
+                }
+                state.viewport.ruler.push(hit.world);
+                if state.viewport.ruler.len() == 2 {
+                    let d = state.viewport.ruler[1] - state.viewport.ruler[0];
+                    state.status = format!(
+                        "Distance {} (dx {}, dy {}, dz {})",
+                        aurafx_data::info::g(d.length()),
+                        aurafx_data::info::g(d.x),
+                        aurafx_data::info::g(d.y),
+                        aurafx_data::info::g(d.z)
+                    );
+                }
+            }
+        }
+    }
     // Click to pick (Pick mode, or Ctrl+click in any mode).
     if response.clicked() && (state.viewport.mode == InteractMode::Pick || (mods.command && !selecting)) {
         if let Some(pos) = response.interact_pointer_pos() {
@@ -580,6 +615,49 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     if let Some((_, o, n, size)) = plane_widget(state).filter(|_| state.viewport.mode == InteractMode::Navigate) {
         draw_plane_widget(&painter, &state.viewport.camera, rect, o, n, size, state.viewport.widget_drag);
     }
+    // Ruler.
+    if !state.viewport.ruler.is_empty() {
+        let col = Color32::from_rgb(80, 220, 255);
+        let pts: Vec<Pos2> = state.viewport.ruler.iter().filter_map(|p| crate::pick::project(&state.viewport.camera, rect, *p)).collect();
+        for p in &pts {
+            painter.circle(*p, 5.0, col, Stroke::new(1.5, Color32::WHITE));
+        }
+        if pts.len() == 2 && state.viewport.ruler.len() == 2 {
+            painter.line_segment([pts[0], pts[1]], Stroke::new(2.5, col));
+            let d = (state.viewport.ruler[1] - state.viewport.ruler[0]).length();
+            let mid = pts[0] + (pts[1] - pts[0]) * 0.5;
+            let galley = painter.layout_no_wrap(aurafx_data::info::g(d), egui::FontId::proportional(14.0), Color32::WHITE);
+            let r = Rect::from_center_size(mid + Vec2::new(0.0, -14.0), galley.size() + Vec2::splat(8.0));
+            painter.rect_filled(r, 4.0, Color32::from_black_alpha(170));
+            painter.galley(r.min + Vec2::splat(4.0), galley, Color32::WHITE);
+        }
+    }
+    // Annotations and the time label.
+    let (notes, time_label) = {
+        let s = state.session.lock();
+        (s.annotations.clone(), if s.show_time_label { s.current_time().map(|t| format!("t = {}", aurafx_data::info::g(t))) } else { None })
+    };
+    let mut stacks: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+    let mut place = |text: &str, corner: &str, size: f32| {
+        let (anchor, base) = match corner {
+            "upper right" => (egui::Align2::RIGHT_TOP, rect.right_top() + Vec2::new(-12.0, 52.0)),
+            "lower left" => (egui::Align2::LEFT_BOTTOM, rect.left_bottom() + Vec2::new(90.0, -12.0)),
+            "lower right" => (egui::Align2::RIGHT_BOTTOM, rect.right_bottom() + Vec2::new(-12.0, -12.0)),
+            "upper center" => (egui::Align2::CENTER_TOP, rect.center_top() + Vec2::new(0.0, 52.0)),
+            "lower center" => (egui::Align2::CENTER_BOTTOM, rect.center_bottom() + Vec2::new(0.0, -12.0)),
+            _ => (egui::Align2::LEFT_TOP, rect.left_top() + Vec2::new(12.0, 52.0)),
+        };
+        let off = stacks.entry(corner.to_string()).or_insert(0.0);
+        let dy = if anchor.y() == egui::Align::Max { -*off } else { *off };
+        painter.text(base + Vec2::new(0.0, dy), anchor, text, egui::FontId::proportional(size), fg);
+        *off += size * 1.35;
+    };
+    if let Some(t) = &time_label {
+        place(t, "upper right", 16.0);
+    }
+    for a in &notes {
+        place(&a.text, &a.corner, a.size);
+    }
     viewport_toolbar(state, ui, rect);
     // Mark the active view when several are open.
     if state.views.len() > 0 && is_active {
@@ -662,6 +740,7 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
                 let m = &mut state.viewport.mode;
                 ui.selectable_value(m, InteractMode::Navigate, icons::ARROWS_OUT_CARDINAL).on_hover_text("Navigate: rotate, pan, zoom (Esc)");
                 ui.selectable_value(m, InteractMode::Pick, icons::CROSSHAIR).on_hover_text("Pick: click a surface to read values (P, or Ctrl+click)");
+                ui.selectable_value(m, InteractMode::Ruler, icons::RULER).on_hover_text("Ruler: click two points to measure the distance (M)");
                 ui.selectable_value(m, InteractMode::SelectCells, icons::SELECTION)
                     .on_hover_text("Select visible cells in a rectangle (S). Shift adds, Ctrl removes.");
                 ui.selectable_value(m, InteractMode::SelectPoints, icons::DOTS_NINE)

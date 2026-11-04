@@ -7,20 +7,128 @@
 
 use crate::netcdf3::NcFile;
 use crate::Loaded;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use aurafx_data::*;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-static CACHE: LazyLock<Mutex<HashMap<PathBuf, Arc<NcFile>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// The subset of NetCDF access the Exodus reader needs, implemented for NetCDF-3 (our own
+/// memory-mapped reader) and NetCDF-4/HDF5 (the pure-Rust `netcdf-reader` crate).
+pub trait NcSource: Send + Sync {
+    fn numrecs(&self) -> usize;
+    fn dim_len(&self, name: &str) -> Option<usize>;
+    fn has_var(&self, name: &str) -> bool;
+    fn read_f64(&self, name: &str, record: Option<usize>) -> Result<Vec<f64>>;
+    fn read_all_records(&self, name: &str) -> Result<Vec<f64>>;
+    fn read_strings(&self, name: &str) -> Result<Vec<String>>;
+    fn var_attr_text(&self, var: &str, attr: &str) -> Option<String>;
+    fn global_text(&self, name: &str) -> Option<String>;
+}
 
-fn open_nc(path: &Path) -> Result<Arc<NcFile>> {
+impl NcSource for NcFile {
+    fn numrecs(&self) -> usize {
+        self.numrecs
+    }
+    fn dim_len(&self, name: &str) -> Option<usize> {
+        NcFile::dim_len(self, name)
+    }
+    fn has_var(&self, name: &str) -> bool {
+        self.var(name).is_some()
+    }
+    fn read_f64(&self, name: &str, record: Option<usize>) -> Result<Vec<f64>> {
+        NcFile::read_f64(self, name, record)
+    }
+    fn read_all_records(&self, name: &str) -> Result<Vec<f64>> {
+        NcFile::read_all_records(self, name)
+    }
+    fn read_strings(&self, name: &str) -> Result<Vec<String>> {
+        NcFile::read_strings(self, name)
+    }
+    fn var_attr_text(&self, var: &str, attr: &str) -> Option<String> {
+        NcFile::var_attr_text(self, var, attr)
+    }
+    fn global_text(&self, name: &str) -> Option<String> {
+        match self.attrs.get(name)? {
+            crate::netcdf3::AttrValue::Text(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
+}
+
+struct Nc4(netcdf_reader::NcFile);
+
+impl Nc4 {
+    fn unlimited_len(&self) -> usize {
+        self.0.dimensions().ok().and_then(|d| d.iter().find(|x| x.is_unlimited).map(|x| x.size as usize)).unwrap_or(0)
+    }
+}
+
+impl NcSource for Nc4 {
+    fn numrecs(&self) -> usize {
+        if let Ok(v) = self.0.variable("time_whole") {
+            return v.dimensions().first().map(|d| d.size as usize).unwrap_or(0);
+        }
+        self.unlimited_len()
+    }
+    fn dim_len(&self, name: &str) -> Option<usize> {
+        self.0.dimension(name).ok().map(|d| d.size as usize)
+    }
+    fn has_var(&self, name: &str) -> bool {
+        self.0.variable(name).is_ok()
+    }
+    fn read_f64(&self, name: &str, record: Option<usize>) -> Result<Vec<f64>> {
+        let v = self.0.variable(name).map_err(|e| anyhow!("{name}: {e}"))?;
+        let is_record = v.dimensions().first().map(|d| d.is_unlimited).unwrap_or(false);
+        let arr = match (is_record, record) {
+            (true, Some(r)) => {
+                let mut sel = netcdf_reader::NcSliceInfo::all(v.dimensions().len());
+                sel.selections[0] = netcdf_reader::NcSliceInfoElem::Index(r as u64);
+                self.0.read_variable_slice_as_f64(name, &sel)
+            }
+            _ => self.0.read_variable_as_f64(name),
+        }
+        .map_err(|e| anyhow!("reading {name}: {e}"))?;
+        Ok(arr.into_iter().collect())
+    }
+    fn read_all_records(&self, name: &str) -> Result<Vec<f64>> {
+        Ok(self.0.read_variable_as_f64(name).map_err(|e| anyhow!("reading {name}: {e}"))?.into_iter().collect())
+    }
+    fn read_strings(&self, name: &str) -> Result<Vec<String>> {
+        let s = self.0.read_variable_as_strings(name).map_err(|e| anyhow!("reading {name}: {e}"))?;
+        Ok(s.into_iter().map(|x| x.trim_end_matches('\0').trim().to_string()).collect())
+    }
+    fn var_attr_text(&self, var: &str, attr: &str) -> Option<String> {
+        match &self.0.variable(var).ok()?.attribute(attr)?.value {
+            netcdf_reader::NcAttrValue::Chars(s) => Some(s.trim_end_matches('\0').to_string()),
+            _ => None,
+        }
+    }
+    fn global_text(&self, name: &str) -> Option<String> {
+        match &self.0.global_attribute(name).ok()?.value {
+            netcdf_reader::NcAttrValue::Chars(s) => Some(s.trim_end_matches('\0').to_string()),
+            _ => None,
+        }
+    }
+}
+
+static CACHE: LazyLock<Mutex<HashMap<PathBuf, Arc<dyn NcSource>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn open_nc(path: &Path) -> Result<Arc<dyn NcSource>> {
     if let Some(f) = CACHE.lock().get(path) {
         return Ok(f.clone());
     }
-    let f = Arc::new(NcFile::open(path)?);
+    let mut magic = [0u8; 4];
+    {
+        use std::io::Read;
+        std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?.read_exact(&mut magic)?;
+    }
+    let f: Arc<dyn NcSource> = if &magic[1..4] == b"HDF" {
+        Arc::new(Nc4(netcdf_reader::NcFile::open(path).map_err(|e| anyhow!("NetCDF-4 file {}: {e}", path.display()))?))
+    } else {
+        Arc::new(NcFile::open(path)?)
+    };
     CACHE.lock().insert(path.to_path_buf(), f.clone());
     Ok(f)
 }
@@ -32,7 +140,7 @@ pub fn is_exodus_ext(path: &Path) -> bool {
 
 pub fn open(path: &Path) -> Result<Loaded> {
     let nc = open_nc(path)?;
-    let times = if nc.var("time_whole").is_some() && nc.numrecs > 0 { nc.read_all_records("time_whole")? } else { vec![] };
+    let times = if nc.has_var("time_whole") && nc.numrecs() > 0 { nc.read_all_records("time_whole")? } else { vec![] };
     if times.len() <= 1 {
         return Ok(Loaded::Static(Arc::new(read_step(path, 0)?)));
     }
@@ -125,7 +233,7 @@ fn group_vectors(names: &[String], values: Vec<Vec<f64>>) -> Vec<Array> {
     out
 }
 
-fn var_names(nc: &NcFile, name_var: &str, prefix: &str, count: usize) -> Vec<String> {
+fn var_names(nc: &dyn NcSource, name_var: &str, prefix: &str, count: usize) -> Vec<String> {
     let mut names = nc.read_strings(name_var).unwrap_or_default();
     names.truncate(count);
     while names.len() < count {
@@ -145,16 +253,16 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
     let num_nodes = nc.dim_len("num_nodes").unwrap_or(0);
     let num_dim = nc.dim_len("num_dim").unwrap_or(3);
     let num_blk = nc.dim_len("num_el_blk").unwrap_or(0);
-    let has_time = nc.numrecs > 0 && nc.var("time_whole").is_some();
-    let rec = if has_time { Some(step.min(nc.numrecs - 1)) } else { None };
+    let has_time = nc.numrecs() > 0 && nc.has_var("time_whole");
+    let rec = if has_time { Some(step.min(nc.numrecs() - 1)) } else { None };
 
     // Coordinates.
     let mut coords = vec![vec![0.0; num_nodes]; 3];
-    if nc.var("coordx").is_some() {
+    if nc.has_var("coordx") {
         for (k, n) in ["coordx", "coordy", "coordz"].iter().enumerate().take(num_dim) {
             coords[k] = nc.read_f64(n, None)?;
         }
-    } else if nc.var("coord").is_some() {
+    } else if nc.has_var("coord") {
         let all = nc.read_f64("coord", None)?;
         for k in 0..num_dim {
             coords[k] = all[k * num_nodes..(k + 1) * num_nodes].to_vec();
@@ -163,14 +271,14 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
 
     // Nodal variables for this step.
     let n_nod_var = nc.dim_len("num_nod_var").unwrap_or(0);
-    let nod_names = var_names(&nc, "name_nod_var", "NodalVar", n_nod_var);
+    let nod_names = var_names(&*nc, "name_nod_var", "NodalVar", n_nod_var);
     let mut nod_values: Vec<Vec<f64>> = Vec::with_capacity(n_nod_var);
     if let Some(r) = rec {
-        if nc.var("vals_nod_var1").is_some() {
+        if nc.has_var("vals_nod_var1") {
             for j in 0..n_nod_var {
                 nod_values.push(nc.read_f64(&format!("vals_nod_var{}", j + 1), Some(r))?);
             }
-        } else if nc.var("vals_nod_var").is_some() {
+        } else if nc.has_var("vals_nod_var") {
             let all = nc.read_f64("vals_nod_var", Some(r))?;
             for j in 0..n_nod_var {
                 nod_values.push(all[j * num_nodes..(j + 1) * num_nodes].to_vec());
@@ -203,7 +311,7 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
 
     // Element variables.
     let n_el_var = nc.dim_len("num_elem_var").unwrap_or(0);
-    let el_names = var_names(&nc, "name_elem_var", "ElemVar", n_el_var);
+    let el_names = var_names(&*nc, "name_elem_var", "ElemVar", n_el_var);
     let truth: Vec<f64> = nc.read_f64("elem_var_tab", None).unwrap_or_else(|_| vec![1.0; num_blk * n_el_var]);
     let block_ids = nc.read_f64("eb_prop1", None).unwrap_or_else(|_| (1..=num_blk).map(|i| i as f64).collect());
     let block_names = nc.read_strings("eb_names").unwrap_or_default();
@@ -217,7 +325,7 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
         let cname = format!("connect{}", b + 1);
         let id = block_ids.get(b).copied().unwrap_or((b + 1) as f64) as i64;
         let name = block_names.get(b).filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| format!("Block {id}"));
-        if nel == 0 || nc.var(&cname).is_none() {
+        if nel == 0 || !nc.has_var(&cname) {
             elem_offset += nel;
             continue;
         }
@@ -243,7 +351,7 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
                     continue;
                 }
                 let vn = format!("vals_elem_var{}eb{}", j + 1, b + 1);
-                if nc.var(&vn).is_some() {
+                if nc.has_var(&vn) {
                     names.push(el_names[j].clone());
                     vals.push(nc.read_f64(&vn, Some(r))?);
                 }
@@ -266,7 +374,7 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
     // Global variables and time as field data.
     let n_glo = nc.dim_len("num_glo_var").unwrap_or(0);
     if let (Some(r), true) = (rec, n_glo > 0) {
-        let names = var_names(&nc, "name_glo_var", "GlobalVar", n_glo);
+        let names = var_names(&*nc, "name_glo_var", "GlobalVar", n_glo);
         if let Ok(v) = nc.read_f64("vals_glo_var", Some(r)) {
             for (n, x) in names.iter().zip(v) {
                 mb.field_data.insert(Array::scalars_f64(n.clone(), vec![x]));
@@ -278,7 +386,7 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
             mb.field_data.insert(Array::scalars_f64("TimeValue", t));
         }
     }
-    if let Some(title) = nc.attrs.get("title").and_then(|a| if let crate::netcdf3::AttrValue::Text(t) = a { Some(t.clone()) } else { None }) {
+    if let Some(title) = nc.global_text("title") {
         mb.field_data.insert(Array::new("Title", 1, ArrayData::String(vec![title])));
     }
     if mb.blocks.is_empty() {

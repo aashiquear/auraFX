@@ -184,3 +184,34 @@ fn static_ds_abs(p: &std::path::Path) -> std::sync::Arc<aurafx_data::DataSet> {
         _ => panic!(),
     }
 }
+
+#[test]
+fn exodus_netcdf4_matches_classic() {
+    for (classic, nc4) in [("disk_out_ref.ex2", "disk_out_ref_nc4.exo"), ("can.ex2", "can_nc4.exo")] {
+        if !td(nc4).exists() || !td(classic).exists() {
+            eprintln!("skipping {nc4}");
+            continue;
+        }
+        let steps = |name: &str| -> Vec<std::sync::Arc<aurafx_data::DataSet>> {
+            match read_file(td(name)).unwrap_or_else(|e| panic!("{name}: {e:#}")) {
+                Loaded::Static(d) => vec![d],
+                Loaded::Series(s) => vec![load_step(&s.steps[0]).unwrap(), load_step(s.steps.last().unwrap()).unwrap()],
+            }
+        };
+        let (a, b) = (steps(classic), steps(nc4));
+        assert_eq!(a.len(), b.len(), "{nc4}: time steps");
+        for (x, y) in a.iter().zip(&b) {
+            assert_eq!(x.n_points(), y.n_points(), "{nc4}");
+            assert_eq!(x.n_cells(), y.n_cells(), "{nc4}");
+            assert_eq!(x.bounds(), y.bounds(), "{nc4}");
+            let (ix, iy) = (aurafx_data::DataSetInfo::of(x), aurafx_data::DataSetInfo::of(y));
+            for (p, q) in ix.point_arrays.iter().zip(&iy.point_arrays) {
+                assert_eq!((&p.name, p.range), (&q.name, q.range), "{nc4}");
+            }
+            for (p, q) in ix.cell_arrays.iter().zip(&iy.cell_arrays) {
+                assert_eq!((&p.name, p.range), (&q.name, q.range), "{nc4}");
+            }
+            assert_eq!(ix.blocks, iy.blocks);
+        }
+    }
+}

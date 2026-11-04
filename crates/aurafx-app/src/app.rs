@@ -93,6 +93,10 @@ pub struct State {
     pub toasts: Vec<(String, f64, bool)>,
     pub jobs_panel: crate::jobs_panel::JobsPanel,
     pub charts: crate::charts::ChartsState,
+    pub anim_dialog: crate::animation::AnimDialog,
+    pub anim_job: Option<crate::animation::AnimJob>,
+    pub anim_done_tx: std::sync::mpsc::Sender<Result<PathBuf, String>>,
+    pub anim_done_rx: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
     /// The .afx file the session was last saved to / loaded from.
     pub state_path: Option<PathBuf>,
     /// Panes currently in the layout (refreshed every frame).
@@ -273,6 +277,7 @@ impl AuraApp {
         let viewport = Viewport::new(cc, settings.background);
         let tree = cc.storage.and_then(|s| s.get_string("layout_v3")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
         let assistant = Assistant::new(&settings);
+        let (anim_tx, anim_rx) = std::sync::mpsc::channel();
         let state = State {
             session,
             settings,
@@ -297,6 +302,10 @@ impl AuraApp {
             jobs_panel: crate::jobs_panel::JobsPanel::default(),
             charts: Default::default(),
             state_path: None,
+            anim_dialog: Default::default(),
+            anim_job: None,
+            anim_done_tx: anim_tx,
+            anim_done_rx: anim_rx,
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
         };
@@ -628,6 +637,10 @@ impl State {
                 if ui.button("Save Screenshot…    Ctrl+Shift+S").clicked() {
                     ui.close();
                     self.save_screenshot_dialog();
+                }
+                if ui.button("Save Animation…").on_hover_text("Time steps or a camera orbit, as GIF, MP4 or PNG frames").clicked() {
+                    ui.close();
+                    self.anim_dialog.open = true;
                 }
                 if ui.button("Export Python trace…").clicked() {
                     ui.close();
@@ -1276,6 +1289,9 @@ impl eframe::App for AuraApp {
         });
 
         let st = &mut self.state;
+        st.animation_tick(ctx);
+        st.animation_poll();
+        crate::animation::dialog_ui(st, ctx);
         crate::palette::palette_ui(st, ctx);
         st.settings_window(ctx);
         st.about_window(ctx);

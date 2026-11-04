@@ -184,6 +184,8 @@ pub struct Session {
     pub camera_state: Option<crate::state::CameraState>,
     pub selection: Option<Selection>,
     selection_counter: u64,
+    /// Animation export requested by a script: (output path, fps, orbit frames or None for time steps).
+    pub animation_request: Option<(PathBuf, f32, Option<usize>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

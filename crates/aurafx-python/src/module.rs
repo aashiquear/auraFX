@@ -722,6 +722,14 @@ fn load_state(path: String) -> PyResult<()> {
     session().lock().load_state(std::path::Path::new(&path)).map(|_| ()).map_err(err)
 }
 
+/// Record an animation: time steps (default) or a 360° camera orbit (orbit=frames).
+/// The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).
+#[pyfunction]
+#[pyo3(signature = (path, fps=10.0, orbit=None))]
+fn save_animation(path: String, fps: f32, orbit: Option<usize>) {
+    session().lock().animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
+}
+
 #[pyfunction]
 fn clear() {
     let mut s = session().lock();
@@ -925,6 +933,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(view, m)?)?;
     m.add_function(wrap_pyfunction!(screenshot, m)?)?;
     m.add_function(wrap_pyfunction!(clear, m)?)?;
+    m.add_function(wrap_pyfunction!(save_animation, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(set_theme, m)?)?;
     m.add_function(wrap_pyfunction!(undo, m)?)?;

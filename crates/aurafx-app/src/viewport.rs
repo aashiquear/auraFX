@@ -113,6 +113,11 @@ impl Viewport {
 
     pub fn frame_end(&mut self, _ctx: &egui::Context) {}
 
+    /// Save what was rendered last frame.
+    pub fn save_current_png(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        self.renderer.as_ref().ok_or_else(|| anyhow::anyhow!("no renderer"))?.save_png(path)
+    }
+
     pub fn mark_camera_initialized(&mut self) {
         self.camera_initialized = true;
     }

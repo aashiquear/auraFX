@@ -613,10 +613,16 @@ Done in iteration 20:
   everything but the double-precision cell-centered variable, which it misreads. SZL
   (`.szplt`) files are not read.
 
-Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters, writers (VTKHDF needs an HDF5 encoder:
-no pure-Rust writer is available), P4 odds: TAA, comparative views, more widgets (cylinder, cone, spline); MPI launchers (srun) and ghost cells for parallel servers;
-temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
-infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
+Done in iteration 21: a VTKHDF writer on auraFX's own small HDF5 encoder (`node.save("x.vtkhdf")`,
+`all_times=True`, the Save dialog; read back by h5py and our reader, not yet by ParaView's
+reader), and the **user guide** (`docs/userguide`: Markdown sources, mdBook HTML, PDF) with a
+generated screenshot per feature (`scripts/userguide/shots.sh`, `build.sh`). Rule in CLAUDE.md:
+every feature ships with a guide entry and screenshot.
+
+Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters, more writers
+(CGNS, Xdmf, EnSight), remaining filter catalog (texture mapping, AMR, hyper tree grids,
+molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)
 

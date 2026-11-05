@@ -21,7 +21,9 @@ does not have right next to the 3D view:
 
 The goal is ParaView's breadth with a UI a new user can drive without a manual. The full
 plan, with every ParaView 6.1.1 reader, filter and view mapped to a phase, is in
-[ROADMAP.md](ROADMAP.md).
+[ROADMAP.md](ROADMAP.md). The **user guide** is in [docs/userguide](docs/userguide/src/SUMMARY.md)
+(also as a PDF, `docs/userguide/auraFX-user-guide.pdf`; build the online book with
+`scripts/userguide/build.sh`).
 
 <p align="center"><img src="docs/images/screenshot.png" alt="auraFX main window" width="900"></p>
 

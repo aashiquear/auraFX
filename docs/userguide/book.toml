@@ -1,0 +1,17 @@
+[book]
+title = "auraFX User Guide"
+authors = ["auraFX contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/aashiquear/auraFX"
+site-url = "/auraFX/"
+
+[output.html.print]
+enable = true

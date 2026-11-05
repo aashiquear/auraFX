@@ -23,13 +23,36 @@ The Information panel always describes the full data on the server. Python filte
 Filter, Python Calculator) and plugin filters run on this computer, on the data brought over.
 The server keeps results, so changing one filter only re-runs that filter there.
 
+## Drawing on the server
+
+Some outputs are too big even as a surface (a 50-million-cell mesh has a surface of a few
+gigabytes). Then the server draws the object with its own GPU and sends pictures instead: a
+color image and a depth image per view (LZ4-compressed). auraFX blends
+them into the 3D view by depth, so server-drawn objects hide and are hidden by local objects
+correctly. While you move the camera the last picture stays up until the next one arrives
+(a 640×480 picture took 64 ms round trip over a LAN in the tests: 31 ms on the server's GPU).
+
+**Display › Draw on** picks per object:
+
+| Setting | What happens |
+|---|---|
+| auto | drawn here; drawn on the server only when its surface is over 64 MB |
+| this computer | always drawn here (the surface comes over, however big) |
+| the server | always drawn there; only pictures come over (translucent and volume-rendered objects are still drawn here) |
+
+From Python: `node.set(draw_on="server")`. Picking, rulers and selections need the geometry
+here, so they don't work on server-drawn objects; switch to "this computer" for those. A server
+without a GPU (or started with `--no-gpu`) sends surfaces instead. `aurafx-server --version
+--gpu` shows which GPU it would use; **Check server** shows the same.
+
 ## Setting up a host
 
 1. Make sure `ssh yourhost` works without a password prompt (an SSH key or agent).
 2. Put `aurafx-server` on the host, any of:
    - **File › Open on Server… › Install server** copies the one shipped with the app to
-     `~/.local/bin` (Linux hosts with the same CPU architecture, glibc 2.39 or newer for
-     builds made on current distributions);
+     `~/.local/bin` (Linux hosts with the same CPU architecture; the release packages are
+     built on Ubuntu 22.04 and run on glibc 2.35 or newer; a server you build yourself needs
+     the glibc of the machine it was built on);
    - build it there: `cargo build --release -p aurafx-server`;
    - or point `AURAFX_SERVER` at it in the host's setup lines (Simulations panel).
 3. **Check server** in the same window shows its version.
@@ -60,5 +83,5 @@ afx.servers()                                             # [{'name': 'cluster',
 - The connection restarts by itself if it drops; the next update sends the pipeline again.
 - State files remember which host a node was on and reconnect when loaded.
 - Time steps of server files drive the time bar like local ones.
-- Not yet: rendering on the server (images streamed back), several processes per server (MPI),
-  sharing one server between people.
+- Not yet: several processes per server (MPI), sharing one server between people,
+  translucent or volume-rendered objects drawn on the server (those are drawn here).

@@ -64,6 +64,14 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
             }
             "visible" | "show" => s.set_visible(id, val.as_bool().unwrap_or(true)),
             "fetch_full" | "all_data" => s.set_fetch_full(id, val.as_bool().unwrap_or(true)),
+            "draw_on" => {
+                let v = match val.as_str().unwrap_or("auto").to_lowercase().as_str() {
+                    "server" | "remote" => aurafx_pipeline::DrawOn::Server,
+                    "local" | "here" | "client" => aurafx_pipeline::DrawOn::Local,
+                    _ => aurafx_pipeline::DrawOn::Auto,
+                };
+                s.set_display(id, |d| d.draw_on = v);
+            }
             "color_by" => {
                 if let Some(n) = val.as_str() {
                     let cb = resolve_color_by(&s, id, n, None)?;
@@ -588,6 +596,7 @@ fn servers(py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
             d.set_item("hostname", &i.hostname)?;
             d.set_item("cpus", i.cpus)?;
             d.set_item("version", &i.version)?;
+            d.set_item("gpu", i.gpu.clone())?;
         }
         out.push(d.unbind());
     }

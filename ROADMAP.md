@@ -255,7 +255,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 ## 9. Distributed and remote (parity with pvserver)
 
-- [~] Client/server split (data server done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery; server-side rendering todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
+- [~] Client/server split (data server and server-side rendering done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery, GPU-drawn color+depth images composited by depth; MPI todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
 - [~] Multi-process data parallel (all-core shared-memory execution of the heavy filters done, deterministic and identical to serial; multi-process/MPI todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
 - [ ] Collaboration: shared sessions with multiple clients.
 - [ ] In-situ: Catalyst/Conduit endpoint, live visualization of running jobs.
@@ -406,8 +406,28 @@ Two existing bugs found and fixed along the way:
 - **Crash on huge surfaces:** the 3D view crashed when a surface needed more than the GPU's
   largest vertex buffer (about 10M triangles at 256 MB). It now splits the buffers.
 
-Known gaps worth doing next: server-side rendering for huge surfaces and MPI-parallel
-(multi-process) servers; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
+Done in iteration 12: drawing on the server. When a server object's surface would be too big
+to transfer (over 64 MB), or Display › Draw on is "the server", the data stays there:
+- **On the server:** it draws the object on its GPU and returns a color image plus a depth
+  image for each view.
+- **In the app:** the images are blended into the 3D view by depth, so local and server objects
+  hide each other correctly. The last picture stays up while the camera moves.
+
+The protocol carries each view's exact camera (including near/far), so server and app depths
+agree. A server-drawn picture matched this laptop's own drawing pixel for pixel, both
+in-process and from the 32-core host's Radeon GFX1151 over SSH (31 ms to draw 640×480, 64 ms
+round trip). `aurafx-server` finds its GPU at start (`--no-gpu` to opt out), and its version
+check reports it.
+
+Two existing bugs were fixed along the way:
+- **Script objects hidden with several views open:** drawing an inactive view swapped
+  visibility for every node, so objects a script created during that frame ended up hidden.
+- **Server binary needs new glibc:** a binary built on a current distribution requires glibc
+  2.43 (re-versioned float math functions). The release packages are built on Ubuntu 22.04,
+  and the installer now explains this.
+
+Known gaps worth doing next: MPI-parallel (multi-process) servers; translucent and volume
+objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)

@@ -20,4 +20,5 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 aurafx-io.workspace = true
+aurafx-jobs.workspace = true
 pollster = "0.4"

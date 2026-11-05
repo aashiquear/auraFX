@@ -106,6 +106,22 @@ pub struct Renderer {
     vol_sampler: wgpu::Sampler,
     nodes: HashMap<NodeId, GpuNode>,
     pub adapter_info: String,
+    pipe_resolve_depth: wgpu::RenderPipeline,
+    pipe_layer: wgpu::RenderPipeline,
+    layer_bgl: wgpu::BindGroupLayout,
+    /// Images drawn into the scene (server-drawn objects), with the image they came from.
+    layers: Vec<(Arc<ImageLayer>, wgpu::BindGroup, wgpu::Buffer)>,
+}
+
+/// A picture of some objects with its depth, drawn into the scene as if it were geometry
+/// (for objects drawn on a server). `color` is sRGB RGBA8 and `depth` the depth-buffer values
+/// (1.0 = nothing there), both row by row from the top, rendered with the same camera.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageLayer {
+    pub width: u32,
+    pub height: u32,
+    pub color: Vec<u8>,
+    pub depth: Vec<f32>,
 }
 
 fn vertex_layout(step: wgpu::VertexStepMode) -> wgpu::VertexBufferLayout<'static> {
@@ -327,6 +343,76 @@ impl Renderer {
             ..Default::default()
         });
 
+        let layer_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aurafx layer shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/layer.wgsl").into()),
+        });
+        let resolve_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&scene_bgl)], immediate_size: 0 });
+        let pipe_resolve_depth = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("resolve depth"),
+            layout: Some(&resolve_layout),
+            vertex: wgpu::VertexState { module: &layer_shader, entry_point: Some("vs_full"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &layer_shader,
+                entry_point: Some("fs_resolve_depth"),
+                targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::R32Float, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let tex_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let layer_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("layer bgl"),
+            entries: &[
+                tex_entry(0),
+                tex_entry(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+            ],
+        });
+        let layer_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&layer_bgl)], immediate_size: 0 });
+        let pipe_layer = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("image layer"),
+            layout: Some(&layer_layout),
+            vertex: wgpu::VertexState { module: &layer_shader, entry_point: Some("vs_full"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &layer_shader,
+                entry_point: Some("fs_layer"),
+                targets: &[Some(wgpu::ColorTargetState { format: COLOR_FORMAT, blend: Some(wgpu::BlendState::REPLACE), write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: MSAA, ..Default::default() },
+            multiview_mask: None,
+            cache: None,
+        });
+
         let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16);
         let scene_bg = Self::make_scene_bg(&device, &scene_bgl, &depth_view);
         Self {
@@ -357,7 +443,130 @@ impl Renderer {
             vol_sampler,
             nodes: HashMap::new(),
             adapter_info,
+            pipe_resolve_depth,
+            pipe_layer,
+            layer_bgl,
+            layers: Vec::new(),
         }
+    }
+
+    /// Images to draw into the scene from now on (uploaded only when they change).
+    pub fn set_layers(&mut self, layers: &[Arc<ImageLayer>]) {
+        let unchanged = layers.len() == self.layers.len() && layers.iter().zip(&self.layers).all(|(a, (b, _, _))| Arc::ptr_eq(a, b));
+        if unchanged {
+            return;
+        }
+        let old = std::mem::take(&mut self.layers);
+        for l in layers {
+            if let Some((_, bg, u)) = old.iter().find(|(o, _, _)| Arc::ptr_eq(o, l)) {
+                self.layers.push((l.clone(), bg.clone(), u.clone()));
+                continue;
+            }
+            if l.width == 0 || l.height == 0 || l.color.len() < (4 * l.width * l.height) as usize || l.depth.len() < (l.width * l.height) as usize {
+                continue;
+            }
+            let size = wgpu::Extent3d { width: l.width, height: l.height, depth_or_array_layers: 1 };
+            let make = |label: &str, format: wgpu::TextureFormat, bytes: &[u8], bpp: u32| {
+                self.device.create_texture_with_data(
+                    &self.queue,
+                    &wgpu::TextureDescriptor {
+                        label: Some(label),
+                        size,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    },
+                    wgpu::util::TextureDataOrder::LayerMajor,
+                    &bytes[..(bpp * l.width * l.height) as usize],
+                )
+            };
+            let color = make("layer color", wgpu::TextureFormat::Rgba8UnormSrgb, &l.color, 4);
+            let depth = make("layer depth", wgpu::TextureFormat::R32Float, bytemuck::cast_slice(&l.depth), 4);
+            let uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("layer uniform"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("layer"),
+                layout: &self.layer_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&color.create_view(&Default::default())) },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&depth.create_view(&Default::default())) },
+                    wgpu::BindGroupEntry { binding: 2, resource: uniform.as_entire_binding() },
+                ],
+            });
+            self.layers.push((l.clone(), bg, uniform));
+        }
+    }
+
+    /// The depth buffer of the last `render` (sample 0 of each pixel), row by row from the top.
+    pub fn read_depth(&self) -> Result<Vec<f32>> {
+        let (w, h) = (self.width, self.height);
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("resolved depth"),
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&Default::default());
+        let bytes_per_row = (4 * w).div_ceil(256) * 256;
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("depth readback"),
+            size: (bytes_per_row * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("resolve depth"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 1.0, g: 0.0, b: 0.0, a: 0.0 }), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.pipe_resolve_depth);
+            pass.set_bind_group(0, &self.scene_bg, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: &tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bytes_per_row), rows_per_image: Some(h) },
+            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        self.queue.submit(Some(enc.finish()));
+        let slice = buf.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::PollType::wait_indefinitely())?;
+        rx.recv()??;
+        let data = slice.get_mapped_range()?;
+        let mut out = Vec::with_capacity((w * h) as usize);
+        for row in 0..h {
+            let start = (row * bytes_per_row) as usize;
+            out.extend_from_slice(bytemuck::cast_slice(&data[start..start + (4 * w) as usize]));
+        }
+        drop(data);
+        buf.unmap();
+        Ok(out)
     }
 
     fn make_targets(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::Texture, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
@@ -590,6 +799,7 @@ impl Renderer {
         let mut order: Vec<&NodeDraw> = draws.iter().collect();
         order.sort_by_key(|d| class(d));
         let (opaque, rest): (Vec<&NodeDraw>, Vec<&NodeDraw>) = order.into_iter().partition(|d| class(d) == (false, 0));
+        let _ = &self.layers;
         let bg = settings.background;
         // Pass 1: opaque geometry writes depth.
         {
@@ -611,6 +821,13 @@ impl Renderer {
                 }),
                 ..Default::default()
             });
+            for (l, bg, u) in &self.layers {
+                let size = [l.width as f32, l.height as f32, self.width as f32, self.height as f32];
+                self.queue.write_buffer(u, 0, bytemuck::cast_slice(&size));
+                pass.set_pipeline(&self.pipe_layer);
+                pass.set_bind_group(0, bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
             for d in &opaque {
                 self.draw_node(&mut pass, d);
             }

@@ -162,11 +162,30 @@ impl State {
         let mut v = self.views.remove(&id).unwrap();
         v.settings.background = self.viewport.settings.background;
         std::mem::swap(&mut self.viewport, &mut v);
-        let saved = self.visible_set();
-        let mine = self.view_visibility.get(&id).cloned().unwrap_or_else(|| saved.clone());
-        self.apply_visible_set(&mine);
+        // Show this view's objects while drawing it, then put the active view's back. Only
+        // nodes that exist now are touched: a script may add nodes meanwhile, and those must
+        // keep their own visibility.
+        let saved: Vec<(NodeId, bool)> = self.session.lock().nodes.values().map(|n| (n.id, n.visible)).collect();
+        let mine = self.view_visibility.get(&id).cloned();
+        if let Some(mine) = &mine {
+            let mut s = self.session.lock();
+            for (nid, _) in &saved {
+                if let Some(n) = s.nodes.get_mut(nid) {
+                    n.visible = mine.contains(nid);
+                }
+            }
+            s.revision += 1;
+        }
         let interacted = crate::viewport::viewport_ui(self, ui, false);
-        self.apply_visible_set(&saved);
+        if mine.is_some() {
+            let mut s = self.session.lock();
+            for (nid, vis) in &saved {
+                if let Some(n) = s.nodes.get_mut(nid) {
+                    n.visible = *vis;
+                }
+            }
+            s.revision += 1;
+        }
         std::mem::swap(&mut self.viewport, &mut v);
         self.views.insert(id, v);
         if interacted {

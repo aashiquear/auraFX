@@ -327,6 +327,7 @@ dependencies = [
  "aurafx-data",
  "aurafx-filters",
  "aurafx-io",
+ "aurafx-jobs",
  "aurafx-pipeline",
  "bytemuck",
  "glam",
@@ -346,6 +347,7 @@ dependencies = [
  "aurafx-filters",
  "aurafx-jobs",
  "aurafx-pipeline",
+ "aurafx-render",
 ]
 
 [[package]]

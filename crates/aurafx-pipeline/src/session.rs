@@ -115,6 +115,12 @@ impl Plan {
     }
 }
 
+/// Server pictures are composited as opaque surfaces: translucent and volume-rendered objects
+/// are drawn here.
+fn server_can_draw(d: &DisplayProps) -> bool {
+    d.representation != crate::display::Representation::Volume && d.opacity >= 1.0
+}
+
 /// Built-in filters run on a server; Python and plugin filters only here.
 pub fn runs_on_server(def: &FilterDef) -> bool {
     def.ext.is_none() && !def.is_source && !matches!(def.id, "programmable_filter" | "programmable_source" | "python_calculator")
@@ -341,6 +347,7 @@ enum WorkKind {
         fetch: crate::remote::Fetch,
         max_bytes: u64,
         level: u32,
+        max_surface: u64,
     },
 }
 
@@ -359,8 +366,8 @@ impl WorkItem {
                 let cache = PlanCache::default();
                 run_temporal(def, params, input, extra, state, *time, &cache).map(Arc::new)
             }
-            WorkKind::Remote { client, specs, time, fetch, max_bytes, level } => {
-                let mut f = client.compute(specs.clone(), self.node, *time, *fetch, *max_bytes, *level)?;
+            WorkKind::Remote { client, specs, time, fetch, max_bytes, level, max_surface } => {
+                let mut f = client.compute(specs.clone(), self.node, *time, *fetch, *max_bytes, *level, *max_surface)?;
                 let data = Arc::new(std::mem::replace(&mut f.data, DataSet::PolyData(Default::default())));
                 *self.remote.lock() = Some(f);
                 Ok(data)
@@ -913,7 +920,7 @@ impl Session {
     }
 
     /// The recipe of a server node: it and everything upstream, inputs first.
-    fn remote_specs(&self, id: NodeId) -> Vec<crate::remote::NodeSpec> {
+    pub fn remote_specs(&self, id: NodeId) -> Vec<crate::remote::NodeSpec> {
         fn walk(s: &Session, id: NodeId, out: &mut Vec<crate::remote::NodeSpec>, seen: &mut std::collections::HashSet<NodeId>) {
             if !seen.insert(id) {
                 return;
@@ -941,6 +948,8 @@ impl Session {
         let local_child = self.nodes.values().any(|c| (c.input == Some(id) || c.extra_inputs.contains(&id)) && self.remote_host(c.id).is_none());
         if n.fetch_full || local_child {
             Fetch::Full
+        } else if n.visible && n.display.draw_on == crate::display::DrawOn::Server && server_can_draw(&n.display) {
+            Fetch::Draw
         } else if n.visible {
             Fetch::Auto
         } else {
@@ -973,9 +982,24 @@ impl Session {
         if d != n.display {
             let label = format!("Display {}", n.name);
             self.checkpoint(label);
-            self.nodes.get_mut(&id).unwrap().display = d;
+            let n = self.nodes.get_mut(&id).unwrap();
+            // Where a server node is drawn decides what it sends.
+            let refetch = (n.display.draw_on != d.draw_on || server_can_draw(&n.display) != server_can_draw(&d)) && n.remote.is_some();
+            n.display = d;
+            if refetch {
+                n.dirty = true;
+            }
             self.touch();
         }
+    }
+
+    /// Visible nodes the server draws (their data stays there), with their host.
+    pub fn drawn_on_server(&self) -> Vec<(NodeId, aurafx_jobs::Host)> {
+        self.nodes
+            .values()
+            .filter(|n| n.visible && n.remote.as_ref().is_some_and(|r| r.payload == crate::remote::Payload::Drawn))
+            .filter_map(|n| self.remote_host(n.id).map(|h| (n.id, h)))
+            .collect()
     }
 
     pub fn color_by(&mut self, id: NodeId, cb: Option<ColorBy>) {
@@ -1174,7 +1198,9 @@ impl Session {
                 nm.running = true;
                 nm.error = None;
                 self.touch();
-                let kind = WorkKind::Remote { client, specs, time, fetch, max_bytes, level };
+                let d = &self.nodes[&id].display;
+                let max_surface = if d.draw_on == crate::display::DrawOn::Local || !server_can_draw(d) { u64::MAX } else { max_bytes };
+                let kind = WorkKind::Remote { client, specs, time, fetch, max_bytes, level, max_surface };
                 return Some(WorkItem { node: id, generation: self.generation, kind, remote: Default::default() });
             }
             // A local filter needs the whole output of server inputs, not just their surface.
@@ -1305,7 +1331,7 @@ impl Session {
         let Some(n) = self.nodes.get_mut(&item.node) else { return };
         n.running = false;
         n.last_exec_ms = elapsed_ms;
-        let summary_only = fetched.as_ref().is_some_and(|f| f.payload == crate::remote::Payload::None);
+        let summary_only = fetched.as_ref().is_some_and(|f| matches!(f.payload, crate::remote::Payload::None | crate::remote::Payload::Drawn));
         match result {
             Ok(ds) if summary_only => {
                 // The data stayed on the server: keep its summary, color later.
@@ -1577,7 +1603,15 @@ impl Session {
 
     /// Visible-bounds of everything shown.
     pub fn visible_bounds(&self) -> aurafx_data::Bounds {
-        self.nodes.values().filter(|n| n.visible).filter_map(|n| n.output.as_ref()).fold(aurafx_data::Bounds::EMPTY, |b, d| b.union(&d.bounds()))
+        self.nodes.values().filter(|n| n.visible).fold(aurafx_data::Bounds::EMPTY, |b, n| {
+            // Server-drawn nodes have no local data; their summary has the bounds.
+            let drawn = n.remote.as_ref().is_some_and(|r| r.payload == crate::remote::Payload::Drawn);
+            match (drawn, &n.info, &n.output) {
+                (true, Some(i), _) => b.union(&i.bounds),
+                (_, _, Some(d)) => b.union(&d.bounds()),
+                _ => b,
+            }
+        })
     }
 
     /// Text summary of the whole pipeline for the AI assistant and tooltips.

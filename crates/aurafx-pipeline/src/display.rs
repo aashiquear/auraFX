@@ -81,6 +81,20 @@ pub struct DisplayProps {
     /// Curved (higher-order) cells: 0 = straight through the corners, 1 = through the nodes,
     /// each further level halves the pieces (ParaView's "Nonlinear Subdivision Level").
     pub nonlinear_subdivision: u32,
+    /// For objects on a server: draw them there (images come back) or here (geometry comes back).
+    pub draw_on: DrawOn,
+}
+
+/// Where an object on a server is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DrawOn {
+    /// Here, unless even its surface is too big to transfer.
+    #[default]
+    Auto,
+    /// Always here (its surface comes over, however big).
+    Local,
+    /// Always on the server (only images come over).
+    Server,
 }
 
 impl Default for DisplayProps {
@@ -106,6 +120,7 @@ impl Default for DisplayProps {
             colormap_reverse: false,
             colormap_bands: 0,
             nonlinear_subdivision: 1,
+            draw_on: DrawOn::Auto,
         }
     }
 }

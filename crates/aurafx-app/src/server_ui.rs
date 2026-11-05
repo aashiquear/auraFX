@@ -36,7 +36,7 @@ pub fn local_server_binary() -> Option<std::path::PathBuf> {
 
 /// Check the server on a host: its version line, or why it cannot start.
 fn check(host: &Host) -> anyhow::Result<String> {
-    let script = aurafx_pipeline::remote::SERVER_COMMAND.replace("--stdio", "--version");
+    let script = aurafx_pipeline::remote::SERVER_COMMAND.replace("--stdio", "--version --gpu");
     let mut c = host.command(&script);
     if host.is_local() && std::env::var_os("AURAFX_SERVER").is_none() {
         if let Some(p) = local_server_binary() {
@@ -45,7 +45,7 @@ fn check(host: &Host) -> anyhow::Result<String> {
     }
     let out = c.output()?;
     if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&out.stdout).trim().replace('\n', " · "))
     } else {
         anyhow::bail!("aurafx-server was not found on {} ({})", host.name, String::from_utf8_lossy(&out.stderr).trim())
     }
@@ -66,8 +66,16 @@ fn install(host: &Host) -> anyhow::Result<String> {
     }
     host.run_capture("mkdir -p ~/.local/bin", std::time::Duration::from_secs(20))?;
     host.upload(&local, ".local/bin/aurafx-server")?;
-    let v = host.run_capture("chmod +x ~/.local/bin/aurafx-server && ~/.local/bin/aurafx-server --version", std::time::Duration::from_secs(20))?;
-    Ok(format!("Installed: {}", v.trim()))
+    let v = host
+        .run_capture("chmod +x ~/.local/bin/aurafx-server && ~/.local/bin/aurafx-server --version --gpu", std::time::Duration::from_secs(20))
+        .map_err(|e| {
+            if format!("{e:#}").contains("GLIBC") {
+                anyhow::anyhow!("{e:#}\nThis app was built on a newer Linux than {}. Use aurafx-server from the release packages (built on Ubuntu 22.04) or build it there.", host.name)
+            } else {
+                e
+            }
+        })?;
+    Ok(format!("Installed: {}", v.trim().replace('\n', " · ")))
 }
 
 impl ServerWindow {

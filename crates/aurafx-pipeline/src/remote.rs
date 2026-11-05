@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// One node of the recipe the client sends, keyed by the client's node id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,9 +107,12 @@ pub enum Fetch {
     Surface,
     /// Everything.
     Full,
-    /// Everything when it is smaller than the limit, else the surface.
+    /// Everything when it is smaller than the limit, else the surface, or (when even the
+    /// surface is too big) nothing: the server draws it.
     #[default]
     Auto,
+    /// The summary only; the server draws the object for the 3D views.
+    Draw,
 }
 
 /// What a reply carries.
@@ -119,6 +122,36 @@ pub enum Payload {
     None,
     Surface,
     Full,
+    /// Kept on the server, which draws it (too big to send, or asked for).
+    Drawn,
+}
+
+/// The camera of a view, exactly as the client renders it (so depths agree).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct RenderCamera {
+    pub eye: [f64; 3],
+    pub target: [f64; 3],
+    pub up: [f64; 3],
+    pub fov_y_deg: f64,
+    pub orthographic: bool,
+    pub ortho_height: f64,
+    pub near: f64,
+    pub far: f64,
+}
+
+/// What a server draws: these nodes (with their display settings) seen by this camera.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderJob {
+    pub targets: Vec<(NodeId, crate::DisplayProps)>,
+    pub camera: RenderCamera,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Rendering on the server, supplied by the server program (the pipeline crate has no GPU
+/// code). Returns sRGB RGBA8 color and depth (1.0 = empty), row by row from the top.
+pub trait RenderHook: Send {
+    fn render(&mut self, outputs: &[(NodeId, std::sync::Arc<DataSet>, crate::DisplayProps)], job: &RenderJob) -> Result<(Vec<u8>, Vec<f32>)>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +166,13 @@ pub enum Request {
         fetch: Fetch,
         max_bytes: u64,
         surface_level: u32,
+        max_surface_bytes: u64,
+    },
+    /// Draw nodes (their recipes in `specs`) and return color + depth images.
+    Render {
+        specs: Vec<NodeSpec>,
+        time: Option<f64>,
+        job: RenderJob,
     },
     /// The client removed these nodes.
     Forget {
@@ -147,6 +187,9 @@ pub struct ServerInfo {
     pub version: String,
     pub hostname: String,
     pub cpus: usize,
+    /// The GPU the server draws with, if it can draw.
+    #[serde(default)]
+    pub gpu: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,6 +202,13 @@ pub enum Reply {
         payload: Payload,
         server_ms: f64,
         full_bytes: u64,
+    },
+    /// The attachment is LZ4 color (first `color_bytes`) followed by LZ4 depth.
+    Image {
+        width: u32,
+        height: u32,
+        server_ms: f64,
+        color_bytes: u64,
     },
     Ok,
     Error {
@@ -216,9 +266,14 @@ pub fn decode(bytes: &[u8]) -> Result<DataSet> {
 
 /// The server side: answer requests from `input` on `output` until the client goes away.
 pub fn serve(input: impl Read, output: impl Write) -> Result<()> {
+    serve_with(input, output, None, None)
+}
+
+/// [`serve`] with a renderer for drawing on the server (`gpu` names it for the client).
+pub fn serve_with(input: impl Read, output: impl Write, hook: Option<Box<dyn RenderHook>>, gpu: Option<String>) -> Result<()> {
     let mut r = BufReader::new(input);
     let mut w = BufWriter::new(output);
-    let mut srv = Server::default();
+    let mut srv = Server { hook, gpu, ..Server::default() };
     loop {
         let Ok((head, _)) = read_frame(&mut r) else { return Ok(()) }; // client went away
         let req: Request = match postcard::from_bytes(&head) {
@@ -239,7 +294,7 @@ pub fn serve(input: impl Read, output: impl Write) -> Result<()> {
                     let msg =
                         p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "unknown".into());
                     // The session may be half-updated: start over (the next request resends everything).
-                    srv = Server::default();
+                    srv = Server { hook: srv.hook.take(), gpu: srv.gpu.clone(), ..Server::default() };
                     (Reply::Error { message: format!("the server failed: {msg}") }, vec![])
                 }
             },
@@ -252,13 +307,15 @@ struct Server {
     session: Session,
     /// Client node id -> (server node id, the spec it was built from).
     nodes: HashMap<NodeId, (NodeId, NodeSpec)>,
+    hook: Option<Box<dyn RenderHook>>,
+    gpu: Option<String>,
 }
 
 impl Default for Server {
     fn default() -> Self {
         let mut session = Session::new();
         session.suspend_undo = 1;
-        Self { session, nodes: HashMap::new() }
+        Self { session, nodes: HashMap::new(), hook: None, gpu: None }
     }
 }
 
@@ -271,6 +328,7 @@ impl Server {
                     version: env!("CARGO_PKG_VERSION").to_string(),
                     hostname: hostname(),
                     cpus: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
+                    gpu: self.gpu.clone(),
                 }),
                 vec![],
             ),
@@ -282,12 +340,16 @@ impl Server {
                 }
                 (Reply::Ok, vec![])
             }
-            Request::Compute { specs, target, time, fetch, max_bytes, surface_level } => {
-                match self.compute(&specs, target, time, fetch, max_bytes, surface_level) {
+            Request::Compute { specs, target, time, fetch, max_bytes, surface_level, max_surface_bytes } => {
+                match self.compute(&specs, target, time, fetch, max_bytes, surface_level, max_surface_bytes) {
                     Ok(r) => r,
                     Err(e) => (Reply::Error { message: format!("{e:#}") }, vec![]),
                 }
             }
+            Request::Render { specs, time, job } => match self.render(&specs, time, &job) {
+                Ok(r) => r,
+                Err(e) => (Reply::Error { message: format!("{e:#}") }, vec![]),
+            },
             Request::Shutdown => (Reply::Ok, vec![]),
         }
     }
@@ -335,7 +397,43 @@ impl Server {
         Ok(())
     }
 
-    fn compute(&mut self, specs: &[NodeSpec], target: NodeId, time: Option<f64>, fetch: Fetch, max_bytes: u64, level: u32) -> Result<(Reply, Vec<u8>)> {
+    fn render(&mut self, specs: &[NodeSpec], time: Option<f64>, job: &RenderJob) -> Result<(Reply, Vec<u8>)> {
+        let t0 = std::time::Instant::now();
+        if self.hook.is_none() {
+            bail!("this server cannot draw (no GPU, or built without rendering)");
+        }
+        self.reconcile(specs)?;
+        if let Some(t) = time {
+            self.session.set_time_value(t);
+        }
+        self.session.update_blocking();
+        let mut outputs = Vec::new();
+        for (id, display) in &job.targets {
+            let sid = self.nodes.get(id).ok_or_else(|| anyhow!("node {id} was not sent"))?.0;
+            let n = self.session.nodes.get(&sid).ok_or_else(|| anyhow!("node {id} is gone"))?;
+            if let Some(out) = &n.output {
+                outputs.push((*id, out.clone(), display.clone()));
+            }
+        }
+        let (color, depth) = self.hook.as_mut().unwrap().render(&outputs, job)?;
+        let mut att = lz4_flex::compress_prepend_size(&color);
+        let color_bytes = att.len() as u64;
+        let raw: Vec<u8> = depth.iter().flat_map(|d| d.to_le_bytes()).collect();
+        att.extend(lz4_flex::compress_prepend_size(&raw));
+        Ok((Reply::Image { width: job.width, height: job.height, server_ms: t0.elapsed().as_secs_f64() * 1e3, color_bytes }, att))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compute(
+        &mut self,
+        specs: &[NodeSpec],
+        target: NodeId,
+        time: Option<f64>,
+        fetch: Fetch,
+        max_bytes: u64,
+        level: u32,
+        max_surface: u64,
+    ) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
         self.reconcile(specs)?;
         if let Some(t) = time {
@@ -351,18 +449,34 @@ impl Server {
         let full_bytes = out.n_bytes() as u64;
         let times = self.session.node_times(sid, 0);
         let surface_useful = !matches!(&*out, DataSet::PolyData(_) | DataSet::Table(_));
+        let can_draw = self.hook.is_some();
+        let mut surface = None;
         let payload = match fetch {
             Fetch::Info => Payload::None,
+            Fetch::Draw if can_draw => Payload::Drawn,
+            Fetch::Draw => Payload::Surface,
             Fetch::Full => Payload::Full,
             Fetch::Surface if surface_useful => Payload::Surface,
             Fetch::Surface => Payload::Full,
             Fetch::Auto if full_bytes <= max_bytes || !surface_useful => Payload::Full,
-            Fetch::Auto => Payload::Surface,
+            Fetch::Auto => {
+                let s = DataSet::PolyData(aurafx_filters::surface::extract_surface_level(&out, level)?);
+                let big = s.n_bytes() as u64 > max_surface;
+                surface = Some(s);
+                if big && can_draw {
+                    Payload::Drawn
+                } else {
+                    Payload::Surface
+                }
+            }
         };
         let att = match payload {
-            Payload::None => vec![],
+            Payload::None | Payload::Drawn => vec![],
             Payload::Full => encode(&out)?,
-            Payload::Surface => encode(&DataSet::PolyData(aurafx_filters::surface::extract_surface_level(&out, level)?))?,
+            Payload::Surface => match surface {
+                Some(s) => encode(&s)?,
+                None => encode(&DataSet::PolyData(aurafx_filters::surface::extract_surface_level(&out, level)?))?,
+            },
         };
         let info = n.info.clone().or_else(|| Some(DataSetInfo::of(&out)));
         Ok((Reply::Data { info, times, payload, server_ms: t0.elapsed().as_secs_f64() * 1e3, full_bytes }, att))
@@ -486,10 +600,15 @@ impl RemoteClient {
 
     /// A server running on threads of this process (for trying client/server locally).
     pub fn in_process(name: &str) -> Arc<Self> {
+        Self::in_process_with(name, None, None)
+    }
+
+    /// [`in_process`](Self::in_process) with a renderer, so the server can draw.
+    pub fn in_process_with(name: &str, hook: Option<Box<dyn RenderHook>>, gpu: Option<String>) -> Arc<Self> {
         let (c2s_r, c2s_w) = pipe();
         let (s2c_r, s2c_w) = pipe();
         std::thread::spawn(move || {
-            let _ = serve(c2s_r, s2c_w);
+            let _ = serve_with(c2s_r, s2c_w, hook, gpu);
         });
         Self::from_streams(name, s2c_r, c2s_w)
     }
@@ -563,8 +682,18 @@ impl RemoteClient {
     }
 
     /// Run `target` (with its upstream `specs`) on the server.
-    pub fn compute(&self, specs: Vec<NodeSpec>, target: NodeId, time: Option<f64>, fetch: Fetch, max_bytes: u64, surface_level: u32) -> Result<Fetched> {
-        let (reply, att) = self.request(&Request::Compute { specs, target, time, fetch, max_bytes, surface_level })?;
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute(
+        &self,
+        specs: Vec<NodeSpec>,
+        target: NodeId,
+        time: Option<f64>,
+        fetch: Fetch,
+        max_bytes: u64,
+        surface_level: u32,
+        max_surface_bytes: u64,
+    ) -> Result<Fetched> {
+        let (reply, att) = self.request(&Request::Compute { specs, target, time, fetch, max_bytes, surface_level, max_surface_bytes })?;
         match reply {
             Reply::Data { info, times, payload, server_ms, full_bytes } => {
                 let data = if att.is_empty() { DataSet::PolyData(Default::default()) } else { decode(&att)? };
@@ -572,6 +701,21 @@ impl RemoteClient {
             }
             Reply::Error { message } => Err(anyhow!("{message}")),
             other => bail!("unexpected reply {other:?}"),
+        }
+    }
+
+    /// Have the server draw nodes; returns (width, height, sRGB color, depth, server ms).
+    pub fn render(&self, specs: Vec<NodeSpec>, time: Option<f64>, job: RenderJob) -> Result<(u32, u32, Vec<u8>, Vec<f32>, f64)> {
+        match self.request(&Request::Render { specs, time, job })? {
+            (Reply::Image { width, height, server_ms, color_bytes }, att) => {
+                let k = (color_bytes as usize).min(att.len());
+                let color = lz4_flex::decompress_size_prepended(&att[..k]).map_err(|e| anyhow!("decompressing image: {e}"))?;
+                let raw = lz4_flex::decompress_size_prepended(&att[k..]).map_err(|e| anyhow!("decompressing depth: {e}"))?;
+                let depth = raw.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+                Ok((width, height, color, depth, server_ms))
+            }
+            (Reply::Error { message }, _) => Err(anyhow!("{message}")),
+            (other, _) => bail!("unexpected reply {other:?}"),
         }
     }
 

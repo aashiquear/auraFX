@@ -584,6 +584,7 @@ fn remote_text(host: &str, st: Option<&aurafx_pipeline::RemoteStatus>) -> String
             Payload::None => format!("On {host}: data stays there ({}); shown when visible", human(s.full_bytes)),
             Payload::Surface => format!("On {host}: showing its surface ({} of {}) · server {:.0} ms", human(s.sent_bytes), human(s.full_bytes), s.server_ms),
             Payload::Full => format!("On {host}: all data here ({} sent) · server {:.0} ms", human(s.sent_bytes), s.server_ms),
+            Payload::Drawn => format!("On {host}: drawn there, data stays there ({}) · server {:.0} ms", human(s.full_bytes), s.server_ms),
         },
     }
 }
@@ -906,6 +907,23 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.add(egui::Slider::new(&mut d.nonlinear_subdivision, 0..=4).text("subdivision")).on_hover_text(
                         "How finely curved (higher-order) cells are drawn: 0 straight between corners, 1 through their nodes, each further level halves the pieces",
                     );
+                    ui.end_row();
+                }
+                if server.is_some() {
+                    use aurafx_pipeline::DrawOn;
+                    ui.label("Draw on");
+                    let label = |o: DrawOn| match o {
+                        DrawOn::Auto => "auto",
+                        DrawOn::Local => "this computer",
+                        DrawOn::Server => "the server",
+                    };
+                    egui::ComboBox::from_id_salt(("draw_on", id)).selected_text(label(d.draw_on)).show_ui(ui, |ui| {
+                        for o in [DrawOn::Auto, DrawOn::Local, DrawOn::Server] {
+                            ui.selectable_value(&mut d.draw_on, o, label(o));
+                        }
+                    })
+                    .response
+                    .on_hover_text("Auto: here, unless even the surface is too big to transfer. The server: only pictures come over (no picking there).");
                     ui.end_row();
                 }
                 ui.label("Lighting");

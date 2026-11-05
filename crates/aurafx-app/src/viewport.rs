@@ -51,6 +51,18 @@ pub struct Viewport {
     pub select_through: bool,
     /// Ruler end points (0, 1 or 2 picked so far).
     pub ruler: Vec<glam::DVec3>,
+    /// Pictures of server-drawn objects, per host.
+    remote_images: HashMap<String, RemoteImage>,
+}
+
+/// The latest picture a server drew for this view, and the request in flight.
+#[derive(Default)]
+struct RemoteImage {
+    /// What the picture shows (camera, size, objects, time).
+    key: u64,
+    layer: Option<Arc<aurafx_render::ImageLayer>>,
+    pending: Option<(u64, std::sync::mpsc::Receiver<anyhow::Result<aurafx_render::ImageLayer>>)>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +166,7 @@ impl Viewport {
             pending_id_pick: None,
             select_through: false,
             ruler: Vec::new(),
+            remote_images: HashMap::new(),
         }
     }
 
@@ -231,6 +244,18 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, colormap:
     state.viewport.meshes.retain(|id, _| live.contains(id));
     for n in s.nodes.values() {
         if !n.visible {
+            continue;
+        }
+        // Drawn by a server: no local geometry; the scalar bar comes from its summary.
+        if n.remote.as_ref().is_some_and(|r| r.payload == aurafx_pipeline::remote::Payload::Drawn) {
+            if let (true, Some(cb), Some(info)) = (n.display.show_scalar_bar, &n.display.color_by, &n.info) {
+                let arrays = if cb.assoc == Association::Points { &info.point_arrays } else { &info.cell_arrays };
+                if let Some(a) = arrays.iter().find(|a| a.name == cb.name) {
+                    if scalar_bar.is_none() || s.active == Some(n.id) {
+                        scalar_bar = Some((cb.name.clone(), n.display.effective_colormap(), n.display.range.unwrap_or(a.range), n.display.log_scale));
+                    }
+                }
+            }
             continue;
         }
         let Some(out) = &n.output else { continue };
@@ -315,6 +340,87 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, colormap:
         }
     }
     (draws, scalar_bar)
+}
+
+/// Pictures of the objects servers draw for this view: ask for a new one whenever what it
+/// should show changed (camera, size, objects, time) and none is on its way; meanwhile the
+/// last one is shown.
+fn remote_layers(state: &mut State, ctx: &egui::Context, w: u32, h: u32) -> Vec<Arc<aurafx_render::ImageLayer>> {
+    use std::hash::{Hash, Hasher};
+    let (groups, time) = {
+        let s = state.session.lock();
+        let mut groups: HashMap<
+            String,
+            (Arc<aurafx_pipeline::remote::RemoteClient>, Vec<(NodeId, DisplayProps, usize)>, Vec<aurafx_pipeline::remote::NodeSpec>),
+        > = HashMap::new();
+        for (id, host) in s.drawn_on_server() {
+            let Some(client) = s.remote_clients.get(&host.name).cloned() else { continue };
+            let n = &s.nodes[&id];
+            let ptr = n.output.as_ref().map(|o| Arc::as_ptr(o) as usize).unwrap_or(0);
+            let g = groups.entry(host.name.clone()).or_insert_with(|| (client, Vec::new(), Vec::new()));
+            g.1.push((id, n.display.clone(), ptr));
+            for spec in s.remote_specs(id) {
+                if !g.2.iter().any(|x| x.id == spec.id) {
+                    g.2.push(spec);
+                }
+            }
+        }
+        (groups, if s.times.is_empty() { None } else { s.current_time() })
+    };
+    let cam = aurafx_render::server::render_camera(&state.viewport.camera);
+    state.viewport.remote_images.retain(|h, _| groups.contains_key(h));
+    let mut out = Vec::new();
+    for (host, (client, targets, specs)) in groups {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for v in cam.eye.iter().chain(&cam.target).chain(&cam.up).chain([&cam.fov_y_deg, &cam.ortho_height, &cam.near, &cam.far]) {
+            v.to_bits().hash(&mut hasher);
+        }
+        (cam.orthographic, w, h, time.map(f64::to_bits)).hash(&mut hasher);
+        for (id, d, ptr) in &targets {
+            (id, ptr, format!("{d:?}")).hash(&mut hasher);
+        }
+        let key = hasher.finish();
+        let img = state.viewport.remote_images.entry(host.clone()).or_default();
+        if let Some((k, rx)) = &img.pending {
+            match rx.try_recv() {
+                Ok(Ok(layer)) => {
+                    img.key = *k;
+                    img.layer = Some(Arc::new(layer));
+                    img.error = None;
+                    img.pending = None;
+                }
+                Ok(Err(e)) => {
+                    img.error = Some(format!("{e:#}"));
+                    img.key = *k;
+                    img.pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => img.pending = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if img.pending.is_none() && img.key != key {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let c = ctx.clone();
+            let job =
+                aurafx_pipeline::remote::RenderJob { targets: targets.iter().map(|(id, d, _)| (*id, d.clone())).collect(), camera: cam, width: w, height: h };
+            std::thread::spawn(move || {
+                let r = client.render(specs, time, job).map(|(width, height, color, depth, _ms)| aurafx_render::ImageLayer { width, height, color, depth });
+                let _ = tx.send(r);
+                c.request_repaint();
+            });
+            img.pending = Some((key, rx));
+        }
+        if img.pending.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        }
+        if let Some(e) = &img.error {
+            state.status = format!("{host} could not draw: {e}");
+        }
+        if let Some(l) = &img.layer {
+            out.push(l.clone());
+        }
+    }
+    out
 }
 
 /// Set (or extend with Shift / reduce with Ctrl) the selection of `node`.
@@ -576,8 +682,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
 
     // Render.
     let (draws, scalar_bar) = collect_draws(state);
+    let layers = remote_layers(state, ui.ctx(), w, h);
     if let Some(r) = state.viewport.renderer.as_mut() {
         let recreated = r.resize(w, h);
+        r.set_layers(&layers);
         let settings = state.viewport.settings.clone();
         r.render(&state.viewport.camera, &draws, &settings);
         if let Some((node, px, add, remove)) = state.viewport.pending_id_pick.take() {

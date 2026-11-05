@@ -50,4 +50,37 @@ fn ssh_server_matches_local() {
     s.update_blocking();
     local.update_blocking();
     assert_eq!(s.nodes[&p].output, local.nodes[&lp].output);
+
+    // Drawn on the server's GPU: compare with drawing the same clip here.
+    let c = s.add_filter("clip", r).unwrap();
+    s.set_display(c, |d| d.draw_on = aurafx_pipeline::DrawOn::Server);
+    s.update_blocking();
+    let gpu = s.remote_clients[&host.name].info.lock().clone().unwrap().gpu;
+    let Some(gpu) = gpu else {
+        eprintln!("server has no GPU; drawing skipped");
+        return;
+    };
+    assert_eq!(s.nodes[&c].remote.as_ref().unwrap().payload, Payload::Drawn);
+    let bounds = s.visible_bounds();
+    let mut cam = aurafx_render::Camera::default();
+    cam.set_view([1.0, -1.0, 0.5], [0.0, 0.0, 1.0], &bounds);
+    cam.update_clip(&bounds);
+    let (w, h) = (640u32, 480u32);
+    let display = s.nodes[&c].display.clone();
+    let job =
+        aurafx_pipeline::remote::RenderJob { targets: vec![(c, display.clone())], camera: aurafx_render::server::render_camera(&cam), width: w, height: h };
+    let t = std::time::Instant::now();
+    let (_, _, color, depth, ms) = s.remote_clients[&host.name].render(s.remote_specs(c), None, job).unwrap();
+    let total = t.elapsed().as_secs_f64() * 1e3;
+    let lc = local.add_filter("clip", lr).unwrap();
+    local.update_blocking();
+    let Ok(mut here) = aurafx_render::headless(w, h) else { return };
+    let mesh = std::sync::Arc::new(aurafx_render::tessellate::tessellate(local.nodes[&lc].output.as_ref().unwrap(), &display));
+    here.render(&cam, &[aurafx_render::NodeDraw { id: 1, mesh, display, overlay: false }], &Default::default());
+    let (_, _, want) = here.read_pixels().unwrap();
+    let covered = depth.iter().filter(|&&d| d < 1.0).count();
+    let differ = color.chunks(4).zip(want.chunks(4)).filter(|(a, b)| a.iter().zip(b.iter()).any(|(p, q)| (*p as i32 - *q as i32).abs() > 6)).count();
+    eprintln!("drawn on {gpu}: {covered} pixels, {differ} differ from this GPU's picture; server {ms:.1} ms, round trip {total:.0} ms");
+    assert!(covered > 20000);
+    assert!(differ * 50 < covered, "{differ} of {covered} pixels differ");
 }

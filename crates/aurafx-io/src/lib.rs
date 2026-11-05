@@ -8,6 +8,7 @@ pub mod csv;
 pub mod ensight;
 pub mod exodus;
 pub mod exodus_writer;
+pub mod hdf5w;
 pub mod images;
 pub mod lammps;
 pub mod legacy_vtk;

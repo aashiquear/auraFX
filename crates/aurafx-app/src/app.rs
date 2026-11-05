@@ -510,11 +510,12 @@ impl State {
             let p = if p.extension().is_none() { p.with_extension(formats.first().map(|f| f.0).unwrap_or("csv")) } else { p };
             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let multi = self.session.lock().times.len() > 1;
-            let r = if multi && matches!(ext.as_str(), "exo" | "e" | "ex2" | "g") {
-                // Exodus holds every time step in one file.
+            let _ = &ext;
+            let r = if multi && aurafx_pipeline::Session::holds_all_times(&p) {
+                // Exodus and VTKHDF hold every time step in one file.
                 let mut s = self.session.lock();
                 match s.active {
-                    Some(id) => s.save_exodus_all_times(id, &p).map(|n| format!("Saved {} ({n} time steps)", p.display())),
+                    Some(id) => s.save_all_times(id, &p).map(|n| format!("Saved {} ({n} time steps)", p.display())),
                     None => Err(anyhow::anyhow!("nothing selected")),
                 }
             } else {

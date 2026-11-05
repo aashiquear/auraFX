@@ -748,3 +748,101 @@ fn cgns_matches_paraview() {
     let Some(aurafx_data::DataSet::UnstructuredGrid(u)) = &mb.blocks[1].1 else { panic!() };
     assert_eq!(u.cells.types, [aurafx_data::CellType::Hexahedron, aurafx_data::CellType::Wedge, aurafx_data::CellType::Tetra]);
 }
+
+/// The HDF5 writer: groups, datasets of several types, attributes, a soft link, read back.
+#[test]
+fn hdf5_writer_round_trip() {
+    use aurafx_io::hdf5w::{write, AttrValue, Node};
+    let mut root = Node::group();
+    let g = root.group_mut("VTKHDF");
+    g.attr("Version", AttrValue::Data(ArrayData::I64(vec![2, 5])));
+    g.attr("Type", AttrValue::Str("UnstructuredGrid".into()));
+    g.add("Points", Node::dataset(ArrayData::F32(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]), vec![2, 3]));
+    g.add("Types", Node::dataset(ArrayData::U8(vec![10, 12]), vec![2]));
+    g.add("Empty", Node::dataset(ArrayData::I64(vec![]), vec![0]));
+    let pd = g.group_mut("PointData");
+    pd.add("T", Node::dataset(ArrayData::F64(vec![1.5, -2.5]), vec![2])).attr("units", AttrValue::Str("K".into()));
+    root.add("Link", Node::SoftLink("/VTKHDF/PointData".into()));
+    let path = std::env::temp_dir().join(format!("aurafx_h5w_{}.h5", std::process::id()));
+    write(&path, &root).unwrap();
+    let f = hdf5_reader::Hdf5File::open(&path).unwrap();
+    let g = f.group("VTKHDF").unwrap();
+    assert_eq!(g.attribute("Type").unwrap().read_string().unwrap().trim_end_matches('\0'), "UnstructuredGrid");
+    assert_eq!(g.attribute("Version").unwrap().read_1d::<i64>().unwrap(), vec![2, 5]);
+    let p = f.dataset("VTKHDF/Points").unwrap();
+    assert_eq!(p.shape(), &[2, 3]);
+    assert_eq!(p.read_array::<f32>().unwrap().iter().cloned().collect::<Vec<_>>(), vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+    assert_eq!(f.dataset("VTKHDF/Types").unwrap().read_array::<u8>().unwrap().iter().cloned().collect::<Vec<_>>(), vec![10, 12]);
+    assert_eq!(f.dataset("VTKHDF/Empty").unwrap().shape(), &[0]);
+    assert_eq!(f.dataset("VTKHDF/PointData/T").unwrap().read_array::<f64>().unwrap().iter().cloned().collect::<Vec<_>>(), vec![1.5, -2.5]);
+    if std::env::var("AURAFX_KEEP").is_ok() {
+        eprintln!("kept {}", path.display());
+    } else {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+/// VTKHDF writing: each kind of dataset (and a 3-step series) written and read back with the
+/// same counts, bounds and ranges. The files are also checked with ParaView (see AURAFX_KEEP).
+#[test]
+fn vtkhdf_writer_round_trip() {
+    let dir = std::env::temp_dir().join(format!("aurafx_vtkhdf_w_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let same = |a: &aurafx_data::DataSet, b: &aurafx_data::DataSet, arrays: &[(bool, &str)], what: &str| {
+        assert_eq!((a.n_points(), a.n_cells()), (b.n_points(), b.n_cells()), "{what}: counts");
+        let (ba, bb) = (a.bounds(), b.bounds());
+        for k in 0..3 {
+            assert!((ba.min[k] - bb.min[k]).abs() < 1e-5 && (ba.max[k] - bb.max[k]).abs() < 1e-5, "{what}: bounds");
+        }
+        for (pts, n) in arrays {
+            close(range_all(a, *pts, n), range_all(b, *pts, n), &format!("{what}: {n}"));
+        }
+    };
+    let can = match read_file(td("can.ex2")).unwrap() {
+        Loaded::Series(s) => load_step(&s.steps[5]).unwrap(),
+        Loaded::Static(d) => d,
+    };
+    let disk = static_ds("disk_out_ref.ex2");
+    let first_leaf = |d: &aurafx_data::DataSet| match d {
+        aurafx_data::DataSet::MultiBlock(mb) => mb.leaves()[0].1.clone(),
+        d => d.clone(),
+    };
+    let disk_ug = first_leaf(&disk);
+    let cases: Vec<(&str, aurafx_data::DataSet, Vec<(bool, &str)>)> = vec![
+        ("can", (*can).clone(), vec![(true, "VEL"), (false, "EQPS")]),
+        ("disk", disk_ug, vec![(true, "Temp"), (true, "V")]),
+        ("image", (*static_ds("wavelet.vti")).clone(), vec![(true, "RTData")]),
+        ("sphere", (*static_ds("sphere.vtkhdf")).clone(), vec![(true, "Elevation"), (true, "Normals")]),
+        ("struct", (*static_ds("struct.vts")).clone(), vec![]),
+    ];
+    for (name, ds, arrays) in &cases {
+        let p = dir.join(format!("{name}.vtkhdf"));
+        aurafx_io::writers::write_file(ds, &p).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let back = static_ds(p.to_str().unwrap());
+        same(&back, ds, arrays, name);
+    }
+    // A time series of unstructured grids.
+    let Loaded::Series(s) = read_file(td("series.pvd")).unwrap() else { panic!() };
+    let steps: Vec<(f64, std::sync::Arc<aurafx_data::DataSet>)> = s
+        .times
+        .iter()
+        .zip(&s.steps)
+        .map(|(t, r)| {
+            let d = load_step(r).unwrap();
+            (*t, std::sync::Arc::new(first_leaf(&d)))
+        })
+        .collect();
+    let refs: Vec<(f64, &aurafx_data::DataSet)> = steps.iter().map(|(t, d)| (*t, &**d)).collect();
+    let p = dir.join("series.vtkhdf");
+    aurafx_io::vtkhdf::write_vtkhdf_steps(&refs, &p).unwrap();
+    let Loaded::Series(back) = read_file(&p).unwrap() else { panic!("series") };
+    assert_eq!(back.times, s.times);
+    for (k, (_, d)) in steps.iter().enumerate() {
+        same(&load_step(&back.steps[k]).unwrap(), d, &[(true, "Elevation")], &format!("series step {k}"));
+    }
+    if std::env::var("AURAFX_KEEP").is_ok() {
+        eprintln!("kept {}", dir.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

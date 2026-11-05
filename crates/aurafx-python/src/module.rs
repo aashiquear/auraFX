@@ -435,16 +435,16 @@ impl PyNode {
     }
 
     /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .exo .csv .stl .ply (format from the
-    /// extension). all_times=True writes every time step into one Exodus (.exo) file.
+    /// extension; also .vtkhdf). all_times=True writes every time step into one Exodus (.exo) or
+    /// VTKHDF (.vtkhdf) file.
     #[pyo3(signature = (path, all_times=false))]
     fn save(&self, path: String, all_times: bool) -> PyResult<()> {
         let p = std::path::Path::new(&path);
         if all_times {
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-            if !matches!(ext.as_str(), "exo" | "e" | "ex2" | "g") {
-                return Err(PyValueError::new_err("all_times=True needs an Exodus file name (.exo)"));
+            if !aurafx_pipeline::Session::holds_all_times(p) {
+                return Err(PyValueError::new_err("all_times=True needs an Exodus (.exo) or VTKHDF (.vtkhdf) file name"));
             }
-            return session().lock().save_exodus_all_times(self.id, p).map(|_| ()).map_err(err);
+            return session().lock().save_all_times(self.id, p).map(|_| ()).map_err(err);
         }
         let ds = self.output()?;
         aurafx_io::writers::write_file(&ds, p).map_err(err)

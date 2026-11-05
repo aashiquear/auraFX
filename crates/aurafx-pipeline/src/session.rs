@@ -1501,9 +1501,19 @@ impl Session {
         id
     }
 
-    /// Per-point/cell mean, min, max and standard deviation of every array over all time steps.
     /// Write node `id` at every time step to one Exodus file. Returns the number of steps.
     pub fn save_exodus_all_times(&mut self, id: NodeId, path: &std::path::Path) -> Result<usize> {
+        self.save_all_times(id, path)
+    }
+
+    /// Whether a file name is of a format that holds every time step (Exodus, VTKHDF).
+    pub fn holds_all_times(path: &std::path::Path) -> bool {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf")
+    }
+
+    /// Write node `id` at every time step to one file (Exodus or VTKHDF, by extension).
+    pub fn save_all_times(&mut self, id: NodeId, path: &std::path::Path) -> Result<usize> {
         let saved = self.time_index;
         let n = self.times.len().max(1);
         let mut steps: Vec<(f64, Arc<DataSet>)> = Vec::with_capacity(n);
@@ -1524,7 +1534,12 @@ impl Session {
         }
         r?;
         let refs: Vec<(f64, &DataSet)> = steps.iter().map(|(t, d)| (*t, &**d)).collect();
-        aurafx_io::exodus_writer::write_exodus_steps(&refs, path)?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if matches!(ext.as_str(), "vtkhdf" | "hdf") {
+            aurafx_io::vtkhdf::write_vtkhdf_steps(&refs, path)?;
+        } else {
+            aurafx_io::exodus_writer::write_exodus_steps(&refs, path)?;
+        }
         Ok(n)
     }
 

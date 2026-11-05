@@ -3,6 +3,7 @@
 //! Entry point: [`read_file`], which sniffs the format from the extension (and a few
 //! magic bytes) and returns either a single dataset or a lazily-loaded time series.
 
+pub mod cgns;
 pub mod csv;
 pub mod ensight;
 pub mod exodus;
@@ -55,8 +56,9 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["obj"], "Wavefront OBJ"),
         (&["vtkhdf", "hdf"], "VTKHDF"),
         (&["case", "encas"], "EnSight Gold"),
-        (&["tec", "tp", "dat", "plt"], "Tecplot ASCII"),
+        (&["tec", "tp", "dat", "plt"], "Tecplot (ASCII and binary)"),
         (&["xmf", "xdmf", "xdmf3"], "Xdmf"),
+        (&["cgns", "adf"], "CGNS (HDF5)"),
         (&["nc", "nc4", "cdf", "netcdf"], "NetCDF (CF conventions)"),
         (&["xyz", "x", "p3d", "bin"], "PLOT3D grid (+ .q solution)"),
         (&["pdb", "ent"], "Protein Data Bank"),
@@ -163,11 +165,14 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "tec" | "tp" => Loaded::Static(Arc::new(tecplot::read(path)?)),
         "pdb" | "ent" => molecular::read_pdb(path)?,
         "xmf" | "xdmf" | "xdmf3" => xdmf::open(path)?,
+        "cgns" | "adf" => cgns::open(path)?,
         "nc" | "nc4" | "cdf" | "netcdf" if netcdf_cf::is_exodus(path) => exodus::open(path)?,
         "nc" | "nc4" | "cdf" | "netcdf" => netcdf_cf::open(path)?,
         "cube" => Loaded::Static(Arc::new(molecular::read_cube(path)?)),
+        "dat" | "plt" | "szplt" if tecplot::is_binary(path) => Loaded::Static(Arc::new(tecplot::read_binary(path)?)),
         "dat" | "plt" if tecplot::sniff(path) => Loaded::Static(Arc::new(tecplot::read(path)?)),
-        "plt" => bail!("{}: binary Tecplot files are not supported yet; export Tecplot ASCII", path.display()),
+        "szplt" => bail!("{}: Tecplot SZL (.szplt) files are not supported; save as .plt or ASCII", path.display()),
+        "plt" => bail!("{}: not a Tecplot file", path.display()),
         "dat" => Loaded::Static(Arc::new(csv::read(path)?)),
         _ => {
             // Sniff a few magic bytes.
@@ -253,6 +258,8 @@ pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
                 exodus::read_step(path, *frame).map(Arc::new)
             } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("case") || e.eq_ignore_ascii_case("encas")) {
                 ensight::read_step(path, *frame).map(Arc::new)
+            } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cgns") || e.eq_ignore_ascii_case("adf")) {
+                cgns::read_step(path, *frame).map(Arc::new)
             } else if netcdf_cf::is_netcdf_ext(path) {
                 if netcdf_cf::is_exodus(path) { exodus::read_step(path, *frame) } else { netcdf_cf::read_step(path, *frame) }.map(Arc::new)
             } else if xdmf::is_xdmf_ext(path) {

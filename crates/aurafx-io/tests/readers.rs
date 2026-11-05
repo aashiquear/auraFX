@@ -537,7 +537,9 @@ fn ensight_matches_paraview() {
 /// reader misreads) give the same data.
 #[test]
 fn tecplot_matches_paraview() {
-    for file in ["tecplot.dat", "tecplot_extras.dat"] {
+    // tecplot.plt is the same data as binary (format 112), checked with VisIt's reader in
+    // ParaView (which reads the double-precision cell-centered T as garbage).
+    for file in ["tecplot.dat", "tecplot_extras.dat", "tecplot.plt"] {
         let d = static_ds(file);
         assert_eq!((d.n_points(), d.n_cells()), (15, 5), "{file}");
         let b = d.bounds();
@@ -715,4 +717,34 @@ fn netcdf_cf_matches_paraview() {
         let d = load_step(&s.steps[23]).unwrap();
         assert!((d.cell_data().unwrap().get("tos").unwrap().get(85 * 180 + 90, 0) - 303.9855041503906).abs() < 1e-4);
     }
+}
+
+/// CGNS: a tetrahedral zone written by ParaView (Gradient X/Y/Z joined into a vector), and a
+/// hand-made file with a structured zone whose solutions change over two time steps
+/// (FlowSolutionPointers) and an unstructured zone with a MIXED section (CGNS 4 offsets) and a
+/// boundary section, against ParaView's CGNS reader with every array enabled.
+#[test]
+fn cgns_matches_paraview() {
+    let t = static_ds("cgns/tets.cgns");
+    assert_eq!((t.n_points(), t.n_cells()), (1331, 5000));
+    close(range_all(&t, true, "RTData"), (37.3531, 260.0), "RTData");
+    close(range_all(&t, true, "Gradient"), (3.7762, 52.0886), "Gradient");
+    let Loaded::Series(s) = read_file(td("cgns/mixed.cgns")).unwrap() else { panic!("two steps") };
+    assert_eq!(s.times, vec![0.0, 0.5]);
+    for (k, p, v, dens) in [(0usize, (0.0, 112.0), (1.0, 1.0), (5.0, 6.0)), (1, (1000.0, 1112.0), (1.4142, 1.4142), (6.0, 7.0))] {
+        let d = load_step(&s.steps[k]).unwrap();
+        assert_eq!((d.n_points(), d.n_cells()), (23, 5), "step {k}");
+        let b = d.bounds();
+        assert!((b.max[0] - 12.0).abs() < 1e-12 && (b.max[2] - 3.2).abs() < 1e-12);
+        close(range_all(&d, true, "Pressure"), p, "Pressure");
+        close(range_all(&d, true, "Velocity"), v, "Velocity");
+        close(range_all(&d, true, "Temperature"), (300.0, 310.0), "Temperature");
+        close(range_all(&d, false, "Density"), dens, "Density");
+        close(range_all(&d, false, "Id"), (1.0, 3.0), "Id");
+    }
+    let d = load_step(&s.steps[0]).unwrap();
+    let aurafx_data::DataSet::MultiBlock(mb) = &*d else { panic!() };
+    assert!(matches!(mb.blocks[0].1, Some(aurafx_data::DataSet::StructuredGrid(_))));
+    let Some(aurafx_data::DataSet::UnstructuredGrid(u)) = &mb.blocks[1].1 else { panic!() };
+    assert_eq!(u.cells.types, [aurafx_data::CellType::Hexahedron, aurafx_data::CellType::Wedge, aurafx_data::CellType::Tetra]);
 }

@@ -75,7 +75,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
-- [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18; binary todo), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
+- [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5; iteration 20), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
@@ -599,7 +599,21 @@ test was optimized away by the GPU compiler; now a bit-pattern test, with a test
 `afx.view(...)` followed by `afx.reset_camera()` lost the view (one request slot; a pending
 view now stays, since it fits the data anyway).
 
-Known gaps worth doing next (P5): CGNS, Tecplot binary, writers (VTKHDF needs an HDF5 encoder:
+Done in iteration 20:
+- **CGNS** (HDF5 storage, pure Rust): bases and zones as blocks; structured zones; unstructured
+  zones with every standard element type (quadratic node orders converted), MIXED sections
+  with or without CGNS 4 offsets, NGON/NFACE polyhedra; volume elements only (boundary
+  sections left out, as ParaView's default); vertex and cell-center solutions with X/Y/Z
+  components joined into vectors; time steps from the iterative-data pointers. Matches
+  ParaView's CGNS reader on its own export and on a hand-made file with a structured zone,
+  a MIXED section, a boundary section and two time steps. ADF-format CGNS is not read.
+- **Binary Tecplot** (`.plt`, format 1xx): ordered and FE zones, node- and cell-centered
+  variables of any storage type, shared variables and connectivity, auxiliary data. A file
+  written from the spec reads the same as its ASCII twin; VisIt's reader in ParaView agrees on
+  everything but the double-precision cell-centered variable, which it misreads. SZL
+  (`.szplt`) files are not read.
+
+Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters, writers (VTKHDF needs an HDF5 encoder:
 no pure-Rust writer is available), P4 odds: TAA, comparative views, more widgets (cylinder, cone, spline); MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.

@@ -1053,6 +1053,42 @@ fn writers_share_static_geometry() {
 /// CGNS writing: each kind of dataset, cells read back with the same nodes (quadratic orders
 /// included), polygons (NGON in 2-D) and polyhedra (NGON/NFACE) after the fixed cells with
 /// their cell values, and a series with moving points (GridCoordinatesPointers).
+/// ADF-storage CGNS: the same file in ADF (written by the CGNS library) and in the old ADF
+/// layout (hex pointers, big-endian data, chunked arrays) reads exactly as the HDF5 original.
+#[test]
+fn cgns_adf_matches_hdf5() {
+    use aurafx_data::DataSet;
+    let steps = |name: &str| -> Vec<DataSet> {
+        match read_file(td(name)).unwrap() {
+            Loaded::Series(s) => s.steps.iter().map(|st| (*load_step(st).unwrap()).clone()).collect(),
+            Loaded::Static(d) => vec![(*d).clone()],
+        }
+    };
+    for (orig, f) in [("cgns/mixed.cgns", "cgns/mixed_adf.cgns"), ("cgns/mixed.cgns", "cgns/mixed_adf_old.cgns"), ("cgns/tets.cgns", "cgns/tets_adf.cgns")] {
+        let want = steps(orig);
+        let got = steps(f);
+        assert_eq!(got.len(), want.len(), "{f}: steps");
+        for (g, w) in got.iter().zip(&want) {
+            let (DataSet::MultiBlock(g), DataSet::MultiBlock(w)) = (g, w) else { panic!("{f}: not blocks") };
+            let (gl, wl) = (g.leaves(), w.leaves());
+            assert_eq!(gl.len(), wl.len(), "{f}: blocks");
+            for ((gn, gd), (wn, wd)) in gl.iter().zip(&wl) {
+                assert_eq!(gn, wn, "{f}: block names");
+                assert_eq!((gd.n_points(), gd.n_cells()), (wd.n_points(), wd.n_cells()), "{f} {gn}: counts");
+                assert_eq!(format!("{:?}", gd.bounds()), format!("{:?}", wd.bounds()), "{f} {gn}: bounds");
+                for (ga, wa) in [(gd.point_data(), wd.point_data()), (gd.cell_data(), wd.cell_data())] {
+                    let (ga, wa) = (ga.unwrap(), wa.unwrap());
+                    assert_eq!(ga.iter().count(), wa.iter().count(), "{f} {gn}: arrays");
+                    for a in wa.iter() {
+                        let b = ga.get(&a.name).unwrap_or_else(|| panic!("{f} {gn}: no {}", a.name));
+                        assert_eq!(b.data.to_f64_vec(), a.data.to_f64_vec(), "{f} {gn}: {}", a.name);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn cgns_writer_round_trip() {
     use aurafx_data::*;

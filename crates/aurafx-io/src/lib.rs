@@ -3,6 +3,7 @@
 //! Entry point: [`read_file`], which sniffs the format from the extension (and a few
 //! magic bytes) and returns either a single dataset or a lazily-loaded time series.
 
+pub(crate) mod adf;
 pub mod cgns;
 pub mod cgns_writer;
 pub mod csv;

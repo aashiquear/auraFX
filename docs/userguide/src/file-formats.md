@@ -13,7 +13,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | VTKHDF | `.vtkhdf .hdf` | image data, unstructured grids, poly data, partitioned collections with their assembly, time steps; chunked and gzip storage; no HDF5 library needed |
 | OpenFOAM | `.foam` | ASCII/binary/gzip, decomposed and reconstructed cases, time directories, boundary patches |
 | EnSight Gold | `.case .encas` | ASCII and C binary, all element types, structured blocks, time sets, wildcard file names |
-| CGNS | `.cgns` | HDF5 storage; structured and unstructured zones, MIXED and NGON/NFACE sections, solutions, time steps; ADF storage is not read |
+| CGNS | `.cgns` | HDF5 and ADF storage; structured and unstructured zones, MIXED and NGON/NFACE sections, solutions, time steps |
 | Xdmf 2/3 | `.xmf .xdmf` | inline, HDF5 and raw binary data; collections; `xi:include` and XPath references (FEniCS/Dolfinx); HyperSlab and JOIN items |
 | NetCDF (CF) | `.nc .nc4 .cdf` | classic and NetCDF-4; lon/lat grids on a sphere with cell bounds, rectilinear otherwise; time steps; packing; fill values become NaN (grey) |
 | Tecplot | `.dat .plt .tec .tp` | ASCII (ordered and FE zones, BLOCK/POINT, cell-centered variables) and binary `.plt`; `.szplt` is not read |
@@ -28,6 +28,15 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | CSV / TSV | `.csv .tsv .txt` | delimiter and header detection; tables with x, y, z columns become points |
 
 Numbered files (`run_0001.vtu`…) open as a series when one of them is opened.
+
+CGNS files come in two storage formats with the same `.cgns` extension: HDF5, the default
+since CGNS 3.4, and ADF, which older solvers and older CGNS libraries write. auraFX looks at
+the file and reads either one the same way, with **File › Open** or `afx.load("wing.cgns")`.
+Both the 64-bit ADF layout and the older 32-bit one are read, in either byte order. Links
+inside the file and links to other ADF files are followed. A link to an HDF5 file from an ADF
+file is not.
+
+![A CGNS file in ADF storage, clipped and colored by RTData](images/cgns_adf.png)
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
 

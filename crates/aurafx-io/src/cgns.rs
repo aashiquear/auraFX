@@ -1,10 +1,11 @@
-//! CGNS (`.cgns`, HDF5 storage): bases and zones as blocks; structured zones (curvilinear
+//! CGNS (`.cgns`, HDF5 or ADF storage): bases and zones as blocks; structured zones (curvilinear
 //! grids) and unstructured zones (every standard element type, MIXED with or without CGNS 4
 //! offsets, NGON/NFACE polyhedra); the volume elements form the zone's grid (boundary sections
 //! are left out, as ParaView does by default); vertex and cell-center flow solutions, with
 //! `NameX/NameY/NameZ` joined into vectors; time steps from `BaseIterativeData` and the
 //! zones' `FlowSolutionPointers`/`GridCoordinatesPointers`.
 
+use crate::adf::{AdfFile, AdfNode};
 use crate::Loaded;
 use anyhow::{anyhow, bail, Context, Result};
 use aurafx_data::*;
@@ -12,43 +13,66 @@ use hdf5_reader::group::Group;
 use std::path::Path;
 use std::sync::Arc;
 
-fn label(g: &Group) -> String {
-    g.attribute("label").ok().and_then(|a| a.read_string().ok()).map(|s| s.trim_end_matches('\0').trim().to_string()).unwrap_or_default()
+/// A CGNS node in either storage: an HDF5 group or an ADF node.
+enum Node {
+    H(Group),
+    A(AdfNode),
 }
 
-fn node_name(g: &Group) -> String {
-    g.attribute("name")
-        .ok()
-        .and_then(|a| a.read_string().ok())
-        .map(|s| s.trim_end_matches('\0').trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| g.name().rsplit('/').next().unwrap_or("").to_string())
+fn h5_attr(g: &Group, name: &str) -> Option<String> {
+    g.attribute(name).ok().and_then(|a| a.read_string().ok()).map(|s| s.trim_end_matches('\0').trim().to_string())
 }
 
-fn children(g: &Group, lab: &str) -> Vec<Group> {
-    g.groups().unwrap_or_default().into_iter().filter(|c| label(c) == lab).collect()
+fn label(g: &Node) -> String {
+    match g {
+        Node::H(g) => h5_attr(g, "label").unwrap_or_default(),
+        Node::A(a) => a.label.clone(),
+    }
 }
 
-fn child(g: &Group, lab: &str) -> Option<Group> {
+fn node_name(g: &Node) -> String {
+    match g {
+        Node::H(g) => h5_attr(g, "name").filter(|s| !s.is_empty()).unwrap_or_else(|| g.name().rsplit('/').next().unwrap_or("").to_string()),
+        Node::A(a) => a.name.clone(),
+    }
+}
+
+fn all_children(g: &Node) -> Vec<Node> {
+    match g {
+        Node::H(g) => g.groups().unwrap_or_default().into_iter().map(Node::H).collect(),
+        Node::A(a) => a.children().into_iter().map(Node::A).collect(),
+    }
+}
+
+fn children(g: &Node, lab: &str) -> Vec<Node> {
+    all_children(g).into_iter().filter(|c| label(c) == lab).collect()
+}
+
+fn child(g: &Node, lab: &str) -> Option<Node> {
     children(g, lab).into_iter().next()
 }
 
-fn named(g: &Group, name: &str) -> Option<Group> {
-    g.groups().unwrap_or_default().into_iter().find(|c| node_name(c) == name)
+fn named(g: &Node, name: &str) -> Option<Node> {
+    all_children(g).into_iter().find(|c| node_name(c) == name)
 }
 
-/// A node's data: values (as f64 or i64) and the HDF5 shape.
-fn data(g: &Group) -> Result<(ArrayData, Vec<usize>)> {
-    let ds = g.dataset(" data").with_context(|| format!("{} has no data", node_name(g)))?;
-    crate::vtkhdf::read_dataset(&ds)
+/// A node's data: values (as f64 or i64) and the shape in C order (as HDF5 stores it).
+fn data(g: &Node) -> Result<(ArrayData, Vec<usize>)> {
+    match g {
+        Node::H(h) => {
+            let ds = h.dataset(" data").with_context(|| format!("{} has no data", node_name(g)))?;
+            crate::vtkhdf::read_dataset(&ds)
+        }
+        Node::A(a) => a.data(),
+    }
 }
 
-fn ints(g: &Group) -> Result<Vec<i64>> {
+fn ints(g: &Node) -> Result<Vec<i64>> {
     let (d, _) = data(g)?;
     Ok((0..d.len()).map(|i| d.get_f64(i) as i64).collect())
 }
 
-fn text(g: &Group) -> String {
+fn text(g: &Node) -> String {
     match data(g) {
         Ok((d, _)) => {
             let bytes: Vec<u8> = (0..d.len()).map(|i| d.get_f64(i) as i64 as u8).collect();
@@ -59,7 +83,7 @@ fn text(g: &Group) -> String {
 }
 
 /// Rows of a (n, 32) character array.
-fn strings(g: &Group) -> Vec<String> {
+fn strings(g: &Node) -> Vec<String> {
     let Ok((d, shape)) = data(g) else { return Vec::new() };
     let w = shape.last().copied().unwrap_or(32).max(1);
     let bytes: Vec<u8> = (0..d.len()).map(|i| d.get_f64(i) as i64 as u8).collect();
@@ -102,8 +126,8 @@ fn dimension(t: CellType) -> usize {
 }
 
 /// Volume cells of an unstructured zone (elements of the base's cell dimension).
-fn unstructured_cells(zone: &Group, cell_dim: usize, np: usize) -> Result<Cells> {
-    let mut sections: Vec<(i64, Group)> = children(zone, "Elements_t")
+fn unstructured_cells(zone: &Node, cell_dim: usize, np: usize) -> Result<Cells> {
+    let mut sections: Vec<(i64, Node)> = children(zone, "Elements_t")
         .into_iter()
         .map(|e| (named(&e, "ElementRange").and_then(|r| ints(&r).ok()).and_then(|v| v.first().copied()).unwrap_or(0), e))
         .collect();
@@ -200,7 +224,7 @@ fn unstructured_cells(zone: &Group, cell_dim: usize, np: usize) -> Result<Cells>
 }
 
 /// Arrays of a flow solution, with `NameX/NameY/NameZ` joined into vectors.
-fn solution_arrays(sol: &Group, n: usize) -> Vec<Array> {
+fn solution_arrays(sol: &Node, n: usize) -> Vec<Array> {
     let mut arrays: Vec<(String, Vec<f64>)> = Vec::new();
     for a in children(sol, "DataArray_t") {
         if let Ok((d, _)) = data(&a) {
@@ -233,7 +257,7 @@ fn solution_arrays(sol: &Group, n: usize) -> Vec<Array> {
     out
 }
 
-fn read_zone(zone: &Group, cell_dim: usize, step: usize) -> Result<DataSet> {
+fn read_zone(zone: &Node, cell_dim: usize, step: usize) -> Result<DataSet> {
     let ztype = child(zone, "ZoneType_t").map(|z| text(&z)).unwrap_or_default();
     let structured = ztype.eq_ignore_ascii_case("Structured") || (ztype.is_empty() && children(zone, "Elements_t").is_empty());
     let size = ints(zone)?;
@@ -309,19 +333,30 @@ fn read_zone(zone: &Group, cell_dim: usize, step: usize) -> Result<DataSet> {
     Ok(ds)
 }
 
-fn bases(f: &hdf5_reader::Hdf5File) -> Result<Vec<Group>> {
-    let root = f.root_group().map_err(|e| anyhow!("{e}"))?;
-    let b = children(&root, "CGNSBase_t");
+/// The file's root node (the HDF5 file is returned too, to keep it open while it is read).
+fn root(path: &Path) -> Result<(Option<hdf5_reader::Hdf5File>, Node)> {
+    let mut head = [0u8; 32];
+    let n = std::fs::File::open(path).and_then(|mut f| std::io::Read::read(&mut f, &mut head)).with_context(|| format!("opening {}", path.display()))?;
+    if crate::adf::is_adf(&head[..n]) {
+        return Ok((None, Node::A(AdfFile::open(path)?.root()?)));
+    }
+    let f = hdf5_reader::Hdf5File::open(path).with_context(|| format!("opening {} (neither an HDF5 nor an ADF CGNS file)", path.display()))?;
+    let r = f.root_group().map_err(|e| anyhow!("{e}"))?;
+    Ok((Some(f), Node::H(r)))
+}
+
+fn bases(root: &Node) -> Result<Vec<Node>> {
+    let b = children(root, "CGNSBase_t");
     if b.is_empty() {
-        bail!("no CGNS base (is this an ADF-format CGNS file? only HDF5 storage is supported)");
+        bail!("no CGNS base in this file");
     }
     Ok(b)
 }
 
 fn read_step_file(path: &Path, step: usize) -> Result<DataSet> {
-    let f = hdf5_reader::Hdf5File::open(path).with_context(|| format!("opening {} (CGNS files are HDF5)", path.display()))?;
+    let (_keep, root) = root(path)?;
     let mut top = MultiBlock { blocks: Vec::new(), field_data: Attributes::new() };
-    let bases = bases(&f)?;
+    let bases = bases(&root)?;
     let many = bases.len() > 1;
     for b in bases {
         let cell_dim = ints(&b).ok().and_then(|v| v.first().copied()).unwrap_or(3) as usize;
@@ -343,8 +378,8 @@ fn read_step_file(path: &Path, step: usize) -> Result<DataSet> {
 }
 
 pub fn open(path: &Path) -> Result<Loaded> {
-    let f = hdf5_reader::Hdf5File::open(path).with_context(|| format!("opening {} (CGNS files are HDF5)", path.display()))?;
-    let times: Vec<f64> = bases(&f)?
+    let (_keep, root) = root(path)?;
+    let times: Vec<f64> = bases(&root)?
         .iter()
         .find_map(|b| child(b, "BaseIterativeData_t").and_then(|it| named(&it, "TimeValues")).and_then(|t| data(&t).ok()).map(|d| d.0.to_f64_vec()))
         .unwrap_or_default();

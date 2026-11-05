@@ -75,7 +75,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
-- [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5; iteration 20), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
+- [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
@@ -606,7 +606,7 @@ Done in iteration 20:
   sections left out, as ParaView's default); vertex and cell-center solutions with X/Y/Z
   components joined into vectors; time steps from the iterative-data pointers. Matches
   ParaView's CGNS reader on its own export and on a hand-made file with a structured zone,
-  a MIXED section, a boundary section and two time steps. ADF-format CGNS is not read.
+  a MIXED section, a boundary section and two time steps. (ADF storage: iteration 24.)
 - **Binary Tecplot** (`.plt`, format 1xx): ordered and FE zones, node- and cell-centered
   variables of any storage type, shared variables and connectivity, auxiliary data. A file
   written from the spec reads the same as its ASCII twin; VisIt's reader in ParaView agrees on
@@ -639,7 +639,17 @@ with per-step solutions and moving coordinates through `ZoneIterativeData` point
 ParaView 6.1.1 with the same counts, bounds and ranges. `afx.split_view()` waits for the new
 view and returns its number (two splits in a row split the same view before).
 
-Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters,
+Done in iteration 24: **CGNS in ADF storage** (the pre-HDF5 format, same `.cgns` extension,
+told apart by the file header): the 64-bit "B" layout the CGNS library writes today and the
+old 32-bit "A" layout with hex-text pointers, little- or big-endian data, data split into
+chunks, links inside the file and to other ADF files. The reader walks ADF nodes and HDF5
+groups through one node type, so everything the CGNS reader does works for both. The test
+files are written by the CGNS library in ParaView 6.1.1 (`scripts/gen_cgns_adf.py`); an
+old-layout file made from one of them (`scripts/gen_adf_old.py`) is read back by that library
+to the same values. Every file the CGNS writer produces, copied to ADF, reads exactly as the
+HDF5 original, and ParaView reports the same counts, bounds and ranges on the ADF copies.
+
+Known gaps worth doing next (P5): Tecplot SZL, MPAS/CAM, GDAL rasters,
 remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.

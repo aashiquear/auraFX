@@ -21,6 +21,7 @@ pub mod mpas;
 pub mod netcdf_cf;
 pub mod openfoam;
 pub mod plot3d;
+pub mod rasters;
 pub mod series;
 pub mod stl;
 pub mod surfaces;
@@ -71,6 +72,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["cube"], "Gaussian cube"),
         (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
+        (&["tif", "tiff", "asc"], "GIS rasters (GeoTIFF, Esri ASCII grid)"),
     ]
 }
 
@@ -142,6 +144,8 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     }
     let loaded = match ext.as_str() {
         "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
+        "tif" | "tiff" if rasters::is_geotiff(path) => Loaded::Static(Arc::new(rasters::read_geotiff(path)?)),
+        "asc" => Loaded::Static(Arc::new(rasters::read_ascii_grid(path)?)),
         "png" | "jpg" | "jpeg" | "bmp" | "tif" | "tiff" => Loaded::Static(Arc::new(images::read(path)?)),
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),
         "vtu" | "vtp" | "vti" | "vtr" | "vts" | "vtt" | "pvtu" | "pvtp" | "pvti" | "pvtr" | "pvts" | "vtm" | "vtmb" => {

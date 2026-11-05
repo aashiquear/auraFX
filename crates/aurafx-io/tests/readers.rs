@@ -1053,6 +1053,68 @@ fn writers_share_static_geometry() {
 /// CGNS writing: each kind of dataset, cells read back with the same nodes (quadratic orders
 /// included), polygons (NGON in 2-D) and polyhedra (NGON/NFACE) after the fixed cells with
 /// their cell values, and a series with moving points (GridCoordinatesPointers).
+/// GeoTIFF rasters written by GDAL (scripts/gen_rasters.py), compared with ParaView 6.1.1's GDAL
+/// raster reader: image data with a cell per pixel, origin and spacing from the geo-transform,
+/// rows north-up, bands named as ParaView names them; first/last cell values and sums match
+/// (no-data cells are NaN here, hidden cells holding -9999 in ParaView). The Esri ASCII grid
+/// holds the same elevations to 6 digits.
+#[test]
+fn rasters_match_paraview() {
+    use aurafx_data::DataSet;
+    let img = |name: &str| -> aurafx_data::ImageData {
+        match &*static_ds(name) {
+            DataSet::ImageData(i) => i.clone(),
+            _ => panic!("{name}: not image data"),
+        }
+    };
+    let check = |name: &str, extent: [i64; 6], origin: [f64; 3], spacing: [f64; 3]| {
+        let i = img(name);
+        assert_eq!(i.extent, extent, "{name}: extent");
+        assert_eq!(i.origin, origin, "{name}: origin");
+        assert_eq!(i.spacing, spacing, "{name}: spacing");
+        i
+    };
+    let comp0 = |i: &aurafx_data::ImageData, a: &str| -> Vec<f64> {
+        let arr = i.cell_data.get(a).unwrap_or_else(|| panic!("no {a}"));
+        let v = arr.data.to_f64_vec();
+        v.iter().step_by(arr.ncomp).copied().collect()
+    };
+    let sum = |v: &[f64]| v.iter().filter(|x| !x.is_nan()).sum::<f64>();
+
+    let dem = check("rasters/dem.tif", [0, 120, 0, 80, 0, 0], [500000.0, 4197600.0, 0.0], [30.0, 30.0, 1.0]);
+    let e = comp0(&dem, "Elevation");
+    assert_eq!(e.iter().filter(|x| x.is_nan()).count(), 150, "no-data cells");
+    assert!((e[0] - 400.0005187988281).abs() < 1e-9 && (e[9599] - 615.8598022460938).abs() < 1e-9);
+    // ParaView's sum 3855458.361 counts the 150 no-data cells as -9999.
+    assert!((sum(&e) - (3855458.361 + 150.0 * 9999.0)).abs() < 0.01, "{}", sum(&e));
+    let proj = dem.field_data.get("MAP_PROJECTION").map(|a| a.data.clone());
+    assert!(matches!(proj, Some(aurafx_data::ArrayData::String(ref v)) if v[0] == "EPSG:32633"), "{proj:?}");
+    assert_eq!(dem.field_data.get("NO_DATA_VALUE").unwrap().data.to_f64_vec(), vec![-9999.0]);
+
+    let rgb = check("rasters/rgb.tif", [0, 64, 0, 48, 0, 0], [10.0, 38.0, 0.0], [0.25, 0.25, 1.0]);
+    assert_eq!(rgb.cell_data.get("Elevation").unwrap().ncomp, 3);
+    let r = comp0(&rgb, "Elevation");
+    assert_eq!((r[0], r[3071], sum(&r)), (0.0, 252.0, 387072.0));
+    close(range_all(&DataSet::ImageData(rgb.clone()), false, "Elevation"), (0.0, 415.875), "rgb magnitude");
+
+    let bands = check("rasters/bands.tif", [0, 40, 0, 30, 0, 0], [-1000.0, 500.0, 0.0], [50.0, 50.0, 1.0]);
+    for (name, first, last, total) in [("Elevation", 42.0, 139.0, 108600.0), ("Band 2", 142.0, 239.0, 228600.0), ("Band 3", 242.0, 339.0, 348600.0), ("Band 4", 342.0, 439.0, 468600.0)] {
+        let v = comp0(&bands, name);
+        assert_eq!((v[0], v[1199], sum(&v)), (first, last, total), "{name}");
+    }
+
+    // AREA_OR_POINT=Point: the tie point is a pixel center; GDAL (and ParaView) move it to the corner.
+    let pt = check("rasters/point.tif", [0, 20, 0, 10, 0, 0], [100.0, 280.0, 0.0], [2.0, 2.0, 1.0]);
+    let v = comp0(&pt, "Elevation");
+    assert_eq!((v[0], v[199], sum(&v)), (900.0, 19.0, 91900.0));
+
+    let asc = check("rasters/dem.asc", [0, 120, 0, 80, 0, 0], [500000.0, 4197600.0, 0.0], [30.0, 30.0, 1.0]);
+    let a = comp0(&asc, "Elevation");
+    for (x, y) in a.iter().zip(&e) {
+        assert!(x.is_nan() == y.is_nan() && (x.is_nan() || (x - y).abs() <= 1e-5 * y.abs()), "{x} vs {y}");
+    }
+}
+
 /// MPAS ocean output (scripts/gen_mpas.py): the dual grid as ParaView 6.1.1's MPAS reader makes
 /// it, without its extra point at the origin and without the 331 triangles it collapses there
 /// (land cells under maxLevelCell); values checked against ParaView on the cells both keep.

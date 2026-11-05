@@ -76,7 +76,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25: dual grid, top level; levels/multilayer/lon-lat projection todo); CAM/POP, GDAL raster/vector, DEM, SEG-Y todo.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25: dual grid, top level; levels/multilayer/lon-lat projection todo); GeoTIFF and Esri ASCII grid rasters (iteration 26); CAM/POP, other GDAL rasters, GDAL vectors, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
@@ -660,7 +660,19 @@ Tecplot SZL is set aside: ParaView 6.1.1 has no reader to compare with and the f
 published. Reader options (MPAS vertical level, multilayer and lon/lat views) need a reader
 parameter path through the pipeline first.
 
-Known gaps worth doing next (P5): Tecplot SZL (no reference reader), MPAS levels, CAM/POP, GDAL rasters,
+Done in iteration 26: **GIS rasters** without GDAL: GeoTIFF (found from its GeoTIFF tags; any
+integer or float bands, compressed, strips or tiles, pixel- or band-interleaved, tie point and
+scale or a transformation matrix, pixel-is-point moved to the corner as GDAL does) and Esri
+ASCII grids, as ParaView's GDAL raster reader lays them out: image data with a cell per pixel
+at map coordinates, north up, bands named "Elevation", "Band 2"..., RGB(A) as one array,
+`NO_DATA_VALUE` and `MAP_PROJECTION` (EPSG code) in field data. No-data becomes NaN (ParaView
+hides the cells). Test files are written by the GDAL library in ParaView through ctypes
+(`scripts/gen_rasters.py`); extents, origins, spacings, first/last values and sums match
+ParaView. The `tiff` crate reads only the first plane of band-interleaved images, so those are
+put together chunk by chunk. ParaView's GDAL build has no ASCII grid driver; that file is
+checked against the GeoTIFF it was written from.
+
+Known gaps worth doing next (P5): Tecplot SZL (no reference reader), MPAS levels, CAM/POP, GDAL vectors,
 remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.

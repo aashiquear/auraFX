@@ -25,6 +25,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | Gaussian cube | `.cube` | the density as a volume in Å, plus the atoms with bonds |
 | VASP | `POSCAR`, `CONTCAR`, `CHGCAR`, `LOCPOT`, `ELFCAR`, `PARCHG` (by name), `.vasp` | atoms with bonds and the lattice; volumes on the cell's axes (charge per Å³) |
 | Images | `.png .jpg .bmp .tif` | as image data; multi-page TIFFs and `img_*.png` wildcards as volumes |
+| GIS rasters | GeoTIFF `.tif`, Esri ASCII grid `.asc` | at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below |
 | Surfaces | `.stl .ply .obj` | |
 | CSV / TSV | `.csv .tsv .txt` | delimiter and header detection; tables with x, y, z columns become points |
 
@@ -60,6 +61,42 @@ shows as holes. Levels below the top, the stacked multilayer view and the flat l
 are not offered yet.
 
 ![MPAS ocean output: temperature at the top level on the sphere, with land left out](images/mpas_ocean.png)
+
+### GIS rasters
+
+A GeoTIFF is a TIFF that also records where it lies on the map. auraFX notices these tags and
+reads the file as a map raster instead of as a picture. Esri ASCII grids (`.asc`), a common
+text format for elevation models, are read the same way. Open them with **File › Open** or
+`afx.load("dem.tif")`.
+
+- The raster becomes image data with one cell per pixel, placed at its map coordinates
+  (meters for UTM, degrees for longitude/latitude), with north up.
+- Values are cell data. A single band, such as an elevation model, is named `Elevation`, as
+  in ParaView. In a file with several bands, the first is `Elevation` and the others are
+  `Band 2`, `Band 3`… An RGB(A) image becomes one `Elevation` array with 3 or 4 components.
+- Pixels equal to the file's no-data value become NaN and are drawn grey (after Warp By
+  Scalar they leave a hole, since a NaN height has no place). ParaView hides
+  those cells instead.
+- The field data holds `NO_DATA_VALUE` per band and `MAP_PROJECTION`. For a GeoTIFF that is
+  the EPSG code (`EPSG:32633`); ParaView writes a PROJ string instead. For an ASCII grid it is
+  the text of the `.prj` file beside it.
+- 8- to 64-bit integer and floating-point bands are read, compressed or not, in strips or
+  tiles, with the bands stored together or one after another. A pixel-is-point GeoTIFF is
+  moved half a pixel to its corner, as GDAL does.
+
+To see an elevation model as terrain, move the values to the points with **Cell Data to
+Point Data**, then raise them with **Warp By Scalar**:
+
+```python
+dem = afx.load("dem.tif")
+terrain = dem.cell_data_to_point_data().warp_by_scalar(array="Elevation", scale=1.0)
+terrain.set(color_by="Elevation")
+```
+
+Other GDAL formats (Erdas `.img`, NetCDF through GDAL, JPEG 2000…) and vector files
+(shapefiles, GeoJSON) are not read yet.
+
+![A GeoTIFF elevation model raised into terrain (heights doubled); the missing far corner has no data](images/geotiff_terrain.png)
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
 

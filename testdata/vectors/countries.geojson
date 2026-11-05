@@ -1,0 +1,158 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Westland",
+    "pop": 1200000,
+    "area": 152.5
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -10,
+       40
+      ],
+      [
+       0,
+       40
+      ],
+      [
+       2,
+       46
+      ],
+      [
+       -4,
+       50
+      ],
+      [
+       -11,
+       47
+      ],
+      [
+       -10,
+       40
+      ]
+     ],
+     [
+      [
+       -6,
+       43
+      ],
+      [
+       -3,
+       43
+      ],
+      [
+       -3,
+       45
+      ],
+      [
+       -6,
+       45
+      ],
+      [
+       -6,
+       43
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Eastmark",
+    "pop": 830500,
+    "area": 98.25
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       0,
+       40
+      ],
+      [
+       9,
+       41
+      ],
+      [
+       10,
+       47
+      ],
+      [
+       2,
+       46
+      ],
+      [
+       0,
+       40
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Twin Isles",
+    "pop": 40210,
+    "area": 7.75
+   },
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        12,
+        38
+       ],
+       [
+        14,
+        38
+       ],
+       [
+        14,
+        40
+       ],
+       [
+        12,
+        40
+       ],
+       [
+        12,
+        38
+       ]
+      ]
+     ],
+     [
+      [
+       [
+        15,
+        41
+       ],
+       [
+        17,
+        41.5
+       ],
+       [
+        16,
+        43
+       ],
+       [
+        15,
+        41
+       ]
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

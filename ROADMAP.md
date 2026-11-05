@@ -76,7 +76,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); other GDAL rasters, GDAL vectors, SEG-Y todo.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31); other GDAL rasters and vectors (KMZ, GML, FlatGeobuf), SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
@@ -720,8 +720,22 @@ be temporal (their steps join the animation, they recompute per step, saved stat
 them). Values match ParaView's filters and source (default harmonics and times as ParaView's
 rounded defaults).
 
-Known gaps worth doing next (P5): Tecplot SZL (no reference reader), GDAL vectors,
-remaining filter catalog (AMR, hyper tree grids, cell grid, molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+Done in iteration 31: **GIS vectors** without GDAL: ESRI Shapefiles (.shp/.dbf/.prj; all
+shape types but multipatch, dBASE field typing as GDAL), GeoJSON (field order and typing as
+GDAL), KML (folders as layers, Name/Description/extended data typed by Schemas) and GeoPackage
+(own read-only SQLite reader: b-tree pages, overflow chains, rowid aliases; GPKG geometry
+blobs and WKB with Z/M), laid out as ParaView's GDAL vector reader (vertices, polylines,
+polygon rings as closed lines, attributes as cell data). Reader options: one block per layer
+(default) or per feature (ParaView's), layer choice, filled polygons (ear clipping with hole
+bridges, exact areas on a 20 000-point polygon with holes), feature ids. With one block per
+feature every point, cell size and attribute matches ParaView 6.1.1 on GDAL-written shapefiles,
+GeoJSON and GeoPackage. Also fixed: `node.set` now handles the documented display keys
+(`solid_color`, `range`, `log_scale`, `component`, `line_width`, `lighting`, ...; before they
+were silently stored as parameters) and `color_by=None` sticks when set before the data loads.
+
+Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
+(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (AMR, hyper tree grids, cell
+grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)

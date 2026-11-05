@@ -17,5 +17,7 @@ Small files are committed. Larger ones are ignored by git and can be recreated:
 | `netcdf/pop_ocean.nc` | `python3 scripts/gen_pop.py`: POP-style ocean history (2-D TLONG/TLAT, depth in cm positive down, an island as fill values), committed |
 | `netcdf/cam_se.nc`, `netcdf/cam_se_connectivity.nc` | `python3 scripts/gen_cam.py`: CAM-SE-style output on a cubed sphere (turned 10 degrees so no column sits on the seam) and its connectivity file; ParaView reference values for both in `cam_and_pop_match_paraview`, committed |
 | `images/planet.jpg` | `python3 scripts/gen_texture.py`: a made-up planet map (equirectangular, 1024 × 512, wraps without a seam) for texture tests and the user guide, committed |
+| `vectors/*.geojson`, `*.shp/.shx/.dbf/.prj`, `world.kml`, `world.gpkg` | `pvpython scripts/gen_vectors.py`: three small layers (countries with a hole and a multipolygon, rivers, cities) written as GeoJSON and converted by the GDAL library inside ParaView to shapefiles, KML and a GeoPackage; `vectors/paraview_reference.json` from `pvpython scripts/vectors_reference.py` holds ParaView's reading of them, committed |
+| `vectors/pages.sqlite` | `python3 scripts/gen_sqlite_pages.py`: an SQLite file with 512-byte pages, interior pages and overflow blobs, for the SQLite reader under GeoPackage, committed |
 
 Tests that need a missing file skip themselves.

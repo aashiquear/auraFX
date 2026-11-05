@@ -1363,3 +1363,166 @@ fn cgns_writer_round_trip() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// GIS vector files (Shapefile, GeoJSON, GeoPackage) against ParaView 6.1.1's GDAL vector
+/// reader (testdata/vectors/paraview_reference.json from scripts/vectors_reference.py): with
+/// one block per feature, every point, cell size and attribute matches. KML (which ParaView's
+/// GDAL cannot read) carries the same data as the GeoJSON files.
+#[test]
+fn gis_vectors_match_paraview() {
+    use aurafx_data::DataSet;
+    let reference: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(td("vectors/paraview_reference.json")).unwrap()).unwrap();
+    let read = |f: &str, opts: &[(&str, &str)]| -> DataSet {
+        let o: aurafx_io::ReaderOptions = opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        match aurafx_io::with_options(&o, || read_file(td(&format!("vectors/{f}")))).unwrap_or_else(|e| panic!("{f}: {e:#}")) {
+            Loaded::Static(d) => (*d).clone(),
+            _ => panic!(),
+        }
+    };
+    let blocks = |d: &DataSet| -> Vec<aurafx_data::PolyData> {
+        match d {
+            DataSet::MultiBlock(mb) => mb.blocks.iter().map(|(_, b)| match b {
+                Some(DataSet::PolyData(p)) => p.clone(),
+                _ => panic!("not polygonal"),
+            }).collect(),
+            _ => panic!("not multi-block"),
+        }
+    };
+    let per_feature = aurafx_io::vectors::PER_FEATURE;
+    for (key, want) in reference.as_object().unwrap() {
+        let (file, layer) = key.split_once('#').unwrap();
+        let layer_name = ["countries", "rivers", "cities"][layer.parse::<usize>().unwrap()];
+        let mut opts = vec![("blocks", per_feature)];
+        if file.ends_with(".gpkg") {
+            opts.push(("layer", layer_name));
+        }
+        let got = blocks(&read(file, &opts));
+        let want = want.as_array().unwrap();
+        assert_eq!(got.len(), want.len(), "{key}: blocks");
+        for (g, w) in got.iter().zip(want) {
+            let wp: Vec<f64> = w["points"].as_array().unwrap().iter().flat_map(|p| p.as_array().unwrap().iter().map(|x| x.as_f64().unwrap())).collect();
+            let gp: Vec<f64> = (0..g.points.len()).flat_map(|i| g.points.get(i)).collect();
+            assert_eq!(gp, wp, "{key}: points");
+            for (kind, cells) in [("verts", &g.verts), ("lines", &g.lines)] {
+                let off: Vec<i64> = w["cells"][kind].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect();
+                let sizes: Vec<i64> = off.windows(2).map(|p| p[1] - p[0]).collect();
+                let got_sizes: Vec<i64> = (0..cells.len()).map(|i| cells.cell(i).len() as i64).collect();
+                assert_eq!(got_sizes, sizes, "{key}: {kind}");
+            }
+            let attrs = w["attrs"].as_object().unwrap();
+            let mut names: Vec<String> = g.cell_data.iter().map(|a| a.name.clone()).collect();
+            names.sort();
+            assert_eq!(names, attrs.keys().cloned().collect::<Vec<_>>(), "{key}: attribute names");
+            for (name, v) in attrs {
+                let a = g.cell_data.get(name).unwrap_or_else(|| panic!("{key}: no {name}"));
+                let (kind, vals) = (v[0].as_str().unwrap(), v[1].as_array().unwrap());
+                match (kind, &a.data) {
+                    ("str", ArrayData::String(s)) => assert_eq!(s, &vals.iter().map(|x| x.as_str().unwrap().to_string()).collect::<Vec<_>>(), "{key}: {name}"),
+                    ("vtkIntArray", ArrayData::I32(x)) => assert_eq!(x, &vals.iter().map(|x| x.as_i64().unwrap() as i32).collect::<Vec<_>>(), "{key}: {name}"),
+                    ("vtkDoubleArray", ArrayData::F64(x)) => assert_eq!(x, &vals.iter().map(|x| x.as_f64().unwrap()).collect::<Vec<_>>(), "{key}: {name}"),
+                    (k, d) => panic!("{key}: {name} is {:?}, ParaView {k}", d.scalar_type()),
+                }
+            }
+        }
+    }
+
+    // One block per layer (the default): the features' cells together, named after the layer.
+    let d = read("world.gpkg", &[]);
+    match &d {
+        DataSet::MultiBlock(mb) => {
+            assert_eq!(mb.blocks.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["countries", "rivers", "cities"]);
+            assert_eq!(d.n_cells(), 5 + 3 + 4);
+            assert!(mb.field_data.get("MAP_PROJECTION").is_some());
+        }
+        _ => panic!(),
+    }
+    // KML holds the same features as the GeoJSON files (names in "Name").
+    let kml = blocks(&read("world.kml", &[]));
+    for (k, layer) in ["countries", "rivers", "cities"].iter().enumerate() {
+        let gj = &blocks(&read(&format!("{layer}.geojson"), &[]))[0];
+        assert_eq!(kml[k].points.len(), gj.points.len(), "{layer}");
+        assert_eq!((0..gj.points.len()).map(|i| gj.points.get(i)).collect::<Vec<_>>(), (0..kml[k].points.len()).map(|i| kml[k].points.get(i)).collect::<Vec<_>>());
+        assert_eq!(kml[k].cell_data.get("Name").unwrap().data, gj.cell_data.get("name").unwrap().data);
+    }
+    // Filled polygons: triangles covering each polygon's area (Westland has a hole).
+    let filled = blocks(&read("countries.shp", &[("polygons", aurafx_io::vectors::FILLED), ("feature_ids", "true")]))[0].clone();
+    let area_of = |fid: i64| -> f64 {
+        let ids = filled.cell_data.get("_vtkPedigreeIds").unwrap();
+        (0..filled.polys.len())
+            .filter(|&c| ids.get(c, 0) as i64 == fid)
+            .map(|c| {
+                let t = filled.polys.cell(c);
+                let (a, b, cc) = (filled.points.get(t[0] as usize), filled.points.get(t[1] as usize), filled.points.get(t[2] as usize));
+                ((b[0] - a[0]) * (cc[1] - a[1]) - (b[1] - a[1]) * (cc[0] - a[0])).abs() / 2.0
+            })
+            .sum()
+    };
+    // Shoelace areas of the test polygons.
+    assert!((area_of(0) - (98.0 - 6.0)).abs() < 1e-9, "Westland {}", area_of(0));
+    assert!((area_of(1) - 49.5).abs() < 1e-9, "Eastmark {}", area_of(1));
+    assert!((area_of(2) - (4.0 + 1.75)).abs() < 1e-9, "Twin Isles {}", area_of(2));
+}
+
+/// The SQLite reader under GeoPackage: interior pages, overflow pages, every value type
+/// (testdata/vectors/pages.sqlite from scripts/gen_sqlite_pages.py).
+#[test]
+fn sqlite_pages_and_overflow() {
+    use aurafx_io::sqlite::{Database, Value};
+    let db = Database::open(&td("vectors/pages.sqlite")).unwrap();
+    let rows = db.rows("t").unwrap();
+    assert_eq!(rows.len(), 3000);
+    for (k, (rowid, r)) in rows.iter().enumerate() {
+        let i = k as i64 + 1;
+        assert_eq!(*rowid, i);
+        assert_eq!(r[0], Value::Int(i));
+        assert_eq!(r[1], if i % 7 != 0 { Value::Text(format!("row {i}")) } else { Value::Null });
+        assert_eq!(r[2].as_f64(), Some(i as f64 * 0.5)); // whole reals are stored as integers
+        assert_eq!(r[3], Value::Int(if i % 2 == 1 { -i * 1_000_000_007 } else { i }));
+        match &r[4] {
+            Value::Blob(b) => {
+                assert_eq!(i % 150, 0);
+                assert!(b.len() == 3000 && b.iter().enumerate().all(|(j, &x)| x as i64 == (i + j as i64) % 256), "blob of row {i}");
+            }
+            Value::Null => assert_ne!(i % 150, 0),
+            v => panic!("{v:?}"),
+        }
+    }
+}
+
+/// Filling polygons: a wavy 20 000-point outline with two holes is covered exactly once.
+#[test]
+fn polygon_fill_covers_the_area() {
+    let n = 20000;
+    let mut pts: Vec<[f64; 3]> = (0..n)
+        .map(|k| {
+            let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+            let r = 10.0 + (40.0 * t).sin();
+            [r * t.cos(), r * t.sin(), 0.0]
+        })
+        .collect();
+    let hole = |c: [f64; 2], r: f64, m: usize| -> Vec<[f64; 3]> {
+        (0..m).map(|k| {
+            let t = -2.0 * std::f64::consts::PI * k as f64 / m as f64;
+            [c[0] + r * t.cos(), c[1] + r * t.sin(), 0.0]
+        }).collect()
+    };
+    let starts = vec![0, n, n + 500];
+    pts.extend(hole([0.0, 0.0], 2.0, 500));
+    pts.extend(hole([5.0, 0.0], 1.0, 64));
+    let shoelace = |r: &[[f64; 3]]| (0..r.len()).map(|k| r[k][0] * r[(k + 1) % r.len()][1] - r[(k + 1) % r.len()][0] * r[k][1]).sum::<f64>().abs() / 2.0;
+    let want = shoelace(&pts[..n]) - shoelace(&pts[n..n + 500]) - shoelace(&pts[n + 500..]);
+    let tris = aurafx_io::vectors::triangulate(&pts, &starts);
+    let got: f64 = tris
+        .iter()
+        .map(|t| {
+            let (a, b, c) = (pts[t[0]], pts[t[1]], pts[t[2]]);
+            ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2.0
+        })
+        .sum();
+    eprintln!("{} triangles, area {got} (polygon {want})", tris.len());
+    assert!((got - want).abs() < 1e-6 * want, "signed area {got} vs {want}");
+    assert!(tris.iter().all(|t| {
+        let (a, b, c) = (pts[t[0]], pts[t[1]], pts[t[2]]);
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0.0
+    }), "all triangles counter-clockwise (no overlaps)");
+}

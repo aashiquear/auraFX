@@ -1075,6 +1075,12 @@ impl Session {
     }
 
     pub fn color_by(&mut self, id: NodeId, cb: Option<ColorBy>) {
+        // Solid color chosen before the data arrived: don't pick an array for it later.
+        if cb.is_none() {
+            if let Some(n) = self.nodes.get_mut(&id) {
+                n.auto_colored = true;
+            }
+        }
         self.set_display(id, |d| {
             d.color_by = cb;
             d.range = None;

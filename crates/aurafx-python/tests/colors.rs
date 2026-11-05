@@ -169,4 +169,24 @@ def sneaky(data):
     assert_eq!(g.display.texture, None);
     let h = s.nodes.values().find(|n| n.def().is_some_and(|d| d.id == "spatio_temporal_harmonics_grid")).unwrap();
     assert_eq!(h.params.floats("harmonics"), vec![2.0, 1.0, 0.3, 0.0, 0.0, 0.0]);
+    drop(s);
+
+    // Display keys of node.set (the guide's examples), on a reader with options and on filters;
+    // a filter's own parameter of the same name (Threshold's component) stays a parameter.
+    let gj = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/vectors/rivers.geojson");
+    let out = rt.run(&format!(
+        "r = afx.load({gj:?})\nr.set(color_by=None, solid_color=(0.1, 0.4, 0.9), line_width=3, lighting=False)\nr.set(polygons='Filled')\n\
+         w = afx.wavelet()\nw.set(color_by='RTData', range=(50, 200), log_scale=True, scalar_bar=False)\nt = w.threshold(component='X')\n\
+         try:\n    r.set(no_such_option=1)\nexcept ValueError as e:\n    print('blocks' in str(e))"
+    ));
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "True");
+    let s = session.lock();
+    let r = s.nodes.values().find(|n| n.name == "rivers.geojson").unwrap();
+    assert_eq!((r.display.color_by.is_none(), r.display.solid_color, r.display.line_width, r.display.lighting), (true, [0.1, 0.4, 0.9], 3.0, false));
+    assert_eq!(r.params.get("polygons").and_then(|v| v.as_str()), Some("Filled"));
+    let w = s.nodes.values().filter(|n| n.def().is_some_and(|d| d.id == "wavelet")).max_by_key(|n| n.id).unwrap();
+    assert_eq!((w.display.range, w.display.log_scale, w.display.show_scalar_bar), (Some((50.0, 200.0)), true, false));
+    let t = s.nodes.values().filter(|n| n.def().is_some_and(|d| d.id == "threshold")).max_by_key(|n| n.id).unwrap();
+    assert_eq!(t.params.str("component"), "X");
 }

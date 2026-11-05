@@ -13,6 +13,7 @@ indexmap.workspace = true
 rayon.workspace = true
 tracing.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 parking_lot.workspace = true
 half.workspace = true
 quick-xml = "0.42"

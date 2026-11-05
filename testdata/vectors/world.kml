@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document id="root_doc">
+<Schema name="countries" id="countries">
+	<SimpleField name="pop" type="int"></SimpleField>
+	<SimpleField name="area" type="float"></SimpleField>
+</Schema>
+<Schema name="rivers" id="rivers">
+	<SimpleField name="length" type="float"></SimpleField>
+	<SimpleField name="order" type="int"></SimpleField>
+</Schema>
+<Schema name="cities" id="cities">
+	<SimpleField name="pop" type="int"></SimpleField>
+	<SimpleField name="elev" type="float"></SimpleField>
+</Schema>
+<Folder><name>countries</name>
+  <Placemark>
+	<name>Westland</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#countries">
+		<SimpleData name="pop">1200000</SimpleData>
+		<SimpleData name="area">152.5</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-10,40 0,40 2,46 -4,50 -11,47 -10,40</coordinates></LinearRing></outerBoundaryIs><innerBoundaryIs><LinearRing><coordinates>-6,43 -3,43 -3,45 -6,45 -6,43</coordinates></LinearRing></innerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Eastmark</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#countries">
+		<SimpleData name="pop">830500</SimpleData>
+		<SimpleData name="area">98.25</SimpleData>
+	</SchemaData></ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>0,40 9,41 10,47 2,46 0,40</coordinates></LinearRing></outerBoundaryIs></Polygon>
+  </Placemark>
+  <Placemark>
+	<name>Twin Isles</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#countries">
+		<SimpleData name="pop">40210</SimpleData>
+		<SimpleData name="area">7.75</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>12,38 14,38 14,40 12,40 12,38</coordinates></LinearRing></outerBoundaryIs></Polygon><Polygon><outerBoundaryIs><LinearRing><coordinates>15,41 17.0,41.5 16,43 15,41</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+</Folder>
+<Folder><name>rivers</name>
+  <Placemark>
+	<name>Long River</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#rivers">
+		<SimpleData name="length">1240.5</SimpleData>
+		<SimpleData name="order">1</SimpleData>
+	</SchemaData></ExtendedData>
+      <LineString><coordinates>-8,48 -5,46.5 -2,44 1.0,42.5 4.0,41.5</coordinates></LineString>
+  </Placemark>
+  <Placemark>
+	<name>Forks</name>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#rivers">
+		<SimpleData name="length">310</SimpleData>
+		<SimpleData name="order">2</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><LineString><coordinates>5,45 6.0,43.5 7,42</coordinates></LineString><LineString><coordinates>8,46 7.5,44.0 6.0,43.5</coordinates></LineString></MultiGeometry>
+  </Placemark>
+</Folder>
+<Folder><name>cities</name>
+  <Placemark>
+	<name>Portby</name>
+	<ExtendedData><SchemaData schemaUrl="#cities">
+		<SimpleData name="pop">250000</SimpleData>
+		<SimpleData name="elev">12.5</SimpleData>
+	</SchemaData></ExtendedData>
+      <Point><coordinates>-9,43</coordinates></Point>
+  </Placemark>
+  <Placemark>
+	<name>Highcastle</name>
+	<ExtendedData><SchemaData schemaUrl="#cities">
+		<SimpleData name="pop">61000</SimpleData>
+		<SimpleData name="elev">840</SimpleData>
+	</SchemaData></ExtendedData>
+      <Point><coordinates>6,44,840</coordinates></Point>
+  </Placemark>
+  <Placemark>
+	<name>Isle towns</name>
+	<ExtendedData><SchemaData schemaUrl="#cities">
+		<SimpleData name="pop">9000</SimpleData>
+		<SimpleData name="elev">3</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Point><coordinates>13,39</coordinates></Point><Point><coordinates>16,42</coordinates></Point></MultiGeometry>
+  </Placemark>
+</Folder>
+</Document></kml>

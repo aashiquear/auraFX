@@ -14,26 +14,32 @@ use std::sync::Arc;
 // ---- a small DOM ----
 
 #[derive(Debug, Clone, Default)]
-struct El {
-    name: String,
-    attrs: Vec<(String, String)>,
-    children: Vec<El>,
-    text: String,
+pub(crate) struct El {
+    pub name: String,
+    pub attrs: Vec<(String, String)>,
+    pub children: Vec<El>,
+    pub text: String,
 }
 
 impl El {
-    fn attr(&self, k: &str) -> Option<&str> {
+    pub fn attr(&self, k: &str) -> Option<&str> {
         self.attrs.iter().find(|(a, _)| a.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str())
     }
-    fn kids<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a El> + 'a {
+    pub fn kids<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a El> + 'a {
         self.children.iter().filter(move |c| c.name == name)
     }
-    fn kid(&self, name: &str) -> Option<&El> {
+    pub fn kid(&self, name: &str) -> Option<&El> {
         self.children.iter().find(|c| c.name == name)
     }
 }
 
 fn parse_xml(text: &str) -> Result<El> {
+    let root = parse_dom(text)?;
+    root.children.into_iter().find(|c| c.name == "Xdmf").ok_or_else(|| anyhow!("no <Xdmf> element"))
+}
+
+/// Parse XML into a tree; the returned element is a "#root" holding the document element.
+pub(crate) fn parse_dom(text: &str) -> Result<El> {
     use quick_xml::events::Event;
     let mut r = quick_xml::Reader::from_str(text);
     let mut stack: Vec<El> = vec![El { name: "#root".into(), ..Default::default() }];
@@ -64,12 +70,25 @@ fn parse_xml(text: &str) -> Result<El> {
                 stack.last_mut().unwrap().text.push_str(&s);
             }
             Event::CData(t) => stack.last_mut().unwrap().text.push_str(t.as_ref()),
+            Event::GeneralRef(r) => {
+                let s: &str = r.as_ref();
+                let c = match s {
+                    "amp" => Some('&'),
+                    "lt" => Some('<'),
+                    "gt" => Some('>'),
+                    "quot" => Some('"'),
+                    "apos" => Some('\''),
+                    _ => r.resolve_char_ref().ok().flatten(),
+                };
+                if let Some(c) = c {
+                    stack.last_mut().unwrap().text.push(c);
+                }
+            }
             Event::Eof => break,
             _ => {}
         }
     }
-    let root = stack.pop().ok_or_else(|| anyhow!("empty XML"))?;
-    root.children.into_iter().find(|c| c.name == "Xdmf").ok_or_else(|| anyhow!("no <Xdmf> element"))
+    stack.pop().ok_or_else(|| anyhow!("empty XML"))
 }
 
 /// Resolve a small XPath subset: `/Xdmf/Domain/Grid[1]/Geometry`, `//Grid[@Name='mesh']/Topology`,

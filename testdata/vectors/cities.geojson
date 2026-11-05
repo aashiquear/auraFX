@@ -1,0 +1,57 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Portby",
+    "pop": 250000,
+    "elev": 12.5
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -9,
+     43
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Highcastle",
+    "pop": 61000,
+    "elev": 840.0
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     6,
+     44,
+     840
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "Isle towns",
+    "pop": 9000,
+    "elev": 3.0
+   },
+   "geometry": {
+    "type": "MultiPoint",
+    "coordinates": [
+     [
+      13,
+      39
+     ],
+     [
+      16,
+      42
+     ]
+    ]
+   }
+  }
+ ]
+}

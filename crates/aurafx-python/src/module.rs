@@ -56,6 +56,8 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
     for (k, v) in kw.iter() {
         let key: String = k.extract()?;
         let val = to_json(&v)?;
+        // A filter's own parameter wins over a display property of the same name.
+        let is_param = s.nodes.get(&id).is_some_and(|n| n.params.get(&key).is_some());
         match key.as_str() {
             "name" => {
                 if let Some(n) = val.as_str() {
@@ -72,11 +74,49 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 };
                 s.set_display(id, |d| d.draw_on = v);
             }
-            "color_by" => {
-                if let Some(n) = val.as_str() {
+            "color_by" => match val.as_str() {
+                Some(n) => {
                     let cb = resolve_color_by(&s, id, n, None)?;
                     s.color_by(id, Some(cb));
                 }
+                None if val.is_null() => s.color_by(id, None),
+                None => return Err(PyValueError::new_err("color_by takes an array name or None")),
+            },
+            "component" if !is_param => {
+                let c = if val.is_null() { None } else { Some(val.as_u64().ok_or_else(|| PyValueError::new_err("component takes an index or None"))? as usize) };
+                s.set_display(id, |d| {
+                    if let Some(cb) = d.color_by.as_mut() {
+                        cb.component = c;
+                    }
+                });
+            }
+            "range" if !is_param => {
+                let r = if val.is_null() {
+                    None
+                } else {
+                    let v: [f64; 2] = serde_json::from_value(val.clone()).map_err(|_| PyValueError::new_err("range takes (min, max) or None"))?;
+                    Some((v[0], v[1]))
+                };
+                s.set_display(id, |d| d.range = r);
+            }
+            "solid_color" | "color" | "edge_color" if !is_param => {
+                let c: [f32; 3] = serde_json::from_value(val.clone()).map_err(|_| PyValueError::new_err(format!("{key} takes (r, g, b) from 0 to 1")))?;
+                let edge = key == "edge_color";
+                s.set_display(id, |d| if edge { d.edge_color = c } else { d.solid_color = c });
+            }
+            "line_width" if !is_param => {
+                let v = val.as_f64().ok_or_else(|| PyValueError::new_err("line_width takes a number"))? as f32;
+                s.set_display(id, |d| d.line_width = v.max(0.1));
+            }
+            "points_as_spheres" | "log_scale" | "lighting" | "scalar_bar" | "show_scalar_bar" if !is_param => {
+                let v = val.as_bool().ok_or_else(|| PyValueError::new_err(format!("{key} takes True or False")))?;
+                let k = key.clone();
+                s.set_display(id, |d| match k.as_str() {
+                    "points_as_spheres" => d.points_as_spheres = v,
+                    "log_scale" => d.log_scale = v,
+                    "lighting" => d.lighting = v,
+                    _ => d.show_scalar_bar = v,
+                });
             }
             "colormap" | "cmap" => {
                 let name = val.as_str().unwrap_or("Viridis").to_string();

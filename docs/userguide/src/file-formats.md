@@ -27,6 +27,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | VASP | `POSCAR`, `CONTCAR`, `CHGCAR`, `LOCPOT`, `ELFCAR`, `PARCHG` (by name), `.vasp` | atoms with bonds and the lattice; volumes on the cell's axes (charge per Å³) |
 | Images | `.png .jpg .bmp .tif` | as image data; multi-page TIFFs and `img_*.png` wildcards as volumes |
 | GIS rasters | GeoTIFF `.tif`, Esri ASCII grid `.asc` | at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below |
+| GIS vectors | Shapefile `.shp`, GeoJSON `.geojson .json`, KML `.kml`, GeoPackage `.gpkg` | points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below |
 | Surfaces | `.stl .ply .obj` | |
 | CSV / TSV | `.csv .tsv .txt` | delimiter and header detection; tables with x, y, z columns become points |
 
@@ -169,10 +170,62 @@ terrain = dem.cell_data_to_point_data().warp_by_scalar(array="Elevation", scale=
 terrain.set(color_by="Elevation")
 ```
 
-Other GDAL formats (Erdas `.img`, NetCDF through GDAL, JPEG 2000…) and vector files
-(shapefiles, GeoJSON) are not read yet.
+Other GDAL raster formats (Erdas `.img`, NetCDF through GDAL, JPEG 2000…) are not read yet.
 
 ![A GeoTIFF elevation model raised into terrain (heights doubled); the missing far corner has no data](images/geotiff_terrain.png)
+
+### GIS vectors
+
+Maps of points, lines and areas, such as countries, roads, rivers, wells or survey sites, open
+like any other file:
+
+| Format | Files |
+|---|---|
+| ESRI Shapefile | `name.shp` with `name.dbf` (attributes) and `name.prj` (coordinate system) beside it; open the `.shp` |
+| GeoJSON | `.geojson`, or a `.json` file that holds GeoJSON |
+| KML (Google Earth) | `.kml`; each folder is a layer |
+| GeoPackage | `.gpkg`; each feature table is a layer |
+
+What you get:
+- The coordinates stay as stored: longitude and latitude in degrees for most GeoJSON and KML
+  files, or meters for projected shapefiles. Heights (the third coordinate) are kept, so a
+  file with heights in meters on a map in degrees looks very tall. Flatten it with
+  **Transform** (scale z by 0) if that gets in the way.
+- Points become vertices, lines become polylines, and polygon rings become closed lines, as
+  in ParaView.
+- Each feature's attributes become cell data on its cells: whole numbers as integers,
+  decimals as doubles, and anything else (names, dates) as text. 64-bit integers stay
+  numbers; ParaView turns them into text.
+- `MAP_PROJECTION` in the field data holds the coordinate system: the `.prj` text, the EPSG
+  code of a GeoPackage layer, or `EPSG:4326` (longitude/latitude) for GeoJSON and KML.
+
+**Reader options** (Properties › Reader options, or `node.set(...)`):
+
+| Option | Choices |
+|---|---|
+| **Layer** (files with several layers) | **All** or one layer by name |
+| **Blocks** | **One per layer** (default: one block per layer, a row of attributes per feature), or **One per feature (ParaView)**, which is ParaView's layout and slow for thousands of features |
+| **Polygons** | **Outlines (ParaView)**, or **Filled**: triangles covering each area, with holes left open, to color areas by an attribute |
+| **Feature ids** | adds the feature number as `_vtkPedigreeIds` |
+
+![Countries from a shapefile, filled and colored by population (log scale), rivers from GeoJSON and cities as points](images/gis_vectors.png)
+
+```python
+countries = afx.load("countries.shp")
+countries.set(polygons="Filled")
+countries.set(color_by="pop", log_scale=True)
+roads = afx.load("world.gpkg")
+roads.set(layer="roads")                      # one layer of a GeoPackage
+```
+
+Checked against ParaView 6.1.1's GDAL vector reader on shapefiles, GeoJSON and GeoPackage
+files written by GDAL: with one block per feature, every point, cell and attribute is the
+same. ParaView reads only the first layer of a file unless told otherwise; auraFX reads all of
+them. ParaView's GDAL cannot read KML, so the KML reader was checked against the same data
+saved as GeoJSON.
+
+Not read yet: KMZ (zipped KML), GML, FlatGeobuf, MapInfo, file geodatabases, and curved
+geometry (arcs). Shapefile multipatches (3-D surfaces) are skipped, as ParaView does.
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
 

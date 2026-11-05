@@ -1,0 +1,38 @@
+"""ParaView's GDAL vector reader on testdata/vectors (written to testdata/vectors/paraview_reference.json).
+
+    pvpython scripts/vectors_reference.py
+
+For every file and layer: ParaView's blocks (one per feature, its default) with each block's
+point coordinates, vertex and line sizes and cell attributes. ParaView reads one layer at a time
+(ActiveLayer); KML is not readable by its GDAL build.
+"""
+import json, os
+from paraview.simple import GDALVectorReader
+from vtk.util.numpy_support import vtk_to_numpy as v2n
+
+here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testdata", "vectors")
+cases = [("countries.shp", 0), ("rivers.shp", 0), ("cities.shp", 0), ("countries.geojson", 0), ("rivers.geojson", 0), ("cities.geojson", 0),
+         ("world.gpkg", 0), ("world.gpkg", 1)]
+out = {}
+for f, layer in cases:
+    r = GDALVectorReader(FileName=os.path.join(here, f), ActiveLayer=layer)
+    r.UpdatePipeline()
+    d = r.GetClientSideObject().GetOutputDataObject(0)
+    blocks = []
+    for b in range(d.GetNumberOfBlocks()):
+        p = d.GetBlock(b)
+        cells = {}
+        for kind, ca in (("verts", p.GetVerts()), ("lines", p.GetLines())):
+            cells[kind] = v2n(ca.GetOffsetsArray()).tolist()
+        attrs = {}
+        cd = p.GetCellData()
+        for i in range(cd.GetNumberOfArrays()):
+            a = cd.GetAbstractArray(i)
+            if a.IsA("vtkStringArray"):
+                attrs[a.GetName()] = ["str", [a.GetValue(k) for k in range(a.GetNumberOfValues())]]
+            else:
+                attrs[a.GetName()] = [a.GetClassName(), v2n(a).tolist()]
+        blocks.append({"points": v2n(p.GetPoints().GetData()).tolist(), "cells": cells, "attrs": attrs})
+    out[f"{f}#{layer}"] = blocks
+json.dump(out, open(os.path.join(here, "paraview_reference.json"), "w"), indent=0)
+print({k: len(v) for k, v in out.items()})

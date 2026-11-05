@@ -155,13 +155,15 @@ def bend(a, b, c):
 
 g = Grid()
 n = [0]
+share = [False]
 
 
 def add(vtk_type, nodes, place, degrees=None):
     ids = []
     for nd in nodes:
         x = bend(*place(nd))
-        ids.append(g.point(("c", n[0], nd), x, u=x[0] + 2 * x[1] + 3 * x[2]))
+        key = tuple(round(v, 9) for v in x) if share[0] else ("c", n[0], nd)
+        ids.append(g.point(key, x, u=x[0] + 2 * x[1] + 3 * x[2]))
     data = {"cell": float(n[0])}
     if degrees:
         data["HigherOrderDegrees"] = degrees
@@ -179,3 +181,27 @@ add(72, hex_nodes(2, 2, 3), lambda nd: (4.5 + nd[0] / 2, nd[1] / 2, nd[2] / 3), 
 hod = [(4.0, 0.0, 0.0), (3.0, 3.0, 0.0), (3.0, 3.0, 0.0), (3.0, 3.0, 3.0), (4.0, 4.0, 2.0), (2.0, 2.0, 3.0)]
 g.cell_data["HigherOrderDegrees"] = hod
 g.write("lagrange_shapes.vtu", cell_attrs=' HigherOrderDegrees="HigherOrderDegrees"')
+
+# Quadratic (serendipity and partial) VTK cells, bent like the shapes above: two 20-node
+# hexahedra, a 15-node wedge, an 8-node quad, a 6-node quadratic-linear quad, a 12-node
+# quadratic-linear wedge and a cubic line. Nodes are given as parametric positions x2.
+HEX20 = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0), (0, 0, 2), (2, 0, 2), (2, 2, 2), (0, 2, 2),
+         (1, 0, 0), (2, 1, 0), (1, 2, 0), (0, 1, 0), (1, 0, 2), (2, 1, 2), (1, 2, 2), (0, 1, 2),
+         (0, 0, 1), (2, 0, 1), (2, 2, 1), (0, 2, 1)]
+WEDGE15 = [(0, 0, 0), (2, 0, 0), (0, 2, 0), (0, 0, 2), (2, 0, 2), (0, 2, 2),
+           (1, 0, 0), (1, 1, 0), (0, 1, 0), (1, 0, 2), (1, 1, 2), (0, 1, 2), (0, 0, 1), (2, 0, 1), (0, 2, 1)]
+QUAD8 = [(0, 0), (2, 0), (2, 2), (0, 2), (1, 0), (2, 1), (1, 2), (0, 1)]
+QLQUAD = [(0, 0), (2, 0), (2, 2), (0, 2), (1, 0), (1, 2)]  # quadratic along r, linear along s
+QLWEDGE = [(0, 0, 0), (2, 0, 0), (0, 2, 0), (0, 0, 2), (2, 0, 2), (0, 2, 2), (1, 0, 0), (1, 1, 0), (0, 1, 0), (1, 0, 2), (1, 1, 2), (0, 1, 2)]
+
+g = Grid()
+n[0] = 0
+share[0] = True  # the two hexahedra share their common face
+add(25, HEX20, lambda nd: (nd[0] / 2 * 1.5, nd[1] / 2, nd[2] / 2))
+add(25, HEX20, lambda nd: (1.5 + nd[0] / 2 * 1.5, nd[1] / 2, nd[2] / 2))
+add(26, WEDGE15, lambda nd: (3.5 + nd[0] / 2, nd[1] / 2, nd[2] / 2))
+add(23, QUAD8, lambda nd: (nd[0] / 2 * 3.0, nd[1] / 2, 1.5))
+add(30, QLQUAD, lambda nd: (nd[0] / 2 * 3.0, nd[1] / 2, -1.0))
+add(31, QLWEDGE, lambda nd: (5.0 + nd[0] / 2, nd[1] / 2, nd[2] / 2))
+add(35, [(i,) for i in [0, 3, 1, 2]], lambda nd: (nd[0] / 3 * 3.0, -0.5, 2.0))
+g.write("quadratic_shapes.vtu")

@@ -5,7 +5,7 @@
 //! points evaluated on the curved cell; Bezier cells always evaluate their points because the
 //! control points are not on the geometry.
 
-use aurafx_data::higher_order::{Basis, HighOrderCell, Shape};
+pub use aurafx_data::higher_order::{Basis, HighOrderCell, Shape};
 use aurafx_data::*;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -351,6 +351,9 @@ fn edge_divisions(shape: Shape, n: [usize; 3], a: [f64; 3], b: [f64; 3]) -> usiz
 /// Polygons covering face `f` (corner indices into the cell's corners) of a curved cell at
 /// `level`, as point ids. Quads for quadrilateral faces, triangles for triangular ones.
 pub fn face_polys(ev: &mut Evaluator, cell: &HighOrderCell, ids: &[u32], f: &[usize], level: u32) -> Vec<Vec<u32>> {
+    if cell.basis == Basis::Serendipity {
+        return serendipity_face_polys(ev, cell, ids, f, level);
+    }
     let n = divisions(cell, level);
     let r = cell.shape.corners();
     let c: Vec<[f64; 3]> = f.iter().map(|&k| r[k]).collect();
@@ -390,6 +393,75 @@ pub fn face_polys(ev: &mut Evaluator, cell: &HighOrderCell, ids: &[u32], f: &[us
         }
     }
     out
+}
+
+/// Faces of serendipity cells as VTK's quadratic cells list them: the triangle pattern starts
+/// at the first corner, which decides the diagonal ParaView draws.
+fn serendipity_face_order(shape: Shape) -> &'static [&'static [usize]] {
+    match shape {
+        Shape::Hexahedron => CellType::Hexahedron.faces(),
+        Shape::Wedge => &[&[0, 1, 2], &[3, 5, 4], &[0, 1, 4, 3], &[1, 2, 5, 4], &[2, 0, 3, 5]],
+        _ => &[&[0, 1, 2, 3]],
+    }
+}
+
+/// Triangles of a serendipity face like ParaView: through the corners and mid-edge nodes at
+/// level 1 (6 triangles for a quad face, 4 for a triangle), each triangle split in 4 per
+/// further level with points evaluated on the cell. `outward` gives the winding.
+fn serendipity_face_polys(ev: &mut Evaluator, cell: &HighOrderCell, ids: &[u32], outward: &[usize], level: u32) -> Vec<Vec<u32>> {
+    let mut key: Vec<usize> = outward.to_vec();
+    key.sort_unstable();
+    let canon: &[usize] = serendipity_face_order(cell.shape)
+        .iter()
+        .copied()
+        .find(|f| {
+            let mut k = f.to_vec();
+            k.sort_unstable();
+            k == key
+        })
+        .unwrap_or(outward);
+    // Same cyclic order as the outward face, or reversed?
+    let start = outward.iter().position(|&c| c == canon[0]).unwrap_or(0);
+    let same = (0..canon.len()).all(|k| outward[(start + k) % outward.len()] == canon[k]);
+    let r = cell.shape.corners();
+    let c: Vec<[f64; 3]> = canon.iter().map(|&k| r[k]).collect();
+    let map = |u: f64, v: f64| -> [f64; 3] {
+        if c.len() == 3 {
+            std::array::from_fn(|a| c[0][a] + u * (c[1][a] - c[0][a]) + v * (c[2][a] - c[0][a]))
+        } else {
+            std::array::from_fn(|a| (1.0 - u) * (1.0 - v) * c[0][a] + u * (1.0 - v) * c[1][a] + u * v * c[2][a] + (1.0 - u) * v * c[3][a])
+        }
+    };
+    // Level-1 pattern in face coordinates.
+    let mut tris: Vec<[[f64; 2]; 3]> = if c.len() == 3 {
+        let (c0, c1, c2, m0, m1, m2) = ([0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.5, 0.0], [0.5, 0.5], [0.0, 0.5]);
+        vec![[c0, m0, m2], [m0, c1, m1], [m2, m1, c2], [m0, m1, m2]]
+    } else {
+        let (c0, c1, c2, c3) = ([0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]);
+        let (m0, m1, m2, m3) = ([0.5, 0.0], [1.0, 0.5], [0.5, 1.0], [0.0, 0.5]);
+        vec![[c0, m0, m3], [m0, c1, m1], [m1, c2, m2], [m3, m2, c3], [m0, m1, m2], [m0, m2, m3]]
+    };
+    for _ in 1..level.max(1) {
+        let mid = |a: [f64; 2], b: [f64; 2]| [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0];
+        tris = tris
+            .iter()
+            .flat_map(|&[a, b, c]| {
+                let (ab, bc, ca) = (mid(a, b), mid(b, c), mid(c, a));
+                [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]
+            })
+            .collect();
+    }
+    let mut cache: HashMap<[u64; 2], u32> = HashMap::new();
+    tris.iter()
+        .map(|t| {
+            let mut v: Vec<u32> =
+                t.iter().map(|uv| *cache.entry([uv[0].to_bits(), uv[1].to_bits()]).or_insert_with(|| ev.point(cell, ids, map(uv[0], uv[1])))).collect();
+            if !same {
+                v.swap(1, 2);
+            }
+            v
+        })
+        .collect()
 }
 
 /// Linear cells covering a curved cell at `level` (point ids, via the evaluator).

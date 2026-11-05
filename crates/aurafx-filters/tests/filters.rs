@@ -594,3 +594,42 @@ fn higher_order_files_round_trip() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Quadratic cells (20-node hex, 15-node wedge, 8-node quad, quadratic-linear quad and wedge,
+/// cubic line; testdata/quadratic_shapes.vtu) against ParaView 6.1.1.
+#[test]
+fn quadratic_cells_match_paraview() {
+    let close = |a: f64, b: f64, what: &str| assert!((a - b).abs() <= 2e-7 * b.abs().max(1.0), "{what}: {a} vs ParaView {b}");
+    let ds = td("quadratic_shapes.vtu");
+    for (lvl, (points, area)) in
+        [(34, 30.168865222284417), (77, 33.15411810680545), (261, 33.755654836998275), (977, 33.904836820852786)].into_iter().enumerate()
+    {
+        let s = DataSet::PolyData(surface::extract_surface_level(&ds, lvl as u32).unwrap());
+        assert_eq!(s.n_points(), points, "surface level {lvl} points");
+        close(integrals(&s)["Area"], area, &format!("surface level {lvl} area"));
+    }
+    let plane = [("origin", serde_json::json!([0.0, 0.0, -0.25])), ("normal", serde_json::json!([0.0, 0.0, 1.0]))];
+    let it = integrals(&run("slice", Some(&ds), &plane));
+    close(it["Area"], 4.776043107505829, "slice area");
+    close(it["u"], 15.983134023592822, "slice integral");
+    let it = integrals(&run("contour", Some(&ds), &[("array", "u".into()), ("values", serde_json::json!([3.0]))]));
+    close(it["Area"], 4.191241161378176, "contour area");
+    close(it["u"], 12.573723484134526, "contour integral");
+    // One 20-node hexahedron. (ParaView's volumes of the other cells are signed or wrong: the
+    // 15-node wedge here is inverted for VTK, the quadratic-linear wedge gives 0.0696 for the
+    // same shape, and the cubic line 1.48 for a 2.25-long arc; auraFX gives positive, consistent values.)
+    let DataSet::UnstructuredGrid(g) = &ds else { panic!() };
+    let one = |cid: usize| {
+        let mut cells = Cells::new();
+        cells.push(g.cells.types[cid], g.cells.cell(cid));
+        DataSet::UnstructuredGrid(UnstructuredGrid { points: g.points.clone(), cells, point_data: g.point_data.clone(), ..Default::default() })
+    };
+    let hex = one(0);
+    close(integrals(&hex)["Volume"], 1.8313626454302376, "hex20 volume");
+    close(integrals(&run("clip", Some(&hex), &plane))["Volume"], 0.4578406613575594, "hex20 clip");
+    let it = integrals(&ds);
+    assert!((it["Volume"] - (2.0 * 1.8313626454302376 + 2.0 * 0.5566589083226766)).abs() < 1e-9, "{it:?}");
+    assert_eq!(g.cells.types[6], CellType::CubicLine);
+    let arc = integrals(&run("tessellate", Some(&one(6)), &[("level", 5.into())]))["Length"];
+    assert!((arc - 2.25).abs() < 2e-3, "cubic line follows its arc: {arc}");
+}

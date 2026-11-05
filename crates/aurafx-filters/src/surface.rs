@@ -274,7 +274,7 @@ fn explicit_surface(ds: &DataSet, level: u32) -> Result<PolyData> {
                 }
                 parent_l.push(cid);
             }
-            2 => match quadratic_edges(ty) {
+            2 => match quadratic_edges(ty).filter(|_| level > 0) {
                 Some((base, edges)) if pts.len() >= base.fixed_point_count().unwrap_or(0) + edges.len() => {
                     let corners: Vec<usize> = (0..base.fixed_point_count().unwrap_or(0)).collect();
                     let c: Vec<u32> = corners.iter().map(|&k| pts[k]).collect();
@@ -313,7 +313,8 @@ fn explicit_surface(ds: &DataSet, level: u32) -> Result<PolyData> {
                         let c: Vec<u32> = f.iter().map(|&k| pts[k]).collect();
                         add_face(c.clone(), vec![c]);
                     }
-                } else if let Some((base, edges)) = quadratic_edges(ty).filter(|(b, e)| pts.len() >= b.fixed_point_count().unwrap_or(0) + e.len()) {
+                } else if let Some((base, edges)) = quadratic_edges(ty).filter(|(b, e)| level > 0 && pts.len() >= b.fixed_point_count().unwrap_or(0) + e.len())
+                {
                     // Curved faces through the mid-edge nodes.
                     for f in base.faces() {
                         let c: Vec<u32> = f.iter().map(|&k| pts[k]).collect();

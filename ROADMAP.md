@@ -38,7 +38,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Datasets: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`, `UnstructuredGrid`, `Table`, `PointCloud`/particles.
 - [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid`.
 - [x] Cell types: all VTK linear types (vertex, line, polyline, tri, quad, polygon, tet, hex, wedge, pyramid, pentagonal/hexagonal prism, polyhedron).
-- [x] Higher-order: Lagrange and Bezier cells of any order (curve, triangle, quad, tet, hex, wedge; per-cell `HigherOrderDegrees`, rational Bezier weights) and quadratic cells, drawn curved and cut/integrated through their nodes like VTK (checked against ParaView 6.1.1). Lagrange/Bezier pyramids and serendipity quadratic cells (8-node quad, 20-node hex, 15-node wedge) are still cut through their corners only.
+- [x] Higher-order: Lagrange and Bezier cells of any order (curve, triangle, quad, tet, hex, wedge; per-cell `HigherOrderDegrees`, rational Bezier weights) and quadratic cells (complete, serendipity 8/20/15-node, quadratic-linear, cubic line), drawn curved and cut/integrated through their nodes like VTK (checked against ParaView 6.1.1). Pyramids (quadratic, Lagrange, Bezier) are still cut through their corners only.
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
 - [~] Selections (IDs, rectangle/frustum, visible-only, threshold query done): IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
 - [~] Spatial structures (cell locator for probe and stream tracer done): point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
@@ -355,8 +355,15 @@ Older files are converted on reading the way VTK does. Curved cells also orient 
 from their corners, because VTK's Lagrange wedges are wound opposite to linear ones. Legacy
 `.vtk` files cannot carry degrees or rational weights for VTK, so use `.vtu` for curved cells.
 
-Known gaps worth doing next: Lagrange/Bezier pyramids and serendipity quadratic cells in
-cutting filters; client/server and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
+Done in iteration 10 (first part): serendipity quadratic cells. 20-node hexes, 15-node wedges
+and 8-node quads use serendipity shape functions. Quadratic-linear quads and wedges and cubic
+lines are treated as Lagrange cells. Extract Surface draws their faces with ParaView's pattern
+at every level: same point counts at levels 0-3 and areas within 1e-7 on
+`testdata/quadratic_shapes.vtu`. Slice and Contour match ParaView exactly. Integrate Variables
+gives positive volumes where ParaView's are signed or wrong (inverted 15-node wedge,
+quadratic-linear wedge 0.07 instead of 0.56, cubic line 1.48 for a 2.25 arc).
+
+Known gaps worth doing next: curved pyramids in cutting filters; client/server and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)

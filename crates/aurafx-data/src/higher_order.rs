@@ -14,6 +14,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub enum Basis {
     Lagrange,
     Bezier,
+    /// Quadratic cells with corner and mid-edge nodes only (8-node quad, 20-node hex,
+    /// 15-node wedge).
+    Serendipity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -74,12 +77,15 @@ impl CellType {
     pub fn high_order(self) -> Option<(Basis, Shape)> {
         use CellType::*;
         Some(match self {
-            LagrangeCurve | QuadraticEdge => (Basis::Lagrange, Shape::Curve),
+            LagrangeCurve | QuadraticEdge | CubicLine => (Basis::Lagrange, Shape::Curve),
             LagrangeTriangle | QuadraticTriangle => (Basis::Lagrange, Shape::Triangle),
-            LagrangeQuadrilateral | BiquadraticQuad => (Basis::Lagrange, Shape::Quad),
+            LagrangeQuadrilateral | BiquadraticQuad | QuadraticLinearQuad => (Basis::Lagrange, Shape::Quad),
             LagrangeTetrahedron | QuadraticTetra => (Basis::Lagrange, Shape::Tetra),
             LagrangeHexahedron | TriquadraticHexahedron => (Basis::Lagrange, Shape::Hexahedron),
-            LagrangeWedge | BiquadraticQuadraticWedge => (Basis::Lagrange, Shape::Wedge),
+            LagrangeWedge | BiquadraticQuadraticWedge | QuadraticLinearWedge => (Basis::Lagrange, Shape::Wedge),
+            QuadraticQuad => (Basis::Serendipity, Shape::Quad),
+            QuadraticHexahedron => (Basis::Serendipity, Shape::Hexahedron),
+            QuadraticWedge => (Basis::Serendipity, Shape::Wedge),
             BezierCurve => (Basis::Bezier, Shape::Curve),
             BezierTriangle => (Basis::Bezier, Shape::Triangle),
             BezierQuadrilateral => (Basis::Bezier, Shape::Quad),
@@ -310,15 +316,34 @@ fn lattice_index(o: Order, l: &[[usize; 3]]) -> Vec<u32> {
 impl HighOrderCell {
     pub fn new(ty: CellType, npts: usize, degrees: Option<[f64; 3]>) -> Option<Self> {
         let (basis, shape) = ty.high_order()?;
-        let order = cell_order(shape, npts, degrees)?;
+        // Fixed-order quadratic types (quadratic along r/s, linear along the last axis).
+        let order = match ty {
+            CellType::QuadraticLinearQuad if npts == 6 => [2, 1, 0],
+            CellType::QuadraticLinearWedge if npts == 12 => [2, 2, 1],
+            CellType::QuadraticQuad if npts == 8 => [2, 2, 0],
+            CellType::QuadraticHexahedron if npts == 20 => [2, 2, 2],
+            CellType::QuadraticWedge if npts == 15 => [2, 2, 2],
+            _ if basis == Basis::Serendipity => return None,
+            _ => cell_order(shape, npts, degrees)?,
+        };
         Some(Self::with_order(basis, shape, order))
     }
 
     pub fn with_order(basis: Basis, shape: Shape, order: Order) -> Self {
-        static CACHE: OnceLock<Mutex<HashMap<(Shape, Order), Arc<Vec<u32>>>>> = OnceLock::new();
-        let lattice = lattice(shape, order);
+        type Key = (Shape, Order, bool);
+        static CACHE: OnceLock<Mutex<HashMap<Key, (Arc<Vec<[usize; 3]>>, Arc<Vec<u32>>)>>> = OnceLock::new();
+        let ser = basis == Basis::Serendipity;
         let cache = CACHE.get_or_init(Default::default);
-        let index = cache.lock().unwrap().entry((shape, order)).or_insert_with(|| Arc::new(lattice_index(order, &lattice))).clone();
+        let (lattice, index) = cache
+            .lock()
+            .unwrap()
+            .entry((shape, order, ser))
+            .or_insert_with(|| {
+                let l = if ser { Arc::new(serendipity_nodes(shape)) } else { lattice(shape, order) };
+                let i = Arc::new(lattice_index(order, &l));
+                (l, i)
+            })
+            .clone();
         Self { basis, shape, order, lattice, index }
     }
 
@@ -365,6 +390,10 @@ impl HighOrderCell {
     pub fn weights(&self, pc: [f64; 3], out: &mut Vec<f64>) {
         out.clear();
         let o = self.order;
+        if self.basis == Basis::Serendipity {
+            serendipity_weights(self.shape, &self.lattice, pc, out);
+            return;
+        }
         match self.shape {
             Shape::Curve | Shape::Quad | Shape::Hexahedron => {
                 let d = self.shape.dimension();
@@ -409,6 +438,73 @@ impl HighOrderCell {
     }
 }
 
+/// Node positions (x2) of the serendipity cells, in VTK order.
+fn serendipity_nodes(shape: Shape) -> Vec<[usize; 3]> {
+    match shape {
+        Shape::Quad => vec![[0, 0, 0], [2, 0, 0], [2, 2, 0], [0, 2, 0], [1, 0, 0], [2, 1, 0], [1, 2, 0], [0, 1, 0]],
+        Shape::Hexahedron => {
+            let mut v = vec![[0, 0, 0], [2, 0, 0], [2, 2, 0], [0, 2, 0], [0, 0, 2], [2, 0, 2], [2, 2, 2], [0, 2, 2]];
+            for z in [0, 2] {
+                v.extend([[1, 0, z], [2, 1, z], [1, 2, z], [0, 1, z]]);
+            }
+            v.extend([[0, 0, 1], [2, 0, 1], [2, 2, 1], [0, 2, 1]]);
+            v
+        }
+        Shape::Wedge => {
+            let mut v = vec![[0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2], [2, 0, 2], [0, 2, 2]];
+            for z in [0, 2] {
+                v.extend([[1, 0, z], [1, 1, z], [0, 1, z]]);
+            }
+            v.extend([[0, 0, 1], [2, 0, 1], [0, 2, 1]]);
+            v
+        }
+        _ => vec![],
+    }
+}
+
+/// Quadratic serendipity shape functions (corner and mid-edge nodes only).
+fn serendipity_weights(shape: Shape, nodes: &[[usize; 3]], pc: [f64; 3], out: &mut Vec<f64>) {
+    match shape {
+        Shape::Quad | Shape::Hexahedron => {
+            let d = shape.dimension();
+            let x: Vec<f64> = (0..d).map(|a| 2.0 * pc[a] - 1.0).collect();
+            for n in nodes {
+                let xi: Vec<f64> = (0..d).map(|a| n[a] as f64 - 1.0).collect();
+                let w = match (0..d).find(|&a| xi[a] == 0.0) {
+                    // Mid-edge node: quadratic bubble along its edge, linear across.
+                    Some(a) => (1.0 - x[a] * x[a]) * (0..d).filter(|&b| b != a).map(|b| (1.0 + x[b] * xi[b]) / 2.0).product::<f64>(),
+                    None => {
+                        let lin: f64 = (0..d).map(|a| (1.0 + x[a] * xi[a]) / 2.0).product();
+                        lin * ((0..d).map(|a| x[a] * xi[a]).sum::<f64>() - (d as f64 - 1.0))
+                    }
+                };
+                out.push(w);
+            }
+        }
+        Shape::Wedge => {
+            let lam = [1.0 - pc[0] - pc[1], pc[0], pc[1]];
+            let z = 2.0 * pc[2] - 1.0;
+            for n in nodes {
+                let alpha = [2 - n[0] - n[1], n[0], n[1]];
+                let zi = n[2] as f64 - 1.0;
+                let w = match alpha.iter().position(|&a| a == 2) {
+                    Some(m) if zi != 0.0 => 0.5 * lam[m] * (2.0 * lam[m] - 1.0) * (1.0 + z * zi) - 0.5 * lam[m] * (1.0 - z * z),
+                    Some(m) => lam[m] * (1.0 - z * z),
+                    None => {
+                        let (a, b) = {
+                            let mut it = (0..3).filter(|&k| alpha[k] == 1);
+                            (it.next().unwrap(), it.next().unwrap())
+                        };
+                        2.0 * lam[a] * lam[b] * (1.0 + z * zi)
+                    }
+                };
+                out.push(w);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// 1D Lagrange polynomials on p+1 equispaced nodes of [0, 1] or Bernstein polynomials, indexed
 /// by lattice position.
 fn basis_1d(basis: Basis, p: usize, x: f64) -> Vec<f64> {
@@ -416,7 +512,7 @@ fn basis_1d(basis: Basis, p: usize, x: f64) -> Vec<f64> {
         return vec![1.0];
     }
     match basis {
-        Basis::Lagrange => {
+        Basis::Lagrange | Basis::Serendipity => {
             let pf = p as f64;
             (0..=p)
                 .map(|i| {
@@ -437,7 +533,7 @@ fn basis_1d(basis: Basis, p: usize, x: f64) -> Vec<f64> {
 /// Simplex basis for barycentric coordinates `lam` and multi-index `alpha` (sum p).
 fn simplex_basis(basis: Basis, p: usize, lam: &[f64], alpha: &[usize]) -> f64 {
     match basis {
-        Basis::Lagrange => {
+        Basis::Lagrange | Basis::Serendipity => {
             let pf = p as f64;
             let mut v = 1.0;
             for (l, &a) in lam.iter().zip(alpha) {
@@ -478,6 +574,12 @@ mod tests {
             (CellType::LagrangeTetrahedron, 35),
             (CellType::LagrangeHexahedron, 64),
             (CellType::LagrangeWedge, 40),
+            (CellType::QuadraticQuad, 8),
+            (CellType::QuadraticHexahedron, 20),
+            (CellType::QuadraticWedge, 15),
+            (CellType::QuadraticLinearQuad, 6),
+            (CellType::QuadraticLinearWedge, 12),
+            (CellType::CubicLine, 4),
         ] {
             let c = HighOrderCell::new(ty, n, None).unwrap();
             let mut w = Vec::new();
@@ -488,6 +590,8 @@ mod tests {
                 }
                 assert_eq!(c.node_at(c.node_pcoords(k)), Some(k));
             }
+            c.weights([0.21, 0.13, 0.31], &mut w);
+            assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-12, "{ty:?} partition of unity");
             for bt in [
                 CellType::BezierCurve,
                 CellType::BezierTriangle,
@@ -500,7 +604,7 @@ mod tests {
                 if shape != c.shape {
                     continue;
                 }
-                let b = HighOrderCell::new(bt, n, None).unwrap();
+                let Some(b) = HighOrderCell::new(bt, n, None) else { continue };
                 b.weights([0.21, 0.13, 0.31], &mut w);
                 assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-12);
             }

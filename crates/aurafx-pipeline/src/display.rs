@@ -13,16 +13,19 @@ pub enum Representation {
     Outline,
     /// GPU ray-cast volume (image data directly; other meshes are resampled).
     Volume,
+    /// Surface with a vector field drawn as streaks (line integral convolution).
+    SurfaceLic,
 }
 
 impl Representation {
-    pub const ALL: [Representation; 6] = [
+    pub const ALL: [Representation; 7] = [
         Representation::Surface,
         Representation::SurfaceWithEdges,
         Representation::Wireframe,
         Representation::Points,
         Representation::Outline,
         Representation::Volume,
+        Representation::SurfaceLic,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -32,6 +35,7 @@ impl Representation {
             Representation::Points => "Points",
             Representation::Outline => "Outline",
             Representation::Volume => "Volume",
+            Representation::SurfaceLic => "Surface LIC",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -83,6 +87,12 @@ pub struct DisplayProps {
     pub nonlinear_subdivision: u32,
     /// For objects on a server: draw them there (images come back) or here (geometry comes back).
     pub draw_on: DrawOn,
+    /// Surface LIC: the vector array (None: the first 3-component point array).
+    pub lic_vectors: Option<String>,
+    /// Surface LIC: how strongly the streaks darken the surface (0..1).
+    pub lic_strength: f32,
+    /// Surface LIC: streak half-length in pixels.
+    pub lic_length: u32,
 }
 
 /// Where an object on a server is drawn.
@@ -121,6 +131,9 @@ impl Default for DisplayProps {
             colormap_bands: 0,
             nonlinear_subdivision: 1,
             draw_on: DrawOn::Auto,
+            lic_vectors: None,
+            lic_strength: 0.8,
+            lic_length: 20,
         }
     }
 }

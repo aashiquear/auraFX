@@ -242,3 +242,81 @@ fn fs_ao_blur(v: VsOut) -> @location(0) vec4<f32> {
     let a = select(1.0, sum / weight, weight > 0.0);
     return vec4<f32>(a, a, a, 1.0);
 }
+
+// ---- Surface LIC: convolve noise along the projected vector field ----
+// Uses the occlusion bindings: ao.camera = near, far, orthographic, unused;
+// ao.view = width, height, steps each way, contrast; ao_tex = directions from fs_lic_vec.
+fn linear_depth(d: f32) -> f32 {
+    let n = ao.camera.x;
+    let f = ao.camera.y;
+    if (ao.camera.z > 0.5) {
+        return n + d * (f - n);
+    }
+    return n * f / (f - d * (f - n));
+}
+
+fn lattice(i: vec2<i32>) -> f32 {
+    var h = (u32(i.x) * 73856093u) ^ (u32(i.y) * 19349663u);
+    h = (h ^ (h >> 13u)) * 1274126177u;
+    h = h ^ (h >> 16u);
+    return f32(h & 0xffffu) / 65535.0;
+}
+
+// White noise on the pixel lattice, bilinearly interpolated.
+fn value_noise(p: vec2<f32>) -> f32 {
+    let q = p - 0.5;
+    let i = vec2<i32>(floor(q));
+    let f = q - floor(q);
+    let a = mix(lattice(i), lattice(i + vec2<i32>(1, 0)), f.x);
+    let b = mix(lattice(i + vec2<i32>(0, 1)), lattice(i + vec2<i32>(1, 1)), f.x);
+    return mix(a, b, f.y);
+}
+
+@fragment
+fn fs_lic(v: VsOut) -> @location(0) vec4<f32> {
+    let c = vec2<i32>(v.pos.xy);
+    let here = textureLoad(ao_tex, c, 0);
+    if (here.w < 0.75) {
+        return vec4<f32>(1.0);
+    }
+    // Only where the LIC surface is what is seen.
+    let seen = linear_depth(textureLoad(scene_depth, c, 0));
+    let mine = linear_depth(here.z);
+    if (abs(seen - mine) > 0.01 * mine) {
+        return vec4<f32>(1.0);
+    }
+    let size = vec2<i32>(i32(ao.view.x), i32(ao.view.y));
+    let steps = i32(ao.view.z);
+    var sum = value_noise(v.pos.xy);
+    var count = 1.0;
+    for (var side = 0; side < 2; side = side + 1) {
+        var p = v.pos.xy;
+        var t = here.xy;
+        if (side == 1) {
+            t = -t;
+        }
+        for (var k = 0; k < steps; k = k + 1) {
+            p = p + t;
+            let q = vec2<i32>(floor(p));
+            if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) {
+                break;
+            }
+            let s = textureLoad(ao_tex, q, 0);
+            if (s.w < 0.75 || abs(linear_depth(s.z) - mine) > 0.05 * mine) {
+                break;
+            }
+            var nt = s.xy;
+            if (dot(nt, t) < 0.0) {
+                nt = -nt;
+            }
+            t = nt;
+            sum = sum + value_noise(p);
+            count = count + 1.0;
+        }
+    }
+    // Contrast: the mean of n noise samples spreads as 1/sqrt(n).
+    let m = sum / count;
+    let e = clamp(0.5 + (m - 0.5) * sqrt(count) * ao.view.w, 0.0, 1.0);
+    let f = 1.0 - clamp(here.w - 1.0, 0.0, 1.0) * (1.0 - e);
+    return vec4<f32>(f, f, f, 1.0);
+}

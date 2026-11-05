@@ -55,6 +55,8 @@ impl Default for RenderSettings {
 }
 
 const SHADOW_SIZE: u32 = 2048;
+/// Surface LIC contrast: scales the averaged noise's deviation from grey by sqrt(samples).
+const LIC_CONTRAST: f32 = 1.0;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -84,6 +86,8 @@ struct GpuNode {
     bind_group: wgpu::BindGroup,
     /// The uniform alone, for the shadow pass (which writes the shadow map).
     shadow_bg: wgpu::BindGroup,
+    /// Surface LIC vectors, one buffer per `tris` buffer.
+    lic: Vec<wgpu::Buffer>,
 }
 
 pub struct Renderer {
@@ -147,6 +151,10 @@ pub struct Renderer {
     pipe_ao_blur: wgpu::RenderPipeline,
     ao_blur_bgl: wgpu::BindGroupLayout,
     ao_target: AoTarget,
+    pipe_lic_vec: wgpu::RenderPipeline,
+    pipe_lic: wgpu::RenderPipeline,
+    lic_uniform: wgpu::Buffer,
+    lic_target: LicTarget,
     pipe_final: wgpu::RenderPipeline,
     final_bgl: wgpu::BindGroupLayout,
     final_uniform: wgpu::Buffer,
@@ -155,6 +163,44 @@ pub struct Renderer {
 }
 
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+const LIC_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+
+/// Surface LIC: screen directions and depth of the LIC surfaces (with their own depth buffer).
+struct LicTarget {
+    view: wgpu::TextureView,
+    depth: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
+}
+
+impl LicTarget {
+    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, uniform: &wgpu::Buffer, w: u32, h: u32) -> Self {
+        let tex = |label: &str, format: wgpu::TextureFormat, usage: wgpu::TextureUsages| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        };
+        let view = tex("lic vectors", LIC_FORMAT, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING);
+        let depth = tex("lic depth", DEPTH_FORMAT, wgpu::TextureUsages::RENDER_ATTACHMENT);
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lic"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
+            ],
+        });
+        Self { view, depth, bind_group }
+    }
+}
 
 /// Raw (noisy) ambient occlusion, blurred onto the scene by a second pass.
 struct AoTarget {
@@ -817,6 +863,67 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // Surface LIC: directions into a float target, then noise convolved along them.
+        let pipe_lic_vec = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("lic vectors"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_lic"),
+                buffers: &[
+                    Some(vertex_layout(wgpu::VertexStepMode::Vertex)),
+                    Some(wgpu::VertexBufferLayout {
+                        array_stride: 16,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 3 }],
+                    }),
+                ],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_lic_vec"),
+                targets: &[Some(wgpu::ColorTargetState { format: LIC_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let pipe_lic = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("surface lic"),
+            layout: Some(&ao_blur_layout),
+            vertex: wgpu::VertexState { module: &post_shader, entry_point: Some("vs_full"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &post_shader,
+                entry_point: Some("fs_lic"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: Some(wgpu::BlendState { color: multiply, alpha: wgpu::BlendComponent::OVER }),
+                    write_mask: wgpu::ColorWrites::COLOR,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+            multiview_mask: None,
+            cache: None,
+        });
+        let lic_uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lic uniform"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let final_bgl =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("final bgl"), entries: &[tex_entry(0), uniform_entry(1)] });
         let final_layout =
@@ -849,6 +956,7 @@ impl Renderer {
         let oit = OitTargets::new(&device, &oit_bgl, 16, 16, samples);
         let post_src = PostTarget::new(&device, &final_bgl, &final_uniform, 16, 16);
         let ao_target = AoTarget::new(&device, &ao_blur_bgl, &ao_uniform, 16, 16);
+        let lic_target = LicTarget::new(&device, &ao_blur_bgl, &lic_uniform, 16, 16);
         Self {
             device,
             queue,
@@ -904,6 +1012,10 @@ impl Renderer {
             pipe_ao_blur,
             ao_blur_bgl,
             ao_target,
+            pipe_lic_vec,
+            pipe_lic,
+            lic_uniform,
+            lic_target,
             pipe_final,
             final_bgl,
             final_uniform,
@@ -1103,6 +1215,7 @@ impl Renderer {
         self.oit = OitTargets::new(&self.device, &self.oit_bgl, w, h, self.samples);
         self.post_src = PostTarget::new(&self.device, &self.final_bgl, &self.final_uniform, w, h);
         self.ao_target = AoTarget::new(&self.device, &self.ao_blur_bgl, &self.ao_uniform, w, h);
+        self.lic_target = LicTarget::new(&self.device, &self.ao_blur_bgl, &self.lic_uniform, w, h);
         self.width = w;
         self.height = h;
         true
@@ -1189,6 +1302,26 @@ impl Renderer {
 
     /// Upload vertices in pieces of whole primitives (`group` vertices each) that fit the
     /// device's largest buffer.
+    /// LIC vectors split like the triangle buffers they go with.
+    fn upload_lic(&self, lic: &[[f32; 4]], tris: &[(wgpu::Buffer, u32)]) -> Vec<wgpu::Buffer> {
+        if lic.is_empty() {
+            return Vec::new();
+        }
+        let mut start = 0usize;
+        tris.iter()
+            .map(|(_, n)| {
+                let end = (start + *n as usize).min(lic.len());
+                let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("lic vectors"),
+                    contents: bytemuck::cast_slice(&lic[start..end]),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                start = end;
+                buf
+            })
+            .collect()
+    }
+
     fn upload(&self, label: &str, verts: &[Vertex], group: usize) -> Vec<(wgpu::Buffer, u32)> {
         let max = (self.device.limits().max_buffer_size.min(1 << 30) as usize / std::mem::size_of::<Vertex>()) / group * group;
         verts
@@ -1212,8 +1345,10 @@ impl Renderer {
             let tris = self.upload("tris", &draw.mesh.tris, 3);
             let lines = self.upload("lines", &draw.mesh.lines, 2);
             let points = self.upload("points", &draw.mesh.points, 1);
+            let lic = self.upload_lic(&draw.mesh.lic, &tris);
             match self.nodes.get_mut(&draw.id) {
                 Some(g) => {
+                    g.lic = lic;
                     g.volume = volume;
                     g.tris = tris;
                     g.lines = lines;
@@ -1236,7 +1371,7 @@ impl Renderer {
                     });
                     self.nodes.insert(
                         draw.id,
-                        GpuNode { volume, mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap_key(), lut, bind_group, shadow_bg },
+                        GpuNode { volume, mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap_key(), lut, bind_group, shadow_bg, lic },
                     );
                 }
             }
@@ -1367,6 +1502,55 @@ impl Renderer {
                 })
                 .forget_lifetime()
         };
+        // 1b. Surface LIC: streaks along the vector field darken the surface.
+        let lic: Vec<&&NodeDraw> =
+            opaque.iter().filter(|d| d.display.representation == aurafx_pipeline::Representation::SurfaceLic && !d.mesh.lic.is_empty()).collect();
+        if !lic.is_empty() {
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("lic vectors"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.lic_target.view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.lic_target.depth,
+                        depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                        stencil_ops: None,
+                    }),
+                    ..Default::default()
+                });
+                pass.set_pipeline(&self.pipe_lic_vec);
+                for d in &lic {
+                    let g = &self.nodes[&d.id];
+                    pass.set_bind_group(0, &g.bind_group, &[]);
+                    for ((buf, n), v) in g.tris.iter().zip(&g.lic) {
+                        pass.set_vertex_buffer(0, buf.slice(..));
+                        pass.set_vertex_buffer(1, v.slice(..));
+                        pass.draw(0..*n, 0..1);
+                    }
+                }
+            }
+            let steps = lic.iter().map(|d| d.display.lic_length).max().unwrap_or(20).clamp(1, 200);
+            let u = [
+                camera.near as f32,
+                camera.far as f32,
+                if camera.orthographic { 1.0 } else { 0.0 },
+                0.0,
+                self.width as f32,
+                self.height as f32,
+                steps as f32,
+                LIC_CONTRAST,
+            ];
+            self.queue.write_buffer(&self.lic_uniform, 0, bytemuck::cast_slice(&u));
+            let mut pass = load_pass(&mut encoder, "surface lic", &self.msaa_view, None);
+            pass.set_pipeline(&self.pipe_lic);
+            pass.set_bind_group(0, &self.scene_bg, &[]);
+            pass.set_bind_group(1, &self.lic_target.bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         // 2. Eye-Dome Lighting darkens what lies behind its neighbours.
         if settings.lighting.edl && (!opaque.is_empty() || !self.layers.is_empty()) {
             let u = [
@@ -1541,7 +1725,7 @@ impl Renderer {
                 view_proj: vp.to_cols_array_2d(),
                 camera_pos: [cam_rel.x, cam_rel.y, cam_rel.z, 1.0],
                 light_dir: [light.x as f32, light.y as f32, light.z as f32, 0.0],
-                viewport: [self.width as f32, self.height as f32, 0.0, 0.0],
+                viewport: [self.width as f32, self.height as f32, d.display.lic_strength.clamp(0.0, 1.0), 0.0],
                 color: [d.display.solid_color[0], d.display.solid_color[1], d.display.solid_color[2], d.display.opacity],
                 range: [lo as f32, hi as f32, if d.display.log_scale { 1.0 } else { 0.0 }, if d.mesh.has_scalars { 1.0 } else { 0.0 }],
                 flags: [

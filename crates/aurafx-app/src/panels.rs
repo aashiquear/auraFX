@@ -881,6 +881,31 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
 
+                if d.representation == Representation::SurfaceLic {
+                    let vectors: Vec<String> = info
+                        .as_ref()
+                        .map(|i| i.point_arrays.iter().chain(&i.cell_arrays).filter(|a| a.ncomp == 3).map(|a| a.name.clone()).collect())
+                        .unwrap_or_default();
+                    ui.label("LIC vectors");
+                    if vectors.is_empty() {
+                        ui.weak("no 3-component arrays");
+                    } else {
+                        let shown = d.lic_vectors.clone().unwrap_or_else(|| format!("{} (auto)", vectors[0]));
+                        egui::ComboBox::from_id_salt("lic vectors").selected_text(shown).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut d.lic_vectors, None, "auto");
+                            for v in &vectors {
+                                ui.selectable_value(&mut d.lic_vectors, Some(v.clone()), v);
+                            }
+                        });
+                    }
+                    ui.end_row();
+                    ui.label("LIC strength");
+                    ui.add(egui::Slider::new(&mut d.lic_strength, 0.0..=1.0)).on_hover_text("How strongly the streaks darken the surface");
+                    ui.end_row();
+                    ui.label("Streak length");
+                    ui.add(egui::Slider::new(&mut d.lic_length, 4..=80).suffix(" px")).on_hover_text("Half-length of each streak in pixels");
+                    ui.end_row();
+                }
                 if d.representation == Representation::Volume {
                     ui.label("Volume density");
                     ui.add(egui::Slider::new(&mut d.volume_opacity, 0.05..=10.0).logarithmic(true)).on_hover_text("Higher values make the volume more opaque");

@@ -28,6 +28,8 @@ pub struct MeshData {
     /// Local origin subtracted from all positions (for precision with large coordinates).
     pub origin: [f64; 3],
     pub volume: Option<VolumeData>,
+    /// Surface LIC: the vector at each vertex of `tris` (empty for other representations).
+    pub lic: Vec<[f32; 4]>,
 }
 
 /// A scalar field on a uniform grid for ray casting. Values are normalized to [0, 1] over `range`
@@ -153,6 +155,32 @@ fn triangulate(pd: &PolyData, cell_base: usize) -> Vec<([u32; 3], usize)> {
         }
     }
     tris
+}
+
+/// The vector array a Surface LIC shows: the named one (point or cell data), else the first
+/// 3-component point array, else the first 3-component cell array.
+pub fn lic_array<'a>(pd: &'a PolyData, name: Option<&str>) -> Option<(&'a aurafx_data::Array, bool)> {
+    let three = |a: &&aurafx_data::Array| a.ncomp == 3 && a.scalar_type() != ScalarType::String;
+    match name {
+        Some(n) => pd.point_data.get(n).filter(three).map(|a| (a, true)).or_else(|| pd.cell_data.get(n).filter(three).map(|a| (a, false))),
+        None => pd.point_data.iter().find(three).map(|a| (a, true)).or_else(|| pd.cell_data.iter().find(three).map(|a| (a, false))),
+    }
+}
+
+/// The LIC vector at each corner of the triangles `emit_triangles` makes (same order).
+fn emit_lic_vectors(pd: &PolyData, cell_base: usize, name: Option<&str>, out: &mut Vec<[f32; 4]>) {
+    let tris = triangulate(pd, cell_base);
+    let Some((a, on_points)) = lic_array(pd, name) else {
+        out.extend(std::iter::repeat_n([0.0; 4], tris.len() * 3));
+        return;
+    };
+    let at = |i: usize| [a.get(i, 0) as f32, a.get(i, 1) as f32, a.get(i, 2) as f32, 0.0];
+    out.reserve(tris.len() * 3);
+    for (t, cell) in &tris {
+        for &p in t {
+            out.push(if on_points { at(p as usize) } else { at(*cell) });
+        }
+    }
 }
 
 /// Emit triangles with crease-angle normals: a corner averages the normals of incident
@@ -414,6 +442,11 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         let cell_ids = move |c: usize| -> u32 { (off + orig.as_ref().map(|a| a.get(c, 0) as usize).unwrap_or(c)) as u32 };
         let crease = if display.lighting { Some(30.0) } else { None };
         match display.representation {
+            Representation::SurfaceLic => {
+                emit_triangles(pd, origin, ps, cs, poly_cell_base, crease, &cell_ids, &mut mesh.tris);
+                emit_lic_vectors(pd, poly_cell_base, display.lic_vectors.as_deref(), &mut mesh.lic);
+                mesh.lic.resize(mesh.tris.len(), [0.0; 4]);
+            }
             Representation::Surface | Representation::SurfaceWithEdges => {
                 emit_triangles(pd, origin, ps, cs, poly_cell_base, crease, &cell_ids, &mut mesh.tris);
                 emit_lines(pd, origin, ps, cs, pd.verts.len(), &mut mesh.lines);

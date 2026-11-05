@@ -211,3 +211,37 @@ fn fs_point_oit(in: PointOut) -> OitOut {
     }
     return oit(point_color(in), node.color.a, in.clip.z);
 }
+
+// ---- Surface LIC: screen-space direction of the vector field ----
+struct LicOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) dir: vec2<f32>,
+};
+
+@vertex
+fn vs_lic(in: VertexIn, @location(3) v: vec4<f32>) -> LicOut {
+    var out: LicOut;
+    let c = node.view_proj * vec4<f32>(in.pos, 1.0);
+    out.clip = c;
+    // Tangential part of the vector, projected to pixels (derivative of the projection).
+    var t = v.xyz;
+    let nl = length(in.normal);
+    if (nl > 0.0) {
+        let n = in.normal / nl;
+        t = t - n * dot(n, t);
+    }
+    let dc = node.view_proj * vec4<f32>(t, 0.0);
+    let d = (dc.xy * c.w - c.xy * dc.w) / (c.w * c.w);
+    out.dir = vec2<f32>(d.x * node.viewport.x, -d.y * node.viewport.y);
+    return out;
+}
+
+// x, y: unit direction in pixels; z: depth; w: 1 + strength = vector, 0.5 = surface without one.
+@fragment
+fn fs_lic_vec(in: LicOut) -> @location(0) vec4<f32> {
+    let l = length(in.dir);
+    if (l < 1e-20) {
+        return vec4<f32>(0.0, 0.0, in.clip.z, 0.5);
+    }
+    return vec4<f32>(in.dir / l, in.clip.z, 1.0 + node.viewport.z);
+}

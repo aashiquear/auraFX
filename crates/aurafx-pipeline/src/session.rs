@@ -115,10 +115,10 @@ impl Plan {
     }
 }
 
-/// Server pictures are composited as opaque surfaces: translucent and volume-rendered objects
-/// are drawn here.
+/// Server pictures are composited as opaque surfaces: translucent, volume-rendered and
+/// Surface LIC objects (a screen-space pass) are drawn here.
 fn server_can_draw(d: &DisplayProps) -> bool {
-    d.representation != crate::display::Representation::Volume && d.opacity >= 1.0
+    !matches!(d.representation, crate::display::Representation::Volume | crate::display::Representation::SurfaceLic) && d.opacity >= 1.0
 }
 
 /// Built-in filters run on a server; Python and plugin filters only here.

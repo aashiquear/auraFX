@@ -116,6 +116,18 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_f64().unwrap_or(1.0) as f32;
                 s.set_display(id, |d| d.volume_opacity = v);
             }
+            "lic_vectors" => {
+                let v = val.as_str().map(str::to_string);
+                s.set_display(id, |d| d.lic_vectors = v);
+            }
+            "lic_strength" => {
+                let v = val.as_f64().unwrap_or(0.8).clamp(0.0, 1.0) as f32;
+                s.set_display(id, |d| d.lic_strength = v);
+            }
+            "lic_length" => {
+                let v = val.as_u64().unwrap_or(20).clamp(1, 200) as u32;
+                s.set_display(id, |d| d.lic_length = v);
+            }
             "volume_threshold" => {
                 let v = val.as_f64().unwrap_or(0.0) as f32;
                 s.set_display(id, |d| d.volume_threshold = v);

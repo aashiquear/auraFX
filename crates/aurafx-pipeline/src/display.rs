@@ -152,3 +152,121 @@ impl DisplayProps {
         format!("{}#{:x}", self.colormap, h.finish())
     }
 }
+
+/// A directional light of the 3D views.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Light {
+    /// Direction towards the light. With `camera_relative`, in the camera's frame (x right,
+    /// y up, z towards the viewer), so the light moves with the view; else in world coordinates.
+    pub direction: [f32; 3],
+    pub color: [f32; 3],
+    pub intensity: f32,
+    pub camera_relative: bool,
+    /// Casts shadows (when shadows are on; the first such light is used).
+    pub shadows: bool,
+}
+
+impl Default for Light {
+    fn default() -> Self {
+        Self { direction: [0.3, 0.5, 1.0], color: [1.0, 1.0, 1.0], intensity: 0.6, camera_relative: true, shadows: true }
+    }
+}
+
+impl Light {
+    /// ParaView-like light kit: key light (upper right), fill (lower left), head light.
+    pub fn kit() -> Vec<Light> {
+        vec![
+            Light::default(),
+            Light { direction: [-0.6, -0.3, 1.0], intensity: 0.25, shadows: false, ..Default::default() },
+            Light { direction: [0.0, 0.0, 1.0], intensity: 0.2, shadows: false, ..Default::default() },
+        ]
+    }
+
+    /// The single light of earlier versions.
+    pub fn single() -> Vec<Light> {
+        vec![Light { intensity: 0.7, ..Default::default() }]
+    }
+}
+
+/// Tone mapping of the final picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToneMapping {
+    #[default]
+    None,
+    Reinhard,
+    Aces,
+}
+
+/// Lighting and screen effects of the 3D views.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Lighting {
+    /// Key, fill and head lights (else one light). Ignored when `lights` is set.
+    pub light_kit: bool,
+    /// Custom lights (empty: the light kit or the single light).
+    pub lights: Vec<Light>,
+    /// Ambient light (None: 0.15 with several lights, 0.3 with one).
+    pub ambient: Option<f32>,
+    /// The first light with `shadows` casts shadows.
+    pub shadows: bool,
+    /// Eye-Dome Lighting: shade by depth differences (point clouds, dense meshes).
+    pub edl: bool,
+    pub edl_strength: f32,
+    /// Screen-space ambient occlusion: darken creases and cavities.
+    pub ssao: bool,
+    pub ssao_strength: f32,
+    /// Occlusion radius as a fraction of the size of the visible objects.
+    pub ssao_radius: f32,
+    /// Fast approximate anti-aliasing of the final picture.
+    pub fxaa: bool,
+    pub tone_mapping: ToneMapping,
+    pub exposure: f32,
+}
+
+impl Default for Lighting {
+    fn default() -> Self {
+        Self {
+            light_kit: true,
+            lights: Vec::new(),
+            ambient: None,
+            shadows: false,
+            edl: false,
+            edl_strength: 1.0,
+            ssao: false,
+            ssao_strength: 1.0,
+            ssao_radius: 0.06,
+            fxaa: false,
+            tone_mapping: ToneMapping::None,
+            exposure: 1.0,
+        }
+    }
+}
+
+impl Lighting {
+    /// The lights in effect and the ambient term.
+    pub fn effective_lights(&self) -> (Vec<Light>, f32) {
+        let lights = if !self.lights.is_empty() {
+            self.lights.clone()
+        } else if self.light_kit {
+            Light::kit()
+        } else {
+            Light::single()
+        };
+        let ambient = self.ambient.unwrap_or(if lights.len() > 1 { 0.15 } else { 0.3 });
+        (lights, ambient)
+    }
+
+    /// What a server applies to the pictures it draws: lights and shadows only (the screen
+    /// effects run here, over the composited picture).
+    pub fn for_server(&self) -> Lighting {
+        Lighting {
+            light_kit: self.light_kit,
+            lights: self.lights.clone(),
+            ambient: self.ambient,
+            shadows: self.shadows,
+            ..Lighting { edl: false, ssao: false, fxaa: false, tone_mapping: ToneMapping::None, exposure: 1.0, ..Default::default() }
+        }
+    }
+}

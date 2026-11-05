@@ -368,6 +368,7 @@ fn remote_layers(state: &mut State, ctx: &egui::Context, w: u32, h: u32) -> Vec<
         (groups, if s.times.is_empty() { None } else { s.current_time() })
     };
     let cam = aurafx_render::server::render_camera(&state.viewport.camera);
+    let lighting = state.viewport.settings.lighting.for_server();
     state.viewport.remote_images.retain(|h, _| groups.contains_key(h));
     let mut out = Vec::new();
     for (host, (client, targets, specs)) in groups {
@@ -375,7 +376,7 @@ fn remote_layers(state: &mut State, ctx: &egui::Context, w: u32, h: u32) -> Vec<
         for v in cam.eye.iter().chain(&cam.target).chain(&cam.up).chain([&cam.fov_y_deg, &cam.ortho_height, &cam.near, &cam.far]) {
             v.to_bits().hash(&mut hasher);
         }
-        (cam.orthographic, w, h, time.map(f64::to_bits)).hash(&mut hasher);
+        (cam.orthographic, w, h, time.map(f64::to_bits), format!("{lighting:?}")).hash(&mut hasher);
         for (id, d, ptr) in &targets {
             (id, ptr, format!("{d:?}")).hash(&mut hasher);
         }
@@ -401,8 +402,13 @@ fn remote_layers(state: &mut State, ctx: &egui::Context, w: u32, h: u32) -> Vec<
         if img.pending.is_none() && img.key != key {
             let (tx, rx) = std::sync::mpsc::channel();
             let c = ctx.clone();
-            let job =
-                aurafx_pipeline::remote::RenderJob { targets: targets.iter().map(|(id, d, _)| (*id, d.clone())).collect(), camera: cam, width: w, height: h };
+            let job = aurafx_pipeline::remote::RenderJob {
+                targets: targets.iter().map(|(id, d, _)| (*id, d.clone())).collect(),
+                camera: cam,
+                width: w,
+                height: h,
+                lighting: lighting.clone(),
+            };
             std::thread::spawn(move || {
                 let r = client.render(specs, time, job).map(|(width, height, color, depth, _ms)| aurafx_render::ImageLayer { width, height, color, depth });
                 let _ = tx.send(r);

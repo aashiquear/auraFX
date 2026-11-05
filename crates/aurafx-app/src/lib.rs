@@ -10,6 +10,7 @@ mod console;
 mod dialogs;
 mod icons;
 mod jobs_panel;
+mod lighting_ui;
 mod palette;
 mod panels;
 mod pick;

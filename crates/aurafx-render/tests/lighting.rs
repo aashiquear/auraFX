@@ -93,7 +93,7 @@ fn transparency_lighting_and_points() {
     r.render(&cam2, &[draw(5, &sphere, [0.8, 0.8, 0.8], 1.0)], &settings);
     let (_, _, plain) = r.read_pixels().unwrap();
     let depth = r.read_depth().unwrap();
-    r.render(&cam2, &[draw(5, &sphere, [0.8, 0.8, 0.8], 1.0)], &RenderSettings { edl: true, ..settings.clone() });
+    r.render(&cam2, &[draw(5, &sphere, [0.8, 0.8, 0.8], 1.0)], &RenderSettings { lighting: Lighting { edl: true, ..Default::default() }, ..settings.clone() });
     let (_, _, edl) = r.read_pixels().unwrap();
     let lum = |img: &[u8], i: usize| img[4 * i] as f64 + img[4 * i + 1] as f64 + img[4 * i + 2] as f64;
     let n = (w * h) as usize;
@@ -106,7 +106,11 @@ fn transparency_lighting_and_points() {
 
     // The light kit lights the side away from the key light (fill and head lights).
     let side = |kit: bool, r: &mut Renderer| {
-        r.render(&cam2, &[draw(5, &sphere, [0.8, 0.8, 0.8], 1.0)], &RenderSettings { light_kit: kit, ..settings.clone() });
+        r.render(
+            &cam2,
+            &[draw(5, &sphere, [0.8, 0.8, 0.8], 1.0)],
+            &RenderSettings { lighting: Lighting { light_kit: kit, ..Default::default() }, ..settings.clone() },
+        );
         let (_, _, img) = r.read_pixels().unwrap();
         // Lower left of the sphere faces away from the key light (upper right).
         lum(&img, ((h / 2 + 25) * w + w / 2 - 25) as usize)

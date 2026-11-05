@@ -30,11 +30,8 @@ pub struct Settings {
     pub disabled_plugins: Vec<PathBuf>,
     /// Threads for filters (0 = all cores). Takes effect at the next start.
     pub threads: usize,
-    /// Key, fill and head lights in the 3D views (else a single light).
-    pub light_kit: bool,
-    /// Eye-Dome Lighting in the 3D views.
-    pub eye_dome_lighting: bool,
-    pub edl_strength: f32,
+    /// Lights, shadows and screen effects of the 3D views.
+    pub lighting: aurafx_pipeline::Lighting,
 }
 
 impl Default for Settings {
@@ -56,9 +53,7 @@ impl Default for Settings {
             plugin_paths: Vec::new(),
             disabled_plugins: Vec::new(),
             threads: 0,
-            light_kit: true,
-            eye_dome_lighting: false,
-            edl_strength: 1.0,
+            lighting: Default::default(),
         }
     }
 }
@@ -124,5 +119,26 @@ impl Settings {
         self.recent_files.retain(|x| x != &p);
         self.recent_files.insert(0, p);
         self.recent_files.truncate(12);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lighting_round_trips_through_toml() {
+        let mut s = Settings::default();
+        s.lighting.lights = aurafx_pipeline::Light::kit();
+        s.lighting.lights[1].camera_relative = false;
+        s.lighting.ambient = Some(0.1);
+        s.lighting.shadows = true;
+        s.lighting.tone_mapping = aurafx_pipeline::ToneMapping::Aces;
+        let text = toml::to_string_pretty(&s).unwrap();
+        let back: Settings = toml::from_str(&text).unwrap();
+        assert_eq!(back.lighting, s.lighting);
+        // Older files without a [lighting] table get the defaults.
+        let old: Settings = toml::from_str("ui_scale = 1.0\n").unwrap();
+        assert_eq!(old.lighting, aurafx_pipeline::Lighting::default());
     }
 }

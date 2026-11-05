@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 
 /// One node of the recipe the client sends, keyed by the client's node id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -146,6 +146,8 @@ pub struct RenderJob {
     pub camera: RenderCamera,
     pub width: u32,
     pub height: u32,
+    /// Lights and shadows of the view (`Lighting::for_server`).
+    pub lighting: crate::Lighting,
 }
 
 /// Rendering on the server, supplied by the server program (the pipeline crate has no GPU

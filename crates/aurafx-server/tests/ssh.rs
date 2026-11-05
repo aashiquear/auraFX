@@ -67,8 +67,13 @@ fn ssh_server_matches_local() {
     cam.update_clip(&bounds);
     let (w, h) = (640u32, 480u32);
     let display = s.nodes[&c].display.clone();
-    let job =
-        aurafx_pipeline::remote::RenderJob { targets: vec![(c, display.clone())], camera: aurafx_render::server::render_camera(&cam), width: w, height: h };
+    let job = aurafx_pipeline::remote::RenderJob {
+        targets: vec![(c, display.clone())],
+        camera: aurafx_render::server::render_camera(&cam),
+        width: w,
+        height: h,
+        lighting: Default::default(),
+    };
     let t = std::time::Instant::now();
     let (_, _, color, depth, ms) = s.remote_clients[&host.name].render(s.remote_specs(c), None, job).unwrap();
     let total = t.elapsed().as_secs_f64() * 1e3;

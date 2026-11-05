@@ -40,6 +40,10 @@ correctly. While you move the camera the last picture stays up until the next on
 | this computer | always drawn here (the surface comes over, however big) |
 | the server | always drawn there; only pictures come over (translucent and volume-rendered objects are still drawn here) |
 
+Server pictures use the view's lights and shadows; Eye-Dome Lighting, ambient occlusion, FXAA
+and tone mapping are applied here to the whole picture. Shadows are worked out on each machine,
+so server-drawn objects don't cast shadows on local ones (or the reverse).
+
 From Python: `node.set(draw_on="server")`. Picking, rulers and selections need the geometry
 here, so they don't work on server-drawn objects; switch to "this computer" for those. A server
 without a GPU (or started with `--no-gpu`) sends surfaces instead. `aurafx-server --version

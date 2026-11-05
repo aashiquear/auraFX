@@ -46,7 +46,7 @@ fn server_drawn_objects_match_local_drawing() {
     cam.update_clip(&bounds);
     let client = s.remote_clients[&aurafx_pipeline::remote::client_key(&host)].clone();
     assert!(client.info.lock().as_ref().unwrap().gpu.is_some());
-    let job = RenderJob { targets: vec![(c, display.clone())], camera: render_camera(&cam), width: w, height: h };
+    let job = RenderJob { targets: vec![(c, display.clone())], camera: render_camera(&cam), width: w, height: h, lighting: Default::default() };
     let (iw, ih, color, depth, ms) = client.render(s.remote_specs(c), None, job).unwrap();
     eprintln!("server drew {iw}x{ih} in {ms:.1} ms");
     assert_eq!((iw, ih, color.len(), depth.len()), (w, h, (4 * w * h) as usize, (w * h) as usize));
@@ -72,6 +72,32 @@ fn server_drawn_objects_match_local_drawing() {
         .count();
     eprintln!("{differ} of {covered} covered pixels differ");
     assert!(differ * 100 < covered, "server and local pictures differ in {differ} pixels");
+
+    // The view's lights and shadows go with the request: a red light fixed in the scene.
+    let lighting = aurafx_pipeline::Lighting {
+        lights: vec![aurafx_pipeline::Light { color: [1.0, 0.3, 0.3], camera_relative: false, direction: [0.3, -0.5, 1.0], ..Default::default() }],
+        shadows: true,
+        ..Default::default()
+    };
+    let job = RenderJob { targets: vec![(c, display.clone())], camera: render_camera(&cam), width: w, height: h, lighting: lighting.clone() };
+    let (_, _, red, _, _) = client.render(s.remote_specs(c), None, job).unwrap();
+    here.render(
+        &cam,
+        &[NodeDraw { id: 1, mesh: Arc::new(tessellate::tessellate(&out, &display)), display: display.clone(), overlay: false }],
+        &RenderSettings { lighting, ..Default::default() },
+    );
+    let (_, _, want_red) = here.read_pixels().unwrap();
+    let differ = red
+        .chunks(4)
+        .zip(want_red.chunks(4))
+        .zip(&depth)
+        .filter(|((a, b), d)| **d < 1.0 && a.iter().zip(b.iter()).any(|(p, q)| (*p as i32 - *q as i32).abs() > 3))
+        .count();
+    assert!(differ * 100 < covered, "server lighting differs in {differ} pixels");
+    assert!(
+        red.chunks(4).zip(&color.chunks(4).collect::<Vec<_>>()).any(|(a, b)| a[0] as i32 - a[1] as i32 > b[0] as i32 - b[1] as i32 + 30),
+        "the red light reached the server"
+    );
 
     // Composited into a local scene it looks like the local drawing.
     let mut view = headless(w, h).unwrap();
@@ -125,7 +151,7 @@ fn parallel_server_composites_pieces_by_depth() {
     cam.set_view([1.0, -1.0, 0.5], [0.0, 0.0, 1.0], &bounds);
     cam.update_clip(&bounds);
     let display = s.nodes[&c].display.clone();
-    let job = RenderJob { targets: vec![(c, display.clone())], camera: render_camera(&cam), width: w, height: h };
+    let job = RenderJob { targets: vec![(c, display.clone())], camera: render_camera(&cam), width: w, height: h, lighting: Default::default() };
     let (_, _, color, depth, _) = s.remote_clients[&aurafx_pipeline::remote::client_key(&host)].render(s.remote_specs(c), None, job).unwrap();
 
     let mut local = Session::new();

@@ -881,18 +881,34 @@ fn time_label(on: bool) {
     s.revision += 1;
 }
 
-/// 3D view lighting: `afx.lighting(edl=True, edl_strength=1.0, light_kit=True)`.
+/// 3D view lighting and screen effects, e.g. `afx.lighting(shadows=True, ssao=True)`.
+///
+/// Options: light_kit, lights (list of dicts: direction, color, intensity, camera_relative,
+/// shadows; [] for the light kit), ambient, shadows, edl, edl_strength, ssao, ssao_strength,
+/// ssao_radius, fxaa, tone_mapping ("none", "reinhard", "aces"), exposure. `afx.lighting()`
+/// with no options returns the defaults.
 #[pyfunction]
-#[pyo3(signature = (edl=None, edl_strength=None, light_kit=None))]
-fn lighting(edl: Option<bool>, edl_strength: Option<f32>, light_kit: Option<bool>) {
-    if let Some(on) = edl {
-        app_command(format!("lighting edl {} {}", if on { "on" } else { "off" }, edl_strength.map(|v| v.to_string()).unwrap_or_default()));
-    } else if let Some(v) = edl_strength {
-        app_command(format!("lighting edl on {v}"));
+#[pyo3(signature = (**options))]
+fn lighting(py: Python<'_>, options: Option<&Bound<'_, PyDict>>) -> PyResult<Py<PyAny>> {
+    let defaults = serde_json::to_value(aurafx_pipeline::Lighting::default()).map_err(err)?;
+    let Some(options) = options.filter(|o| !o.is_empty()) else {
+        return Ok(py.import("json")?.call_method1("loads", (defaults.to_string(),))?.unbind());
+    };
+    let patch = to_json(options.as_any())?;
+    // Check names and types here, so mistakes raise in Python.
+    let mut v = defaults.clone();
+    for (k, val) in patch.as_object().into_iter().flatten() {
+        let Some(slot) = v.as_object_mut().and_then(|o| o.get_mut(k)) else {
+            return Err(PyValueError::new_err(format!(
+                "unknown lighting option {k:?}; options: {}",
+                defaults.as_object().unwrap().keys().cloned().collect::<Vec<_>>().join(", ")
+            )));
+        };
+        *slot = val.clone();
     }
-    if let Some(on) = light_kit {
-        app_command(format!("lighting kit {}", if on { "on" } else { "off" }));
-    }
+    serde_json::from_value::<aurafx_pipeline::Lighting>(v).map_err(|e| PyValueError::new_err(format!("lighting: {e}")))?;
+    app_command(format!("lighting {patch}"));
+    Ok(py.None())
 }
 
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...

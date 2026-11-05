@@ -893,13 +893,8 @@ impl State {
                 ui.separator();
                 ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
                 ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
-                ui.checkbox(&mut self.settings.light_kit, "Light kit").on_hover_text("Key, fill and head lights (off: one light)");
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.settings.eye_dome_lighting, "Eye-Dome Lighting")
-                        .on_hover_text("Shade by depth differences: outlines and depth cues for point clouds, particles and dense meshes");
-                    if self.settings.eye_dome_lighting {
-                        ui.add(egui::Slider::new(&mut self.settings.edl_strength, 0.1..=4.0).logarithmic(true).show_value(false)).on_hover_text("Strength");
-                    }
+                ui.menu_button(format!("{} Lighting", crate::icons::CIRCLE_HALF), |ui| {
+                    crate::lighting_ui::lighting_ui(ui, &mut self.settings.lighting);
                 });
                 if ui.button(format!("{} Color Map Editor…", crate::icons::PENCIL_SIMPLE)).clicked() {
                     ui.close();
@@ -1403,13 +1398,13 @@ impl eframe::App for AuraApp {
         let st = &mut self.state;
         st.viewport.frame_begin(ctx, frame);
         st.viewport.settings.background = st.settings.background_for(ctx.theme() == egui::Theme::Dark);
-        st.viewport.settings.light_kit = st.settings.light_kit;
-        st.viewport.settings.edl = st.settings.eye_dome_lighting;
-        st.viewport.settings.edl_strength = st.settings.edl_strength;
+        if st.viewport.settings.lighting != st.settings.lighting {
+            st.viewport.settings.lighting = st.settings.lighting.clone();
+        }
         for v in st.views.values_mut() {
-            v.settings.light_kit = st.settings.light_kit;
-            v.settings.edl = st.settings.eye_dome_lighting;
-            v.settings.edl_strength = st.settings.edl_strength;
+            if v.settings.lighting != st.settings.lighting {
+                v.settings.lighting = st.settings.lighting.clone();
+            }
         }
         {
             let cam = st.camera_state();
@@ -1514,19 +1509,9 @@ impl eframe::App for AuraApp {
                     self.state.plugins.open = true;
                 }
                 "lighting" => {
-                    // "lighting edl on|off [strength]", "lighting kit on|off"
-                    let mut it = arg.split_whitespace();
-                    let (what, val) = (it.next().unwrap_or(""), it.next().unwrap_or("on"));
-                    let on = !matches!(val, "off" | "false" | "0");
-                    match what {
-                        "edl" => {
-                            self.state.settings.eye_dome_lighting = on;
-                            if let Some(v) = it.next().and_then(|v| v.parse::<f32>().ok()) {
-                                self.state.settings.edl_strength = v;
-                            }
-                        }
-                        "kit" => self.state.settings.light_kit = on,
-                        _ => {}
+                    // A JSON object of lighting options (afx.lighting).
+                    if let Err(e) = crate::lighting_ui::apply_json(&mut self.state.settings.lighting, arg) {
+                        tracing::warn!("lighting: {e:#}");
                     }
                 }
                 "show" if arg.eq_ignore_ascii_case("server") || arg.eq_ignore_ascii_case("open on server") => {

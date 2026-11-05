@@ -156,7 +156,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [x] Scalar coloring with color maps (ColorBrewer, viridis family, ParaView presets, imported `.json/.xml`), range modes (auto, custom, time-wide), log scale, discrete, NaN/above/below colors, opacity transfer functions, per-component or magnitude, categorical.
 - [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture.
 - [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
-- [~] Lighting (light kit, Eye-Dome Lighting, MSAA and order-independent transparency done): key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
+- [x] Lighting (iterations 14–15): light kit, custom lights (camera-relative or fixed, colored), shadows, screen-space ambient occlusion, Eye-Dome Lighting, ACES/Reinhard tone mapping and exposure, MSAA + FXAA, order-independent transparency. Not done: light widgets in the 3D view, TAA. Original list: key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
 - [ ] Surface LIC, ray tracing (OSPRay/Embree- or Rust path tracer, optional), environment maps/skyboxes, materials editor.
 - [~] Axes grid (data axes grid with ticks and labels, orientation axes, scalar bars and text done; custom bounds and units todo): Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
 - [~] Widgets (implicit plane and ruler done): implicit plane, box, sphere, cylinder, cone, annulus, frustum, line, polyline, spline, handle/point, distance, protractor, ruler, slider, light, coordinate frame, four-lines, contour, display-sized plane, text, logo, equalizer, progress bar.
@@ -461,8 +461,21 @@ The frame is now an opaque pass, EDL, volumes, transparency accumulation and com
 overlays, then one multisample resolve. A test-only crash on exit was also fixed: in-process
 GPU servers are now shut down before the test process ends.
 
-Known gaps worth doing next: SSAO, shadows, FXAA/tone mapping and custom lights (P4); Surface
-LIC and ray tracing (P4); MPI launchers (srun) and ghost cells for parallel servers;
+Done in iteration 15 (the rest of the lighting list):
+- **Custom lights** (View › Lighting › Custom lights, `afx.lighting(lights=[...])`): any number
+  of colored directional lights (up to 8 drawn), each following the camera or fixed in the
+  scene, set by azimuth/elevation; ambient level.
+- **Shadows** from the key light (or the first custom light with shadows ticked): a 2048² shadow
+  map fitted to the visible objects, filtered over 3×3 texels.
+- **Ambient occlusion** (screen-space, from depth alone): 16 samples per pixel in a 4×4 pattern,
+  then a depth-aware blur, so contact areas and creases darken without grain or halos.
+- **FXAA, tone mapping (Reinhard, ACES filmic) and exposure** in a final pass.
+- Lights and shadows go with server render requests (protocol 3), so server-drawn pictures are
+  lit like local objects; EDL, ambient occlusion, FXAA and tone mapping run here over the
+  composited picture. Shadows are per machine: server-drawn objects don't cast shadows on local
+  ones.
+
+Known gaps worth doing next: Surface LIC and ray tracing (P4); light widgets in the 3D view; MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

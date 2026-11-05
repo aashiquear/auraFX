@@ -80,7 +80,7 @@ impl RenderHook for ServerRenderer {
         }
         let live: Vec<NodeId> = outputs.iter().map(|o| o.0).collect();
         self.meshes.retain(|id, _| live.contains(id));
-        self.renderer.render(&camera_of(&job.camera), &draws, &RenderSettings::default());
+        self.renderer.render(&camera_of(&job.camera), &draws, &RenderSettings { lighting: job.lighting.for_server(), ..Default::default() });
         let (_, _, color) = self.renderer.read_pixels()?;
         let depth = self.renderer.read_depth()?;
         Ok((color, depth))

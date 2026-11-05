@@ -6,13 +6,17 @@ struct NodeUniform {
     color: vec4<f32>,          // solid color + opacity
     range: vec4<f32>,          // lo, hi, log_scale, use_scalar
     flags: vec4<f32>,          // lighting, point_size_px, spheres, 0
-    fill_dir: vec4<f32>,       // fill light direction (light kit)
-    lights: vec4<f32>,         // key, fill, head intensities, ambient
+    shadow_vp: mat4x4<f32>,    // light view-projection (node-origin relative)
+    light_info: vec4<f32>,     // light count, ambient, shadows on, shadow bias
+    light_dirs: array<vec4<f32>, 8>,   // world direction towards the light; w = casts shadows
+    light_colors: array<vec4<f32>, 8>, // color * intensity
 };
 
 @group(0) @binding(0) var<uniform> node: NodeUniform;
 @group(0) @binding(1) var lut: texture_1d<f32>;
 @group(0) @binding(2) var lut_sampler: sampler;
+@group(0) @binding(3) var shadow_map: texture_depth_2d;
+@group(0) @binding(4) var shadow_sampler: sampler_comparison;
 
 struct VertexIn {
     @location(0) pos: vec3<f32>,
@@ -25,7 +29,28 @@ struct VertexOut {
     @location(0) world: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) scalar: f32,
+    @location(3) shadow: vec4<f32>,
 };
+
+/// Fraction of light reaching a point (3x3 percentage-closer filtering of the shadow map).
+fn lit(shadow: vec4<f32>) -> f32 {
+    if (node.light_info.z < 0.5 || shadow.w <= 0.0) {
+        return 1.0;
+    }
+    let ndc = shadow.xyz / shadow.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0) {
+        return 1.0;
+    }
+    let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            sum = sum + textureSampleCompareLevel(shadow_map, shadow_sampler, uv + vec2<f32>(f32(x), f32(y)) * texel, ndc.z - node.light_info.w);
+        }
+    }
+    return sum / 9.0;
+}
 
 fn scalar_color(s: f32) -> vec3<f32> {
     if (s != s) { // NaN
@@ -53,7 +78,7 @@ fn base_color(s: f32) -> vec3<f32> {
     return node.color.rgb;
 }
 
-fn shade(color: vec3<f32>, n_in: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+fn shade(color: vec3<f32>, n_in: vec3<f32>, world: vec3<f32>, shadow: vec4<f32>) -> vec3<f32> {
     if (node.flags.x < 0.5) {
         return color;
     }
@@ -62,15 +87,21 @@ fn shade(color: vec3<f32>, n_in: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     if (dot(n, view_dir) < 0.0) {
         n = -n;
     }
-    // Key light (specular too), fill light from the other side, headlight along the view.
-    let l = normalize(node.light_dir.xyz);
-    let key = max(dot(n, l), 0.0);
-    let h = normalize(l + view_dir);
-    let spec = pow(max(dot(n, h), 0.0), 60.0) * 0.08;
-    let fill = max(dot(n, normalize(node.fill_dir.xyz)), 0.0);
-    let head = max(dot(n, view_dir), 0.0);
-    let light = node.lights.w + node.lights.x * key + node.lights.y * fill + node.lights.z * head;
-    return color * light + vec3<f32>(spec * node.lights.x / 0.7);
+    var light = vec3<f32>(node.light_info.y);
+    var spec = vec3<f32>(0.0);
+    let count = u32(node.light_info.x);
+    for (var k = 0u; k < count; k = k + 1u) {
+        let l = normalize(node.light_dirs[k].xyz);
+        var vis = 1.0;
+        if (node.light_dirs[k].w > 0.5) {
+            vis = lit(shadow);
+        }
+        let c = node.light_colors[k].rgb;
+        light = light + c * max(dot(n, l), 0.0) * vis;
+        let h = normalize(l + view_dir);
+        spec = spec + c * pow(max(dot(n, h), 0.0), 60.0) * 0.12 * vis;
+    }
+    return color * light + spec;
 }
 
 // ---- weighted blended order-independent transparency (McGuire & Bavoil 2013) ----
@@ -94,12 +125,19 @@ fn vs_mesh(in: VertexIn) -> VertexOut {
     out.world = in.pos;
     out.normal = in.normal;
     out.scalar = in.scalar;
+    out.shadow = node.shadow_vp * vec4<f32>(in.pos, 1.0);
     return out;
+}
+
+// Depth from the shadow-casting light.
+@vertex
+fn vs_shadow(in: VertexIn) -> @builtin(position) vec4<f32> {
+    return node.shadow_vp * vec4<f32>(in.pos, 1.0);
 }
 
 @fragment
 fn fs_mesh(in: VertexOut) -> @location(0) vec4<f32> {
-    let c = shade(base_color(in.scalar), in.normal, in.world);
+    let c = shade(base_color(in.scalar), in.normal, in.world, in.shadow);
     return vec4<f32>(c, node.color.a);
 }
 
@@ -110,7 +148,7 @@ fn fs_line(in: VertexOut) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_mesh_oit(in: VertexOut) -> OitOut {
-    return oit(shade(base_color(in.scalar), in.normal, in.world), node.color.a, in.clip.z);
+    return oit(shade(base_color(in.scalar), in.normal, in.world, in.shadow), node.color.a, in.clip.z);
 }
 
 @fragment

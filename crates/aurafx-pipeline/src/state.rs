@@ -298,6 +298,15 @@ impl Session {
                     }
                 }
             }
+            // A reader's parameters are the options its file offers.
+            if let (KindSnap::Reader(file), Some(obj)) = (&kind, n.get("params").and_then(|p| p.as_object())) {
+                let specs = crate::session::reader_param_specs(file);
+                for (k, v) in obj {
+                    if let Some(spec) = specs.iter().find(|s| &s.key == k) {
+                        params.set(k, aurafx_filters::param_from_json(spec, v));
+                    }
+                }
+            }
             snap.nodes.push(NodeSnap {
                 id,
                 name: n.get("name").and_then(|v| v.as_str()).unwrap_or("node").to_string(),

@@ -149,7 +149,25 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_f64().unwrap_or(4.0) as f32;
                 s.set_display(id, |d| d.point_size = v);
             }
-            _ => s.set_param_json(id, &key, &val),
+            _ => {
+                // Readers take only the options their file offers.
+                let reader = s.nodes.get(&id).and_then(|n| match &n.kind {
+                    aurafx_pipeline::NodeKind::Reader { path, .. } => Some(path.clone()),
+                    _ => None,
+                });
+                if let Some(path) = reader {
+                    let specs = aurafx_pipeline::reader_param_specs(&path);
+                    if !specs.iter().any(|p| p.key == key) {
+                        let keys: Vec<&str> = specs.iter().map(|p| p.key.as_str()).collect();
+                        return Err(PyValueError::new_err(if keys.is_empty() {
+                            format!("{key}: this file's reader has no options")
+                        } else {
+                            format!("{key}: not an option of this reader (options: {})", keys.join(", "))
+                        }));
+                    }
+                }
+                s.set_param_json(id, &key, &val)
+            }
         }
     }
     Ok(())

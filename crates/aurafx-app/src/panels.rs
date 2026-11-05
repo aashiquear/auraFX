@@ -589,6 +589,53 @@ fn remote_text(host: &str, st: Option<&aurafx_pipeline::RemoteStatus>) -> String
     }
 }
 
+/// Settings the reader of a file offers (MPAS vertical level, layout...), applied by
+/// reading the file again.
+fn reader_options_ui(state: &mut State, ui: &mut egui::Ui, id: aurafx_pipeline::NodeId, params: &aurafx_filters::Params) {
+    let path = {
+        let s = state.session.lock();
+        s.nodes.get(&id).and_then(|n| match &n.kind {
+            aurafx_pipeline::NodeKind::Reader { path, .. } if !path.to_string_lossy().starts_with("memory://") => Some(path.clone()),
+            _ => None,
+        })
+    };
+    let Some(path) = path else { return };
+    let key = ui.make_persistent_id(("reader_options", path.clone()));
+    let specs: Vec<aurafx_filters::ParamSpec> = match ui.data(|d| d.get_temp(key)) {
+        Some(v) => v,
+        None => {
+            let v = aurafx_pipeline::reader_param_specs(&path);
+            ui.data_mut(|d| d.insert_temp(key, v.clone()));
+            v
+        }
+    };
+    if specs.is_empty() {
+        return;
+    }
+    egui::CollapsingHeader::new(RichText::new("Reader options").strong())
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("reader_options").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+                for spec in &specs {
+                    let label = ui.label(&spec.label);
+                    if !spec.help.is_empty() {
+                        label.on_hover_text(&spec.help);
+                    }
+                    let value = params.get(&spec.key).cloned().unwrap_or(spec.default.clone());
+                    if let Some(nv) = param_widget(state, ui, id, spec, &value, &[]) {
+                        state.session.lock().set_param(id, &spec.key, nv);
+                    }
+                    ui.end_row();
+                }
+            });
+            if !params.0.is_empty() && ui.button("Reset to defaults").clicked() {
+                state.session.lock().set_params(id, aurafx_filters::Params::default());
+            }
+        })
+        .header_response
+        .on_hover_text("The file is read again when an option changes.");
+}
+
 pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
     let snapshot = {
         let s = state.session.lock();
@@ -719,6 +766,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
         if let Some(m) = def.as_ref().and_then(|d| d.multi) {
             inputs_ui(state, ui, id, m);
         }
+        reader_options_ui(state, ui, id, &params);
         if let Some(def) = &def {
             egui::CollapsingHeader::new(RichText::new("Parameters").strong())
                 .default_open(true)

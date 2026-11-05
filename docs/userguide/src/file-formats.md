@@ -16,7 +16,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | CGNS | `.cgns` | HDF5 and ADF storage; structured and unstructured zones, MIXED and NGON/NFACE sections, solutions, time steps |
 | Xdmf 2/3 | `.xmf .xdmf` | inline, HDF5 and raw binary data; collections; `xi:include` and XPath references (FEniCS/Dolfinx); HyperSlab and JOIN items |
 | NetCDF (CF) | `.nc .nc4 .cdf` | classic and NetCDF-4; lon/lat grids on a sphere with cell bounds, rectilinear otherwise; time steps; packing; fill values become NaN (grey) |
-| MPAS | `.nc` (found from the file's contents) | MPAS ocean, atmosphere and land-ice output: cell centers joined into triangles, top vertical level, time steps; see below |
+| MPAS | `.nc` (found from the file's contents) | MPAS ocean, atmosphere and land-ice output: cell centers joined into triangles, any vertical level or all of them, sphere or lon/lat map, time steps; see below |
 | Tecplot | `.dat .plt .tec .tp` | ASCII (ordered and FE zones, BLOCK/POINT, cell-centered variables) and binary `.plt`; `.szplt` is not read |
 | PLOT3D | `.xyz .x .p3d .bin` + `.q` | layout detected from the file (Fortran/C binary, byte order, precision, multi-grid, 2-D/3-D, IBLANK), ASCII |
 | LAMMPS | `.dump .lammpstrj .atom` (+`.gz`), `.data .lmp` | multi-frame dumps with any columns, triclinic boxes; data files with bonds |
@@ -42,8 +42,8 @@ file is not.
 
 MPAS output (from the ocean, atmosphere or land-ice models of the Model for Prediction
 Across Scales) is NetCDF too. When a `.nc` file has MPAS's mesh variables (`xCell`,
-`cellsOnVertex`), auraFX reads it as MPAS instead of as a CF grid. It opens the way
-ParaView's MPAS reader does by default:
+`cellsOnVertex`), auraFX reads it as MPAS instead of as a CF grid, the way ParaView's MPAS
+reader does:
 
 - Each MPAS cell center becomes a point, and the cells around each MPAS vertex are joined
   into a triangle (or a quad, on quad meshes). On a sphere, the points lie at the planet's
@@ -51,16 +51,50 @@ ParaView's MPAS reader does by default:
 - Variables on cells (`temperature`, `ssh`…) become point data, and variables on vertices
   (`relativeVorticity`…) become cell data. Time steps are numbered 0, 1, 2…, and the date
   of each step (`xtime`) is kept with the data.
-- For variables with more dimensions than time and position, such as vertical levels, the
-  first index of each is shown (the top level).
+- For other dimensions than time and position, the first index is used, except the vertical
+  levels, which you choose with the reader options below.
 
-Two things differ from ParaView. ParaView adds a point at the planet's center. It also
-collapses onto that point the triangles at a mesh boundary and, when the file has
-`maxLevelCell`, the triangles that touch land. auraFX leaves those triangles out, so land
-shows as holes. Levels below the top, the stacked multilayer view and the flat lon/lat map
-are not offered yet.
+#### Reader options
+
+Some readers have settings for the file they read. They appear under **Properties ›
+Reader options** when the file is selected, and from Python they are set like any other
+property, with `node.set(...)`. Changing one reads the file again; the choice is saved with
+the state file. **Reset to defaults** goes back to the file as first opened.
+
+An MPAS file offers:
+
+| Option | Python | What it does |
+|---|---|---|
+| Vertical level | `vertical_level=2` | which level of 3-D variables is shown (0 is the top of the ocean, the bottom of the atmosphere) |
+| All levels (multilayer) | `multilayer=True` | stacks every level: each triangle becomes a column of wedges, and points carry each level's values |
+| Layer thickness | `layer_thickness=10000` | the distance between levels in the multilayer view, in meters on the sphere and degrees on the map; 0 picks one so that the whole stack is easy to see |
+| Layers go up (atmosphere) | `atmosphere=True` | stacks levels outwards (or upwards on the map) instead of downwards |
+| Layout | `layout="Lat/Lon map"` | `"Sphere"` (default) or a flat map with longitude and latitude in degrees |
+| Map center longitude | `center_lon=0` | the longitude in the middle of the map (180 by default) |
+
+```python
+ocean = afx.load("output.nc")
+ocean.set(vertical_level=10)                         # the 11th level down
+ocean.set(layout="Lat/Lon map", multilayer=True)     # all levels, as a flat 3-D map
+```
+
+On the map, cells that cross its left or right edge are drawn on both sides, so the map
+reaches a little beyond 360°, as in ParaView.
+
+Some things differ from ParaView:
+
+- ParaView adds a point at the planet's center. It collapses onto that point the triangles at
+  a mesh boundary and, when the file has `maxLevelCell`, the triangles that touch land. auraFX
+  leaves those triangles out, so land shows as holes. In the multilayer view, the levels
+  below the sea floor are left out too.
+- The default layer thickness of 0 picks a visible spacing; ParaView uses 10000 everywhere.
+- ParaView 6.1.1 fills point values in the multilayer view with garbage numbers (around
+  10<sup>35</sup>); auraFX gives each point its level's value.
+- Reader options do not reach files opened on another machine through a server yet.
 
 ![MPAS ocean output: temperature at the top level on the sphere, with land left out](images/mpas_ocean.png)
+
+![The same file as a lon/lat map with all four levels stacked; the reader options are under Properties](images/mpas_options.png)
 
 ### GIS rasters
 

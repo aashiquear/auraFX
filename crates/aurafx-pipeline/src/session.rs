@@ -31,7 +31,7 @@ enum Plan {
     /// Does not change with time.
     Fixed(Arc<DataSet>),
     /// A reader with time steps; `current` is the step it already holds.
-    Series { series: TimeSeries, current: Option<(usize, Arc<DataSet>)>, piece: Option<(usize, usize)> },
+    Series { series: TimeSeries, current: Option<(usize, Arc<DataSet>)>, piece: Option<(usize, usize)>, options: aurafx_io::ReaderOptions },
     /// An ordinary filter (the first input is the pipeline input).
     Run { def: Arc<FilterDef>, params: Params, inputs: Vec<Plan> },
     /// A temporal filter further upstream.
@@ -54,7 +54,8 @@ impl Plan {
         use std::hash::Hash;
         match self {
             Plan::Fixed(d) => (Arc::as_ptr(d) as usize).hash(h),
-            Plan::Series { series, .. } => {
+            Plan::Series { series, options, .. } => {
+                options.hash(h);
                 for (t, s) in series.times.iter().zip(&series.steps) {
                     t.to_bits().hash(h);
                     match s {
@@ -95,12 +96,12 @@ impl Plan {
         }
         let out = match self {
             Plan::Fixed(d) => return Ok(d.clone()),
-            Plan::Series { series, current, piece } => {
+            Plan::Series { series, current, piece, options } => {
                 let eps = 1e-12 * (1.0 + t.abs());
                 let k = series.times.iter().rposition(|&x| x <= t + eps).unwrap_or(0);
                 match current {
                     Some((i, d)) if *i == k => d.clone(),
-                    _ => aurafx_io::load_step_piece(series.steps.get(k).ok_or_else(|| anyhow!("time step {k} missing"))?, *piece)?,
+                    _ => aurafx_io::with_options(options, || aurafx_io::load_step_piece(series.steps.get(k).ok_or_else(|| anyhow!("time step {k} missing"))?, *piece))?,
                 }
             }
             Plan::Run { def, params, inputs } => {
@@ -210,6 +211,14 @@ pub struct RemoteStatus {
 }
 
 impl Node {
+    /// A reader whose options changed must read its current step again.
+    fn forget_reader_step(&mut self) {
+        if matches!(self.kind, NodeKind::Reader { .. }) {
+            self.output_time_index = None;
+        }
+    }
+
+
     pub fn new(id: NodeId, name: String, kind: NodeKind, params: Params, input: Option<NodeId>) -> Self {
         Node {
             id,
@@ -325,6 +334,8 @@ pub struct WorkItem {
 enum WorkKind {
     LoadStep {
         piece: Option<(usize, usize)>,
+        /// The reader node's options.
+        options: aurafx_io::ReaderOptions,
         step: aurafx_data::TimeStepRef,
         index: usize,
     },
@@ -359,7 +370,7 @@ impl WorkItem {
     pub fn execute(&self) -> Result<Arc<DataSet>> {
         match &self.kind {
             WorkKind::Static(ds) => Ok(ds.clone()),
-            WorkKind::LoadStep { step, piece, .. } => aurafx_io::load_step_piece(step, *piece),
+            WorkKind::LoadStep { step, piece, options, .. } => aurafx_io::with_options(options, || aurafx_io::load_step_piece(step, *piece)),
             WorkKind::Run { def, params, input, extra } if def.multi.is_some() => {
                 let all: Vec<&DataSet> = input.iter().chain(extra.iter()).map(|d| &**d).collect();
                 def.run_multi(&all, params).map(Arc::new)
@@ -869,6 +880,7 @@ impl Session {
         if let Some(n) = self.nodes.get_mut(&id) {
             if n.params.get(key) != Some(&value) {
                 n.params.set(key, value);
+                n.forget_reader_step();
                 self.mark_dirty(id);
             }
         }
@@ -880,6 +892,7 @@ impl Session {
         }
         if let Some(n) = self.nodes.get_mut(&id) {
             n.params.set_json(key, value);
+            n.forget_reader_step();
             self.mark_dirty(id);
         }
     }
@@ -903,6 +916,7 @@ impl Session {
         if let Some(n) = self.nodes.get_mut(&id) {
             if n.params != params {
                 n.params = params;
+                n.forget_reader_step();
                 self.mark_dirty(id);
             }
         }
@@ -1149,7 +1163,7 @@ impl Session {
         }
         Ok(match &n.kind {
             NodeKind::Reader { loaded: Loaded::Series(s), .. } => {
-                Plan::Series { series: s.clone(), current: n.output_time_index.zip(n.output.clone()), piece: self.piece }
+                Plan::Series { series: s.clone(), current: n.output_time_index.zip(n.output.clone()), piece: self.piece, options: reader_options_of(&n.params) }
             }
             NodeKind::Reader { .. } | NodeKind::Source { .. } | NodeKind::Remote { .. } => Plan::Fixed(data()?),
             NodeKind::Filter { def } if def.temporal.is_some() => Plan::Temporal {
@@ -1264,6 +1278,13 @@ impl Session {
                 continue;
             }
             let kind = match &n.kind {
+                // A reader with options set reads its file again with them.
+                NodeKind::Reader { path, loaded: Loaded::Static(_) } if !n.params.0.is_empty() => WorkKind::LoadStep {
+                    step: aurafx_data::TimeStepRef::File(path.clone()),
+                    index: 0,
+                    piece: self.piece,
+                    options: reader_options_of(&n.params),
+                },
                 NodeKind::Reader { loaded: Loaded::Static(ds), .. } => WorkKind::Static(ds.clone()),
                 NodeKind::Reader { loaded: Loaded::Series(s), .. } => {
                     let index = self.step_for(s);
@@ -1276,7 +1297,7 @@ impl Session {
                         self.touch();
                         continue;
                     }
-                    WorkKind::LoadStep { step: s.steps[index].clone(), index, piece: self.piece }
+                    WorkKind::LoadStep { step: s.steps[index].clone(), index, piece: self.piece, options: reader_options_of(&n.params) }
                 }
                 NodeKind::Source { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: None, extra: Vec::new() },
                 NodeKind::Remote { .. } => continue,
@@ -1785,4 +1806,41 @@ pub fn stat_of(ds: &DataSet, array: &str, stat: &str) -> Option<f64> {
         "value" | "first" => vals[0],
         _ => vals.iter().sum::<f64>() / vals.len() as f64,
     })
+}
+
+/// A reader node's parameters as reader options (values as text).
+pub fn reader_options_of(params: &Params) -> aurafx_io::ReaderOptions {
+    use aurafx_filters::ParamValue as V;
+    params
+        .0
+        .iter()
+        .map(|(k, v)| {
+            let t = match v {
+                V::Bool(b) => b.to_string(),
+                V::Int(i) => i.to_string(),
+                V::Float(f) => f.to_string(),
+                V::Str(s) => s.clone(),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            };
+            (k.clone(), t)
+        })
+        .collect()
+}
+
+/// The options a file's reader offers, as parameter specs (for the Properties panel and
+/// `node.set(...)` from Python).
+pub fn reader_param_specs(path: &Path) -> Vec<aurafx_filters::ParamSpec> {
+    use aurafx_filters::{ParamKind as K, ParamSpec, ParamValue as V};
+    aurafx_io::reader_options(path)
+        .into_iter()
+        .map(|o| {
+            let (kind, default) = match &o.kind {
+                aurafx_io::ReaderOptionKind::Int { min, max } => (K::Int { min: *min, max: *max }, V::Int(o.default.parse().unwrap_or(0))),
+                aurafx_io::ReaderOptionKind::Float { min, max } => (K::Float { min: *min, max: *max, log: false }, V::Float(o.default.parse().unwrap_or(0.0))),
+                aurafx_io::ReaderOptionKind::Bool => (K::Bool, V::Bool(o.default == "true")),
+                aurafx_io::ReaderOptionKind::Choice(c) => (K::Choice(c.clone()), V::Str(o.default.clone())),
+            };
+            ParamSpec::new(&o.key, &o.label, kind, default).help(&o.help)
+        })
+        .collect()
 }

@@ -76,7 +76,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25: dual grid, top level; levels/multilayer/lon-lat projection todo); GeoTIFF and Esri ASCII grid rasters (iteration 26); CAM/POP, other GDAL rasters, GDAL vectors, SEG-Y todo.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); GeoTIFF and Esri ASCII grid rasters (iteration 26); CAM/POP, other GDAL rasters, GDAL vectors, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
@@ -672,7 +672,19 @@ ParaView. The `tiff` crate reads only the first plane of band-interleaved images
 put together chunk by chunk. ParaView's GDAL build has no ASCII grid driver; that file is
 checked against the GeoTIFF it was written from.
 
-Known gaps worth doing next (P5): Tecplot SZL (no reference reader), MPAS levels, CAM/POP, GDAL vectors,
+Done in iteration 27: **reader options**. A reader can offer settings for a file
+(`aurafx_io::reader_options`); they are the reader node's parameters, shown under Properties ›
+Reader options, set from Python with `node.set(...)` (unknown keys are refused with the list),
+saved in state files and undo history, and applied by reading again (static files) or with each
+time step (series), through a thread-local like the piece setting. First user: **MPAS** vertical
+level, multilayer view (wedge/hex columns, topography per level), layer thickness (0 = automatic),
+atmosphere (layers outwards) and the lon/lat map with cells crossing the edge mirrored to both
+sides and a chosen center longitude. Checked against ParaView's MPAS reader with the same
+settings: level 2 ranges, map point/cell counts and bounds (both centers), multilayer map depth.
+ParaView 6.1.1's multilayer point values are uninitialised memory and it never drops land
+layers (unsigned comparison); both noted in the guide. Options are not sent to remote servers yet.
+
+Known gaps worth doing next (P5): Tecplot SZL (no reference reader), CAM/POP, reader options on remote servers, GDAL vectors,
 remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.

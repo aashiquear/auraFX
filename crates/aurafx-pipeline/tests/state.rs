@@ -382,3 +382,64 @@ fn blocking_updates_take_over_runs_held_by_a_worker() {
         }
     }
 }
+
+/// Reader options (here MPAS's vertical level, multilayer view and lon/lat map): setting one
+/// reads the file again with it, at the current time step and after moving in time, and the
+/// choice is kept in state files.
+#[test]
+fn reader_options_reread_the_file() {
+    let range = |s: &Session, id, name: &str, points: bool| {
+        let d = s.nodes[&id].output.clone().unwrap();
+        let a = if points { d.point_data().unwrap().get(name).cloned() } else { d.cell_data().unwrap().get(name).cloned() };
+        a.unwrap().range(None)
+    };
+    let specs = aurafx_pipeline::reader_param_specs(&td("netcdf/mpas_ocean.nc"));
+    let keys: Vec<&str> = specs.iter().map(|p| p.key.as_str()).collect();
+    assert_eq!(keys, ["vertical_level", "multilayer", "layer_thickness", "atmosphere", "layout", "center_lon"]);
+    assert!(aurafx_pipeline::reader_param_specs(&td("can.ex2")).is_empty());
+
+    let mut s = Session::new();
+    let r = s.open_file(td("netcdf/mpas_ocean.nc")).unwrap();
+    s.set_time_index(2);
+    s.update_blocking();
+    assert_eq!(range(&s, r, "temperature", true), (-4.467136859893799, 29.0));
+    // Level 2 (ParaView with ExtraDimensionIndices nVertLevels=2 gives the same ranges).
+    s.set_param(r, "vertical_level", ParamValue::Int(2));
+    s.update_blocking();
+    assert_eq!(range(&s, r, "temperature", true), (-12.467137336730957, 21.0));
+    let v = range(&s, r, "relativeVorticity", false);
+    assert!((v.1 - 3.3120497846539365e-6).abs() < 1e-15, "{v:?}");
+    // Other time steps are read with the option too.
+    s.set_time_index(0);
+    s.update_blocking();
+    assert_eq!(range(&s, r, "temperature", true), (-10.0, 18.0));
+    // Lon/lat map: ParaView's 780 points (with its extra one at the origin) and 980 cells it keeps.
+    s.set_param(r, "layout", ParamValue::Str("Lat/Lon map".into()));
+    s.update_blocking();
+    let d = s.nodes[&r].output.clone().unwrap();
+    assert_eq!((d.n_points(), d.n_cells()), (779, 980));
+    assert!((d.bounds().max[0] - 391.717474411461).abs() < 1e-6);
+    // Multilayer on the map: 5 points per column, layers 5 degrees apart (20 / 4 levels).
+    s.set_param(r, "multilayer", ParamValue::Bool(true));
+    s.update_blocking();
+    let d = s.nodes[&r].output.clone().unwrap();
+    assert_eq!((d.n_points(), d.bounds().min[2]), (779 * 5, -20.0));
+
+    let dir = std::env::temp_dir().join(format!("aurafx_reader_opts_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mpas.afx");
+    s.save_state(&path, None).unwrap();
+    let mut t = Session::new();
+    t.load_state(&path).unwrap();
+    t.update_blocking();
+    let id = *t.nodes.keys().next().unwrap();
+    let d = t.nodes[&id].output.clone().unwrap();
+    assert_eq!(d.n_points(), 779 * 5, "options restored from the state file");
+    std::fs::remove_dir_all(&dir).ok();
+
+    // Back to the defaults: the file as first read.
+    s.set_params(r, aurafx_filters::Params::default());
+    s.update_blocking();
+    let d = s.nodes[&r].output.clone().unwrap();
+    assert_eq!((d.n_points(), d.n_cells()), (642, 949));
+}

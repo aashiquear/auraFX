@@ -1141,6 +1141,19 @@ fn mpas_matches_paraview() {
     assert_eq!(cov.iter().sum::<f64>(), 144443.0);
     let xt = d2.field_data().get("xtime").map(|a| a.data.clone());
     assert!(matches!(xt, Some(aurafx_data::ArrayData::String(ref v)) if v[0] == "0001-01-03_00:00:00"), "{xt:?}");
+
+    // Multilayer on the sphere: a column of 5 points per cell center, a wedge per level of each
+    // triangle not touching land (949 x 4), the top level outermost, every level's values.
+    let opts: aurafx_io::ReaderOptions = [("multilayer".to_string(), "true".to_string()), ("layer_thickness".to_string(), "10000".to_string())].into();
+    let m = aurafx_io::with_options(&opts, || at(2));
+    let DataSet::UnstructuredGrid(mg) = &*m else { panic!() };
+    assert_eq!((m.n_points(), m.n_cells()), (642 * 5, 949 * 4));
+    assert_eq!(mg.cells.cell_type(0), aurafx_data::CellType::Wedge);
+    assert_eq!(mg.cells.cell(0), &[0 * 5, 162 * 5, 164 * 5, 1, 162 * 5 + 1, 164 * 5 + 1]);
+    close(range_all(&m, true, "temperature"), (-16.46713638305664, 29.0), "temperature, all levels");
+    let p = mg.points.get(5 * 3 + 4);
+    let r = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+    assert!((r - (6371229.0 - 40000.0)).abs() < 1e-3, "deepest point of a column at {r}");
 }
 
 /// ADF-storage CGNS: the same file in ADF (written by the CGNS library) and in the old ADF

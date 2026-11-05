@@ -204,6 +204,70 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     Ok(loaded)
 }
 
+// ---------------------------------------------------------------- reader options
+
+/// Settings a reader offers for a particular file (shown under Properties, set from Python
+/// with `node.set(key=value)`). Values travel as text in [`ReaderOptions`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReaderOption {
+    pub key: String,
+    pub label: String,
+    pub help: String,
+    pub kind: ReaderOptionKind,
+    pub default: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReaderOptionKind {
+    Int { min: i64, max: i64 },
+    Float { min: f64, max: f64 },
+    Bool,
+    Choice(Vec<String>),
+}
+
+impl ReaderOption {
+    pub fn new(key: &str, label: &str, kind: ReaderOptionKind, default: impl ToString, help: &str) -> Self {
+        Self { key: key.into(), label: label.into(), help: help.into(), kind, default: default.to_string() }
+    }
+}
+
+/// Chosen values of a reader's options, by key (missing keys take their defaults).
+pub type ReaderOptions = std::collections::BTreeMap<String, String>;
+
+/// The options the reader of `path` offers (empty for most formats).
+pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
+    let path = path.as_ref();
+    match ext_of(path).as_str() {
+        "nc" | "nc4" | "cdf" | "netcdf" if mpas::is_mpas_file(path) => mpas::options(path),
+        _ => Vec::new(),
+    }
+}
+
+thread_local! {
+    static OPTIONS: std::cell::RefCell<ReaderOptions> = const { std::cell::RefCell::new(ReaderOptions::new()) };
+}
+
+/// Run `f` (a read) with these reader options in effect on this thread.
+pub fn with_options<T>(options: &ReaderOptions, f: impl FnOnce() -> T) -> T {
+    let prev = OPTIONS.with(|o| o.replace(options.clone()));
+    let r = f();
+    OPTIONS.with(|o| *o.borrow_mut() = prev);
+    r
+}
+
+/// The value of a reader option for the read in progress.
+pub(crate) fn option(key: &str) -> Option<String> {
+    OPTIONS.with(|o| o.borrow().get(key).cloned())
+}
+
+pub(crate) fn option_f64(key: &str, default: f64) -> f64 {
+    option(key).and_then(|v| v.trim().parse().ok()).unwrap_or(default)
+}
+
+pub(crate) fn option_bool(key: &str, default: bool) -> bool {
+    option(key).map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on")).unwrap_or(default)
+}
+
 thread_local! {
     /// Piece (k, n) being read on this thread, and whether a reader already restricted itself to it.
     static PIECE: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };

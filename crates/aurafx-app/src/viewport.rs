@@ -856,7 +856,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         painter.text(
             c + Vec2::new(0.0, 30.0),
             egui::Align2::CENTER_CENTER,
-            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), EnSight, OpenFOAM, Tecplot, LAMMPS, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images",
+            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), Xdmf, NetCDF, EnSight, OpenFOAM, Tecplot, PLOT3D, LAMMPS, VASP, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images",
             egui::FontId::proportional(12.0),
             fg_weak,
         );

@@ -676,3 +676,43 @@ fn vasp_files() {
     let d = img.point_data.get("charge_density").unwrap();
     assert!((d.get(1 + 4 * 2 + 12, 0) - 121.0).abs() < 1e-9);
 }
+
+/// NetCDF CF: a NetCDF-4 lon/lat grid with bounds, time, a fill value and a packed variable, a
+/// classic x/y/z grid, and (when ParaView's examples are installed) the IPCC sea surface
+/// temperature file, against ParaView's NetCDF CF reader (fill values as NaN).
+#[test]
+fn netcdf_cf_matches_paraview() {
+    let Loaded::Series(s) = read_file(td("netcdf/globe.nc")).unwrap() else { panic!("time steps") };
+    assert_eq!(s.times, vec![0.5, 1.5, 2.5]);
+    for (k, sst, pr) in [(0usize, (281.0, 311.0), (100.0, 115.5)), (2, (301.0, 331.0), (132.0, 147.5))] {
+        let d = load_step(&s.steps[k]).unwrap();
+        assert!(matches!(&*d, aurafx_data::DataSet::StructuredGrid(_)));
+        assert_eq!((d.n_points(), d.n_cells()), (45, 32));
+        let b = d.bounds();
+        assert!(b.min.iter().chain(&b.max).all(|v| (v.abs() - 1.0).abs() < 1e-9), "unit sphere {b:?}");
+        close(range_all(&d, false, "sst"), sst, "sst");
+        close(range_all(&d, false, "pr"), pr, "pr");
+        assert!(d.cell_data().unwrap().get("sst").unwrap().get(0, 0).is_nan(), "fill value");
+    }
+    let b = static_ds("netcdf/box.nc");
+    assert!(matches!(&*b, aurafx_data::DataSet::RectilinearGrid(_)));
+    assert_eq!((b.n_points(), b.n_cells()), (24, 6));
+    let bb = b.bounds();
+    assert_eq!((bb.min, bb.max), ([0.0, 0.0, 5.0], [4.0, 20.0, 6.0]));
+    close(range_all(&b, true, "u"), (0.0, 23.0), "u");
+
+    let tos = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+        .join("Downloads/ParaView-6.1.1-MPI-Linux-Python3.12-x86_64/share/paraview-6.1/examples/netCDF/tos_O1_2001-2002.nc");
+    if tos.exists() {
+        let Loaded::Series(s) = read_file(&tos).unwrap() else { panic!() };
+        assert_eq!((s.times.len(), s.times[0], s.times[23]), (24, 15.0, 705.0));
+        for (k, r) in [(0usize, (271.1732482910156, 304.6780090332031)), (23, (271.1903076171875, 305.0431823730469))] {
+            let d = load_step(&s.steps[k]).unwrap();
+            assert_eq!((d.n_points(), d.n_cells()), (30951, 30600));
+            close(range_all(&d, false, "tos"), r, "tos");
+        }
+        // ParaView's value of cell (90, 85) at the last step.
+        let d = load_step(&s.steps[23]).unwrap();
+        assert!((d.cell_data().unwrap().get("tos").unwrap().get(85 * 180 + 90, 0) - 303.9855041503906).abs() < 1e-4);
+    }
+}

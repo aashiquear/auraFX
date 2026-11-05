@@ -74,7 +74,7 @@ fn lit(shadow: vec4<f32>) -> f32 {
 }
 
 fn scalar_color(s: f32) -> vec3<f32> {
-    if (s != s) { // NaN
+    if (is_nan(s)) {
         return vec3<f32>(0.5, 0.5, 0.5);
     }
     var lo = node.range.x;
@@ -282,4 +282,10 @@ fn fs_lic_vec(in: LicOut) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, in.clip.z, 0.5);
     }
     return vec4<f32>(in.dir / l, in.clip.z, 1.0 + node.viewport.z);
+}
+
+/// NaN by bit pattern (`x != x` may be optimized away by GPU compilers).
+fn is_nan(x: f32) -> bool {
+    let b = bitcast<u32>(x);
+    return (b & 0x7f800000u) == 0x7f800000u && (b & 0x007fffffu) != 0u;
 }

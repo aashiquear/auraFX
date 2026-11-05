@@ -132,3 +132,25 @@ fn transparent_background() {
         }
     }
 }
+
+/// Cells with NaN values are drawn in the NaN color (grey), not the low end of the map.
+#[test]
+fn nan_cells_are_grey() {
+    let (w, h) = (80u32, 60u32);
+    let Ok(mut r) = headless(w, h) else { return };
+    let mut pd = aurafx_filters::sources::plane([-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [-1.0, 1.0, 0.0], 2, 1);
+    pd.cell_data.insert(aurafx_data::Array::scalars_f64("v", vec![f64::NAN, 10.0]));
+    let ds = DataSet::PolyData(pd);
+    let mut d = DisplayProps::default();
+    d.color_by = Some(aurafx_pipeline::ColorBy { assoc: aurafx_filters::Association::Cells, name: "v".into(), component: None });
+    d.lighting = false;
+    d.range = Some((0.0, 20.0));
+    let mut cam = Camera::default();
+    cam.set_view([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], &ds.bounds());
+    cam.update_clip(&ds.bounds());
+    r.render(&cam, &[NodeDraw { id: 1, mesh: Arc::new(tessellate::tessellate(&ds, &d)), display: d, overlay: false }], &RenderSettings::default());
+    let (_, _, img) = r.read_pixels().unwrap();
+    let px = |x: u32, y: u32| &img[(4 * (y * w + x)) as usize..][..3];
+    let nan = px(w / 2 - 15, h / 2);
+    assert!((nan[0] as i32 - nan[2] as i32).abs() < 6 && (nan[0] as i32 - 188).abs() < 8, "NaN cell is grey: {nan:?}");
+}

@@ -165,7 +165,7 @@ fn color_of(m: u32, s: f32) -> vec3<f32> {
     if (mat.range.w < 0.5) {
         return mat.solid.rgb;
     }
-    if (s != s) {
+    if (is_nan(s)) {
         return vec3<f32>(0.5);
     }
     var lo = mat.range.x;
@@ -310,4 +310,10 @@ fn trace(@builtin(global_invocation_id) gid: vec3<u32>) {
         d = nd;
     }
     accum[pix] = accum[pix] + vec4<f32>(out, 1.0);
+}
+
+/// NaN by bit pattern (`x != x` may be optimized away by GPU compilers).
+fn is_nan(x: f32) -> bool {
+    let b = bitcast<u32>(x);
+    return (b & 0x7f800000u) == 0x7f800000u && (b & 0x007fffffu) != 0u;
 }

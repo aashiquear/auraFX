@@ -745,7 +745,11 @@ fn times() -> Vec<f64> {
 
 #[pyfunction]
 fn reset_camera() {
-    session().lock().camera_request = Some(CameraRequest::ResetToBounds);
+    // A pending view request already fits the data; keep it (both share one slot).
+    let mut s = session().lock();
+    if !matches!(s.camera_request, Some(CameraRequest::View { .. })) {
+        s.camera_request = Some(CameraRequest::ResetToBounds);
+    }
 }
 
 /// View from a named direction ("+x", "-y", "iso", ...) or a vector [x, y, z] pointing from the data to the camera.

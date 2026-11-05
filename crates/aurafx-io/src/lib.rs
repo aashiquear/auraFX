@@ -12,6 +12,7 @@ pub mod lammps;
 pub mod legacy_vtk;
 pub mod molecular;
 pub mod netcdf3;
+pub mod netcdf_cf;
 pub mod openfoam;
 pub mod plot3d;
 pub mod series;
@@ -56,6 +57,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["case", "encas"], "EnSight Gold"),
         (&["tec", "tp", "dat", "plt"], "Tecplot ASCII"),
         (&["xmf", "xdmf", "xdmf3"], "Xdmf"),
+        (&["nc", "nc4", "cdf", "netcdf"], "NetCDF (CF conventions)"),
         (&["xyz", "x", "p3d", "bin"], "PLOT3D grid (+ .q solution)"),
         (&["pdb", "ent"], "Protein Data Bank"),
         (&["cube"], "Gaussian cube"),
@@ -161,6 +163,8 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "tec" | "tp" => Loaded::Static(Arc::new(tecplot::read(path)?)),
         "pdb" | "ent" => molecular::read_pdb(path)?,
         "xmf" | "xdmf" | "xdmf3" => xdmf::open(path)?,
+        "nc" | "nc4" | "cdf" | "netcdf" if netcdf_cf::is_exodus(path) => exodus::open(path)?,
+        "nc" | "nc4" | "cdf" | "netcdf" => netcdf_cf::open(path)?,
         "cube" => Loaded::Static(Arc::new(molecular::read_cube(path)?)),
         "dat" | "plt" if tecplot::sniff(path) => Loaded::Static(Arc::new(tecplot::read(path)?)),
         "plt" => bail!("{}: binary Tecplot files are not supported yet; export Tecplot ASCII", path.display()),
@@ -249,6 +253,8 @@ pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
                 exodus::read_step(path, *frame).map(Arc::new)
             } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("case") || e.eq_ignore_ascii_case("encas")) {
                 ensight::read_step(path, *frame).map(Arc::new)
+            } else if netcdf_cf::is_netcdf_ext(path) {
+                if netcdf_cf::is_exodus(path) { exodus::read_step(path, *frame) } else { netcdf_cf::read_step(path, *frame) }.map(Arc::new)
             } else if xdmf::is_xdmf_ext(path) {
                 xdmf::read_step(path, *frame).map(Arc::new)
             } else if vtkhdf::is_vtkhdf_ext(path) {

@@ -75,9 +75,9 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
-- [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18; binary todo), CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [ ] NetCDF CF/MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y.
-- [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); CML, VASP (POSCAR/CHGCAR/OUTCAR) todo.
+- [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18; binary todo), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y todo.
+- [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
 - [ ] Point clouds: LAS/LAZ (PDAL), PTS, H5Part.
@@ -577,8 +577,30 @@ Done in iteration 18 (P5 breadth: readers), each compared with ParaView 6.1.1's 
 - **PDB** (all atoms, hydrogens included, MODELs as time steps, CONECT plus distance bonds) and
   **Gaussian cube** (density volume and atoms in Å; ParaView keeps grid-index units).
 
-Known gaps worth doing next (P5): CGNS, Xdmf, PLOT3D, NetCDF CF, VASP, Tecplot binary, more
-writers (VTKHDF); P4 odds: TAA, comparative views, more widgets (cylinder, cone, spline); MPI launchers (srun) and ghost cells for parallel servers;
+Done in iteration 19 (more readers):
+- **Xdmf 2/3**: inline, HDF5 and raw binary data; mixed and single-type unstructured,
+  curvilinear, rectilinear and image topologies; spatial and temporal collections;
+  `xi:include`/`Reference` XPath pointers (the way FEniCS and Dolfinx share one mesh across
+  time steps); HyperSlab and JOIN items. Matches ParaView on its own exports; ParaView drops a
+  HyperSlab field and fails on a curvilinear Xdmf 2 grid, both read here.
+- **NetCDF CF** (classic and NetCDF-4): the grid most variables share, lon/lat on a unit sphere
+  with cells between the `bounds` edges (as ParaView), rectilinear otherwise, time steps from the
+  time coordinate, `scale_factor`/`add_offset`, fill values as NaN. Counts, ranges and values
+  match ParaView on the IPCC sea surface temperature example and on generated files. Exodus
+  files with a `.nc` name still open as Exodus.
+- **PLOT3D**: grids and Q solutions, the binary layout found from the file size (Fortran or C
+  binary, byte order, precision, multi-grid, 2-D/3-D, IBLANK), ASCII too; Density, Momentum,
+  StagnationEnergy, Pressure and Properties as in ParaView.
+- **VASP**: POSCAR/CONTCAR (VASP 4 and 5, direct or Cartesian, scale or volume) and
+  CHGCAR/LOCPOT/ELFCAR/PARCHG volumes on the cell's axes (charge per Å³), known by file name.
+
+Fixed on the way: NaN values were drawn in the color map's low color (the shader's `x != x`
+test was optimized away by the GPU compiler; now a bit-pattern test, with a test), and
+`afx.view(...)` followed by `afx.reset_camera()` lost the view (one request slot; a pending
+view now stays, since it fits the data anyway).
+
+Known gaps worth doing next (P5): CGNS, Tecplot binary, writers (VTKHDF needs an HDF5 encoder:
+no pure-Rust writer is available), P4 odds: TAA, comparative views, more widgets (cylinder, cone, spline); MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

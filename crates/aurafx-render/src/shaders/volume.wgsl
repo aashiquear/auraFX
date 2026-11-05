@@ -92,7 +92,7 @@ fn fs_volume(in: VOut) -> @location(0) vec4<f32> {
         var tc = (p - bmin) / max(size, vec3<f32>(1e-20));
         tc = tc * (dims - 1.0) / dims + 0.5 / dims;
         let v = textureSampleLevel(vol, vol_sampler, tc, 0.0).r;
-        if (v != v || v < vp.params.y) {
+        if (is_nan(v) || v < vp.params.y) {
             continue;
         }
         let ramp = clamp((v - vp.params.y) / max(1.0 - vp.params.y, 1e-4), 0.0, 1.0);
@@ -106,4 +106,10 @@ fn fs_volume(in: VOut) -> @location(0) vec4<f32> {
         }
     }
     return vec4<f32>(acc, alpha);
+}
+
+/// NaN by bit pattern (`x != x` may be optimized away by GPU compilers).
+fn is_nan(x: f32) -> bool {
+    let b = bitcast<u32>(x);
+    return (b & 0x7f800000u) == 0x7f800000u && (b & 0x007fffffu) != 0u;
 }

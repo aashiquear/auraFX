@@ -66,9 +66,10 @@ struct GpuVolume {
 struct GpuNode {
     volume: Option<GpuVolume>,
     mesh_ptr: usize,
-    tris: Option<(wgpu::Buffer, u32)>,
-    lines: Option<(wgpu::Buffer, u32)>,
-    points: Option<(wgpu::Buffer, u32)>,
+    /// Vertex buffers, split to stay within the device's buffer size limit.
+    tris: Vec<(wgpu::Buffer, u32)>,
+    lines: Vec<(wgpu::Buffer, u32)>,
+    points: Vec<(wgpu::Buffer, u32)>,
     uniform: wgpu::Buffer,
     lut_name: String,
     lut: wgpu::Texture,
@@ -501,16 +502,21 @@ impl Renderer {
         GpuVolume { _texture: texture, params, bind_group }
     }
 
-    fn upload(&self, label: &str, verts: &[Vertex]) -> Option<(wgpu::Buffer, u32)> {
-        if verts.is_empty() {
-            return None;
-        }
-        let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytemuck::cast_slice(verts),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        Some((buf, verts.len() as u32))
+    /// Upload vertices in pieces of whole primitives (`group` vertices each) that fit the
+    /// device's largest buffer.
+    fn upload(&self, label: &str, verts: &[Vertex], group: usize) -> Vec<(wgpu::Buffer, u32)> {
+        let max = (self.device.limits().max_buffer_size.min(1 << 30) as usize / std::mem::size_of::<Vertex>()) / group * group;
+        verts
+            .chunks(max.max(group))
+            .map(|c| {
+                let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(label),
+                    contents: bytemuck::cast_slice(c),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                (buf, c.len() as u32)
+            })
+            .collect()
     }
 
     fn sync_node(&mut self, draw: &NodeDraw) {
@@ -518,9 +524,9 @@ impl Renderer {
         let needs_mesh = self.nodes.get(&draw.id).map(|g| g.mesh_ptr != ptr).unwrap_or(true);
         if needs_mesh {
             let volume = draw.mesh.volume.as_ref().map(|v| self.upload_volume(v));
-            let tris = self.upload("tris", &draw.mesh.tris);
-            let lines = self.upload("lines", &draw.mesh.lines);
-            let points = self.upload("points", &draw.mesh.points);
+            let tris = self.upload("tris", &draw.mesh.tris, 3);
+            let lines = self.upload("lines", &draw.mesh.lines, 2);
+            let points = self.upload("points", &draw.mesh.points, 1);
             match self.nodes.get_mut(&draw.id) {
                 Some(g) => {
                     g.volume = volume;
@@ -722,7 +728,7 @@ impl Renderer {
             pass.set_pipeline(&self.pipe_id);
             for d in draws.iter().filter(|d| !d.overlay && d.display.opacity >= 1.0) {
                 let Some(g) = self.nodes.get(&d.id) else { continue };
-                if let Some((buf, n)) = &g.tris {
+                for (buf, n) in &g.tris {
                     pass.set_bind_group(0, &g.bind_group, &[]);
                     pass.set_vertex_buffer(0, buf.slice(..));
                     pass.draw(0..*n, 0..1);
@@ -787,17 +793,17 @@ impl Renderer {
         } else {
             (if translucent { &self.pipe_tris_blend } else { &self.pipe_tris }, &self.pipe_lines, &self.pipe_points)
         };
-        if let Some((buf, n)) = &g.tris {
+        for (buf, n) in &g.tris {
             pass.set_pipeline(pt);
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..*n, 0..1);
         }
-        if let Some((buf, n)) = &g.lines {
+        for (buf, n) in &g.lines {
             pass.set_pipeline(pl);
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..*n, 0..1);
         }
-        if let Some((buf, n)) = &g.points {
+        for (buf, n) in &g.points {
             pass.set_pipeline(pp);
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..6, 0..*n);

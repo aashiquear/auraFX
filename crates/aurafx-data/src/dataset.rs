@@ -193,14 +193,20 @@ impl ImageData {
     }
     /// Generate explicit points (for conversion to structured/unstructured).
     pub fn points(&self) -> Points {
+        use rayon::prelude::*;
         let d = self.dims();
-        let mut v = Vec::with_capacity(3 * d[0] * d[1] * d[2]);
-        for k in 0..d[2] {
-            for j in 0..d[1] {
-                for i in 0..d[0] {
-                    v.extend_from_slice(&self.point(i, j, k));
+        let slab = 3 * d[0] * d[1];
+        let mut v = vec![0.0; slab * d[2]];
+        if slab > 0 {
+            v.par_chunks_mut(slab).enumerate().for_each(|(k, out)| {
+                let mut o = 0;
+                for j in 0..d[1] {
+                    for i in 0..d[0] {
+                        out[o..o + 3].copy_from_slice(&self.point(i, j, k));
+                        o += 3;
+                    }
                 }
-            }
+            });
         }
         Points::new_f64(v)
     }
@@ -526,6 +532,35 @@ pub fn structured_cells(dims: [usize; 3]) -> Cells {
         return cells;
     }
     let dim3 = nx > 1 && ny > 1 && nz > 1;
+    if dim3 {
+        // Hexahedra, built in parallel slab by slab.
+        use rayon::prelude::*;
+        let per_slab = cx * cy * 8;
+        let mut conn = vec![0u32; per_slab * cz];
+        conn.par_chunks_mut(per_slab).enumerate().for_each(|(k, slab)| {
+            let mut o = 0;
+            for j in 0..cy {
+                for i in 0..cx {
+                    slab[o..o + 8].copy_from_slice(&[
+                        idx(i, j, k),
+                        idx(i + 1, j, k),
+                        idx(i + 1, j + 1, k),
+                        idx(i, j + 1, k),
+                        idx(i, j, k + 1),
+                        idx(i + 1, j, k + 1),
+                        idx(i + 1, j + 1, k + 1),
+                        idx(i, j + 1, k + 1),
+                    ]);
+                    o += 8;
+                }
+            }
+        });
+        let n = cx * cy * cz;
+        cells.connectivity = conn;
+        cells.offsets = (0..=n as u32).into_par_iter().map(|c| c * 8).collect();
+        cells.types = vec![CellType::Hexahedron; n];
+        return cells;
+    }
     for k in 0..cz {
         for j in 0..cy {
             for i in 0..cx {

@@ -28,6 +28,8 @@ pub struct Settings {
     pub plugin_paths: Vec<PathBuf>,
     /// Plugin files the user switched off.
     pub disabled_plugins: Vec<PathBuf>,
+    /// Threads for filters (0 = all cores). Takes effect at the next start.
+    pub threads: usize,
 }
 
 impl Default for Settings {
@@ -48,6 +50,7 @@ impl Default for Settings {
             user_colormaps: Vec::new(),
             plugin_paths: Vec::new(),
             disabled_plugins: Vec::new(),
+            threads: 0,
         }
     }
 }

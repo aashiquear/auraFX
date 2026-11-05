@@ -1,7 +1,7 @@
 //! Threshold: keep cells whose scalar lies within [lo, hi].
 
 use crate::params::Association;
-use crate::simplex::{as_explicit, for_each_cell, parts};
+use crate::simplex::{as_explicit, parts};
 use anyhow::{anyhow, Result};
 use aurafx_data::*;
 
@@ -33,21 +33,36 @@ pub fn threshold(
         None => arr.magnitude(i),
     };
     let inside = |v: f64| (v >= lo && v <= hi) != invert;
+    use rayon::prelude::*;
+    // Point (or cell) test results, computed once in parallel.
+    let n_vals = match assoc {
+        Association::Cells => ds.n_cells(),
+        Association::Points => points.len(),
+    };
+    let ok: Vec<bool> = (0..n_vals).into_par_iter().with_min_len(8192).map(|i| inside(val(i))).collect();
+    let chunks = crate::interp::par_cell_chunks(
+        &ds,
+        || (Cells::new(), Vec::<usize>::new()),
+        |(cells, parents), cid, ty, pts, _| {
+            let keep = match assoc {
+                Association::Cells => ok[cid],
+                Association::Points => match mode {
+                    PointMode::All => pts.iter().all(|&p| ok[p as usize]),
+                    PointMode::Any => pts.iter().any(|&p| ok[p as usize]),
+                },
+            };
+            if keep {
+                cells.push(ty, pts);
+                parents.push(cid);
+            }
+        },
+    );
     let mut cells = Cells::new();
     let mut parents = Vec::new();
-    for_each_cell(&ds, |cid, ty, pts, _| {
-        let keep = match assoc {
-            Association::Cells => inside(val(cid)),
-            Association::Points => match mode {
-                PointMode::All => pts.iter().all(|&p| inside(val(p as usize))),
-                PointMode::Any => pts.iter().any(|&p| inside(val(p as usize))),
-            },
-        };
-        if keep {
-            cells.push(ty, pts);
-            parents.push(cid);
-        }
-    });
+    for (c, p) in chunks {
+        cells.append(&c, 0);
+        parents.extend(p);
+    }
     let (points, point_data) = crate::interp::compact_points(points, pd, &mut cells.connectivity);
     Ok(UnstructuredGrid { points, cells, point_data, cell_data: cd.gather(&parents), field_data: fd.clone() })
 }

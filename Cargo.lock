@@ -343,6 +343,7 @@ name = "aurafx-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aurafx-filters",
  "aurafx-jobs",
  "aurafx-pipeline",
 ]

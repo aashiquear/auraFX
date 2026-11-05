@@ -185,9 +185,148 @@ fn face_mids(face: &[usize], edges: &[((usize, usize), usize)], pts: &[u32]) -> 
         .collect()
 }
 
+/// Extract Surface for grids of linear cells (tets, hexes, wedges, pyramids, voxels and any
+/// 0-2D cells), in parallel and with little memory: faces are grouped by their smallest point,
+/// matched within each group, and the unmatched (boundary) faces are emitted in cell order.
+/// Gives exactly what the general path gives. None when the grid has other cells.
+fn linear_surface(ds: &DataSet) -> Option<Result<PolyData>> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    let DataSet::UnstructuredGrid(ug) = ds else { return None };
+    let cells = &ug.cells;
+    let ok = |t: &CellType| {
+        t.dimension() < 3 && t.is_linear() || matches!(t, CellType::Tetra | CellType::Voxel | CellType::Hexahedron | CellType::Wedge | CellType::Pyramid)
+    };
+    if cells.polyhedron_faces.is_some() || !cells.types.par_iter().all(ok) {
+        return None;
+    }
+    let n_cells = cells.len();
+    let n_pts = ug.points.len();
+    if n_cells.saturating_mul(8) >= u32::MAX as usize {
+        return None;
+    }
+    // Sorted corner ids of a face, padded with u32::MAX.
+    let face_key = |cid: usize, f: usize| -> [u32; 4] {
+        let pts = cells.cell(cid);
+        let fl = cells.types[cid].faces()[f];
+        let mut k = [u32::MAX; 4];
+        for (i, &c) in fl.iter().enumerate() {
+            k[i] = pts[c];
+        }
+        k.sort_unstable();
+        k
+    };
+    let faces_of = |cid: usize| if cells.types[cid].dimension() == 3 { cells.types[cid].faces().len() } else { 0 };
+    // 1. Faces per smallest point.
+    let counts: Vec<AtomicU32> = (0..n_pts + 1).map(|_| AtomicU32::new(0)).collect();
+    (0..n_cells).into_par_iter().with_min_len(4096).for_each(|cid| {
+        for f in 0..faces_of(cid) {
+            counts[face_key(cid, f)[0] as usize].fetch_add(1, Ordering::Relaxed);
+        }
+    });
+    let mut start = vec![0u32; n_pts + 1];
+    let mut acc = 0u32;
+    for (i, c) in counts.iter().enumerate() {
+        start[i] = acc;
+        acc += c.load(Ordering::Relaxed);
+    }
+    let total = acc as usize;
+    // 2. Bucket the faces (cell * 8 + face).
+    let fill: Vec<AtomicU32> = start.iter().map(|&s| AtomicU32::new(s)).collect();
+    let bucket: Vec<AtomicU32> = (0..total).map(|_| AtomicU32::new(0)).collect();
+    (0..n_cells).into_par_iter().with_min_len(4096).for_each(|cid| {
+        for f in 0..faces_of(cid) {
+            let slot = fill[face_key(cid, f)[0] as usize].fetch_add(1, Ordering::Relaxed);
+            bucket[slot as usize].store((cid * 8 + f) as u32, Ordering::Relaxed);
+        }
+    });
+    // 3. Faces that occur more than once are interior.
+    let shared: Vec<AtomicBool> = (0..n_cells * 8).map(|_| AtomicBool::new(false)).collect();
+    (0..n_pts).into_par_iter().with_min_len(1024).for_each(|p| {
+        let (a, b) = (start[p] as usize, start[p + 1] as usize);
+        if b - a < 2 {
+            return;
+        }
+        let mut v: Vec<([u32; 4], u32)> = (a..b)
+            .map(|i| {
+                let id = bucket[i].load(Ordering::Relaxed);
+                (face_key(id as usize / 8, id as usize % 8), id)
+            })
+            .collect();
+        v.sort_unstable();
+        for w in 0..v.len() {
+            let dup = (w > 0 && v[w - 1].0 == v[w].0) || (w + 1 < v.len() && v[w + 1].0 == v[w].0);
+            if dup {
+                shared[v[w].1 as usize].store(true, Ordering::Relaxed);
+            }
+        }
+    });
+    drop(bucket);
+    // 4. Emit in cell order: 0-2D cells, then boundary faces.
+    let chunks = crate::interp::par_cell_chunks(
+        ds,
+        || (Cells::new(), Cells::new(), Cells::new(), Cells::new(), Vec::<usize>::new(), Vec::<usize>::new(), Vec::<usize>::new(), Vec::<usize>::new()),
+        |(v, l, p, bf, pv, pl, pp, pf), cid, ty, pts, _| match ty.dimension() {
+            0 => {
+                v.push(ty, pts);
+                pv.push(cid);
+            }
+            1 => {
+                l.push(ty, pts);
+                pl.push(cid);
+            }
+            2 => {
+                p.push(ty, pts);
+                pp.push(cid);
+            }
+            _ => {
+                for (f, fl) in ty.faces().iter().enumerate() {
+                    if !shared[cid * 8 + f].load(Ordering::Relaxed) {
+                        let poly: Vec<u32> = fl.iter().map(|&k| pts[k]).collect();
+                        bf.push(if poly.len() == 3 { CellType::Triangle } else { CellType::Quad }, &poly);
+                        pf.push(cid);
+                    }
+                }
+            }
+        },
+    );
+    let (mut verts, mut lines, mut polys, mut faces) = (Cells::new(), Cells::new(), Cells::new(), Cells::new());
+    let (mut pv, mut pl, mut pp, mut pf) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (v, l, p, bf, a, b, c, d) in chunks {
+        verts.append(&v, 0);
+        lines.append(&l, 0);
+        polys.append(&p, 0);
+        faces.append(&bf, 0);
+        pv.extend(a);
+        pl.extend(b);
+        pp.extend(c);
+        pf.extend(d);
+    }
+    polys.append(&faces, 0);
+    pp.extend(pf);
+    let mut all_conn: Vec<u32> = Vec::with_capacity(verts.connectivity.len() + lines.connectivity.len() + polys.connectivity.len());
+    all_conn.extend(&verts.connectivity);
+    all_conn.extend(&lines.connectivity);
+    all_conn.extend(&polys.connectivity);
+    let (points, point_data) = crate::interp::compact_points(&ug.points, &ug.point_data, &mut all_conn);
+    let (nv, nl) = (verts.connectivity.len(), lines.connectivity.len());
+    verts.connectivity.copy_from_slice(&all_conn[..nv]);
+    lines.connectivity.copy_from_slice(&all_conn[nv..nv + nl]);
+    polys.connectivity.copy_from_slice(&all_conn[nv + nl..]);
+    let mut parents = pv;
+    parents.extend(pl);
+    parents.extend(pp);
+    let mut cell_data = ug.cell_data.gather(&parents);
+    cell_data.insert(Array::new("vtkOriginalCellIds", 1, ArrayData::I64(parents.iter().map(|&i| i as i64).collect())));
+    Some(Ok(PolyData { points, verts, lines, polys, strips: Cells::new(), point_data, cell_data, field_data: ug.field_data.clone() }))
+}
+
 fn explicit_surface(ds: &DataSet, level: u32) -> Result<PolyData> {
     let ds = as_explicit(ds);
     let (points, pd, cd, fd) = crate::simplex::parts(&ds).ok_or_else(|| anyhow::anyhow!("unsupported dataset for surface extraction"))?;
+    if let Some(r) = linear_surface(&ds) {
+        return r;
+    }
     // Curved cells evaluate extra points (appended after the original ones).
     let curved = crate::higher_order::has_curved(&ds);
     let mut ev = crate::higher_order::Evaluator::new(points, pd, cd);

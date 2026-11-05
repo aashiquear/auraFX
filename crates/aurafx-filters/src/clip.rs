@@ -3,7 +3,7 @@
 use crate::attributes::cell_to_point;
 use crate::interp::{PointBuilder, ScalarFn};
 use crate::params::Association;
-use crate::simplex::{decompose, for_each_cell, parts, Simplex};
+use crate::simplex::{decompose, parts, Simplex};
 use anyhow::{anyhow, Result};
 use aurafx_data::*;
 
@@ -12,17 +12,33 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
     let (points, pd, cd, fd) = parts(&ds).ok_or_else(|| anyhow!("clip: unsupported dataset"))?;
     let n = points.len();
     let sign = if inside_out { -1.0 } else { 1.0 };
-    let vals: Vec<f64> = (0..n).map(|i| sign * f.eval(i)).collect();
-    let mut pb = PointBuilder::new(points, pd);
-    let mut cells = Cells::new();
-    let mut parents: Vec<usize> = Vec::new();
+    let vals: Vec<f64> = {
+        use rayon::prelude::*;
+        (0..n).into_par_iter().with_min_len(8192).map(|i| sign * f.eval(i)).collect()
+    };
     let edge_pt = |pb: &mut PointBuilder, a: u32, b: u32| -> u32 {
         let (va, vb) = (vals[a as usize], vals[b as usize]);
         pb.on_edge(a, b, (va / (va - vb)).clamp(0.0, 1.0))
     };
-    let wedge_tets = CellType::Wedge.tets();
+    // Prism pieces are split like cells (quad faces along the diagonal through their first
+    // point in a global order) so pieces of neighbouring cells meet on shared faces.
+    let push_wedge = |pb: &PointBuilder, cells: &mut Cells, parents: &mut Vec<usize>, w: [u32; 6], cid: usize| {
+        for wt in crate::simplex::split_by(CellType::Wedge, |k| pb.rank(w[k])) {
+            let mut t = [w[wt[0]], w[wt[1]], w[wt[2]], w[wt[3]]];
+            let p = t.map(|i| pb.coords(i));
+            let e = |k: usize| [p[k][0] - p[0][0], p[k][1] - p[0][1], p[k][2] - p[0][2]];
+            let (a, b, c) = (e(1), e(2), e(3));
+            if a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]) < 0.0 {
+                t.swap(1, 2);
+            }
+            cells.push(CellType::Tetra, &t);
+            parents.push(cid);
+        }
+    };
+    let make = || (PointBuilder::new(points, pd), Cells::new(), Vec::<usize>::new());
 
-    for_each_cell(&ds, |cid, ty, pts, faces| {
+    let chunks = crate::interp::par_cell_chunks(&ds, make, |st, cid, ty, pts, faces| {
+        let (pb, cells, parents) = st;
         // Fast path: whole cell inside/outside.
         let all_in = pts.iter().all(|&p| vals[p as usize] >= 0.0);
         let all_out = pts.iter().all(|&p| vals[p as usize] < 0.0);
@@ -49,32 +65,19 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
                     }
                     1 => {
                         let a = ins[0];
-                        let m = [pb.keep(a), edge_pt(&mut pb, a, outs[0]), edge_pt(&mut pb, a, outs[1]), edge_pt(&mut pb, a, outs[2])];
+                        let m = [pb.keep(a), edge_pt(pb, a, outs[0]), edge_pt(pb, a, outs[1]), edge_pt(pb, a, outs[2])];
                         cells.push(CellType::Tetra, &m);
                         parents.push(cid);
                     }
                     3 => {
                         let d = outs[0];
-                        let w = [
-                            pb.keep(ins[0]),
-                            pb.keep(ins[1]),
-                            pb.keep(ins[2]),
-                            edge_pt(&mut pb, ins[0], d),
-                            edge_pt(&mut pb, ins[1], d),
-                            edge_pt(&mut pb, ins[2], d),
-                        ];
-                        for wt in wedge_tets {
-                            cells.push(CellType::Tetra, &[w[wt[0]], w[wt[1]], w[wt[2]], w[wt[3]]]);
-                            parents.push(cid);
-                        }
+                        let w = [pb.keep(ins[0]), pb.keep(ins[1]), pb.keep(ins[2]), edge_pt(pb, ins[0], d), edge_pt(pb, ins[1], d), edge_pt(pb, ins[2], d)];
+                        push_wedge(pb, cells, parents, w, cid);
                     }
                     _ => {
                         let (a, b, c, d) = (ins[0], ins[1], outs[0], outs[1]);
-                        let w = [pb.keep(a), edge_pt(&mut pb, a, c), edge_pt(&mut pb, a, d), pb.keep(b), edge_pt(&mut pb, b, c), edge_pt(&mut pb, b, d)];
-                        for wt in wedge_tets {
-                            cells.push(CellType::Tetra, &[w[wt[0]], w[wt[1]], w[wt[2]], w[wt[3]]]);
-                            parents.push(cid);
-                        }
+                        let w = [pb.keep(a), edge_pt(pb, a, c), edge_pt(pb, a, d), pb.keep(b), edge_pt(pb, b, c), edge_pt(pb, b, d)];
+                        push_wedge(pb, cells, parents, w, cid);
                     }
                 }
             }
@@ -91,13 +94,13 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
                     }
                     1 => {
                         let a = ins[0];
-                        let m = [pb.keep(a), edge_pt(&mut pb, a, outs[0]), edge_pt(&mut pb, a, outs[1])];
+                        let m = [pb.keep(a), edge_pt(pb, a, outs[0]), edge_pt(pb, a, outs[1])];
                         cells.push(CellType::Triangle, &m);
                         parents.push(cid);
                     }
                     _ => {
                         let (a, b, c) = (ins[0], ins[1], outs[0]);
-                        let q = [pb.keep(a), pb.keep(b), edge_pt(&mut pb, b, c), edge_pt(&mut pb, a, c)];
+                        let q = [pb.keep(a), pb.keep(b), edge_pt(pb, b, c), edge_pt(pb, a, c)];
                         cells.push(CellType::Quad, &q);
                         parents.push(cid);
                     }
@@ -111,11 +114,11 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
                         parents.push(cid);
                     }
                     (true, false) => {
-                        cells.push(CellType::Line, &[pb.keep(a), edge_pt(&mut pb, a, b)]);
+                        cells.push(CellType::Line, &[pb.keep(a), edge_pt(pb, a, b)]);
                         parents.push(cid);
                     }
                     (false, true) => {
-                        cells.push(CellType::Line, &[edge_pt(&mut pb, a, b), pb.keep(b)]);
+                        cells.push(CellType::Line, &[edge_pt(pb, a, b), pb.keep(b)]);
                         parents.push(cid);
                     }
                     _ => {}
@@ -129,6 +132,15 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
             }
         });
     });
+    let mut builders = Vec::with_capacity(chunks.len());
+    let mut rest = Vec::with_capacity(chunks.len());
+    for (pb, c, p) in chunks {
+        builders.push(pb);
+        rest.push((c, p));
+    }
+    let (pb, remaps) = PointBuilder::merge(points, pd, builders);
+    let cells = crate::interp::concat_remapped(&rest.iter().zip(&remaps).map(|((c, _), r)| (c, r.as_slice())).collect::<Vec<_>>());
+    let parents: Vec<usize> = rest.into_iter().flat_map(|(_, p)| p).collect();
     let (points, point_data) = pb.finish();
     Ok(UnstructuredGrid { points, cells, point_data, cell_data: cd.gather(&parents), field_data: fd.clone() })
 }

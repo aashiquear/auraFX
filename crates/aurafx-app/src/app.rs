@@ -1231,6 +1231,20 @@ impl State {
                 }
             });
             ui.separator();
+            ui.heading("Performance");
+            ui.horizontal(|ui| {
+                let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+                ui.label("Filter threads");
+                let mut all = self.settings.threads == 0;
+                if ui.checkbox(&mut all, format!("all {cores} cores")).changed() {
+                    self.settings.threads = if all { 0 } else { (cores / 2).max(1) };
+                }
+                if !all {
+                    ui.add(egui::Slider::new(&mut self.settings.threads, 1..=cores));
+                }
+                ui.label(RichText::new(format!("(now {}; changes apply at the next start)", rayon::current_num_threads())).weak().small());
+            });
+            ui.separator();
             ui.heading("AI assistant");
             self.assistant.settings_ui(ui, &mut self.settings);
             ui.separator();

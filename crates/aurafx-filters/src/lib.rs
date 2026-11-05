@@ -31,3 +31,13 @@ pub mod warp;
 
 pub use params::{param_from_json, param_to_json, Association, ParamKind, ParamSpec, ParamValue, Params};
 pub use registry::{default_array, find, register, registry, search, unregister_plugin, CustomFn, Extension, FilterDef, MultiInput, Temporal};
+
+/// Use `n` threads for filters (0 = all cores; `AURAFX_THREADS` overrides). Only the first call
+/// before any parallel work takes effect. Returns the number of threads in use.
+pub fn init_threads(n: usize) -> usize {
+    let n = std::env::var("AURAFX_THREADS").ok().and_then(|v| v.parse().ok()).unwrap_or(n);
+    if n > 0 {
+        let _ = rayon::ThreadPoolBuilder::new().num_threads(n).build_global();
+    }
+    rayon::current_num_threads()
+}

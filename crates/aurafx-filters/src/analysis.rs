@@ -2,7 +2,7 @@
 
 use crate::params::Association;
 use crate::simplex::{as_explicit, decompose, for_each_cell, parts, Simplex};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use aurafx_data::*;
 
 fn values(ds: &DataSet, assoc: Association, name: &str, comp: Option<usize>) -> Result<Vec<f64>> {
@@ -127,38 +127,74 @@ pub fn integrate_variables(ds: &DataSet) -> Result<Table> {
     let mut measure = 0.0;
     let mut dim_seen = 0u8;
     let mut visit = |d: &DataSet| -> Result<()> {
+        use rayon::prelude::*;
         let d = crate::higher_order::as_linear(d);
         let Some((pts, pd, cd, _)) = parts(&d) else { return Ok(()) };
-        let max_dim = {
-            let mut m = 0u8;
-            for_each_cell(&d, |_, ty, _, _| m = m.max(ty.dimension()));
-            m
+        let max_dim = match &*d {
+            DataSet::UnstructuredGrid(u) => u.cells.types.par_iter().map(|t| t.dimension()).max().unwrap_or(0),
+            _ => {
+                let mut m = 0u8;
+                for_each_cell(&d, |_, ty, _, _| m = m.max(ty.dimension()));
+                m
+            }
         };
         dim_seen = dim_seen.max(max_dim);
-        for_each_cell(&d, |cid, ty, ids, faces| {
-            if ty.dimension() != max_dim {
-                return;
-            }
-            decompose(ty, ids, faces, |s| {
-                let (m, verts): (f64, Vec<u32>) = match s {
-                    Simplex::Tet(t) => (tet_volume(t.map(|i| pts.get(i as usize))), t.to_vec()),
-                    Simplex::Tri(t) => (tri_area(t.map(|i| pts.get(i as usize))), t.to_vec()),
-                    Simplex::Line([a, b]) => {
-                        let (p, q) = (pts.get(a as usize), pts.get(b as usize));
-                        (((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt(), vec![a, b])
+        let parr: Vec<&Array> = pd.iter().filter(|a| a.ncomp == 1 && a.scalar_type() != ScalarType::String).collect();
+        let carr: Vec<&Array> = cd.iter().filter(|a| a.ncomp == 1 && a.scalar_type() != ScalarType::String).collect();
+        let (np, nc) = (parr.len(), carr.len());
+        // Per chunk: [measure, point integrals..., cell integrals...], added in chunk order.
+        let chunks = crate::interp::par_cell_chunks(
+            &d,
+            || vec![0.0f64; 1 + np + nc],
+            |acc, cid, ty, ids, faces| {
+                if ty.dimension() != max_dim {
+                    return;
+                }
+                decompose(ty, ids, faces, |s| {
+                    let mut vs = [0u32; 4];
+                    let (m, k) = match s {
+                        Simplex::Tet(t) => {
+                            vs = t;
+                            (tet_volume(t.map(|i| pts.get(i as usize))), 4)
+                        }
+                        Simplex::Tri(t) => {
+                            vs[..3].copy_from_slice(&t);
+                            (tri_area(t.map(|i| pts.get(i as usize))), 3)
+                        }
+                        Simplex::Line([a, b]) => {
+                            vs[..2].copy_from_slice(&[a, b]);
+                            let (p, q) = (pts.get(a as usize), pts.get(b as usize));
+                            (((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt(), 2)
+                        }
+                        Simplex::Vert(v) => {
+                            vs[0] = v;
+                            (1.0, 1)
+                        }
+                    };
+                    acc[0] += m;
+                    for (j, a) in parr.iter().enumerate() {
+                        let avg = vs[..k].iter().map(|&v| a.get(v as usize, 0)).sum::<f64>() / k as f64;
+                        acc[1 + j] += avg * m;
                     }
-                    Simplex::Vert(v) => (1.0, vec![v]),
-                };
-                measure += m;
-                for a in pd.iter().filter(|a| a.ncomp == 1 && a.scalar_type() != ScalarType::String) {
-                    let avg = verts.iter().map(|&v| a.get(v as usize, 0)).sum::<f64>() / verts.len() as f64;
-                    *sums.entry(a.name.clone()).or_default() += avg * m;
-                }
-                for a in cd.iter().filter(|a| a.ncomp == 1 && a.scalar_type() != ScalarType::String) {
-                    *sums.entry(format!("{} (cell)", a.name)).or_default() += a.get(cid, 0) * m;
-                }
-            });
-        });
+                    for (j, a) in carr.iter().enumerate() {
+                        acc[1 + np + j] += a.get(cid, 0) * m;
+                    }
+                });
+            },
+        );
+        let mut total = vec![0.0f64; 1 + np + nc];
+        for c in chunks {
+            for (t, v) in total.iter_mut().zip(c) {
+                *t += v;
+            }
+        }
+        measure += total[0];
+        for (j, a) in parr.iter().enumerate() {
+            *sums.entry(a.name.clone()).or_default() += total[1 + j];
+        }
+        for (j, a) in carr.iter().enumerate() {
+            *sums.entry(format!("{} (cell)", a.name)).or_default() += total[1 + np + j];
+        }
         Ok(())
     };
     match ds {
@@ -186,12 +222,10 @@ pub fn integrate_variables(ds: &DataSet) -> Result<Table> {
 /// Gradient of a point scalar (per-cell from linear tets/triangles, averaged to points).
 /// Adds `<name>_gradient` (3 components) to point data.
 pub fn gradient(ds: &DataSet, name: &str) -> Result<DataSet> {
-    let d = as_explicit(ds).into_owned();
+    let d = as_explicit(ds);
     let (pts, pd, _, _) = parts(&d).ok_or_else(|| anyhow!("gradient: unsupported dataset"))?;
     let f = pd.get(name).ok_or_else(|| anyhow!("gradient: no point array {name:?}"))?;
     let n = pts.len();
-    let mut acc = vec![[0.0f64; 3]; n];
-    let mut wsum = vec![0.0f64; n];
     let solve3 = |m: [[f64; 3]; 3], r: [f64; 3]| -> Option<[f64; 3]> {
         let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
             + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
@@ -208,52 +242,76 @@ pub fn gradient(ds: &DataSet, name: &str) -> Result<DataSet> {
         };
         Some([rep(0) / det, rep(1) / det, rep(2) / det])
     };
-    for_each_cell(&d, |_, ty, ids, faces| {
+    // Per chunk: weighted gradient sums of the points it touches (in first-touch order);
+    // chunks are added in order, so the result does not depend on the number of threads.
+    type Part = (crate::interp::HashMap<u32, usize>, Vec<(u32, [f64; 4])>);
+    let add = |st: &mut Part, i: u32, g: [f64; 3], w: f64| {
+        let (map, list) = st;
+        let k = *map.entry(i).or_insert_with(|| {
+            list.push((i, [0.0; 4]));
+            list.len() - 1
+        });
+        let e = &mut list[k].1;
+        for c in 0..3 {
+            e[c] += g[c] * w;
+        }
+        e[3] += w;
+    };
+    let chunks = crate::interp::par_cell_chunks(&d, Part::default, |st, _, ty, ids, faces| {
         decompose(ty, ids, faces, |s| match s {
             Simplex::Tet(t) => {
-                let p: Vec<[f64; 3]> = t.iter().map(|&i| pts.get(i as usize)).collect();
-                let v: Vec<f64> = t.iter().map(|&i| f.get(i as usize, 0)).collect();
+                let p = t.map(|i| pts.get(i as usize));
+                let v = t.map(|i| f.get(i as usize, 0));
                 let m = [
                     [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]],
                     [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]],
                     [p[3][0] - p[0][0], p[3][1] - p[0][1], p[3][2] - p[0][2]],
                 ];
                 if let Some(g) = solve3(m, [v[1] - v[0], v[2] - v[0], v[3] - v[0]]) {
-                    let vol = tet_volume([p[0], p[1], p[2], p[3]]);
+                    let vol = tet_volume(p);
                     for &i in &t {
-                        for k in 0..3 {
-                            acc[i as usize][k] += g[k] * vol;
-                        }
-                        wsum[i as usize] += vol;
+                        add(st, i, g, vol);
                     }
                 }
             }
             Simplex::Tri(t) => {
-                let p: Vec<[f64; 3]> = t.iter().map(|&i| pts.get(i as usize)).collect();
-                let v: Vec<f64> = t.iter().map(|&i| f.get(i as usize, 0)).collect();
+                let p = t.map(|i| pts.get(i as usize));
+                let v = t.map(|i| f.get(i as usize, 0));
                 let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
                 let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
                 let nrm = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
                 // Third equation: gradient has no component along the normal.
                 if let Some(g) = solve3([e1, e2, nrm], [v[1] - v[0], v[2] - v[0], 0.0]) {
-                    let area = tri_area([p[0], p[1], p[2]]);
+                    let area = tri_area(p);
                     for &i in &t {
-                        for k in 0..3 {
-                            acc[i as usize][k] += g[k] * area;
-                        }
-                        wsum[i as usize] += area;
+                        add(st, i, g, area);
                     }
                 }
             }
             _ => {}
         });
     });
-    let mut out = Vec::with_capacity(3 * n);
-    for i in 0..n {
-        let w = wsum[i].max(1e-300);
-        out.extend_from_slice(&[acc[i][0] / w, acc[i][1] / w, acc[i][2] / w]);
+    let mut acc = vec![[0.0f64; 4]; n];
+    for (_, list) in chunks {
+        for (i, v) in list {
+            let a = &mut acc[i as usize];
+            for c in 0..4 {
+                a[c] += v[c];
+            }
+        }
     }
-    let mut res = d.clone();
-    res.point_data_mut().unwrap().insert(Array::new(format!("{name}_gradient"), 3, ArrayData::F64(out)));
+    let mut out = Vec::with_capacity(3 * n);
+    for a in &acc {
+        let w = a[3].max(1e-300);
+        out.extend_from_slice(&[a[0] / w, a[1] / w, a[2] / w]);
+    }
+    // The result keeps the input's type (image data stays image data).
+    let mut res = ds.clone();
+    match res.point_data_mut() {
+        Some(p) => {
+            p.insert(Array::new(format!("{name}_gradient"), 3, ArrayData::F64(out)));
+        }
+        None => bail!("gradient: unsupported dataset"),
+    }
     Ok(res)
 }

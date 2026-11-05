@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 aurafx-pipeline.workspace = true
+aurafx-filters.workspace = true
 anyhow.workspace = true
 
 [dev-dependencies]

@@ -256,7 +256,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 ## 9. Distributed and remote (parity with pvserver)
 
 - [~] Client/server split (data server done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery; server-side rendering todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
-- [ ] Multi-process data parallel (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
+- [~] Multi-process data parallel (all-core shared-memory execution of the heavy filters done, deterministic and identical to serial; multi-process/MPI todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
 - [ ] Collaboration: shared sessions with multiple clients.
 - [ ] In-situ: Catalyst/Conduit endpoint, live visualization of running jobs.
 
@@ -377,8 +377,37 @@ no port is opened). Its parts:
 - **Tests:** the results match local runs in tests through an in-process server, a server
   process and a real SSH host (a 32-core Ubuntu box). Guide: `docs/client-server.md`.
 
+Done in iteration 11: the heavy filters use every core, locally and on servers.
+- **Parallel and exact:** Slice, Contour, Clip, Threshold and Extract Surface run cell chunks in
+  parallel; Stream Tracer traces its seeds in parallel. Each chunk numbers its own points; the merge restores the single-threaded order, so
+  results are bit-identical on any number of threads (and were identical to the old serial code
+  before the crack fix below changed how cells are split).
+- **Extract Surface:** a new face-matching method for linear meshes takes 4M hexahedra from
+  14.9 s to 0.19 s. The 3D view runs it for every volume mesh.
+- **Reductions:** Integrate Variables and Gradient add fixed chunks in order. Results do not
+  depend on the thread count and moved by about 1e-15 (the integrated volume got more accurate).
+  Gradient now keeps image data as image data.
+- **Image inputs:** structured-to-cell conversion is parallel.
+
+Timings on 4M cells (16-thread laptop, old → new): slice 415 → 73 ms, contour 565 → 99 ms,
+clip 704 → 194 ms, threshold 577 → 106 ms, integrate 1559 → 103 ms, gradient 1319 → 384 ms. On
+a 32-core server, slice takes 49 ms, extract surface 109 ms and integrate 64 ms.
+
+Settings › Performance limits the threads; so do `AURAFX_THREADS` and
+`aurafx-server --threads N`. Benchmark: `cargo run --release -p aurafx-filters --example bench`.
+
+Two existing bugs found and fixed along the way:
+- **Cracked isosurfaces:** hexahedra, wedges and pyramids were split into tetrahedra with a fixed
+  pattern, so neighbouring cells cut their shared faces along different diagonals. A wavelet
+  contour had 45,000 open edges, and Tetrahedralize left inner faces. Quad faces are now cut
+  through their smallest point id, the usual rule for matching splits. The split tables were
+  found by brute-force search; every case the rule can produce has a 5- or 6-tetrahedron
+  split. Contours are now watertight, and Clip splits its prisms the same way.
+- **Crash on huge surfaces:** the 3D view crashed when a surface needed more than the GPU's
+  largest vertex buffer (about 10M triangles at 256 MB). It now splits the buffers.
+
 Known gaps worth doing next: server-side rendering for huge surfaces and MPI-parallel
-servers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
+(multi-process) servers; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)

@@ -73,6 +73,7 @@ pub fn main_desktop() -> eframe::Result<()> {
         println!("auraFX {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    aurafx_filters::init_threads(crate::settings::Settings::load().threads);
     let mut files: Vec<PathBuf> = Vec::new();
     let mut script: Option<PathBuf> = None;
     let mut it = args.into_iter();

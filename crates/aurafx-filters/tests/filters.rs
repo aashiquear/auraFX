@@ -175,7 +175,10 @@ fn geometry_batch() {
     assert!((q.cell_data().unwrap().get("EdgeRatio").unwrap().range(None).1 - 1.0).abs() < 1e-9);
     assert!((q.cell_data().unwrap().get("MinAngle").unwrap().range(None).0 - 90.0).abs() < 1e-6);
     let tet = run("tetrahedralize", Some(&w), &[]);
-    assert_eq!(tet.n_cells(), 5000);
+    // 5 or 6 tetrahedra per hexahedron (cut to match its neighbours), same volume.
+    assert!((5000..=6000).contains(&tet.n_cells()), "{}", tet.n_cells());
+    let DataSet::Table(t) = run("integrate_variables", Some(&tet), &[]) else { panic!() };
+    assert!((t.column("Volume").unwrap().get(0, 0) - 1000.0).abs() < 1e-6);
     let tri = run("triangulate", Some(&run("box", None, &[])), &[]);
     assert_eq!(tri.n_cells(), 12);
 }
@@ -632,4 +635,145 @@ fn quadratic_cells_match_paraview() {
     assert_eq!(g.cells.types[6], CellType::CubicLine);
     let arc = integrals(&run("tessellate", Some(&one(6)), &[("level", 5.into())]))["Length"];
     assert!((arc - 2.25).abs() < 2e-3, "cubic line follows its arc: {arc}");
+}
+
+/// Filters run in parallel chunks: the same result on one thread as on all of them (and,
+/// for cutting filters, the same as the old serial code: points in order of first use).
+#[test]
+fn parallel_filters_do_not_depend_on_thread_count() {
+    let img = DataSet::ImageData(sources::wavelet([-20, 20, -20, 20, -20, 20], 255.0, 0.5));
+    let ug = DataSet::UnstructuredGrid(img.to_unstructured().unwrap());
+    assert!(ug.n_cells() > 3 * interp::CHUNK, "several chunks");
+    let cases: Vec<(&str, Vec<(&str, serde_json::Value)>)> = vec![
+        ("slice", vec![("normal", serde_json::json!([1.0, 1.0, 1.0]))]),
+        ("contour", vec![("values", serde_json::json!([120.0, 200.0]))]),
+        ("clip", vec![("normal", serde_json::json!([1.0, 1.0, 0.0]))]),
+        ("threshold", vec![("lower", serde_json::json!(150.0)), ("upper", serde_json::json!(300.0))]),
+        ("extract_surface", vec![]),
+        ("gradient", vec![("array", "RTData".into())]),
+        ("integrate_variables", vec![]),
+    ];
+    let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+    for (id, set) in &cases {
+        for input in [&img, &ug] {
+            let many = run(id, Some(input), set);
+            let single = one.install(|| run(id, Some(input), set));
+            assert!(many == single, "{id} on {} differs between 1 and {} threads", input.type_name(), rayon::current_num_threads());
+        }
+    }
+    // Stream Tracer traces seeds in parallel; the lines come out in seed order.
+    let g = run("gradient", Some(&img), &[("array", "RTData".into())]);
+    let set = [("vectors", serde_json::json!("RTData_gradient")), ("seeds", 40.into())];
+    let many = run("stream_tracer", Some(&g), &set);
+    let single = one.install(|| run("stream_tracer", Some(&g), &set));
+    assert!(many.n_cells() > 10 && many == single, "stream tracer differs between 1 and many threads");
+
+    // Extract Surface's parallel path agrees with the general one (a mesh with a mixed-in
+    // polyhedron-free curved-free cell set vs. the same mesh through the general path).
+    let fast = surface::extract_surface(&ug).unwrap();
+    let general = surface::extract_surface(&DataSet::UnstructuredGrid({
+        let DataSet::UnstructuredGrid(mut g) = ug.clone() else { unreachable!() };
+        // A curved cell elsewhere sends the grid down the general path.
+        let base = g.points.len() as u32;
+        let mut p = g.points.data.to_f64_vec();
+        p.extend_from_slice(&[100.0, 0.0, 0.0, 101.0, 0.0, 0.0, 100.5, 0.0, 0.0]);
+        g.points = Points::new_f64(p);
+        g.cells.push(CellType::QuadraticEdge, &[base, base + 1, base + 2]);
+        for a in g.point_data.arrays.values_mut() {
+            let mut v = a.data.to_f64_vec();
+            v.extend(std::iter::repeat_n(0.0, 3 * a.ncomp));
+            a.data = ArrayData::from_f64(a.scalar_type(), &v);
+        }
+        for a in g.cell_data.arrays.values_mut() {
+            let mut v = a.data.to_f64_vec();
+            v.extend(std::iter::repeat_n(0.0, a.ncomp));
+            a.data = ArrayData::from_f64(a.scalar_type(), &v);
+        }
+        g
+    }))
+    .unwrap();
+    // The quadratic edge's 3 points come first in the general output; compare by coordinates.
+    let coords = |pd: &PolyData| pd.polys.connectivity.iter().map(|&i| pd.points.get(i as usize)).collect::<Vec<_>>();
+    assert_eq!(general.polys.offsets, fast.polys.offsets);
+    assert_eq!(coords(&general), coords(&fast));
+    assert_eq!(general.points.len(), fast.points.len() + 3);
+}
+
+/// Hexahedra, wedges and pyramids are split into tetrahedra that agree across shared faces,
+/// so contours are watertight and Tetrahedralize leaves no inner faces.
+#[test]
+fn cell_splits_conform_across_faces() {
+    use std::collections::HashMap;
+    let img = DataSet::ImageData(sources::wavelet([-10, 10, -10, 10, -10, 10], 255.0, 0.5));
+    // Contour: every edge inside the domain is shared by two polygons.
+    let DataSet::PolyData(c) = run("contour", Some(&img), &[("values", serde_json::json!([150.0]))]) else { panic!() };
+    let mut edges: HashMap<(u32, u32), u32> = HashMap::new();
+    for i in 0..c.polys.len() {
+        let p = c.polys.cell(i);
+        for k in 0..p.len() {
+            let (a, b) = (p[k], p[(k + 1) % p.len()]);
+            *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+        }
+    }
+    let bb = img.bounds();
+    let inner_open = edges
+        .iter()
+        .filter(|(_, &n)| n == 1)
+        .filter(|((a, b), _)| {
+            [a, b]
+                .iter()
+                .all(|&&q| (0..3).all(|k| (c.points.get(q as usize)[k] - bb.min[k]).abs() > 1e-9 && (c.points.get(q as usize)[k] - bb.max[k]).abs() > 1e-9))
+        })
+        .count();
+    assert!(c.polys.len() > 1000);
+    assert_eq!(inner_open, 0, "the isosurface has cracks");
+    // Tetrahedralize: the surface is just the box, two triangles per boundary square.
+    let t = run("tetrahedralize", Some(&img), &[]);
+    let s = surface::extract_surface(&t).unwrap();
+    assert_eq!(s.polys.len(), 6 * 20 * 20 * 2);
+    // Random corner orders: volumes add up, tetrahedra are positive, and two cells sharing a
+    // face cut it the same way.
+    let mut seed = 12345u64;
+    let mut rnd = || {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) as u32
+    };
+    let corners = |ty: CellType| -> Vec<[f64; 3]> {
+        match ty {
+            CellType::Hexahedron => vec![[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.], [0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]],
+            CellType::Wedge => vec![[0., 0., 0.], [0., 1., 0.], [1., 0., 0.], [0., 0., 1.], [0., 1., 1.], [1., 0., 1.]],
+            _ => vec![[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.], [0.5, 0.5, 1.]],
+        }
+    };
+    let vol = |p: [[f64; 3]; 4]| {
+        let e = |k: usize| [p[k][0] - p[0][0], p[k][1] - p[0][1], p[k][2] - p[0][2]];
+        let (a, b, c) = (e(1), e(2), e(3));
+        (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6.0
+    };
+    for (ty, want) in [(CellType::Hexahedron, 1.0), (CellType::Wedge, 0.5), (CellType::Pyramid, 1.0 / 3.0)] {
+        let p = corners(ty);
+        for _ in 0..500 {
+            let ids: Vec<u32> = (0..p.len()).map(|_| rnd()).collect();
+            let tets = simplex::split_by(ty, |k| ids[k]);
+            let total: f64 = tets
+                .iter()
+                .map(|t| {
+                    let v = vol(t.map(|k| p[k]));
+                    assert!(v > 0.0, "{ty:?}: negative tetrahedron {t:?}");
+                    v
+                })
+                .sum();
+            assert!((total - want).abs() < 1e-12, "{ty:?}: volume {total}");
+            // The triangles each quad face is cut into go through its smallest corner.
+            for q in ty.faces().iter().filter(|q| q.len() == 4) {
+                let m = *q.iter().min_by_key(|&&k| ids[k]).unwrap();
+                for t in tets {
+                    let on: Vec<usize> = t.iter().copied().filter(|k| q.contains(k)).collect();
+                    if on.len() == 3 {
+                        assert!(on.contains(&m), "{ty:?}: face {q:?} not cut through its smallest corner");
+                    }
+                }
+            }
+        }
+    }
 }

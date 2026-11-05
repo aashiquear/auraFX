@@ -107,7 +107,8 @@ pub fn stream_tracer(ds: &DataSet, seeds: &[[f64; 3]], opt: &StreamOptions) -> R
         Direction::Backward => vec![-1.0],
         Direction::Both => vec![-1.0, 1.0],
     };
-    for (si, &seed) in seeds.iter().enumerate() {
+    // Every seed is traced independently (in parallel); lines are joined in seed order.
+    let trace = |seed: [f64; 3]| -> Vec<([f64; 3], crate::probe::Hit, f64)> {
         let mut halves: Vec<Vec<([f64; 3], crate::probe::Hit, f64)>> = Vec::new();
         for &sgn in &dirs {
             let mut path = Vec::new();
@@ -157,6 +158,11 @@ pub fn stream_tracer(ds: &DataSet, seeds: &[[f64; 3]], opt: &StreamOptions) -> R
         } else if let Some(h) = halves.pop() {
             seq = h;
         }
+        seq
+    };
+    use rayon::prelude::*;
+    let traced: Vec<Vec<([f64; 3], crate::probe::Hit, f64)>> = seeds.par_iter().map(|&s| trace(s)).collect();
+    for (si, seq) in traced.into_iter().enumerate() {
         if seq.len() < 2 {
             continue;
         }

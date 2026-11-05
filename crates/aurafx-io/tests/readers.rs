@@ -1053,6 +1053,34 @@ fn writers_share_static_geometry() {
 /// CGNS writing: each kind of dataset, cells read back with the same nodes (quadratic orders
 /// included), polygons (NGON in 2-D) and polyhedra (NGON/NFACE) after the fixed cells with
 /// their cell values, and a series with moving points (GridCoordinatesPointers).
+/// MPAS ocean output (scripts/gen_mpas.py): the dual grid as ParaView 6.1.1's MPAS reader makes
+/// it, without its extra point at the origin and without the 331 triangles it collapses there
+/// (land cells under maxLevelCell); values checked against ParaView on the cells both keep.
+#[test]
+fn mpas_matches_paraview() {
+    use aurafx_data::DataSet;
+    let Loaded::Series(s) = read_file(td("netcdf/mpas_ocean.nc")).unwrap() else { panic!("expected 3 time steps") };
+    assert_eq!(s.times, vec![0.0, 1.0, 2.0]);
+    let at = |k: usize| load_step(&s.steps[k]).unwrap();
+    let (d0, d2) = (at(0), at(2));
+    let DataSet::UnstructuredGrid(g) = &*d0 else { panic!("not an unstructured grid") };
+    assert_eq!((d0.n_points(), d0.n_cells()), (642, 949));
+    assert_eq!(g.cells.cell(0), &[0, 162, 164]);
+    let b = d0.bounds();
+    assert!((b.max[0] - 6371229.0).abs() < 1e-3 && (b.min[2] + 6371229.0).abs() < 1e-3);
+    close(range_all(&d0, true, "temperature"), (-2.0, 26.0), "temperature t0");
+    close(range_all(&d2, true, "temperature"), (-4.4671369, 29.0), "temperature t2");
+    close(range_all(&d2, true, "salinity"), (33.0999985, 35.0999985), "salinity t2");
+    close(range_all(&d0, true, "areaCell"), (794550062628.9589, 834277565760.4069), "areaCell");
+    close(range_all(&d0, false, "latVertex"), (-1.4846200148631992, 1.4846200148631992), "latVertex");
+    let v = range_all(&d0, false, "relativeVorticity");
+    assert!((v.0 + 9.960233910533134e-06).abs() < 1e-12 && (v.1 - 9.960233910533134e-06).abs() < 1e-12, "vorticity {v:?}");
+    let cov = g.cell_data.get("cellsOnVertex").unwrap().data.to_f64_vec();
+    assert_eq!(cov.iter().sum::<f64>(), 144443.0);
+    let xt = d2.field_data().get("xtime").map(|a| a.data.clone());
+    assert!(matches!(xt, Some(aurafx_data::ArrayData::String(ref v)) if v[0] == "0001-01-03_00:00:00"), "{xt:?}");
+}
+
 /// ADF-storage CGNS: the same file in ADF (written by the CGNS library) and in the old ADF
 /// layout (hex pointers, big-endian data, chunked arrays) reads exactly as the HDF5 original.
 #[test]

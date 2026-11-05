@@ -17,6 +17,7 @@ pub mod lammps;
 pub mod legacy_vtk;
 pub mod molecular;
 pub mod netcdf3;
+pub mod mpas;
 pub mod netcdf_cf;
 pub mod openfoam;
 pub mod plot3d;
@@ -63,8 +64,8 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["case", "encas"], "EnSight Gold"),
         (&["tec", "tp", "dat", "plt"], "Tecplot (ASCII and binary)"),
         (&["xmf", "xdmf", "xdmf3"], "Xdmf"),
-        (&["cgns", "adf"], "CGNS (HDF5)"),
-        (&["nc", "nc4", "cdf", "netcdf"], "NetCDF (CF conventions)"),
+        (&["cgns", "adf"], "CGNS (HDF5 or ADF)"),
+        (&["nc", "nc4", "cdf", "netcdf"], "NetCDF (CF conventions, MPAS)"),
         (&["xyz", "x", "p3d", "bin"], "PLOT3D grid (+ .q solution)"),
         (&["pdb", "ent"], "Protein Data Bank"),
         (&["cube"], "Gaussian cube"),
@@ -172,6 +173,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "xmf" | "xdmf" | "xdmf3" => xdmf::open(path)?,
         "cgns" | "adf" => cgns::open(path)?,
         "nc" | "nc4" | "cdf" | "netcdf" if netcdf_cf::is_exodus(path) => exodus::open(path)?,
+        "nc" | "nc4" | "cdf" | "netcdf" if mpas::is_mpas_file(path) => mpas::open(path)?,
         "nc" | "nc4" | "cdf" | "netcdf" => netcdf_cf::open(path)?,
         "cube" => Loaded::Static(Arc::new(molecular::read_cube(path)?)),
         "dat" | "plt" | "szplt" if tecplot::is_binary(path) => Loaded::Static(Arc::new(tecplot::read_binary(path)?)),
@@ -266,7 +268,14 @@ pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
             } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cgns") || e.eq_ignore_ascii_case("adf")) {
                 cgns::read_step(path, *frame).map(Arc::new)
             } else if netcdf_cf::is_netcdf_ext(path) {
-                if netcdf_cf::is_exodus(path) { exodus::read_step(path, *frame) } else { netcdf_cf::read_step(path, *frame) }.map(Arc::new)
+                if netcdf_cf::is_exodus(path) {
+                    exodus::read_step(path, *frame)
+                } else if mpas::is_mpas_file(path) {
+                    mpas::read_step(path, *frame)
+                } else {
+                    netcdf_cf::read_step(path, *frame)
+                }
+                .map(Arc::new)
             } else if xdmf::is_xdmf_ext(path) {
                 xdmf::read_step(path, *frame).map(Arc::new)
             } else if vtkhdf::is_vtkhdf_ext(path) {

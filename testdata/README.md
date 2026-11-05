@@ -12,5 +12,6 @@ Small files are committed. Larger ones are ignored by git and can be recreated:
 | `rotating.pvd`, `rotating/` | `python3 scripts/gen_rotating_flow.py` (rotation with speed 1 + t; exact particle paths known), committed |
 | `cgns/mixed_adf.cgns`, `cgns/tets_adf.cgns` | `cgns/mixed.cgns` and `cgns/tets.cgns` copied into ADF storage by the CGNS library in ParaView: `pvpython scripts/gen_cgns_adf.py testdata/cgns/mixed.cgns testdata/cgns/mixed_adf.cgns` (the same for tets), committed |
 | `cgns/mixed_adf_old.cgns` | `python3 scripts/gen_adf_old.py testdata/cgns/mixed_adf.cgns testdata/cgns/mixed_adf_old.cgns`: the old ADF layout (hex-text pointers), big-endian data, arrays split into two data chunks; the CGNS library reads it back to the same values, committed |
+| `netcdf/mpas_ocean.nc` | `python3 scripts/gen_mpas.py`: MPAS-style ocean output on an icosahedral sphere (642 cells, 3 time steps, land in `maxLevelCell`); ParaView reference values in `mpas_matches_paraview`, committed |
 
 Tests that need a missing file skip themselves.

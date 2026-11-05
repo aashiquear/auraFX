@@ -76,7 +76,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y todo.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25: dual grid, top level; levels/multilayer/lon-lat projection todo); CAM/POP, GDAL raster/vector, DEM, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
@@ -649,7 +649,18 @@ old-layout file made from one of them (`scripts/gen_adf_old.py`) is read back by
 to the same values. Every file the CGNS writer produces, copied to ADF, reads exactly as the
 HDF5 original, and ParaView reports the same counts, bounds and ranges on the ADF copies.
 
-Known gaps worth doing next (P5): Tecplot SZL, MPAS/CAM, GDAL rasters,
+Done in iteration 25: **MPAS** NetCDF output (ocean, atmosphere, land ice), found from the
+file's variables: the dual grid as ParaView's MPAS reader builds it by default (cell centers as
+points, `cellsOnVertex` triangles or quads), cell variables as point data and vertex variables
+as cell data at the first index of extra dimensions (the top level), numbered time steps,
+`xtime` in field data. Boundary triangles and triangles touching land (`maxLevelCell`) are left
+out; ParaView keeps them collapsed onto an extra point at the origin. On an MPAS-style test
+file (`scripts/gen_mpas.py`) every point array and every cell ParaView keeps match exactly.
+Tecplot SZL is set aside: ParaView 6.1.1 has no reader to compare with and the format is not
+published. Reader options (MPAS vertical level, multilayer and lon/lat views) need a reader
+parameter path through the pipeline first.
+
+Known gaps worth doing next (P5): Tecplot SZL (no reference reader), MPAS levels, CAM/POP, GDAL rasters,
 remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.

@@ -16,6 +16,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | CGNS | `.cgns` | HDF5 and ADF storage; structured and unstructured zones, MIXED and NGON/NFACE sections, solutions, time steps |
 | Xdmf 2/3 | `.xmf .xdmf` | inline, HDF5 and raw binary data; collections; `xi:include` and XPath references (FEniCS/Dolfinx); HyperSlab and JOIN items |
 | NetCDF (CF) | `.nc .nc4 .cdf` | classic and NetCDF-4; lon/lat grids on a sphere with cell bounds, rectilinear otherwise; time steps; packing; fill values become NaN (grey) |
+| MPAS | `.nc` (found from the file's contents) | MPAS ocean, atmosphere and land-ice output: cell centers joined into triangles, top vertical level, time steps; see below |
 | Tecplot | `.dat .plt .tec .tp` | ASCII (ordered and FE zones, BLOCK/POINT, cell-centered variables) and binary `.plt`; `.szplt` is not read |
 | PLOT3D | `.xyz .x .p3d .bin` + `.q` | layout detected from the file (Fortran/C binary, byte order, precision, multi-grid, 2-D/3-D, IBLANK), ASCII |
 | LAMMPS | `.dump .lammpstrj .atom` (+`.gz`), `.data .lmp` | multi-frame dumps with any columns, triclinic boxes; data files with bonds |
@@ -37,6 +38,28 @@ inside the file and links to other ADF files are followed. A link to an HDF5 fil
 file is not.
 
 ![A CGNS file in ADF storage, clipped and colored by RTData](images/cgns_adf.png)
+
+MPAS output (from the ocean, atmosphere or land-ice models of the Model for Prediction
+Across Scales) is NetCDF too. When a `.nc` file has MPAS's mesh variables (`xCell`,
+`cellsOnVertex`), auraFX reads it as MPAS instead of as a CF grid. It opens the way
+ParaView's MPAS reader does by default:
+
+- Each MPAS cell center becomes a point, and the cells around each MPAS vertex are joined
+  into a triangle (or a quad, on quad meshes). On a sphere, the points lie at the planet's
+  radius in meters.
+- Variables on cells (`temperature`, `ssh`…) become point data, and variables on vertices
+  (`relativeVorticity`…) become cell data. Time steps are numbered 0, 1, 2…, and the date
+  of each step (`xtime`) is kept with the data.
+- For variables with more dimensions than time and position, such as vertical levels, the
+  first index of each is shown (the top level).
+
+Two things differ from ParaView. ParaView adds a point at the planet's center. It also
+collapses onto that point the triangles at a mesh boundary and, when the file has
+`maxLevelCell`, the triangles that touch land. auraFX leaves those triangles out, so land
+shows as holes. Levels below the top, the stacked multilayer view and the flat lon/lat map
+are not offered yet.
+
+![MPAS ocean output: temperature at the top level on the sphere, with land left out](images/mpas_ocean.png)
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
 

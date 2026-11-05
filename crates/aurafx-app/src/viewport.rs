@@ -45,7 +45,7 @@ pub struct Viewport {
     drag_start: Option<Pos2>,
     pub pick: Option<PickResult>,
     selection_mesh: Option<(u64, Arc<MeshData>)>,
-    widget_drag: Option<WidgetHandle>,
+    widget_drag: Option<WidgetDrag>,
     /// Rectangle cell selection waiting for the id pass: (node, pixel rect, shift, ctrl).
     pending_id_pick: Option<(NodeId, [u32; 4], bool, bool)>,
     /// Select every cell inside the rectangle, including hidden ones.
@@ -68,47 +68,13 @@ struct RemoteImage {
     error: Option<String>,
 }
 
+/// What a drag in the view moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WidgetHandle {
-    Origin,
-    Tip,
-}
-
-/// The active Slice/Clip plane: (node, origin, unit normal, display size).
-fn plane_widget(state: &State) -> Option<(NodeId, glam::DVec3, glam::DVec3, f64)> {
-    let s = state.session.lock();
-    let n = s.active_node()?;
-    let def = n.def()?;
-    if !matches!(def.id, "slice" | "clip") || n.params.str("type") != "Plane" || !n.visible {
-        return None;
-    }
-    let input = n.input.and_then(|i| s.nodes.get(&i))?.output.clone()?;
-    let b = input.bounds();
-    if b.is_empty() {
-        return None;
-    }
-    let o = n.params.vec3("origin", [f64::NAN; 3]);
-    let o = if o.iter().any(|x| x.is_nan()) { b.center() } else { o };
-    let nrm = glam::DVec3::from_array(n.params.vec3("normal", [1.0, 0.0, 0.0])).normalize_or_zero();
-    Some((n.id, glam::DVec3::from_array(o), if nrm.length() > 0.0 { nrm } else { glam::DVec3::X }, 0.35 * b.diagonal()))
-}
-
-fn draw_plane_widget(p: &egui::Painter, cam: &Camera, rect: Rect, o: glam::DVec3, n: glam::DVec3, size: f64, active: Option<WidgetHandle>) {
-    let up = if n.x.abs() < 0.9 { glam::DVec3::X } else { glam::DVec3::Y };
-    let u = n.cross(up).normalize();
-    let v = n.cross(u);
-    let corners: Vec<glam::DVec3> = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].iter().map(|(a, b)| o + u * (a * size) + v * (b * size)).collect();
-    let pts: Vec<Pos2> = corners.iter().filter_map(|c| crate::pick::project(cam, rect, *c)).collect();
-    let col = Color32::from_rgb(255, 170, 60);
-    if pts.len() == 4 {
-        p.add(egui::Shape::convex_polygon(pts.clone(), col.linear_multiply(0.08), Stroke::new(1.5, col)));
-    }
-    if let (Some(so), Some(st)) = (crate::pick::project(cam, rect, o), crate::pick::project(cam, rect, o + n * size * 0.8)) {
-        p.line_segment([so, st], Stroke::new(2.5, col));
-        let r = |h| if active == Some(h) { 9.0 } else { 7.0 };
-        p.circle(so, r(WidgetHandle::Origin), col.linear_multiply(0.6), Stroke::new(1.5, Color32::WHITE));
-        p.circle(st, r(WidgetHandle::Tip), col, Stroke::new(1.5, Color32::WHITE));
-    }
+enum WidgetDrag {
+    /// Handle of the active filter's widget.
+    Filter(usize),
+    /// Handle of a custom light.
+    Light(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -583,50 +549,29 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             }
         }
     }
-    // Plane widget for the active Slice/Clip: drag the center along the normal, drag the tip to tilt.
-    let widget = if state.viewport.mode == InteractMode::Navigate { plane_widget(state) } else { None };
-    if let Some((wid, o, n, size)) = widget {
-        let cam = &state.viewport.camera;
-        if response.drag_started_by(egui::PointerButton::Primary) {
-            if let Some(pos) = response.interact_pointer_pos() {
-                let near = |w: glam::DVec3| crate::pick::project(cam, rect, w).map(|sp| sp.distance(pos) < 14.0).unwrap_or(false);
-                state.viewport.widget_drag = if near(o + n * size * 0.8) {
-                    Some(WidgetHandle::Tip)
-                } else if near(o) {
-                    Some(WidgetHandle::Origin)
-                } else {
-                    None
-                };
-            }
+    // Widgets: the active filter's plane, sphere, box, line or point, and custom lights.
+    let widget = if state.viewport.mode == InteractMode::Navigate { crate::widgets3d::active(state) } else { None };
+    let light_widgets = state.viewport.mode == InteractMode::Navigate && state.settings.show_light_widgets && !state.settings.lighting.lights.is_empty();
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        if let Some(pos) = response.interact_pointer_pos() {
+            let cam = &state.viewport.camera;
+            let light =
+                light_widgets.then(|| crate::widgets3d::grab_light(&state.settings.lighting.lights, cam, rect, &bounds, pos)).flatten().map(WidgetDrag::Light);
+            let filter = || widget.as_ref().and_then(|w| crate::widgets3d::grab(w, cam, rect, pos)).map(WidgetDrag::Filter);
+            state.viewport.widget_drag = light.or_else(filter);
         }
-        if let (Some(h), Some(pos)) = (state.viewport.widget_drag, response.interact_pointer_pos()) {
-            if response.dragged_by(egui::PointerButton::Primary) {
-                match h {
-                    WidgetHandle::Tip => {
-                        // Intersect the mouse ray with the plane through the tip facing the camera.
-                        let tip = o + n * size * 0.8;
-                        let ray = crate::pick::screen_ray(cam, rect, pos);
-                        let f = cam.forward();
-                        let denom = ray.dir.dot(f);
-                        if denom.abs() > 1e-9 {
-                            let t = (tip - ray.origin).dot(f) / denom;
-                            let new_tip = ray.origin + ray.dir * t;
-                            let nn = (new_tip - o).normalize_or_zero();
-                            if nn.length() > 0.0 {
-                                state.session.lock().set_param(wid, "normal", aurafx_filters::ParamValue::Vec3(nn.to_array()));
-                            }
-                        }
+    }
+    if let (Some(h), Some(pos)) = (state.viewport.widget_drag, response.interact_pointer_pos()) {
+        if response.dragged_by(egui::PointerButton::Primary) {
+            match h {
+                WidgetDrag::Filter(k) => {
+                    if let Some(w) = &widget {
+                        crate::widgets3d::drag(state, w, k, &state.viewport.camera, rect, pos, drag);
                     }
-                    WidgetHandle::Origin => {
-                        if let (Some(so), Some(sn)) = (crate::pick::project(cam, rect, o), crate::pick::project(cam, rect, o + n * size)) {
-                            let axis = sn - so;
-                            let l2 = axis.length_sq();
-                            if l2 > 1.0 {
-                                let shift = (drag.dot(axis) / l2) as f64 * size;
-                                state.session.lock().set_param(wid, "origin", aurafx_filters::ParamValue::Vec3((o + n * shift).to_array()));
-                            }
-                        }
-                    }
+                }
+                WidgetDrag::Light(k) => {
+                    let cam = state.viewport.camera.clone();
+                    crate::widgets3d::drag_light(&mut state.settings.lighting.lights, k, &cam, rect, &bounds, pos);
                 }
             }
         }
@@ -894,8 +839,21 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             painter.line_segment([sp - Vec2::new(0.0, 11.0), sp + Vec2::new(0.0, 11.0)], Stroke::new(1.0, fg));
         }
     }
-    if let Some((_, o, n, size)) = plane_widget(state).filter(|_| state.viewport.mode == InteractMode::Navigate) {
-        draw_plane_widget(&painter, &state.viewport.camera, rect, o, n, size, state.viewport.widget_drag);
+    if state.viewport.mode == InteractMode::Navigate {
+        let active = |d: Option<WidgetDrag>, f: fn(usize) -> WidgetDrag| (0..32).find(|k| d == Some(f(*k)));
+        if let Some(w) = crate::widgets3d::active(state) {
+            crate::widgets3d::draw(&painter, &state.viewport.camera, rect, &w, active(state.viewport.widget_drag, WidgetDrag::Filter));
+        }
+        if state.settings.show_light_widgets && !state.settings.lighting.lights.is_empty() {
+            crate::widgets3d::draw_lights(
+                &painter,
+                &state.viewport.camera,
+                rect,
+                &state.settings.lighting.lights,
+                &bounds,
+                active(state.viewport.widget_drag, WidgetDrag::Light),
+            );
+        }
     }
     // Ruler.
     if !state.viewport.ruler.is_empty() {

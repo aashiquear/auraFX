@@ -23,6 +23,7 @@ mod theme;
 mod viewport;
 mod views;
 mod widgets;
+mod widgets3d;
 mod worker;
 
 use std::path::PathBuf;

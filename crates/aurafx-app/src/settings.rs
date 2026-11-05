@@ -32,6 +32,8 @@ pub struct Settings {
     pub threads: usize,
     /// Lights, shadows and screen effects of the 3D views.
     pub lighting: aurafx_pipeline::Lighting,
+    /// Show the custom lights as handles in the 3D views (drag to aim them).
+    pub show_light_widgets: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +56,7 @@ impl Default for Settings {
             disabled_plugins: Vec::new(),
             threads: 0,
             lighting: Default::default(),
+            show_light_widgets: true,
         }
     }
 }

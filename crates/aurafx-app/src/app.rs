@@ -907,6 +907,9 @@ impl State {
                 ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
                 ui.menu_button(format!("{} Lighting", crate::icons::CIRCLE_HALF), |ui| {
                     crate::lighting_ui::lighting_ui(ui, &mut self.settings.lighting);
+                    if !self.settings.lighting.lights.is_empty() {
+                        ui.checkbox(&mut self.settings.show_light_widgets, "Show lights in the view").on_hover_text("Drag the sun handles to aim the lights");
+                    }
                 });
                 if ui.button(format!("{} Color Map Editor…", crate::icons::PENCIL_SIMPLE)).clicked() {
                     ui.close();

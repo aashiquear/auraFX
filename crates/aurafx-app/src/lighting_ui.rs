@@ -133,6 +133,18 @@ pub fn lighting_ui(ui: &mut egui::Ui, l: &mut Lighting) -> bool {
         if l.ray_tracing {
             ui.add(egui::DragValue::new(&mut l.ray_samples).range(1..=4096).suffix(" samples")).on_hover_text("Samples per pixel to stop at");
             ui.add(egui::DragValue::new(&mut l.ray_bounces).range(0..=8).suffix(" bounces")).on_hover_text("Light bounces after the first hit");
+            egui::ComboBox::from_id_salt("ray device")
+                .width(60.0)
+                .selected_text(match l.ray_device {
+                    aurafx_pipeline::RayDevice::Auto => "auto",
+                    aurafx_pipeline::RayDevice::Gpu => "GPU",
+                    aurafx_pipeline::RayDevice::Cpu => "CPU",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut l.ray_device, aurafx_pipeline::RayDevice::Auto, "auto").on_hover_text("The GPU when the objects fit in its memory");
+                    ui.selectable_value(&mut l.ray_device, aurafx_pipeline::RayDevice::Gpu, "GPU");
+                    ui.selectable_value(&mut l.ray_device, aurafx_pipeline::RayDevice::Cpu, "CPU").on_hover_text("Leaves the GPU to drawing; uses every core");
+                });
         }
     });
     ui.checkbox(&mut l.fxaa, "FXAA").on_hover_text("Smooth remaining jagged edges (thin lines, textures)");

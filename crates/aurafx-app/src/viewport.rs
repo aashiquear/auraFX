@@ -648,6 +648,9 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     // Ray tracing: a traced picture replaces the opaque surfaces once it is ready.
     if let Some(r) = &state.viewport.renderer {
         state.viewport.ray_tracing.environment = r.environment();
+        if state.viewport.ray_tracing.gpu.is_none() {
+            state.viewport.ray_tracing.gpu = Some((r.device().clone(), r.queue().clone()));
+        }
     }
     let (shown, trace_progress) = if state.viewport.settings.lighting.ray_tracing && state.viewport.renderer.is_some() {
         let f = state.viewport.ray_tracing.frame(ui.ctx(), draws.clone(), &state.viewport.camera, &state.viewport.settings, w, h);
@@ -790,7 +793,8 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     let fg = crate::theme::overlay_text(state.viewport.settings.background);
     let fg_weak = fg.linear_multiply(0.6);
     if let Some((done, wanted)) = trace_progress {
-        let text = if done == 0 { "Ray tracing…".to_string() } else { format!("Ray tracing {done}/{wanted}") };
+        let on = if state.viewport.ray_tracing.on_gpu.load(std::sync::atomic::Ordering::Relaxed) { "GPU" } else { "CPU" };
+        let text = if done == 0 { "Ray tracing…".to_string() } else { format!("Ray tracing {done}/{wanted} ({on})") };
         painter.text(rect.right_bottom() + Vec2::new(-10.0, -8.0), egui::Align2::RIGHT_BOTTOM, text, egui::FontId::proportional(12.0), fg_weak);
     }
     if empty {

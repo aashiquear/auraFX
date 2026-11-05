@@ -2,7 +2,8 @@
 //! sends progressively better pictures, which replace those surfaces once one is ready for the
 //! current camera. While the camera moves the rasterizer draws as usual.
 
-use aurafx_render::raytrace::{traced, Scene, Tracer, View};
+use aurafx_render::raytrace::{traced, Scene, View};
+use aurafx_render::raytrace_gpu::AnyTracer;
 use aurafx_render::{Camera, ImageLayer, MeshData, NodeDraw, RenderSettings};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -33,6 +34,10 @@ pub struct RayTracing {
     stripped: HashMap<usize, Arc<MeshData>>,
     /// The renderer's environment map (set each frame).
     pub environment: Option<Arc<aurafx_render::env::Environment>>,
+    /// The renderer's GPU, for tracing there (set each frame).
+    pub gpu: Option<(wgpu::Device, wgpu::Queue)>,
+    /// Whether the last tracer ran on the GPU (for the status line).
+    pub on_gpu: Arc<AtomicBool>,
     /// A picture traced for a screenshot: (view key, result, picture once done).
     still: Option<(u64, Receiver<ImageLayer>, Option<Arc<ImageLayer>>)>,
 }
@@ -204,15 +209,24 @@ impl RayTracing {
         let owned: Vec<NodeDraw> = if scene.is_none() { traced_draws.iter().map(|d| (*d).clone()).collect() } else { Vec::new() };
         let view = self.view(camera, settings, w, h);
         let wanted = settings.lighting.ray_samples.max(1);
+        let gpu = self.gpu.clone().filter(|_| settings.lighting.ray_device != aurafx_pipeline::RayDevice::Cpu);
         std::thread::Builder::new()
             .name("ray traced screenshot".into())
             .spawn(move || {
                 let scene = scene.unwrap_or_else(|| Arc::new(Scene::build(&owned)));
-                let mut tracer = Tracer::new(scene, view);
-                while tracer.passes < wanted {
+                let mut tracer = AnyTracer::new(gpu.as_ref().map(|(d, q)| (d, q)), scene, view);
+                while tracer.passes() < wanted {
                     tracer.pass();
+                    if tracer.passes() % 4 == 0 {
+                        tracer.finish();
+                    }
                 }
-                let _ = tx.send(tracer.image());
+                match tracer.image() {
+                    Ok(img) => {
+                        let _ = tx.send(img);
+                    }
+                    Err(e) => tracing::warn!("ray traced screenshot: {e:#}"),
+                }
             })
             .ok();
         self.still = Some((vkey, rx, None));
@@ -242,6 +256,8 @@ impl RayTracing {
         let wanted = settings.lighting.ray_samples.max(1);
         let flag = stop.clone();
         let ctx = ctx.clone();
+        let gpu = self.gpu.clone().filter(|_| settings.lighting.ray_device != aurafx_pipeline::RayDevice::Cpu);
+        let on_gpu = self.on_gpu.clone();
         std::thread::Builder::new()
             .name("ray tracing".into())
             .spawn(move || {
@@ -253,18 +269,29 @@ impl RayTracing {
                         s
                     }
                 };
-                let mut tracer = Tracer::new(scene, view);
+                let mut tracer = AnyTracer::new(gpu.as_ref().map(|(d, q)| (d, q)), scene, view);
+                on_gpu.store(tracer.on_gpu(), Ordering::Relaxed);
                 let mut sent = Instant::now();
-                while tracer.passes < wanted && !flag.load(Ordering::Relaxed) {
+                while tracer.passes() < wanted && !flag.load(Ordering::Relaxed) {
                     tracer.pass();
-                    let p = tracer.passes;
+                    let p = tracer.passes();
                     // Early passes right away, then a few pictures a second, and the last one.
                     if p.is_power_of_two() || p == wanted || sent.elapsed() > Duration::from_millis(250) {
                         sent = Instant::now();
-                        if tx.send(Msg::Image(vkey, tracer.image(), p)).is_err() {
+                        let img = match tracer.image() {
+                            Ok(img) => img,
+                            Err(e) => {
+                                tracing::warn!("ray tracing: {e:#}");
+                                return;
+                            }
+                        };
+                        if tx.send(Msg::Image(vkey, img, p)).is_err() {
                             return;
                         }
                         ctx.request_repaint();
+                    } else if p % 4 == 0 {
+                        // Don't queue far ahead of the GPU (stopping stays quick).
+                        tracer.finish();
                     }
                 }
             })

@@ -229,6 +229,17 @@ pub enum ToneMapping {
     Aces,
 }
 
+/// Where the ray tracer runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RayDevice {
+    /// The GPU when the scene fits in its buffers, else the CPU.
+    #[default]
+    Auto,
+    Gpu,
+    Cpu,
+}
+
 /// Lighting and screen effects of the 3D views.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -259,6 +270,8 @@ pub struct Lighting {
     pub ray_samples: u32,
     /// Diffuse bounces after the first hit.
     pub ray_bounces: u32,
+    /// Where to path-trace.
+    pub ray_device: RayDevice,
     /// Environment map lighting the scene: "" (none), "sky", "studio", "white" or an image file
     /// (.hdr, .png, .jpg; equirectangular, +Z up). It replaces the ambient light and adds
     /// reflections.
@@ -286,6 +299,7 @@ impl Default for Lighting {
             ray_tracing: false,
             ray_samples: 128,
             ray_bounces: 3,
+            ray_device: RayDevice::Auto,
             environment: String::new(),
             environment_intensity: 1.0,
             show_environment: false,

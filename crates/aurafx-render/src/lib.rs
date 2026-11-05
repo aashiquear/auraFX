@@ -3,6 +3,7 @@
 pub mod camera;
 pub mod env;
 pub mod raytrace;
+pub mod raytrace_gpu;
 pub mod renderer;
 pub mod scene_export;
 pub mod server;

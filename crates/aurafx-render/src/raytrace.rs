@@ -21,16 +21,16 @@ pub fn traced(d: &NodeDraw) -> bool {
 
 /// How an object is colored: its color map (linear) and range, or its solid color.
 pub(crate) struct Material {
-    lut: Vec<Vec3>,
-    range: (f32, f32),
-    log: bool,
-    scalars: bool,
-    solid: Vec3,
-    lit: bool,
-    metallic: f32,
-    roughness: f32,
-    specular: f32,
-    power: f32,
+    pub(crate) lut: Vec<Vec3>,
+    pub(crate) range: (f32, f32),
+    pub(crate) log: bool,
+    pub(crate) scalars: bool,
+    pub(crate) solid: Vec3,
+    pub(crate) lit: bool,
+    pub(crate) metallic: f32,
+    pub(crate) roughness: f32,
+    pub(crate) specular: f32,
+    pub(crate) power: f32,
 }
 
 impl Material {
@@ -78,28 +78,28 @@ impl Material {
 }
 
 #[derive(Clone, Copy, Default)]
-struct BvhNode {
-    min: Vec3,
-    max: Vec3,
+pub(crate) struct BvhNode {
+    pub(crate) min: Vec3,
+    pub(crate) max: Vec3,
     /// Interior: index of the first child (the second follows). Leaf: first triangle in `order`.
-    first: u32,
+    pub(crate) first: u32,
     /// Triangles in a leaf; 0 for an interior node.
-    count: u32,
+    pub(crate) count: u32,
 }
 
 /// Triangles of the traced objects with a bounding volume hierarchy.
 pub struct Scene {
     /// World position = scene position + origin.
-    origin: DVec3,
-    radius: f32,
+    pub(crate) origin: DVec3,
+    pub(crate) radius: f32,
     /// Three corners per triangle.
-    pos: Vec<Vec3>,
-    normal: Vec<Vec3>,
-    scalar: Vec<f32>,
-    material: Vec<u16>,
-    materials: Vec<Material>,
-    nodes: Vec<BvhNode>,
-    order: Vec<u32>,
+    pub(crate) pos: Vec<Vec3>,
+    pub(crate) normal: Vec<Vec3>,
+    pub(crate) scalar: Vec<f32>,
+    pub(crate) material: Vec<u16>,
+    pub(crate) materials: Vec<Material>,
+    pub(crate) nodes: Vec<BvhNode>,
+    pub(crate) order: Vec<u32>,
 }
 
 fn srgb_to_linear(c: f32) -> f32 {
@@ -414,6 +414,75 @@ pub struct View {
     pub environment: Option<std::sync::Arc<crate::env::Environment>>,
 }
 
+/// Camera rays and lights of a view, in scene coordinates.
+pub(crate) struct CameraFrame {
+    pub(crate) eye: Vec3,
+    pub(crate) fwd: Vec3,
+    pub(crate) right: Vec3,
+    pub(crate) up: Vec3,
+    pub(crate) half_h: f32,
+    /// (direction towards the light, color * intensity)
+    pub(crate) lights: Vec<(Vec3, Vec3)>,
+    pub(crate) ambient: f32,
+}
+
+impl CameraFrame {
+    pub(crate) fn new(view: &View, origin: DVec3) -> Self {
+        let c = &view.camera;
+        let f = (c.target - c.eye).normalize_or_zero();
+        let s = f.cross(c.up).normalize_or_zero();
+        let u = s.cross(f);
+        let (lights, ambient) = view.lighting.effective_lights();
+        let lights = lights
+            .iter()
+            .map(|l| {
+                let d = DVec3::new(l.direction[0] as f64, l.direction[1] as f64, l.direction[2] as f64);
+                // Camera-relative: x right, y up, z towards the viewer.
+                let w = if l.camera_relative { s * d.x + u * d.y - f * d.z } else { d };
+                (w.normalize_or_zero().as_vec3(), Vec3::from_array(l.color) * l.intensity)
+            })
+            .collect();
+        let half_h = if c.orthographic { c.ortho_height } else { (c.fov_y_deg.to_radians() * 0.5).tan() } as f32;
+        CameraFrame { eye: (c.eye - origin).as_vec3(), fwd: f.as_vec3(), right: s.as_vec3(), up: u.as_vec3(), half_h, lights, ambient }
+    }
+}
+
+/// Push surfaces back by their depth slope per pixel, like the rasterizer's polygon offset, so
+/// edges and lines drawn on them by the rasterizer stay in front.
+pub(crate) fn slope_bias(d: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let at = |x: usize, y: usize| d[y * w + x];
+    // The smaller one-sided difference (silhouettes don't count).
+    let slope = |c: f32, a: Option<f32>, b: Option<f32>| [a, b].into_iter().flatten().filter(|v| *v < 1.0).map(|v| (v - c).abs()).fold(f32::INFINITY, f32::min);
+    (0..w * h)
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            let c = d[i];
+            if c >= 1.0 {
+                return c;
+            }
+            let sx = slope(c, (x > 0).then(|| at(x - 1, y)), (x + 1 < w).then(|| at(x + 1, y)));
+            let sy = slope(c, (y > 0).then(|| at(x, y - 1)), (y + 1 < h).then(|| at(x, y + 1)));
+            let s = [sx, sy].into_iter().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
+            (c + s + 2.0 * f32::EPSILON).min(0.999_999)
+        })
+        .collect()
+}
+
+/// sRGB-encoded RGBA8 of summed linear colors times `k`.
+pub(crate) fn encode(sum: impl Iterator<Item = Vec3>, k: f32) -> Vec<u8> {
+    let mut color = Vec::new();
+    for c in sum {
+        let c = c * k;
+        color.extend_from_slice(&[
+            (linear_to_srgb(c.x) * 255.0 + 0.5) as u8,
+            (linear_to_srgb(c.y) * 255.0 + 0.5) as u8,
+            (linear_to_srgb(c.z) * 255.0 + 0.5) as u8,
+            255,
+        ]);
+    }
+    color
+}
+
 /// Accumulates passes for one view of one scene.
 pub struct Tracer {
     scene: std::sync::Arc<Scene>,
@@ -433,31 +502,17 @@ pub struct Tracer {
 
 impl Tracer {
     pub fn new(scene: std::sync::Arc<Scene>, view: View) -> Self {
-        let c = &view.camera;
-        let f = (c.target - c.eye).normalize_or_zero();
-        let s = f.cross(c.up).normalize_or_zero();
-        let u = s.cross(f);
-        let (lights, ambient) = view.lighting.effective_lights();
-        let lights = lights
-            .iter()
-            .map(|l| {
-                let d = DVec3::new(l.direction[0] as f64, l.direction[1] as f64, l.direction[2] as f64);
-                // Camera-relative: x right, y up, z towards the viewer.
-                let w = if l.camera_relative { s * d.x + u * d.y - f * d.z } else { d };
-                (w.normalize_or_zero().as_vec3(), Vec3::from_array(l.color) * l.intensity)
-            })
-            .collect();
-        let half_h = if c.orthographic { c.ortho_height } else { (c.fov_y_deg.to_radians() * 0.5).tan() } as f32;
+        let fr = CameraFrame::new(&view, scene.origin);
         let n = (view.width * view.height) as usize;
         Self {
-            eye: (c.eye - scene.origin).as_vec3(),
-            fwd: f.as_vec3(),
-            right: s.as_vec3(),
-            up: u.as_vec3(),
-            half_h,
+            eye: fr.eye,
+            fwd: fr.fwd,
+            right: fr.right,
+            up: fr.up,
+            half_h: fr.half_h,
             scene,
-            lights,
-            ambient,
+            lights: fr.lights,
+            ambient: fr.ambient,
             accum: vec![Vec3::ZERO; n],
             depth: vec![1.0; n],
             passes: 0,
@@ -629,44 +684,13 @@ impl Tracer {
         self.passes += 1;
     }
 
-    /// Push surfaces back by their depth slope per pixel, like the rasterizer's polygon offset,
-    /// so edges and lines drawn on them by the rasterizer stay in front.
     fn bias_depth(&mut self) {
-        let (w, h) = (self.view.width as usize, self.view.height as usize);
-        let d = &self.depth;
-        let at = |x: usize, y: usize| d[y * w + x];
-        // The smaller one-sided difference (silhouettes don't count).
-        let slope =
-            |c: f32, a: Option<f32>, b: Option<f32>| [a, b].into_iter().flatten().filter(|v| *v < 1.0).map(|v| (v - c).abs()).fold(f32::INFINITY, f32::min);
-        let biased: Vec<f32> = (0..w * h)
-            .map(|i| {
-                let (x, y) = (i % w, i / w);
-                let c = d[i];
-                if c >= 1.0 {
-                    return c;
-                }
-                let sx = slope(c, (x > 0).then(|| at(x - 1, y)), (x + 1 < w).then(|| at(x + 1, y)));
-                let sy = slope(c, (y > 0).then(|| at(x, y - 1)), (y + 1 < h).then(|| at(x, y + 1)));
-                let s = [sx, sy].into_iter().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
-                (c + s + 2.0 * f32::EPSILON).min(0.999_999)
-            })
-            .collect();
-        self.depth = biased;
+        self.depth = slope_bias(&self.depth, self.view.width as usize, self.view.height as usize);
     }
 
     /// The accumulated picture (sRGB) and depth.
     pub fn image(&self) -> ImageLayer {
-        let k = 1.0 / self.passes.max(1) as f32;
-        let mut color = Vec::with_capacity(self.accum.len() * 4);
-        for c in &self.accum {
-            let c = *c * k;
-            color.extend_from_slice(&[
-                (linear_to_srgb(c.x) * 255.0 + 0.5) as u8,
-                (linear_to_srgb(c.y) * 255.0 + 0.5) as u8,
-                (linear_to_srgb(c.z) * 255.0 + 0.5) as u8,
-                255,
-            ]);
-        }
+        let color = encode(self.accum.iter().copied(), 1.0 / self.passes.max(1) as f32);
         ImageLayer { width: self.view.width, height: self.view.height, color, depth: self.depth.clone() }
     }
 }

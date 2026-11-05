@@ -1372,6 +1372,10 @@ impl Renderer {
         &self.device
     }
 
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
     fn lut_texture(&self, display: &DisplayProps) -> wgpu::Texture {
         let data = display.effective_colormap().lut_rgba8();
         self.device.create_texture_with_data(

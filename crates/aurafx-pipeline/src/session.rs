@@ -423,6 +423,8 @@ pub struct Session {
     pub show_time_label: bool,
     /// Animation export requested by a script: (output path, fps, orbit frames or None for time steps).
     pub animation_request: Option<(PathBuf, f32, Option<usize>)>,
+    /// Frames rendered by a script to encode (GIF/MP4); the result goes to `screenshot_results`.
+    pub encode_request: Option<EncodeRequest>,
     /// Connections to aurafx-server processes, by host name.
     pub remote_clients: std::collections::HashMap<String, Arc<crate::remote::RemoteClient>>,
     /// Outputs of server nodes larger than this come back as their surface (0 = default).
@@ -433,6 +435,16 @@ pub struct Session {
 
 /// Default limit above which server outputs are sent as their surface.
 pub const REMOTE_MAX_BYTES: u64 = 64 << 20;
+
+/// Frames `dir/frame_00000.png`... to encode into `out` (GIF or MP4).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EncodeRequest {
+    pub dir: PathBuf,
+    pub frames: usize,
+    pub out: PathBuf,
+    pub fps: f32,
+    pub id: u64,
+}
 
 /// A picture of the 3D view to save.
 #[derive(Debug, Clone, PartialEq)]

@@ -162,9 +162,7 @@ impl State {
             if job.mode != AnimMode::Orbit {
                 let mut s = self.session.lock();
                 s.set_time_index(job.start_time_index);
-                for (n, k, v) in &job.start_params {
-                    s.set_param_quiet(*n, k, v.clone());
-                }
+                s.restore_animated(&job.start_params);
             }
             if let Some(c) = job.start_camera.clone() {
                 self.viewport.camera = c;
@@ -197,41 +195,31 @@ impl State {
         self.status = format!("Recording frame {}/{}", job.frame + 1, job.total);
     }
 
+    /// Encode frames a script rendered (afx.save_animation with a cue) and report back.
+    fn encode_for_script(&mut self, req: aurafx_pipeline::session::EncodeRequest) {
+        let session = self.session.clone();
+        self.status = "Encoding the animation…".into();
+        std::thread::spawn(move || {
+            let r = encode_frames(&req.dir, req.frames, &req.out, req.fps);
+            let _ = std::fs::remove_dir_all(&req.dir);
+            session.lock().screenshot_results.push((req.id, r));
+        });
+    }
+
     fn finish_animation(&mut self, job: AnimJob) {
-        let frames: Vec<PathBuf> = (0..job.total).map(|i| job.dir.join(format!("frame_{i:05}.png"))).collect();
         let out = job.out.clone();
         match job.format {
             AnimFormat::Png => {
                 self.toast(format!("Saved {} frames to {}", job.total, job.dir.display()), false);
             }
-            AnimFormat::Gif => {
+            AnimFormat::Gif | AnimFormat::Mp4 => {
                 let tx = self.anim_done_tx.clone();
                 let fps = job.fps;
-                self.status = "Encoding GIF…".into();
+                self.status = format!("Encoding {}…", if job.format == AnimFormat::Mp4 { "MP4" } else { "GIF" });
                 std::thread::spawn(move || {
-                    let r = encode_gif(&frames, &out, fps);
+                    let r = encode_frames(&job.dir, job.total, &out, fps);
                     let _ = std::fs::remove_dir_all(&job.dir);
-                    let _ = tx.send(r.map(|_| out).map_err(|e| format!("{e:#}")));
-                });
-            }
-            AnimFormat::Mp4 => {
-                let tx = self.anim_done_tx.clone();
-                let fps = job.fps;
-                self.status = "Encoding MP4…".into();
-                std::thread::spawn(move || {
-                    let st = std::process::Command::new("ffmpeg")
-                        .args(["-y", "-loglevel", "error", "-framerate", &fps.to_string(), "-i"])
-                        .arg(job.dir.join("frame_%05d.png"))
-                        .args(["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
-                        .arg(&out)
-                        .status();
-                    let _ = std::fs::remove_dir_all(&job.dir);
-                    let r = match st {
-                        Ok(s) if s.success() => Ok(out),
-                        Ok(s) => Err(format!("ffmpeg exited with {s}")),
-                        Err(e) => Err(format!("ffmpeg: {e}")),
-                    };
-                    let _ = tx.send(r);
+                    let _ = tx.send(r.map(|_| out));
                 });
             }
         }
@@ -248,6 +236,33 @@ impl State {
         if let Some((p, fps, orbit)) = req {
             self.start_animation(p, fps, orbit);
         }
+        let enc = self.session.lock().encode_request.take();
+        if let Some(r) = enc {
+            self.encode_for_script(r);
+        }
+    }
+}
+
+/// Encode `dir/frame_00000.png`... into `out` (GIF, or MP4 with ffmpeg).
+pub fn encode_frames(dir: &std::path::Path, total: usize, out: &std::path::Path, fps: f32) -> Result<(), String> {
+    let mp4 = out.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("mp4"));
+    if !mp4 {
+        let frames: Vec<PathBuf> = (0..total).map(|i| dir.join(format!("frame_{i:05}.png"))).collect();
+        return encode_gif(&frames, out, fps).map_err(|e| format!("{e:#}"));
+    }
+    if !ffmpeg_available() {
+        return Err("MP4 needs ffmpeg on the PATH".into());
+    }
+    let st = std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-framerate", &fps.to_string(), "-i"])
+        .arg(dir.join("frame_%05d.png"))
+        .args(["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(out)
+        .status();
+    match st {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("ffmpeg exited with {s}")),
+        Err(e) => Err(format!("ffmpeg: {e}")),
     }
 }
 
@@ -340,6 +355,17 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     }
 }
 
+/// How a key moves on to the next one, as a small menu. Returns true when changed.
+fn interp_menu(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, interp: &mut aurafx_pipeline::animation::Interp) -> bool {
+    let before = *interp;
+    egui::ComboBox::from_id_salt(id).width(86.0).selected_text(interp.label()).show_ui(ui, |ui| {
+        for i in aurafx_pipeline::animation::Interp::ALL {
+            ui.selectable_value(interp, i, i.label());
+        }
+    });
+    *interp != before
+}
+
 /// Timeline editor: scrub, camera keyframes, parameter tracks.
 fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
     use aurafx_filters::params::ParamValue;
@@ -398,6 +424,12 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                 state.anim_dialog.t = k.t;
                 state.apply_animation_time(k.t);
             }
+            if i + 1 < anim.camera.len() {
+                let mut interp = k.interp;
+                if interp_menu(ui, ("cam interp", i), &mut interp) {
+                    changed.camera[i].interp = interp;
+                }
+            }
             if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this keyframe").clicked() {
                 remove_cam = Some(i);
             }
@@ -415,13 +447,18 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
             Some(n) => {
                 let labels: std::collections::HashMap<String, String> =
                     n.def().map(|d| d.params.iter().map(|p| (p.key.clone(), p.label.clone())).collect()).unwrap_or_default();
-                let ps = n.params.0.iter().filter(|(_, v)| numeric(v)).map(|(k, _)| (k.clone(), labels.get(k).cloned().unwrap_or_else(|| k.clone()))).collect();
+                let mut ps: Vec<(String, String)> =
+                    n.params.0.iter().filter(|(_, v)| numeric(v)).map(|(k, _)| (k.clone(), labels.get(k).cloned().unwrap_or_else(|| k.clone()))).collect();
+                // Display properties too.
+                for d in aurafx_pipeline::animation::DISPLAY_TRACKS {
+                    ps.push((format!("display.{d}"), format!("Display · {}", d.replace('_', " "))));
+                }
                 (Some((n.id, n.name.clone())), ps)
             }
             None => (None, vec![]),
         }
     };
-    ui.label(RichText::new(format!("{} Filter values", crate::icons::SLIDERS_HORIZONTAL)).strong());
+    ui.label(RichText::new(format!("{} Filter and display values", crate::icons::SLIDERS_HORIZONTAL)).strong());
     match &active {
         Some((id, name)) if !params.is_empty() => {
             ui.horizontal(|ui| {
@@ -439,7 +476,11 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     let (v, spec) = {
                         let s = state.session.lock();
                         let n = s.nodes.get(id);
-                        (n.and_then(|n| n.params.get(&key).cloned()), n.and_then(|n| n.def()).and_then(|d| d.params.iter().find(|p| p.key == key).cloned()))
+                        let v = match key.strip_prefix("display.") {
+                            Some(d) => n.and_then(|n| aurafx_pipeline::animation::display_value(&n.display, d)),
+                            None => n.and_then(|n| n.params.get(&key).cloned()),
+                        };
+                        (v, n.and_then(|n| n.def()).and_then(|d| d.params.iter().find(|p| p.key == key).cloned()))
                     };
                     // "Auto" values are filled in from the data, as when editing them in Properties.
                     let v = match (v, spec) {
@@ -474,8 +515,22 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     }
                     _ => String::new(),
                 };
-                if ui.small_button(format!("{} = {txt}", pct(k.t))).on_hover_text("Click to delete this keyframe").clicked() {
-                    remove_key = Some((ti, ki));
+                let b = ui.small_button(format!("{} = {txt}", pct(k.t))).on_hover_text("Jump here; right-click to delete this keyframe");
+                if b.clicked() {
+                    state.anim_dialog.t = k.t;
+                    state.apply_animation_time(k.t);
+                }
+                b.context_menu(|ui| {
+                    if ui.button("Delete keyframe").clicked() {
+                        remove_key = Some((ti, ki));
+                        ui.close();
+                    }
+                });
+                if ki + 1 < tr.keys.len() {
+                    let mut interp = k.interp;
+                    if interp_menu(ui, ("track interp", ti, ki), &mut interp) {
+                        changed.tracks[ti].keys[ki].interp = interp;
+                    }
                 }
             }
             if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this track").clicked() {

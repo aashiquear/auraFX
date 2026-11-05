@@ -324,10 +324,22 @@ impl PyNode {
     }
 
     /// Keyframe parameter `param` at animation time t (0..1). Without `value`, the current value is used.
-    #[pyo3(signature = (param, t, value=None))]
-    fn key(&self, param: &str, t: f64, value: Option<&Bound<'_, PyAny>>) -> PyResult<PyNode> {
+    /// Display properties work too: "opacity", "point_size", "line_width", "solid_color",
+    /// "edge_color", "lic_strength", "volume_opacity", "volume_threshold". `interp` says how
+    /// the value moves on to the next key ("linear", "step", "ease in", "ease out",
+    /// "ease in-out", "exponential").
+    #[pyo3(signature = (param, t, value=None, interp="linear"))]
+    fn key(&self, param: &str, t: f64, value: Option<&Bound<'_, PyAny>>, interp: &str) -> PyResult<PyNode> {
+        let interp = parse_interp(interp)?;
         let mut s = session().lock();
-        let current = s.nodes.get(&self.id).and_then(|n| n.params.get(param).cloned()).ok_or_else(|| PyKeyError::new_err(format!("no parameter '{param}'")))?;
+        let display = param.strip_prefix("display.").unwrap_or(param);
+        let is_display = aurafx_pipeline::animation::DISPLAY_TRACKS.contains(&display) && s.nodes.get(&self.id).is_some_and(|n| n.params.get(param).is_none());
+        let track = if is_display { format!("display.{display}") } else { param.to_string() };
+        let current = s
+            .nodes
+            .get(&self.id)
+            .and_then(|n| if is_display { aurafx_pipeline::animation::display_value(&n.display, display) } else { n.params.get(param).cloned() })
+            .ok_or_else(|| PyKeyError::new_err(format!("no parameter '{param}'")))?;
         let v = match value {
             None => current,
             Some(v) => {
@@ -343,7 +355,7 @@ impl PyNode {
         if !aurafx_pipeline::animation::animatable(&v) {
             return Err(PyValueError::new_err(format!("'{param}' is not a number or 3-vector")));
         }
-        s.animation.key_param(self.id, param, t.clamp(0.0, 1.0), v);
+        s.animation.key_param_with(self.id, &track, t.clamp(0.0, 1.0), v, interp);
         Ok(self.clone())
     }
 
@@ -756,20 +768,7 @@ fn view(direction: Bound<'_, PyAny>, up: Option<[f64; 3]>) -> PyResult<()> {
 fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u32>, transparent: bool) -> PyResult<()> {
     let id = request_screenshot(path, width, height, transparent);
     // Wait until the app has saved it (a ray-traced picture may take a while).
-    py.detach(|| {
-        let start = std::time::Instant::now();
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            let mut s = session().lock();
-            if let Some(i) = s.screenshot_results.iter().position(|r| r.0 == id) {
-                return s.screenshot_results.remove(i).1;
-            }
-            if start.elapsed() > std::time::Duration::from_secs(3600) {
-                return Err("no 3D view saved the screenshot within an hour".into());
-            }
-        }
-    })
-    .map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
+    wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
 }
 
 /// Export the visible objects as a 3D scene: `afx.export_scene("scene.glb")` (glTF binary, for
@@ -1101,18 +1100,115 @@ fn load_state(path: String) -> PyResult<()> {
 /// Record an animation: keyframes if any were added (key_camera / node.key), otherwise time
 /// steps, or a 360° camera orbit with orbit=frames.
 /// The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).
+///
+/// With `cue`, a Python function called with the animation time t (0..1) before each frame
+/// (after the keyframes are applied), the script renders the frames itself and returns when
+/// the file is written: `afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))`.
 #[pyfunction]
-#[pyo3(signature = (path, fps=10.0, orbit=None))]
-fn save_animation(path: String, fps: f32, orbit: Option<usize>) {
-    session().lock().animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
+#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None))]
+#[allow(clippy::too_many_arguments)]
+fn save_animation(
+    py: Python<'_>,
+    path: String,
+    fps: f32,
+    orbit: Option<usize>,
+    cue: Option<Bound<'_, PyAny>>,
+    frames: Option<usize>,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> PyResult<()> {
+    let Some(cue) = cue else {
+        session().lock().animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
+        return Ok(());
+    };
+    if !cue.is_callable() {
+        return Err(PyValueError::new_err("cue must be a function of the animation time t"));
+    }
+    let out = std::path::PathBuf::from(&path);
+    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !matches!(ext.as_str(), "gif" | "mp4" | "png") {
+        return Err(PyValueError::new_err("save_animation writes .gif, .mp4 or .png (a folder of frames)"));
+    }
+    let (n, saved, time_index) = {
+        let s = session().lock();
+        (frames.unwrap_or(s.animation.frames).max(2), s.animated_params(), s.time_index)
+    };
+    let stem = out.file_stem().and_then(|s| s.to_str()).unwrap_or("frames").to_string();
+    let dir = if ext == "png" {
+        out.with_file_name(&stem)
+    } else {
+        std::env::temp_dir().join(format!("aurafx-cue-{}-{}", std::process::id(), session().lock().next_screenshot_id))
+    };
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let render = || -> PyResult<()> {
+        for i in 0..n {
+            let t = i as f64 / (n - 1) as f64;
+            {
+                let mut s = session().lock();
+                if let Some(c) = s.apply_animation(t) {
+                    s.pending_camera = Some(c);
+                }
+            }
+            cue.call1((t,))?;
+            screenshot(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false)?;
+        }
+        Ok(())
+    };
+    let rendered = render();
+    {
+        let mut s = session().lock();
+        s.restore_animated(&saved);
+        s.set_time_index(time_index);
+    }
+    rendered?;
+    if ext == "png" {
+        return Ok(());
+    }
+    // The app encodes (it has the GIF/MP4 writers); wait for it.
+    let id = {
+        let mut s = session().lock();
+        s.next_screenshot_id += 1;
+        let id = s.next_screenshot_id;
+        s.encode_request = Some(aurafx_pipeline::session::EncodeRequest { dir, frames: n, out, fps: fps.max(0.5), id });
+        s.revision += 1;
+        id
+    };
+    wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("save_animation: {e}")))
 }
 
-/// Keyframe the current 3D view camera at animation time t (0..1).
+/// Wait for the app to finish request `id` (screenshot, export, encoding).
+fn wait_result(py: Python<'_>, id: u64) -> Result<(), String> {
+    py.detach(|| {
+        let start = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let mut s = session().lock();
+            if let Some(i) = s.screenshot_results.iter().position(|r| r.0 == id) {
+                return s.screenshot_results.remove(i).1;
+            }
+            if start.elapsed() > std::time::Duration::from_secs(3600) {
+                return Err("the app did not finish within an hour".into());
+            }
+        }
+    })
+}
+
+fn parse_interp(interp: &str) -> PyResult<aurafx_pipeline::animation::Interp> {
+    aurafx_pipeline::animation::Interp::parse(interp).ok_or_else(|| {
+        let all: Vec<&str> = aurafx_pipeline::animation::Interp::ALL.iter().map(|i| i.label()).collect();
+        PyValueError::new_err(format!("unknown interpolation {interp:?}; one of: {}", all.join(", ")))
+    })
+}
+
+/// Keyframe the current 3D view camera at animation time t (0..1); `interp` says how it moves
+/// on to the next key: "linear", "step", "ease in", "ease out", "ease in-out", "exponential".
 #[pyfunction]
-fn key_camera(t: f64) -> PyResult<()> {
+#[pyo3(signature = (t, interp="linear"))]
+fn key_camera(t: f64, interp: &str) -> PyResult<()> {
+    let interp = parse_interp(interp)?;
     let mut s = session().lock();
     let cam = s.camera_state.ok_or_else(|| PyRuntimeError::new_err("no 3D view yet"))?;
-    s.animation.key_camera(t.clamp(0.0, 1.0), cam);
+    s.animation.key_camera_with(t.clamp(0.0, 1.0), cam, interp);
     Ok(())
 }
 

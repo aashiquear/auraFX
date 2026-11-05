@@ -171,7 +171,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 
 ### 3.3 Animation and time
 - [~] Time toolbar (play, step, loop, time value entry, snap to steps, real-time, sequence modes), time inspector.
-- [~] Animation view (camera keyframes, numeric property tracks with linear ramps, time scrubbing and preview done; easing modes, Python cue, comparative cues todo): keyframes for any property (ramp, linear, exponential, sinusoid, boolean), camera paths (orbit, path, interpolate), Python cue, comparative cues.
+- [~] Animation view (camera keyframes, numeric filter and display property tracks, linear/step/ease/exponential interpolation per key, Python cue, time scrubbing and preview done; sinusoid and comparative cues todo): keyframes for any property (ramp, linear, exponential, sinusoid, boolean), camera paths (orbit, path, interpolate), Python cue, comparative cues.
 - [~] Save animation at any resolution/format with frame-rate control; stride; preview.
 
 ---
@@ -513,6 +513,15 @@ Done in iteration 16 (exporters):
   follow the pointer in the plane facing the camera, box faces move along their axis.
 - **Light widgets**: custom lights appear as sun handles around the objects; dragging one aims
   that light (camera-relative lights stay camera-relative). View › Lighting › Show lights.
+
+- **Keyframes:** each key says how it moves on to the next one: linear, step (hold), ease in,
+  ease out, ease in-out, or exponential (constant ratio, for scales and zooms); a menu per key
+  in the Animation window, `node.key(..., interp=)`, `afx.key_camera(t, interp=)`. Display
+  properties (opacity, colors, point size, line width, LIC strength, volume density) can be
+  keyed like filter values. Older state files load with linear keys.
+- **Python cue:** `afx.save_animation("out.mp4", cue=lambda t: ..., frames=120)` calls the
+  function before each frame (after the keyframes) and returns when the file is written; the
+  script renders frames with the waiting screenshot and the app encodes them.
 
 Known gaps worth doing next: GPU ray tracing, materials and environment maps (P4); light widgets in the 3D view; MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real

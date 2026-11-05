@@ -298,6 +298,12 @@ impl Session {
                     }
                 }
             }
+            // A reader on a server: its options are only known there, so they are kept as saved.
+            if let (KindSnap::Remote(..), Some(obj)) = (&kind, n.get("params").and_then(|p| p.as_object())) {
+                for (k, v) in obj {
+                    params.set_json(k, v);
+                }
+            }
             // A reader's parameters are the options its file offers.
             if let (KindSnap::Reader(file), Some(obj)) = (&kind, n.get("params").and_then(|p| p.as_object())) {
                 let specs = crate::session::reader_param_specs(file);

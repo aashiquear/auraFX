@@ -150,13 +150,10 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 s.set_display(id, |d| d.point_size = v);
             }
             _ => {
-                // Readers take only the options their file offers.
-                let reader = s.nodes.get(&id).and_then(|n| match &n.kind {
-                    aurafx_pipeline::NodeKind::Reader { path, .. } => Some(path.clone()),
-                    _ => None,
-                });
-                if let Some(path) = reader {
-                    let specs = aurafx_pipeline::reader_param_specs(&path);
+                // Readers take only the options their file offers (a reader on a server is
+                // checked once the server has said what they are).
+                let reader = s.nodes.get(&id).is_some_and(|n| matches!(n.kind, aurafx_pipeline::NodeKind::Reader { .. } | aurafx_pipeline::NodeKind::Remote { .. }));
+                if let Some(specs) = s.reader_specs(id).filter(|_| reader) {
                     if !specs.iter().any(|p| p.key == key) {
                         let keys: Vec<&str> = specs.iter().map(|p| p.key.as_str()).collect();
                         return Err(PyValueError::new_err(if keys.is_empty() {

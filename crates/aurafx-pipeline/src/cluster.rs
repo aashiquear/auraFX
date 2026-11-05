@@ -193,7 +193,7 @@ impl Cluster {
                 }
             }
         };
-        Ok((Reply::Data { info: Some(info), times, payload, server_ms: t0.elapsed().as_secs_f64() * 1e3, full_bytes }, att))
+        Ok((Reply::Data { info: Some(info), times, payload, server_ms: t0.elapsed().as_secs_f64() * 1e3, full_bytes, reader_options: Vec::new() }, att))
     }
 
     /// Pictures of piece-local targets from every worker, composited by depth.

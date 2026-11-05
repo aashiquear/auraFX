@@ -696,7 +696,17 @@ pick the grid (ParaView's Dimensions). ParaView's own POP reader reads only 3-D 
 POP history files are compared with its NetCDF reader. CAM checked in all four of ParaView's
 modes (counts, bounds, first cell, array sums); POP on both grids (bounds, ranges).
 
-Known gaps worth doing next (P5): Tecplot SZL (no reference reader), reader options on remote servers, GDAL vectors,
+Done in iteration 29: **reader options on servers** (protocol 8). Reader nodes already sent
+their parameters with each request and the server applies them to its reader node, which now
+re-reads with them; what was missing is the client knowing the options. Each Compute answer
+lists, per reader in the request, the options of its file as the server sees it (cached per
+path, sent as plain `aurafx_io::ReaderOption`s: `ParamValue`'s untagged serde form cannot cross
+postcard), stored on the client's server node; Properties and Python use them (Python accepts
+any name until the first answer). Parallel servers pass them to every process; saved states
+keep server nodes' parameters (they were dropped on load before). Tested in-process, with a
+3-process parallel server, and through a real aurafx-server process (the guide screenshot).
+
+Known gaps worth doing next (P5): Tecplot SZL (no reference reader), GDAL vectors,
 remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.

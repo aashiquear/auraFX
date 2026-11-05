@@ -213,7 +213,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
 
 /// Settings a reader offers for a particular file (shown under Properties, set from Python
 /// with `node.set(key=value)`). Values travel as text in [`ReaderOptions`].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ReaderOption {
     pub key: String,
     pub label: String,
@@ -222,7 +222,7 @@ pub struct ReaderOption {
     pub default: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ReaderOptionKind {
     Int { min: i64, max: i64 },
     Float { min: f64, max: f64 },

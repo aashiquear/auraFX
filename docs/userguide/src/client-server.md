@@ -49,6 +49,25 @@ s.set(all_data=True)                                     # bring the whole outpu
 afx.servers()                                            # connections and the machines' details
 ```
 
+### Reader options on the server
+
+Files on a server have the same **Reader options** as local ones (an MPAS file's vertical
+level and layout, a NetCDF file's grid, a CAM-SE file's connectivity file…). The server looks
+at the file and reports its options with its first answer, so they appear under Properties a
+moment after the file opens. Changing one has the server read the file again with it; on a
+parallel server, every process reads its piece with it. Paths in options, such as a CAM-SE
+connectivity file, are paths on the server.
+
+```python
+d = afx.load("/scratch/ocean/output.nc", host="cluster")
+d.set(vertical_level=10)          # read on the server
+```
+
+From Python, an option the file does not have is refused once the server has said which ones
+it has; before that, the server ignores names it does not know. Saved states keep the options.
+
+![The MPAS test file on a server at vertical level 2, with the options the server reported under Properties](images/server_reader_options.png)
+
 ## Drawing on the server
 
 Some outputs are too big even as a surface. Then the server draws the object with its own GPU

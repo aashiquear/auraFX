@@ -187,6 +187,9 @@ pub struct Node {
     /// When watching, jump to the newest time step after a reload.
     pub follow_latest: bool,
     pub(crate) file_signature: u64,
+    /// For a reader on a server: the options its file offers, as the server reported them
+    /// (None until the server has answered).
+    pub remote_options: Option<Vec<aurafx_filters::ParamSpec>>,
     /// Kept between runs of temporal filters.
     pub temporal_state: TemporalState,
     /// (upstream + parameter fingerprint, time) of a temporal filter's current output, so a
@@ -240,6 +243,7 @@ impl Node {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            remote_options: None,
             temporal_state: TemporalState::default(),
             temporal_key: None,
             remote: None,
@@ -576,6 +580,7 @@ impl Session {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            remote_options: None,
             temporal_state: TemporalState::default(),
             temporal_key: None,
             remote: None,
@@ -617,6 +622,7 @@ impl Session {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            remote_options: None,
             temporal_state: TemporalState::default(),
             temporal_key: None,
             remote: None,
@@ -662,6 +668,7 @@ impl Session {
             watch: false,
             follow_latest: true,
             file_signature: 0,
+            remote_options: None,
             temporal_state: TemporalState::default(),
             temporal_key: None,
             remote: None,
@@ -1384,6 +1391,15 @@ impl Session {
             _ => String::new(),
         };
         let mut new_times = false;
+        if let Some(f) = &fetched {
+            for (id, opts) in &f.reader_options {
+                if let Some(n) = self.nodes.get_mut(id) {
+                    if matches!(n.kind, NodeKind::Remote { .. }) {
+                        n.remote_options = Some(option_specs(opts.clone()));
+                    }
+                }
+            }
+        }
         if let (Some(f), Some(n)) = (&fetched, self.nodes.get_mut(&item.node)) {
             if let NodeKind::Remote { times, .. } = &mut n.kind {
                 if *times != f.times {
@@ -1700,6 +1716,17 @@ impl Session {
 
     // ------------------------------------------------------------------ queries
 
+    /// The options of a reader node's file: read here for a local file, as the server reported
+    /// them for a file on a server (None while not known yet), none for other nodes.
+    pub fn reader_specs(&self, id: NodeId) -> Option<Vec<aurafx_filters::ParamSpec>> {
+        let n = self.nodes.get(&id)?;
+        match &n.kind {
+            NodeKind::Reader { path, .. } if !path.to_string_lossy().starts_with("memory://") => Some(reader_param_specs(path)),
+            NodeKind::Remote { .. } => n.remote_options.clone(),
+            _ => Some(Vec::new()),
+        }
+    }
+
     pub fn active_node(&self) -> Option<&Node> {
         self.active.and_then(|id| self.nodes.get(&id))
     }
@@ -1830,8 +1857,13 @@ pub fn reader_options_of(params: &Params) -> aurafx_io::ReaderOptions {
 /// The options a file's reader offers, as parameter specs (for the Properties panel and
 /// `node.set(...)` from Python).
 pub fn reader_param_specs(path: &Path) -> Vec<aurafx_filters::ParamSpec> {
+    option_specs(aurafx_io::reader_options(path))
+}
+
+/// Reader options as parameter specs.
+pub fn option_specs(options: Vec<aurafx_io::ReaderOption>) -> Vec<aurafx_filters::ParamSpec> {
     use aurafx_filters::{ParamKind as K, ParamSpec, ParamValue as V};
-    aurafx_io::reader_options(path)
+    options
         .into_iter()
         .map(|o| {
             let (kind, default) = match &o.kind {

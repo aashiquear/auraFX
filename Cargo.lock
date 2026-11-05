@@ -269,6 +269,7 @@ dependencies = [
  "parking_lot",
  "quick-xml 0.42.0",
  "rayon",
+ "serde",
  "thiserror 2.0.21",
  "tiff",
  "tracing",

@@ -590,24 +590,31 @@ fn remote_text(host: &str, st: Option<&aurafx_pipeline::RemoteStatus>) -> String
 }
 
 /// Settings the reader of a file offers (MPAS vertical level, layout...), applied by
-/// reading the file again.
+/// reading the file again (on the server, for a file there).
 fn reader_options_ui(state: &mut State, ui: &mut egui::Ui, id: aurafx_pipeline::NodeId, params: &aurafx_filters::Params) {
-    let path = {
+    // A local file's options are looked up once per file; a server's come with its answers.
+    let (path, remote) = {
         let s = state.session.lock();
-        s.nodes.get(&id).and_then(|n| match &n.kind {
-            aurafx_pipeline::NodeKind::Reader { path, .. } if !path.to_string_lossy().starts_with("memory://") => Some(path.clone()),
-            _ => None,
-        })
-    };
-    let Some(path) = path else { return };
-    let key = ui.make_persistent_id(("reader_options", path.clone()));
-    let specs: Vec<aurafx_filters::ParamSpec> = match ui.data(|d| d.get_temp(key)) {
-        Some(v) => v,
-        None => {
-            let v = aurafx_pipeline::reader_param_specs(&path);
-            ui.data_mut(|d| d.insert_temp(key, v.clone()));
-            v
+        match s.nodes.get(&id).map(|n| &n.kind) {
+            Some(aurafx_pipeline::NodeKind::Reader { path, .. }) if !path.to_string_lossy().starts_with("memory://") => (Some(path.clone()), None),
+            Some(aurafx_pipeline::NodeKind::Remote { .. }) => (None, Some(s.reader_specs(id).unwrap_or_default())),
+            _ => (None, None),
         }
+    };
+    let specs: Vec<aurafx_filters::ParamSpec> = match (path, remote) {
+        (_, Some(r)) => r,
+        (Some(path), None) => {
+            let key = ui.make_persistent_id(("reader_options", path.clone()));
+            match ui.data(|d| d.get_temp(key)) {
+                Some(v) => v,
+                None => {
+                    let v = aurafx_pipeline::reader_param_specs(&path);
+                    ui.data_mut(|d| d.insert_temp(key, v.clone()));
+                    v
+                }
+            }
+        }
+        _ => return,
     };
     if specs.is_empty() {
         return;

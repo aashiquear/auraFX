@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
-pub const PROTOCOL: u32 = 7;
+pub const PROTOCOL: u32 = 8;
 
 /// One node of the recipe the client sends, keyed by the client's node id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -219,6 +219,8 @@ pub enum Reply {
         payload: Payload,
         server_ms: f64,
         full_bytes: u64,
+        /// The options each reader in the request offers for its file (read on the server).
+        reader_options: Vec<(NodeId, Vec<aurafx_io::ReaderOption>)>,
     },
     /// The attachment is LZ4 color (first `color_bytes`) followed by LZ4 depth.
     Image {
@@ -341,13 +343,15 @@ struct Server {
     gpu: Option<String>,
     /// Set on the coordinator of a parallel server.
     cluster: Option<crate::cluster::Cluster>,
+    /// Reader options per file path.
+    option_cache: HashMap<String, Vec<aurafx_io::ReaderOption>>,
 }
 
 impl Default for Server {
     fn default() -> Self {
         let mut session = Session::new();
         session.suspend_undo = 1;
-        Self { session, nodes: HashMap::new(), hook: None, gpu: None, cluster: None }
+        Self { session, nodes: HashMap::new(), hook: None, gpu: None, cluster: None, option_cache: HashMap::new() }
     }
 }
 
@@ -387,6 +391,10 @@ impl Server {
             }
             Request::Compute { specs, target, time, fetch, max_bytes, surface_level, max_surface_bytes } => {
                 match self.compute(&specs, target, time, fetch, max_bytes, surface_level, max_surface_bytes) {
+                    Ok((Reply::Data { info, times, payload, server_ms, full_bytes, .. }, att)) => {
+                        let reader_options = self.reader_options(&specs);
+                        (Reply::Data { info, times, payload, server_ms, full_bytes, reader_options }, att)
+                    }
                     Ok(r) => r,
                     Err(e) => (Reply::Error { message: format!("{e:#}") }, vec![]),
                 }
@@ -545,6 +553,20 @@ impl Server {
         self.reconcile(&rest)
     }
 
+    /// The options of the reader specs' files, looked up once per file.
+    fn reader_options(&mut self, specs: &[NodeSpec]) -> Vec<(NodeId, Vec<aurafx_io::ReaderOption>)> {
+        specs
+            .iter()
+            .filter_map(|s| match &s.kind {
+                SpecKind::Reader { path } => {
+                    let o = self.option_cache.entry(path.clone()).or_insert_with(|| aurafx_io::reader_options(expand_home(path))).clone();
+                    Some((s.id, o))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn compute(
         &mut self,
@@ -610,7 +632,7 @@ impl Server {
             },
         };
         let info = n.info.clone().or_else(|| Some(DataSetInfo::of(&out)));
-        Ok((Reply::Data { info, times, payload, server_ms: t0.elapsed().as_secs_f64() * 1e3, full_bytes }, att))
+        Ok((Reply::Data { info, times, payload, server_ms: t0.elapsed().as_secs_f64() * 1e3, full_bytes, reader_options: Vec::new() }, att))
     }
 }
 
@@ -654,6 +676,8 @@ pub struct Fetched {
     pub server_ms: f64,
     pub full_bytes: u64,
     pub sent_bytes: u64,
+    /// Reader options of the readers in the request (by client node id).
+    pub reader_options: Vec<(NodeId, Vec<aurafx_io::ReaderOption>)>,
 }
 
 struct Conn {
@@ -891,9 +915,9 @@ impl RemoteClient {
     ) -> Result<Fetched> {
         let (reply, att) = self.request(&Request::Compute { specs, target, time, fetch, max_bytes, surface_level, max_surface_bytes })?;
         match reply {
-            Reply::Data { info, times, payload, server_ms, full_bytes } => {
+            Reply::Data { info, times, payload, server_ms, full_bytes, reader_options } => {
                 let data = if att.is_empty() { DataSet::PolyData(Default::default()) } else { decode(&att)? };
-                Ok(Fetched { data, info, times, payload, server_ms, full_bytes, sent_bytes: att.len() as u64 })
+                Ok(Fetched { data, info, times, payload, server_ms, full_bytes, sent_bytes: att.len() as u64, reader_options })
             }
             Reply::Error { message } => Err(anyhow!("{message}")),
             other => bail!("unexpected reply {other:?}"),

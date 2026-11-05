@@ -152,3 +152,28 @@ fn partitioned_files_are_read_piece_by_piece() {
     close(integrate(s.nodes[&c].output.as_ref().unwrap())["Area"], integrate(local.nodes[&lc].output.as_ref().unwrap())["Area"], "contour over the pieces");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Reader options reach every process of a parallel server: each worker reads its piece with
+/// them, and the pieces together are the whole file read with the option.
+#[test]
+fn parallel_server_reader_options() {
+    let (mut s, host) = cluster_session(3);
+    let mut local = Session::new();
+    let r = s.open_remote(host.clone(), &td("netcdf/mpas_ocean.nc"));
+    let lr = local.open_file(td("netcdf/mpas_ocean.nc")).unwrap();
+    // A server node learns its time steps from the first answer.
+    s.update_blocking();
+    for sess in [&mut s, &mut local] {
+        let id = *sess.nodes.keys().next().unwrap();
+        sess.set_param(id, "vertical_level", aurafx_filters::ParamValue::Int(3));
+        sess.set_time_index(1);
+        sess.update_blocking();
+    }
+    assert!(s.nodes[&r].error.is_none(), "{:?}", s.nodes[&r].error);
+    let (a, b) = (s.nodes[&r].output.clone().unwrap(), local.nodes[&lr].output.clone().unwrap());
+    assert_eq!(a.n_cells(), b.n_cells());
+    let range = |d: &DataSet| d.point_data().unwrap().get("temperature").unwrap().range(None);
+    assert_eq!(range(&a), range(&b));
+    assert_eq!(range(&b), (-14.967137336730957, 15.5), "level 3 at step 1");
+    assert_eq!(s.reader_specs(r).map(|v| v.len()), Some(6));
+}

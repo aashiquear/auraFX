@@ -142,3 +142,43 @@ fn remote_time_series_and_temporal_filters() {
     assert!(s.nodes[&p].remote.is_some());
     same(s.nodes[&p].output.as_ref().unwrap(), local.nodes[&lp].output.as_ref().unwrap());
 }
+
+/// Reader options of a file on a server: the server reports them with its answers, setting
+/// one reads the file again there, the result is the same as reading it here with the option,
+/// and the options are kept in state files.
+#[test]
+fn remote_reader_options() {
+    use aurafx_filters::ParamValue;
+    let (mut s, host) = server_session();
+    let mut local = Session::new();
+    let r = s.open_remote(host.clone(), &td("netcdf/mpas_ocean.nc"));
+    let lr = local.open_file(td("netcdf/mpas_ocean.nc")).unwrap();
+    assert_eq!(s.reader_specs(r), None, "not known before the server answers");
+    s.update_blocking();
+    let keys: Vec<String> = s.reader_specs(r).unwrap().into_iter().map(|p| p.key).collect();
+    assert_eq!(keys, ["vertical_level", "multilayer", "layer_thickness", "atmosphere", "layout", "center_lon"]);
+    assert_eq!(s.reader_specs(r), local.reader_specs(lr));
+
+    for (key, v) in [("vertical_level", ParamValue::Int(2)), ("layout", ParamValue::Str("Lat/Lon map".into())), ("multilayer", ParamValue::Bool(true))] {
+        s.set_param(r, key, v.clone());
+        local.set_param(lr, key, v);
+        s.update_blocking();
+        local.update_blocking();
+        assert!(s.nodes[&r].error.is_none(), "{:?}", s.nodes[&r].error);
+        same(s.nodes[&r].output.as_ref().unwrap(), local.nodes[&lr].output.as_ref().unwrap());
+    }
+    assert_eq!(s.nodes[&r].output.as_ref().unwrap().n_points(), 779 * 5);
+
+    // Saved and opened again: the options are kept although only the server knows them.
+    let dir = std::env::temp_dir().join(format!("aurafx_remote_opts_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("remote.afx");
+    s.save_state(&path, None).unwrap();
+    let (mut t, _) = server_session();
+    t.load_state(&path).unwrap();
+    t.update_blocking();
+    let id = *t.nodes.keys().next().unwrap();
+    assert_eq!(t.nodes[&id].params.get("multilayer"), Some(&ParamValue::Bool(true)));
+    assert_eq!(t.nodes[&id].output.as_ref().unwrap().n_points(), 779 * 5);
+    std::fs::remove_dir_all(&dir).ok();
+}

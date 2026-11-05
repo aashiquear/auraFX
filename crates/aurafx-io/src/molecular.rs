@@ -290,3 +290,233 @@ pub fn read_lammps_data(path: &Path) -> Result<DataSet> {
     pd.field_data.insert(Array::new("BoxHi", 3, ArrayData::F64(hi.to_vec())));
     Ok(DataSet::PolyData(pd))
 }
+
+/// Covalent radius in Å (Cordero et al. 2008) by atomic number; 1.5 for others.
+fn covalent_radius(z: usize) -> f64 {
+    const R: [f64; 37] = [
+        0.0, 0.31, 0.28, 1.28, 0.96, 0.84, 0.76, 0.71, 0.66, 0.57, 0.58, 1.66, 1.41, 1.21, 1.11, 1.07, 1.05, 1.02, 1.06, 2.03, 1.76, 1.70, 1.60, 1.53, 1.39,
+        1.39, 1.32, 1.26, 1.24, 1.32, 1.22, 1.22, 1.20, 1.19, 1.20, 1.20, 1.16,
+    ];
+    R.get(z).copied().unwrap_or(1.5)
+}
+
+/// Bonds between atoms closer than the sum of their covalent radii plus 0.45 Å (as VMD and
+/// OVITO do), found with a uniform grid.
+fn distance_bonds(pos: &[[f64; 3]], z: &[usize]) -> Vec<(u32, u32)> {
+    let cell = 2.0 * 2.03 + 0.45;
+    let mut grid: std::collections::HashMap<(i64, i64, i64), Vec<usize>> = std::collections::HashMap::new();
+    let key = |p: &[f64; 3]| ((p[0] / cell).floor() as i64, (p[1] / cell).floor() as i64, (p[2] / cell).floor() as i64);
+    for (i, p) in pos.iter().enumerate() {
+        grid.entry(key(p)).or_default().push(i);
+    }
+    let mut out = Vec::new();
+    for (i, p) in pos.iter().enumerate() {
+        let (kx, ky, kz) = key(p);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    for &j in grid.get(&(kx + dx, ky + dy, kz + dz)).map(|v| v.as_slice()).unwrap_or(&[]) {
+                        if j <= i {
+                            continue;
+                        }
+                        let q = pos[j];
+                        let d2 = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2);
+                        let max = covalent_radius(z[i]) + covalent_radius(z[j]) + 0.45;
+                        if d2 > 0.16 && d2 < max * max {
+                            out.push((i as u32, j as u32));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
+fn molecule(pos: Vec<[f64; 3]>, z: Vec<usize>, extra_bonds: &[(u32, u32)], arrays: Vec<Array>) -> DataSet {
+    let mut bonds = distance_bonds(&pos, &z);
+    for &(a, b) in extra_bonds {
+        let e = (a.min(b), a.max(b));
+        if !bonds.contains(&e) {
+            bonds.push(e);
+        }
+    }
+    let mut pd = PolyData::from_points(Points::new_f64(pos.iter().flatten().copied().collect()));
+    for (a, b) in bonds {
+        pd.lines.push(CellType::Line, &[a, b]);
+    }
+    pd.point_data.insert(Array::scalars_f64("atomic_number", z.iter().map(|&v| v as f64).collect()));
+    pd.point_data.insert(Array::scalars_f64("radius", z.iter().map(|&v| covalent_radius(v)).collect()));
+    for a in arrays {
+        pd.point_data.insert(a);
+    }
+    pd.point_data.set_active(AttributeKind::Scalars, "atomic_number");
+    DataSet::PolyData(pd)
+}
+
+/// Protein Data Bank files: ATOM/HETATM records (every atom, hydrogens included), CONECT bonds
+/// plus bonds by distance, and MODELs as time steps.
+pub fn read_pdb(path: &Path) -> Result<Loaded> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let col = |l: &str, a: usize, b: usize| l.get(a.min(l.len())..b.min(l.len())).unwrap_or("").trim().to_string();
+    #[derive(Default)]
+    struct Model {
+        pos: Vec<[f64; 3]>,
+        z: Vec<usize>,
+        serial: Vec<i64>,
+        element: Vec<String>,
+        name: Vec<String>,
+        residue: Vec<String>,
+        residue_id: Vec<i64>,
+        chain: Vec<String>,
+        occupancy: Vec<f64>,
+        b_factor: Vec<f64>,
+        hetatm: Vec<i64>,
+    }
+    let mut models: Vec<Model> = vec![Model::default()];
+    let mut conect: Vec<(i64, i64)> = Vec::new();
+    for l in text.lines() {
+        let rec = col(l, 0, 6);
+        match rec.as_str() {
+            "MODEL" => {
+                if !models.last().unwrap().pos.is_empty() {
+                    models.push(Model::default());
+                }
+            }
+            "ATOM" | "HETATM" => {
+                let m = models.last_mut().unwrap();
+                let num = |a, b| col(l, a, b).parse::<f64>().map_err(|_| anyhow!("bad number in {l:?}"));
+                m.pos.push([num(30, 38)?, num(38, 46)?, num(46, 54)?]);
+                let name = col(l, 12, 16);
+                // Element: columns 77-78, else the letters of the atom name.
+                let mut el = col(l, 76, 78);
+                if el.is_empty() {
+                    el = name.chars().filter(|c| c.is_ascii_alphabetic()).take(1).collect();
+                }
+                let z = atomic_number(&el) as usize;
+                m.z.push(z);
+                m.serial.push(col(l, 6, 11).parse().unwrap_or(0));
+                m.element.push(el);
+                m.name.push(name);
+                m.residue.push(col(l, 17, 20));
+                m.residue_id.push(col(l, 22, 26).parse().unwrap_or(0));
+                m.chain.push(col(l, 21, 22));
+                m.occupancy.push(col(l, 54, 60).parse().unwrap_or(1.0));
+                m.b_factor.push(col(l, 60, 66).parse().unwrap_or(0.0));
+                m.hetatm.push((rec == "HETATM") as i64);
+            }
+            "CONECT" => {
+                let a: i64 = col(l, 6, 11).parse().unwrap_or(0);
+                for (s, e) in [(11, 16), (16, 21), (21, 26), (26, 31)] {
+                    if let Ok(b) = col(l, s, e).parse::<i64>() {
+                        conect.push((a, b));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    models.retain(|m| !m.pos.is_empty());
+    if models.is_empty() {
+        bail!("{}: no ATOM or HETATM records", path.display());
+    }
+    let frames: Vec<Arc<DataSet>> = models
+        .into_iter()
+        .map(|m| {
+            let index: std::collections::HashMap<i64, u32> = m.serial.iter().enumerate().map(|(i, &s)| (s, i as u32)).collect();
+            let bonds: Vec<(u32, u32)> = conect.iter().filter_map(|(a, b)| Some((*index.get(a)?, *index.get(b)?))).collect();
+            let arrays = vec![
+                Array::new("element", 1, ArrayData::String(m.element)),
+                Array::new("atom_name", 1, ArrayData::String(m.name)),
+                Array::new("residue", 1, ArrayData::String(m.residue)),
+                Array::new("residue_id", 1, ArrayData::I64(m.residue_id)),
+                Array::new("chain", 1, ArrayData::String(m.chain)),
+                Array::scalars_f64("occupancy", m.occupancy),
+                Array::scalars_f64("b_factor", m.b_factor),
+                Array::new("ishetatm", 1, ArrayData::I64(m.hetatm)),
+            ];
+            Arc::new(molecule(m.pos, m.z, &bonds, arrays))
+        })
+        .collect();
+    Ok(match frames.len() {
+        1 => Loaded::Static(frames.into_iter().next().unwrap()),
+        n => Loaded::Series(TimeSeries { times: (0..n).map(|i| i as f64).collect(), steps: frames.into_iter().map(TimeStepRef::Loaded).collect() }),
+    })
+}
+
+const BOHR: f64 = 0.529177210903;
+
+/// Gaussian cube files: the volume as image data ("density", Å, oriented by the cube's axes)
+/// and the atoms with bonds, as two blocks.
+pub fn read_cube(path: &Path) -> Result<DataSet> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut lines = text.lines();
+    lines.next();
+    lines.next();
+    let nums = |l: Option<&str>| -> Result<Vec<f64>> {
+        l.ok_or_else(|| anyhow!("truncated cube header"))?.split_whitespace().map(|t| t.parse::<f64>().map_err(|_| anyhow!("bad number {t:?}"))).collect()
+    };
+    let h = nums(lines.next())?;
+    let natoms = h[0] as i64;
+    let mut origin = [h[1], h[2], h[3]];
+    let nval = h.get(4).copied().unwrap_or(1.0).max(1.0) as usize;
+    let mut n = [0usize; 3];
+    let mut axes = [[0.0f64; 3]; 3];
+    let mut angstrom = false;
+    for k in 0..3 {
+        let a = nums(lines.next())?;
+        n[k] = a[0].abs() as usize;
+        angstrom |= a[0] < 0.0;
+        axes[k] = [a[1], a[2], a[3]];
+    }
+    let scale = if angstrom { 1.0 } else { BOHR };
+    origin = origin.map(|v| v * scale);
+    let mut pos = Vec::new();
+    let mut z = Vec::new();
+    for _ in 0..natoms.unsigned_abs() {
+        let a = nums(lines.next())?;
+        z.push(a[0] as usize);
+        pos.push([a[2] * scale, a[3] * scale, a[4] * scale]);
+    }
+    if natoms < 0 {
+        lines.next(); // orbital numbers
+    }
+    let vals: Vec<f64> = lines.flat_map(|l| l.split_whitespace()).map(|t| t.parse::<f64>().map_err(|_| anyhow!("bad value {t:?}"))).collect::<Result<_>>()?;
+    let total = n[0] * n[1] * n[2];
+    if vals.len() < total * nval {
+        bail!("{}: {} values for a {}x{}x{} grid", path.display(), vals.len(), n[0], n[1], n[2]);
+    }
+    // The file runs z fastest; VTK images run x fastest.
+    let mut density = vec![0.0f64; total];
+    for i in 0..n[0] {
+        for j in 0..n[1] {
+            for k in 0..n[2] {
+                density[i + n[0] * (j + n[1] * k)] = vals[((i * n[1] + j) * n[2] + k) * nval];
+            }
+        }
+    }
+    let len = |v: [f64; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let spacing = [len(axes[0]) * scale, len(axes[1]) * scale, len(axes[2]) * scale];
+    let unit = |v: [f64; 3]| {
+        let l = len(v).max(1e-300);
+        [v[0] / l, v[1] / l, v[2] / l]
+    };
+    let (ux, uy, uz) = (unit(axes[0]), unit(axes[1]), unit(axes[2]));
+    let mut img = ImageData {
+        extent: [0, n[0] as i64 - 1, 0, n[1] as i64 - 1, 0, n[2] as i64 - 1],
+        origin,
+        spacing,
+        // Columns are the grid axes.
+        direction: [ux[0], uy[0], uz[0], ux[1], uy[1], uz[1], ux[2], uy[2], uz[2]],
+        point_data: Attributes::new(),
+        cell_data: Attributes::new(),
+        field_data: Attributes::new(),
+    };
+    img.point_data.insert_active(AttributeKind::Scalars, Array::scalars_f64("density", density));
+    let atoms = molecule(pos, z, &[], Vec::new());
+    Ok(DataSet::MultiBlock(MultiBlock {
+        blocks: vec![("volume".into(), Some(DataSet::ImageData(img))), ("atoms".into(), Some(atoms))],
+        field_data: Attributes::new(),
+    }))
+}

@@ -1,3 +1,4 @@
+use aurafx_data::ArrayData;
 use aurafx_io::{load_step, read_file, Loaded};
 use std::path::PathBuf;
 
@@ -382,4 +383,209 @@ fn exodus_writer_roundtrip() {
     if keep.is_none() {
         std::fs::remove_dir_all(&dir).ok();
     }
+}
+
+/// Range of an array over all leaves (magnitude for vectors), as ParaView reports it.
+fn range_all(ds: &aurafx_data::DataSet, points: bool, name: &str) -> (f64, f64) {
+    let leaves: Vec<&aurafx_data::DataSet> = match ds {
+        aurafx_data::DataSet::MultiBlock(mb) => mb.leaves().into_iter().map(|(_, d)| d).collect(),
+        d => vec![d],
+    };
+    let mut r = (f64::INFINITY, f64::NEG_INFINITY);
+    for d in leaves {
+        let attrs = if points { d.point_data() } else { d.cell_data() };
+        if let Some(a) = attrs.and_then(|a| a.get(name)) {
+            let (lo, hi) = a.range(None);
+            r = (r.0.min(lo), r.1.max(hi));
+        }
+    }
+    r
+}
+
+fn close(a: (f64, f64), b: (f64, f64), what: &str) {
+    let tol = 1e-4 * (1.0 + b.0.abs().max(b.1.abs()));
+    assert!((a.0 - b.0).abs() < tol && (a.1 - b.1).abs() < tol, "{what}: {a:?} vs ParaView {b:?}");
+}
+
+/// VTKHDF files written by ParaView 6.1 (and an image written by h5py), compared with what
+/// ParaView's reader reports: counts, bounds and array ranges.
+#[test]
+fn vtkhdf_matches_paraview() {
+    // Image data (written by h5py): extent 0..9 x 0..5 x 0..3, origin (1,2,3), spacing (.5,1,2).
+    let img = static_ds("image.vtkhdf");
+    assert_eq!((img.n_points(), img.n_cells()), (240, 135));
+    let b = img.bounds();
+    assert_eq!((b.min, b.max), ([1.0, 2.0, 3.0], [5.5, 7.0, 9.0]));
+    close(range_all(&img, true, "f"), (0.0, 359.0), "f");
+    close(range_all(&img, false, "c"), (0.0, 134.0), "c");
+    // x fastest: point (3, 2, 1) holds 3 + 10*2 + 100*1.
+    let f = img.point_data().unwrap().get("f").unwrap();
+    assert_eq!(f.get(3 + 10 * 2 + 60 * 1, 0), 123.0);
+
+    // Poly data (contiguous storage).
+    let s = static_ds("sphere.vtkhdf");
+    assert_eq!((s.n_points(), s.n_cells()), (50, 96));
+    close(range_all(&s, true, "Elevation"), (0.0, 0.5), "Elevation");
+    close(range_all(&s, true, "Normals"), (1.0, 1.0), "Normals");
+
+    // A multiblock (partitioned collection with an assembly; gzip-compressed).
+    let can = static_ds("can.vtkhdf");
+    assert_eq!((can.n_points(), can.n_cells()), (10088, 7152));
+    let b = can.bounds();
+    close((b.min[0], b.max[0]), (-7.87846, 8.31258), "x bounds");
+    close((b.min[2], b.max[2]), (-15.0, 4.7781), "z bounds");
+    close(range_all(&can, true, "VEL"), (0.0, 5000.0), "VEL");
+    close(range_all(&can, false, "object_id"), (1.0, 2.0), "object_id");
+    let aurafx_data::DataSet::MultiBlock(mb) = &*can else { panic!("multiblock expected") };
+    let names: Vec<String> = mb.leaves().into_iter().map(|(n, _)| n).collect();
+    assert!(names.iter().any(|n| n.contains("element_blocks") && n.contains("block_1")), "assembly paths: {names:?}");
+
+    // Time steps (chunked storage): 3 steps, the last one as ParaView shows it.
+    let Loaded::Series(series) = read_file(td("series.vtkhdf")).unwrap() else { panic!("series expected") };
+    assert_eq!(series.times, vec![0.0, 0.5, 1.0]);
+    let last = load_step(&series.steps[2]).unwrap();
+    assert_eq!((last.n_points(), last.n_cells()), (530, 1056));
+    let b = last.bounds();
+    close((b.min[2], b.max[2]), (-1.0, 1.4), "last step z");
+    close(range_all(&last, true, "Elevation"), (0.0, 1.0), "Elevation");
+    let first = load_step(&series.steps[0]).unwrap();
+    assert!(first.bounds().max[2] < 1.4 - 1e-3, "steps differ");
+}
+
+/// Images written by VTK's writers, read as ParaView reads them (row 0 at the bottom).
+#[test]
+fn images_as_image_data() {
+    let tuple = |ds: &aurafx_data::DataSet, name: &str, i: usize| -> Vec<f64> {
+        let a = ds.point_data().unwrap().get(name).unwrap_or_else(|| panic!("no {name}"));
+        (0..a.ncomp).map(|c| a.get(i, c)).collect()
+    };
+    let g = static_ds("images/gray.png");
+    assert_eq!(g.n_points(), 240);
+    let aurafx_data::DataSet::ImageData(im) = &*g else { panic!() };
+    assert_eq!(im.extent, [0, 19, 0, 11, 0, 0]);
+    // ParaView: first tuple 0, first tuple of the last row 11; range 0..201.
+    assert_eq!(tuple(&g, "PNGImage", 0), vec![0.0]);
+    assert_eq!(tuple(&g, "PNGImage", 20 * 11), vec![11.0]);
+    close(range_all(&g, true, "PNGImage"), (0.0, 201.0), "gray");
+    assert_eq!(g.point_data().unwrap().get("PNGImage").unwrap().scalar_type(), aurafx_data::ScalarType::U8);
+
+    let c = static_ds("images/rgb.png");
+    assert_eq!(tuple(&c, "PNGImage", 0), vec![0.0, 0.0, 77.0]);
+    assert_eq!(tuple(&c, "PNGImage", 20 * 11), vec![0.0, 220.0, 77.0]);
+    close(range_all(&c, true, "PNGImage"), (77.0, 326.0567435278712), "rgb magnitude");
+
+    // JPEG: decoders may differ by a level or two from libjpeg's.
+    let j = static_ds("images/rgb.jpg");
+    for (i, want) in [(0usize, [0.0, 3.0, 69.0]), (20 * 11, [10.0, 214.0, 81.0])] {
+        let got = tuple(&j, "JPEGImage", i);
+        assert!(got.iter().zip(want).all(|(a, b)| (a - b).abs() <= 3.0), "jpeg tuple {i}: {got:?} vs ParaView {want:?}");
+    }
+
+    // A 16-bit multi-page TIFF is a volume (ParaView 6.1.1 crashes on this file). VTK's writer
+    // stored y = 0 in the first row while labelling the file "top row first"; we follow the
+    // label, as image viewers and VTK's reader for single images do, so y comes out mirrored:
+    // the value at (x, y, z) is x + 100 (11 - y) + 2000 z.
+    let v = static_ds("images/vol16.tif");
+    let aurafx_data::DataSet::ImageData(im) = &*v else { panic!() };
+    assert_eq!(im.extent, [0, 19, 0, 11, 0, 4]);
+    assert_eq!(v.point_data().unwrap().get("Tiff Scalars").unwrap().scalar_type(), aurafx_data::ScalarType::U16);
+    for (x, y, z) in [(0usize, 0usize, 0usize), (4, 3, 2), (19, 11, 4)] {
+        assert_eq!(tuple(&v, "Tiff Scalars", x + 20 * y + 240 * z), vec![(x + 100 * (11 - y) + 2000 * z) as f64], "({x},{y},{z})");
+    }
+
+    // A wildcard stacks numbered slices in natural order: slice k holds 10x + y + 50k.
+    let s = static_ds("images/stack/slice_*.png");
+    let aurafx_data::DataSet::ImageData(im) = &*s else { panic!() };
+    assert_eq!(im.extent, [0, 19, 0, 11, 0, 3]);
+    for k in 0..4 {
+        assert_eq!(tuple(&s, "PNGImage", 3 + 20 * 2 + 240 * k), vec![(30 + 2 + 50 * k) as f64], "slice {k}");
+    }
+}
+
+/// EnSight Gold: a hand-written ASCII case (mixed elements, a structured block, two time steps
+/// with wildcard file names) and a C Binary file written by ParaView, against ParaView's reader.
+#[test]
+fn ensight_matches_paraview() {
+    let Loaded::Series(s) = read_file(td("ensight/mixed.case")).unwrap() else { panic!("two steps expected") };
+    assert_eq!(s.times, vec![0.0, 0.25]);
+    for (step, temp, pres) in [(0usize, (-1.0, 6.0), (1.0, 53.0)), (1, (99.0, 106.0), (11.0, 63.0))] {
+        let d = load_step(&s.steps[step]).unwrap();
+        assert_eq!((d.n_points(), d.n_cells()), (30, 9), "step {step}");
+        let b = d.bounds();
+        assert_eq!((b.min, b.max), ([-1.0, 0.0, 0.0], [6.0, 1.0, 2.0]));
+        close(range_all(&d, true, "temperature"), temp, "temperature");
+        close(range_all(&d, true, "velocity"), (0.0, 6.164414002968976), "velocity");
+        close(range_all(&d, false, "pressure"), pres, "pressure");
+    }
+    // The wedge is turned round as VTK's reader does it (positive volume).
+    let d = load_step(&s.steps[0]).unwrap();
+    let aurafx_data::DataSet::MultiBlock(mb) = &*d else { panic!() };
+    let (name, Some(aurafx_data::DataSet::UnstructuredGrid(ug))) = &mb.blocks[0] else { panic!() };
+    assert_eq!(name, "solid");
+    assert_eq!(ug.cells.cell(1), &[1, 2, 8, 5, 6, 9]);
+    assert_eq!(ug.cells.types[1], aurafx_data::CellType::Wedge);
+
+    let t = static_ds("ensight/tets.0.case");
+    assert_eq!((t.n_points(), t.n_cells()), (1331, 5000));
+    let b = t.bounds();
+    assert_eq!((b.min, b.max), ([-5.0; 3], [5.0; 3]));
+    close(range_all(&t, true, "RTData_n"), (37.35310363769531, 260.0), "RTData_n");
+}
+
+/// Tecplot ASCII: ordered, FE BLOCK with a cell-centered variable, old-style FEPOINT, against
+/// ParaView; continuation lines, `n*value` repeats and Fortran exponents (which ParaView's
+/// reader misreads) give the same data.
+#[test]
+fn tecplot_matches_paraview() {
+    for file in ["tecplot.dat", "tecplot_extras.dat"] {
+        let d = static_ds(file);
+        assert_eq!((d.n_points(), d.n_cells()), (15, 5), "{file}");
+        let b = d.bounds();
+        assert_eq!((b.min, b.max), ([0.0; 3], [4.0, 1.0, 1.0]));
+        let aurafx_data::DataSet::MultiBlock(mb) = &*d else { panic!() };
+        let names: Vec<&str> = mb.blocks.iter().map(|b| b.0.as_str()).collect();
+        assert_eq!(names, ["ordered", "tets", "quads"]);
+        let block = |k: usize| mb.blocks[k].1.as_ref().unwrap();
+        close(range_all(block(0), true, "P"), (1.0, 6.0), "ordered P");
+        close(range_all(block(1), true, "P"), (7.5, 10.0), "tets P");
+        close(range_all(block(1), false, "T"), (100.0, 200.0), "tets T (cell centered)");
+        close(range_all(block(2), true, "P"), (1.0, 4.0), "quads P");
+        let aurafx_data::DataSet::UnstructuredGrid(t) = block(1) else { panic!() };
+        assert_eq!(t.cells.types, vec![aurafx_data::CellType::Tetra; 2]);
+        assert_eq!(t.cells.cell(1), &[1, 2, 3, 4]);
+    }
+}
+
+/// PDB: every atom (ParaView's vtkPDBReader drops hydrogens and merges models), models as time
+/// steps, bonds by distance; Gaussian cube: density in Å with z-fastest values reordered.
+#[test]
+fn pdb_and_cube() {
+    let Loaded::Series(s) = read_file(td("molecules/small.pdb")).unwrap() else { panic!("two models") };
+    assert_eq!(s.times.len(), 2);
+    for (k, dx) in [(0usize, 0.0), (1, 0.1)] {
+        let m = load_step(&s.steps[k]).unwrap();
+        let aurafx_data::DataSet::PolyData(pd) = &*m else { panic!() };
+        assert_eq!(pd.points.len(), 8);
+        // The heavy atoms where ParaView puts them: O at the origin, C at x = 5.
+        assert_eq!(pd.points.get(0), [dx, 0.0, 0.0]);
+        assert_eq!(pd.points.get(3), [5.0 + dx, 0.0, 0.0]);
+        assert_eq!(pd.lines.len(), 6, "2 O-H and 4 C-H bonds");
+        let z: Vec<f64> = (0..8).map(|i| pd.point_data.get("atomic_number").unwrap().get(i, 0)).collect();
+        assert_eq!(z, [8.0, 1.0, 1.0, 6.0, 1.0, 1.0, 1.0, 1.0]);
+        let ArrayData::String(res) = &pd.point_data.get("residue").unwrap().data else { panic!() };
+        assert_eq!((res[0].as_str(), res[3].as_str()), ("HOH", "MET"));
+        assert_eq!(pd.point_data.get("ishetatm").unwrap().get(3, 0), 1.0);
+    }
+    let c = static_ds("molecules/density.cube");
+    let aurafx_data::DataSet::MultiBlock(mb) = &*c else { panic!() };
+    let Some(aurafx_data::DataSet::ImageData(img)) = &mb.blocks[0].1 else { panic!() };
+    assert_eq!(img.extent, [0, 5, 0, 4, 0, 3]);
+    let bohr = 0.529177210903;
+    assert!((img.origin[0] + bohr).abs() < 1e-9 && (img.spacing[2] - 0.6 * bohr).abs() < 1e-9);
+    let d = img.point_data.get("density").unwrap();
+    assert_eq!(d.get(1 + 6 * 2 + 30 * 3, 0), 321.0, "value at (1, 2, 3)");
+    let Some(aurafx_data::DataSet::PolyData(atoms)) = &mb.blocks[1].1 else { panic!() };
+    assert_eq!(atoms.points.len(), 2);
+    assert!((atoms.points.get(1)[0] - 1.4 * bohr).abs() < 1e-9);
+    assert_eq!(atoms.lines.len(), 1, "O-H bond");
 }

@@ -1,0 +1,9 @@
+FORMAT
+type: ensight gold
+
+
+GEOMETRY
+model: tets.0.00000.geo
+
+VARIABLE
+scalar per node: RTData_n tets.0.00000_n.RTData

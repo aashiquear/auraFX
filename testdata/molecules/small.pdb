@@ -1,0 +1,22 @@
+HEADER    TEST                                    04-NOV-26   TEST
+MODEL        1
+ATOM      1  O   HOH A   1       0.000   0.000   0.000  1.00 10.00           O
+ATOM      2  H1  HOH A   1       0.957   0.000   0.000  1.00 11.00           H
+ATOM      3  H2  HOH A   1      -0.240   0.927   0.000  1.00 12.00           H
+HETATM    4  C   MET B   2       5.000   0.000   0.000  0.50 20.00           C
+HETATM    5  H1  MET B   2       6.090   0.000   0.000  0.50 21.00           H
+HETATM    6  H2  MET B   2       4.637   1.028   0.000  0.50 22.00           H
+HETATM    7  H3  MET B   2       4.637  -0.514  -0.890  0.50 23.00           H
+HETATM    8  H4  MET B   2       4.637  -0.514   0.890  0.50 24.00           H
+ENDMDL
+MODEL        2
+ATOM      1  O   HOH A   1       0.100   0.000   0.000  1.00 10.00           O
+ATOM      2  H1  HOH A   1       1.057   0.000   0.000  1.00 11.00           H
+ATOM      3  H2  HOH A   1      -0.140   0.927   0.000  1.00 12.00           H
+HETATM    4  C   MET B   2       5.100   0.000   0.000  0.50 20.00           C
+HETATM    5  H1  MET B   2       6.190   0.000   0.000  0.50 21.00           H
+HETATM    6  H2  MET B   2       4.737   1.028   0.000  0.50 22.00           H
+HETATM    7  H3  MET B   2       4.737  -0.514  -0.890  0.50 23.00           H
+HETATM    8  H4  MET B   2       4.737  -0.514   0.890  0.50 24.00           H
+ENDMDL
+END

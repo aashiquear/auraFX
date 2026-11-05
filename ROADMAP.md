@@ -70,14 +70,14 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] Exodus II (NetCDF-3 classic/64-bit offset in pure Rust; NetCDF-4/HDF5 via `hdf5` feature): nodes, blocks, side sets, node sets, nodal/element/global variables, time steps, displacement application, name maps.
 - [~] CSV/TSV with delimiter detection, header sniffing, and "table to points/structured grid".
 - [~] STL, OBJ, PLY, OFF, glTF/GLB.
-- [ ] PNG/JPEG/TIFF image stacks and series as `ImageData`.
-- [ ] VTKHDF (`.vtkhdf`), HDF5 generic browser.
+- [x] PNG/JPEG/BMP/TIFF images and stacks as `ImageData` (multi-page TIFF and `img_*.png` wildcards as volumes; iteration 18).
+- [~] VTKHDF (`.vtkhdf`: image data, unstructured grids, poly data, partitioned collections with assemblies, time steps, gzip; iteration 18, checked against ParaView); HDF5 generic browser todo.
 
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
-- [ ] EnSight Gold (`.case`), Tecplot ASCII/binary, CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
+- [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18; binary todo), CGNS, Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [ ] NetCDF CF/MPAS/CAM/POP, GDAL raster/vector, DEM, SEG-Y.
-- [ ] Molecular: PDB, Gaussian Cube, CML, VASP (POSCAR/CHGCAR/OUTCAR), XYZ molecules.
+- [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); CML, VASP (POSCAR/CHGCAR/OUTCAR) todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
 - [ ] Point clouds: LAS/LAZ (PDAL), PTS, H5Part.
@@ -280,7 +280,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 | P2 Analysis | mostly done | Statistics/data-analysis filters, selection + Find Data, Python API breadth, Python trace, programmable filter, charts breadth |
 | P3 Simulation | mostly done (Slurm untested) | Job runner local + SSH, templates, sweeps, watch folders, remote file browser, GPU monitoring |
 | P4 Rendering depth | in progress | Volume rendering, widgets, lighting/SSAO/EDL, animation + keyframes, exporters, LIC, ray tracing |
-| P5 Breadth | started | Remaining readers/writers/filters from the catalog, AMR/HTG/molecule/cell-grid types, higher-order cells |
+| P5 Breadth | in progress | Remaining readers/writers/filters from the catalog, AMR/HTG/molecule/cell-grid types, higher-order cells |
 | P6 Scale | started (data server) | Client/server, distributed, in-situ, collaboration, out-of-core |
 | P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
 
@@ -558,8 +558,27 @@ Done in iteration 17:
   VRML file with the same points, cells and bounds as the glTF.
 - **Wave keyframes:** a key that swings to the next key's value and back (sinusoid).
 
-Known gaps worth doing next (P4): TAA, comparative views/cues, more widgets (cylinder, cone,
-spline); then P5 breadth; MPI launchers (srun) and ghost cells for parallel servers;
+Done in iteration 18 (P5 breadth: readers), each compared with ParaView 6.1.1's reader:
+- **VTKHDF** (`.vtkhdf`, pure Rust through `hdf5-reader`): image data, unstructured grids, poly
+  data (several parts), partitioned collections nested by their assembly, time steps from the
+  `Steps` group, contiguous, chunked and gzip-compressed storage. Counts, bounds and ranges
+  match ParaView on its own exports (a disk merged to one grid, Exodus blocks, a 3-step series).
+- **Images**: PNG, JPEG, BMP, TIFF (8/16-bit, float, gray/RGB/RGBA) as image data with
+  ParaView's array names and row order; multi-page TIFFs and wildcard paths
+  (`afx.load("slices/img_*.png")`, natural order) as volumes. ParaView 6.1.1 crashes on the
+  multi-page 16-bit TIFF that VTK writes; VTK's writer also labels its rows top-down while
+  storing them bottom-up, and we follow the label as image viewers do.
+- **EnSight Gold** (`.case`): ASCII and C binary (either byte order), every standard element
+  type (wedges turned round as VTK does), nsided/nfaced, structured blocks, per-node and
+  per-element scalars/vectors/tensors, time sets with wildcard file names; one block per part.
+- **Tecplot ASCII**: ordered and FE zones, POINT/BLOCK packing, cell-centered variables,
+  old-style FEPOINT headers, multi-line headers, `n*value` repeats, Fortran exponents (the last
+  three confuse ParaView's reader, which loses the zone).
+- **PDB** (all atoms, hydrogens included, MODELs as time steps, CONECT plus distance bonds) and
+  **Gaussian cube** (density volume and atoms in Å; ParaView keeps grid-index units).
+
+Known gaps worth doing next (P5): CGNS, Xdmf, PLOT3D, NetCDF CF, VASP, Tecplot binary, more
+writers (VTKHDF); P4 odds: TAA, comparative views, more widgets (cylinder, cone, spline); MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

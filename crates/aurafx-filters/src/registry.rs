@@ -314,18 +314,34 @@ fn array_or_default(ds: &DataSet, p: &Params, key: &str, vector: bool) -> Result
 }
 
 /// Apply a per-leaf operation over multi-block inputs.
+/// Run `f` on every leaf. A leaf it fails on (e.g. one without the array, like the atoms next
+/// to a density volume) is left empty, as ParaView does; the error is reported only when every
+/// leaf fails.
 fn per_leaf(ds: &DataSet, f: &dyn Fn(&DataSet) -> Result<DataSet>) -> Result<DataSet> {
     match ds {
         DataSet::MultiBlock(mb) => {
             let mut out = MultiBlock { field_data: mb.field_data.clone(), ..Default::default() };
+            let (mut ok, mut first_err) = (false, None);
             for (name, b) in &mb.blocks {
                 let r = match b {
-                    Some(d) => Some(per_leaf(d, f)?),
+                    Some(d) => match per_leaf(d, f) {
+                        Ok(r) => {
+                            ok = true;
+                            Some(r)
+                        }
+                        Err(e) => {
+                            first_err.get_or_insert(e);
+                            None
+                        }
+                    },
                     None => None,
                 };
                 out.blocks.push((name.clone(), r));
             }
-            Ok(DataSet::MultiBlock(out))
+            match first_err {
+                Some(e) if !ok => Err(e),
+                _ => Ok(DataSet::MultiBlock(out)),
+            }
         }
         _ => f(ds),
     }

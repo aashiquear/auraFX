@@ -139,7 +139,7 @@ impl Offscreen {
             let ctx = self.ctx.as_ref().unwrap();
             let prims = ctx.tessellate(out.shapes, out.pixels_per_point);
             let renderer = self.renderer.get_or_insert_with(|| {
-                egui_wgpu::Renderer::new(device, aurafx_render::renderer::COLOR_FORMAT, egui_wgpu::RendererOptions { dithering: false, ..Default::default() })
+                egui_wgpu::Renderer::new(device, wgpu::TextureFormat::Rgba8Unorm, egui_wgpu::RendererOptions { dithering: false, ..Default::default() })
             });
             for (id, deltas) in &out.textures_delta.set {
                 for delta in deltas {

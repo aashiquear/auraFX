@@ -4,8 +4,10 @@
 //! magic bytes) and returns either a single dataset or a lazily-loaded time series.
 
 pub mod csv;
+pub mod ensight;
 pub mod exodus;
 pub mod exodus_writer;
+pub mod images;
 pub mod lammps;
 pub mod legacy_vtk;
 pub mod molecular;
@@ -14,10 +16,12 @@ pub mod openfoam;
 pub mod series;
 pub mod stl;
 pub mod surfaces;
+pub mod tecplot;
+pub mod vtkhdf;
 pub mod writers;
 pub mod xml_vtk;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use aurafx_data::{DataSet, TimeSeries, TimeStepRef};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -46,6 +50,12 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["stl"], "Stereolithography"),
         (&["ply"], "PLY surface"),
         (&["obj"], "Wavefront OBJ"),
+        (&["vtkhdf", "hdf"], "VTKHDF"),
+        (&["case", "encas"], "EnSight Gold"),
+        (&["tec", "tp", "dat", "plt"], "Tecplot ASCII"),
+        (&["pdb", "ent"], "Protein Data Bank"),
+        (&["cube"], "Gaussian cube"),
+        (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
     ]
 }
 
@@ -106,8 +116,14 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         let ds = (r.read)(path).with_context(|| format!("{} reader ({})", r.label, r.plugin))?;
         return Ok(Loaded::Static(Arc::new(ds)));
     }
+    // A wildcard file name stacks matching images into a volume.
+    let wild = path.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.contains(['*', '?']));
+    if wild && images::is_image_ext(path) {
+        return Ok(Loaded::Static(Arc::new(images::read_stack(path)?)));
+    }
     let loaded = match ext.as_str() {
         "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
+        "png" | "jpg" | "jpeg" | "bmp" | "tif" | "tiff" => Loaded::Static(Arc::new(images::read(path)?)),
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),
         "vtu" | "vtp" | "vti" | "vtr" | "vts" | "vtt" | "pvtu" | "pvtp" | "pvti" | "pvtr" | "pvts" | "vtm" | "vtmb" => {
             Loaded::Static(Arc::new(xml_vtk::read(path)?))
@@ -121,6 +137,14 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "xyz" | "extxyz" => molecular::read_xyz(path)?,
         "data" | "lmp" => Loaded::Static(Arc::new(molecular::read_lammps_data(path)?)),
         "foam" => openfoam::open(path)?,
+        "vtkhdf" | "hdf" | "vtkhdf5" => vtkhdf::open(path)?,
+        "case" | "encas" => ensight::open(path)?,
+        "tec" | "tp" => Loaded::Static(Arc::new(tecplot::read(path)?)),
+        "pdb" | "ent" => molecular::read_pdb(path)?,
+        "cube" => Loaded::Static(Arc::new(molecular::read_cube(path)?)),
+        "dat" | "plt" if tecplot::sniff(path) => Loaded::Static(Arc::new(tecplot::read(path)?)),
+        "plt" => bail!("{}: binary Tecplot files are not supported yet; export Tecplot ASCII", path.display()),
+        "dat" => Loaded::Static(Arc::new(csv::read(path)?)),
         _ => {
             // Sniff a few magic bytes.
             let head = std::fs::read(path).ok().map(|b| b[..b.len().min(64)].to_vec()).unwrap_or_default();
@@ -203,6 +227,10 @@ pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
                 openfoam::read_time(path, *frame).map(Arc::new)
             } else if exodus::is_exodus_ext(path) {
                 exodus::read_step(path, *frame).map(Arc::new)
+            } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("case") || e.eq_ignore_ascii_case("encas")) {
+                ensight::read_step(path, *frame).map(Arc::new)
+            } else if vtkhdf::is_vtkhdf_ext(path) {
+                vtkhdf::read_step(path, *frame).map(Arc::new)
             } else {
                 lammps::read_frame(path, *frame).map(Arc::new)
             }

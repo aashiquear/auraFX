@@ -2162,8 +2162,8 @@ impl Renderer {
     }
 
     /// The last picture with something drawn over it (scalar bar, labels...) by `paint`, which
-    /// gets the device, queue and a view (sRGB format) of a copy of the picture; the picture
-    /// shown is left as it was. Returns (width, height, sRGB RGBA8 pixels).
+    /// gets the device, queue and a view (Rgba8Unorm: values are sRGB-encoded, as egui wants)
+    /// of a copy of the picture; the picture shown is left as it was. Returns (width, height, sRGB RGBA8 pixels).
     pub fn read_pixels_with(&self, paint: impl FnOnce(&wgpu::Device, &wgpu::Queue, &wgpu::TextureView, u32, u32) -> Result<()>) -> Result<(u32, u32, Vec<u8>)> {
         let (w, h) = (self.width, self.height);
         let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
@@ -2180,7 +2180,7 @@ impl Renderer {
         let mut enc = self.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_texture(self.color.as_image_copy(), copy.as_image_copy(), size);
         self.queue.submit(Some(enc.finish()));
-        let view = copy.create_view(&wgpu::TextureViewDescriptor { format: Some(COLOR_FORMAT), ..Default::default() });
+        let view = copy.create_view(&Default::default());
         paint(&self.device, &self.queue, &view, w, h)?;
         self.read_texture(&copy)
     }

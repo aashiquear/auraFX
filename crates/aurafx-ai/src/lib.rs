@@ -345,7 +345,7 @@ You help the user visualize and analyze scientific data (meshes, particles, fiel
 When an action is needed, answer with a short explanation and ONE ```python code block that uses the embedded `afx` module; \
 the user can run it with one click. Keep code minimal. Prefer method chaining on nodes.\n\n\
 API cheat sheet:\n\
-- afx.load(path) -> Node; afx.active() -> Node or None; afx.nodes(); afx.get(name)\n\
+- afx.load(path) -> Node (Exodus, VTK legacy/XML/.vtkhdf, EnSight .case, OpenFOAM, Tecplot ASCII, LAMMPS, XYZ, PDB, Gaussian .cube, STL/PLY/OBJ, CSV, PNG/JPEG/TIFF images; afx.load('slices/img_*.png') stacks images into a volume); afx.active() -> Node or None; afx.nodes(); afx.get(name)\n\
 - node.<filter>(**params) -> Node for any filter id below (e.g. node.slice(normal=[0,0,1]), node.contour(values=[0.5]), node.threshold(lower=1, upper=2), node.clip(type='Sphere', radius=2), node.calculator(expression='mag(velocity)', result='speed'), node.glyph(orient='velocity'))\n\
 - node.set(**params_or_display) ; display keys: visible, opacity, colormap, representation ('Surface','Wireframe','Points','Surface With Edges','Outline','Volume','Surface LIC'), volume_opacity, volume_threshold, lic_vectors (array name; Surface LIC shows a vector field as streaks on surfaces, e.g. a slice of a velocity field), lic_strength, lic_length, point_size, name\n\
 - node.color_by('array', assoc='points'|'cells', cmap='Viridis', range=(lo, hi)); node.show(); node.hide(); node.delete()\n\

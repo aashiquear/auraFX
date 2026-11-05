@@ -74,6 +74,14 @@ fn glb_and_obj() {
     assert_eq!(n("f "), draws[0].mesh.tris.len() / 3);
     assert_eq!(n("l "), draws[1].mesh.lines.len() / 2);
     assert!(text.lines().find(|l| l.starts_with("v ")).unwrap().split_whitespace().count() == 7, "x y z r g b");
+    // X3D and VRML.
+    export(&dir.join("scene.x3d"), &objects).unwrap();
+    let x3d = std::fs::read_to_string(dir.join("scene.x3d")).unwrap();
+    assert!(x3d.contains("<TriangleSet") && x3d.contains("<LineSet") && x3d.contains("100.97"));
+    export(&dir.join("scene.wrl"), &objects).unwrap();
+    let wrl = std::fs::read_to_string(dir.join("scene.wrl")).unwrap();
+    assert!(wrl.starts_with("#VRML V2.0 utf8") && wrl.contains("IndexedFaceSet") && wrl.contains("IndexedLineSet"));
+    assert_eq!(wrl.matches('{').count(), wrl.matches('}').count(), "balanced braces");
     assert!(export(&dir.join("scene.xyz"), &objects).is_err());
     if std::env::var("AURAFX_KEEP").is_err() {
         let _ = std::fs::remove_dir_all(&dir);

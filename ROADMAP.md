@@ -90,7 +90,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG (JPEG/TIFF/BMP/EXR todo), screenshot with resolution override and transparent background (done, iteration 16).
 - [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
-- [~] Scene export: glTF (.glb) and OBJ with vertex colors (done, iteration 16); X3D, VRML, POV-Ray, PDF/SVG vector (GL2PS-equivalent), WebGL/HTML interactive scene todo.
+- [~] Scene export: glTF (.glb), OBJ with vertex colors (iteration 16), X3D, VRML and SVG vector pictures (iteration 17); POV-Ray, PDF, WebGL/HTML interactive scene todo.
 - [ ] Extracts and Catalyst-style in-situ scripts.
 
 ---
@@ -549,9 +549,17 @@ Done in iteration 17:
   the view, through an offscreen egui pass at the picture's scale, so a 4× screenshot has the
   same layout with sharp text. `afx.screenshot(..., annotations=False)` or the Save Screenshot
   dialog leaves them out.
+- **SVG vector pictures** (`afx.screenshot("figure.svg")`, or SVG in Save Screenshot): the
+  visible triangles flat-shaded with the view's lights and sorted back to front, lines and
+  points on top, and the overlays converted from the same egui shapes (text stays text).
+  Where surfaces cut through each other, sorting by depth leaves jagged boundaries, as with
+  ParaView's GL2PS export. PDF: convert the SVG (Inkscape, rsvg-convert).
+- **X3D and VRML** scene export (`.x3d`, `.wrl`), with absolute coordinates; ParaView reads the
+  VRML file with the same points, cells and bounds as the glTF.
+- **Wave keyframes:** a key that swings to the next key's value and back (sinusoid).
 
-Known gaps worth doing next (P4): TAA, sinusoid/comparative animation cues, X3D/VRML and
-vector (SVG/PDF) export, more widgets (cylinder, cone, spline); then P5 breadth; light widgets in the 3D view; MPI launchers (srun) and ghost cells for parallel servers;
+Known gaps worth doing next (P4): TAA, comparative views/cues, more widgets (cylinder, cone,
+spline); then P5 breadth; MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

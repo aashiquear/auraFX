@@ -115,22 +115,28 @@ pub struct Offscreen {
 }
 
 impl Offscreen {
+    /// Lay the overlays out for a `w`×`h` pixel picture of a view `width_points` wide.
+    pub fn run(&mut self, o: &Overlays, width_points: f32, w: u32, h: u32) -> egui::FullOutput {
+        let ppp = w as f32 / width_points.max(1.0);
+        let size = Vec2::new(w as f32 / ppp, h as f32 / ppp);
+        let ctx = self.ctx.get_or_insert_with(|| {
+            let c = egui::Context::default();
+            crate::theme::install_fonts(&c);
+            c
+        });
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)), ..Default::default() };
+        raw.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
+        ctx.run_pass(raw, |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            paint(&painter, Rect::from_min_size(Pos2::ZERO, size), o);
+        })
+    }
+
     /// The renderer's last picture with the overlays laid out as on a view `width_points` wide.
     pub fn read(&mut self, r: &Renderer, o: &Overlays, width_points: f32) -> anyhow::Result<(u32, u32, Vec<u8>)> {
         r.read_pixels_with(|device, queue, view, w, h| {
-            let ppp = w as f32 / width_points.max(1.0);
-            let size = Vec2::new(w as f32 / ppp, h as f32 / ppp);
-            let ctx = self.ctx.get_or_insert_with(|| {
-                let c = egui::Context::default();
-                crate::theme::install_fonts(&c);
-                c
-            });
-            let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)), ..Default::default() };
-            raw.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
-            let out = ctx.run_pass(raw, |ctx| {
-                let painter = ctx.layer_painter(egui::LayerId::background());
-                paint(&painter, Rect::from_min_size(Pos2::ZERO, size), o);
-            });
+            let out = self.run(o, width_points, w, h);
+            let ctx = self.ctx.as_ref().unwrap();
             let prims = ctx.tessellate(out.shapes, out.pixels_per_point);
             let renderer = self.renderer.get_or_insert_with(|| {
                 egui_wgpu::Renderer::new(device, aurafx_render::renderer::COLOR_FORMAT, egui_wgpu::RendererOptions { dithering: false, ..Default::default() })

@@ -28,7 +28,8 @@ fn linear_to_srgb(c: f32) -> f32 {
     }
 }
 
-/// Write `objects` to `path` in the format its extension names: `.glb` or `.obj`.
+/// Write `objects` to `path` in the format its extension names: `.glb`, `.obj`, `.x3d` or
+/// `.wrl` (VRML 2.0).
 pub fn export(path: &Path, objects: &[ExportObject]) -> Result<()> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let objects: Vec<&ExportObject> = objects.iter().filter(|o| exported(o.draw)).collect();
@@ -38,7 +39,9 @@ pub fn export(path: &Path, objects: &[ExportObject]) -> Result<()> {
     match ext.as_str() {
         "glb" => write_glb(path, &objects),
         "obj" => write_obj(path, &objects),
-        _ => bail!("unknown scene format .{ext} (use .glb or .obj)"),
+        "x3d" => write_x3d(path, &objects, false),
+        "wrl" | "vrml" => write_x3d(path, &objects, true),
+        _ => bail!("unknown scene format .{ext} (use .glb, .obj, .x3d or .wrl)"),
     }
 }
 
@@ -226,4 +229,196 @@ fn write_obj(path: &Path, objects: &[&ExportObject]) -> Result<()> {
     }
     f.flush()?;
     Ok(())
+}
+
+/// X3D (XML) or VRML 2.0: one shape per kind of geometry, vertex colors, absolute coordinates
+/// (some readers ignore transforms). Unlit objects get no material (drawn flat).
+fn write_x3d(path: &Path, objects: &[&ExportObject], vrml: bool) -> Result<()> {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let nums = |v: &mut String, it: &mut dyn Iterator<Item = [f64; 3]>| {
+        for (i, p) in it.enumerate() {
+            if i > 0 {
+                v.push_str(if vrml { ", " } else { " " });
+            }
+            let _ = write!(v, "{} {} {}", p[0], p[1], p[2]);
+        }
+    };
+    if vrml {
+        let _ = writeln!(out, "#VRML V2.0 utf8\n# auraFX {} scene export", env!("CARGO_PKG_VERSION"));
+    } else {
+        let _ = writeln!(out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<X3D profile=\"Interchange\" version=\"3.3\">\n<head><meta name=\"generator\" content=\"auraFX {}\"/></head>\n<Scene>", env!("CARGO_PKG_VERSION"));
+    }
+    for o in objects {
+        let d = o.draw;
+        let m = Material::of(d);
+        let origin = d.mesh.origin;
+        let transparency = 1.0 - d.display.opacity.clamp(0.0, 1.0);
+        let name: String = o.name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        if vrml {
+            let _ = writeln!(out, "DEF {name} Group {{\n  children [");
+        } else {
+            let _ = writeln!(out, "<Group DEF=\"{name}\">");
+        }
+        for (verts, kind) in [(&d.mesh.tris, 3usize), (&d.mesh.lines, 2), (&d.mesh.points, 1)] {
+            let n = verts.len() / kind * kind;
+            if n == 0 {
+                continue;
+            }
+            let mut pts = String::new();
+            nums(&mut pts, &mut verts[..n].iter().map(|v| [v.pos[0] as f64 + origin[0], v.pos[1] as f64 + origin[1], v.pos[2] as f64 + origin[2]]));
+            let mut cols = String::new();
+            nums(
+                &mut cols,
+                &mut verts[..n].iter().map(|v| {
+                    let c = m.color(v.scalar);
+                    [linear_to_srgb(c.x) as f64, linear_to_srgb(c.y) as f64, linear_to_srgb(c.z) as f64]
+                }),
+            );
+            let lit = d.display.lighting && kind == 3;
+            if vrml {
+                let _ = writeln!(out, "    Shape {{");
+                if lit {
+                    let _ = writeln!(out, "      appearance Appearance {{ material Material {{ transparency {transparency} }} }}");
+                }
+                let geom = match kind {
+                    3 => "IndexedFaceSet",
+                    2 => "IndexedLineSet",
+                    _ => "PointSet",
+                };
+                let _ = writeln!(out, "      geometry {geom} {{\n        coord Coordinate {{ point [ {pts} ] }}\n        color Color {{ color [ {cols} ] }}");
+                if kind > 1 {
+                    let idx: Vec<String> = (0..n / kind).map(|k| (0..kind).map(|j| (k * kind + j).to_string()).collect::<Vec<_>>().join(" ") + " -1").collect();
+                    let _ = writeln!(out, "        coordIndex [ {} ]", idx.join(" "));
+                }
+                if kind == 3 {
+                    let _ = writeln!(out, "        solid FALSE");
+                }
+                let _ = writeln!(out, "      }}\n    }}");
+            } else {
+                let _ = writeln!(out, "  <Shape>");
+                if lit {
+                    let _ = writeln!(out, "    <Appearance><Material transparency=\"{transparency}\"/></Appearance>");
+                }
+                let inner = format!("<Coordinate point=\"{pts}\"/><Color color=\"{cols}\"/>");
+                match kind {
+                    3 => {
+                        let _ = writeln!(out, "    <TriangleSet solid=\"false\">{inner}</TriangleSet>");
+                    }
+                    2 => {
+                        let counts = vec!["2"; n / 2].join(" ");
+                        let _ = writeln!(out, "    <LineSet vertexCount=\"{counts}\">{inner}</LineSet>");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "    <PointSet>{inner}</PointSet>");
+                    }
+                }
+                let _ = writeln!(out, "  </Shape>");
+            }
+        }
+        let _ = writeln!(out, "{}", if vrml { "  ]\n}" } else { "</Group>" });
+    }
+    if !vrml {
+        out.push_str("</Scene>\n</X3D>\n");
+    }
+    std::fs::write(path, out).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// A flat-shaded 2D primitive of a vector picture (pixel coordinates, sRGB color).
+#[derive(Debug, Clone)]
+pub struct VectorPrim {
+    pub points: Vec<[f32; 2]>,
+    pub color: [u8; 3],
+    pub alpha: f32,
+    /// Points: radius; lines: width (pixels).
+    pub size: f32,
+    depth: f32,
+}
+
+/// The visible surfaces, lines and points projected to a `w`×`h` picture, each triangle shaded
+/// flat with the view's lights, sorted back to front (painter's algorithm).
+pub fn vector_scene(draws: &[NodeDraw], camera: &crate::Camera, lighting: &aurafx_pipeline::Lighting, w: u32, h: u32) -> Vec<VectorPrim> {
+    use glam::{DVec3, DVec4, Vec3};
+    let aspect = w as f64 / h.max(1) as f64;
+    let (lights, ambient) = lighting.effective_lights();
+    let f = (camera.eye - camera.target).normalize_or_zero();
+    let r = camera.right();
+    let u = r.cross(-f).normalize_or_zero();
+    let lights: Vec<(Vec3, Vec3)> = lights
+        .iter()
+        .map(|l| {
+            let d = DVec3::new(l.direction[0] as f64, l.direction[1] as f64, l.direction[2] as f64);
+            let wd = if l.camera_relative { r * d.x + u * d.y + f * d.z } else { d };
+            (wd.normalize_or_zero().as_vec3(), Vec3::from_array(l.color) * l.intensity)
+        })
+        .collect();
+    let mut out = Vec::new();
+    for d in draws.iter().filter(|d| exported(d)) {
+        let m = Material::of(d);
+        let origin = DVec3::from_array(d.mesh.origin);
+        let vp = camera.proj_matrix(aspect) * camera.view_matrix();
+        let eye = camera.eye;
+        // Pixel position and depth, None when behind the camera or outside the picture.
+        let project = |p: [f32; 3]| -> Option<([f32; 2], f32)> {
+            let wp = origin + DVec3::new(p[0] as f64, p[1] as f64, p[2] as f64);
+            let c = vp * DVec4::new(wp.x, wp.y, wp.z, 1.0);
+            if c.w <= 0.0 {
+                return None;
+            }
+            let n = c.truncate() / c.w;
+            Some(([((n.x + 1.0) * 0.5 * w as f64) as f32, ((1.0 - n.y) * 0.5 * h as f64) as f32], n.z as f32))
+        };
+        let inside = |pts: &[[f32; 2]]| {
+            let (lo, hi) = pts
+                .iter()
+                .fold(([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1])], [hi[0].max(p[0]), hi[1].max(p[1])]));
+            hi[0] >= 0.0 && hi[1] >= 0.0 && lo[0] <= w as f32 && lo[1] <= h as f32
+        };
+        let alpha = d.display.opacity.clamp(0.0, 1.0);
+        let srgb = |c: Vec3| [(linear_to_srgb(c.x) * 255.0 + 0.5) as u8, (linear_to_srgb(c.y) * 255.0 + 0.5) as u8, (linear_to_srgb(c.z) * 255.0 + 0.5) as u8];
+        for t in d.mesh.tris.chunks_exact(3) {
+            let (Some(a), Some(b), Some(c)) = (project(t[0].pos), project(t[1].pos), project(t[2].pos)) else { continue };
+            let pts = vec![a.0, b.0, c.0];
+            let area = (b.0[0] - a.0[0]) * (c.0[1] - a.0[1]) - (c.0[0] - a.0[0]) * (b.0[1] - a.0[1]);
+            if area.abs() < 1e-3 || !inside(&pts) {
+                continue;
+            }
+            let albedo = (m.color(t[0].scalar) + m.color(t[1].scalar) + m.color(t[2].scalar)) / 3.0;
+            let col = if m.lit {
+                let mut n = (Vec3::from_array(t[0].normal) + Vec3::from_array(t[1].normal) + Vec3::from_array(t[2].normal)).normalize_or_zero();
+                let center = origin + DVec3::new(t[0].pos[0] as f64, t[0].pos[1] as f64, t[0].pos[2] as f64);
+                let view = (eye - center).normalize_or_zero().as_vec3();
+                if n.dot(view) < 0.0 {
+                    n = -n;
+                }
+                let mut light = Vec3::splat(ambient);
+                for (l, c) in &lights {
+                    light += *c * n.dot(*l).max(0.0);
+                }
+                albedo * light * (1.0 - m.metallic)
+            } else {
+                albedo
+            };
+            out.push(VectorPrim { points: pts, color: srgb(col), alpha, size: 0.0, depth: (a.1 + b.1 + c.1) / 3.0 });
+        }
+        for l in d.mesh.lines.chunks_exact(2) {
+            let (Some(a), Some(b)) = (project(l[0].pos), project(l[1].pos)) else { continue };
+            if !inside(&[a.0, b.0]) {
+                continue;
+            }
+            let col = (m.color(l[0].scalar) + m.color(l[1].scalar)) * 0.5;
+            // Lines a hair in front of the surfaces they lie on.
+            out.push(VectorPrim { points: vec![a.0, b.0], color: srgb(col), alpha, size: d.display.line_width.max(0.5), depth: (a.1 + b.1) * 0.5 - 1e-5 });
+        }
+        for p in &d.mesh.points {
+            let Some(a) = project(p.pos) else { continue };
+            if !inside(&[a.0]) {
+                continue;
+            }
+            out.push(VectorPrim { points: vec![a.0], color: srgb(m.color(p.scalar)), alpha, size: d.display.point_size * 0.5, depth: a.1 - 1e-5 });
+        }
+    }
+    out.sort_by(|a, b| b.depth.total_cmp(&a.depth));
+    out
 }

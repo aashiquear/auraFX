@@ -23,10 +23,13 @@ pub enum Interp {
     EaseInOut,
     /// Constant ratio per step (positive values of one sign; else linear).
     Exponential,
+    /// Swing smoothly to the next key's value and back (a sinusoid), reaching the next value
+    /// only at its key.
+    Wave,
 }
 
 impl Interp {
-    pub const ALL: [Interp; 6] = [Interp::Linear, Interp::Step, Interp::EaseIn, Interp::EaseOut, Interp::EaseInOut, Interp::Exponential];
+    pub const ALL: [Interp; 7] = [Interp::Linear, Interp::Step, Interp::EaseIn, Interp::EaseOut, Interp::EaseInOut, Interp::Exponential, Interp::Wave];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -36,12 +39,18 @@ impl Interp {
             Interp::EaseOut => "ease out",
             Interp::EaseInOut => "ease in-out",
             Interp::Exponential => "exponential",
+            Interp::Wave => "wave",
         }
     }
 
     pub fn parse(s: &str) -> Option<Interp> {
         let s = s.to_ascii_lowercase().replace(['_', '-'], " ");
-        Interp::ALL.into_iter().find(|i| i.label().replace('-', " ") == s || (s == "hold" && *i == Interp::Step) || (s == "smooth" && *i == Interp::EaseInOut))
+        Interp::ALL.into_iter().find(|i| {
+            i.label().replace('-', " ") == s
+                || (s == "hold" && *i == Interp::Step)
+                || (s == "smooth" && *i == Interp::EaseInOut)
+                || (matches!(s.as_str(), "sinusoid" | "sine") && *i == Interp::Wave)
+        })
     }
 
     /// The eased fraction of a segment.
@@ -52,6 +61,7 @@ impl Interp {
             Interp::EaseIn => u * u * u,
             Interp::EaseOut => 1.0 - (1.0 - u).powi(3),
             Interp::EaseInOut => u * u * (3.0 - 2.0 * u),
+            Interp::Wave => 0.5 - 0.5 * (2.0 * std::f64::consts::PI * u).cos(),
         }
     }
 }
@@ -417,9 +427,10 @@ mod tests {
         assert!(at(Interp::EaseIn, 0.5) < 50.5 && at(Interp::EaseOut, 0.5) > 50.5);
         assert_eq!(at(Interp::EaseInOut, 0.5), 50.5);
         assert!(at(Interp::EaseInOut, 0.1) < at(Interp::Linear, 0.1));
+        assert!((at(Interp::Wave, 0.5) - 100.0).abs() < 1e-9 && (at(Interp::Wave, 0.999) - 1.0).abs() < 0.01, "wave goes there and back");
         for i in Interp::ALL {
             assert_eq!(at(i, 0.0), 1.0);
-            if i != Interp::Step {
+            if !matches!(i, Interp::Step | Interp::Wave) {
                 assert!((at(i, 1.0) - 100.0).abs() < 1e-9, "{i:?} reaches the next key");
             }
             assert_eq!(Interp::parse(i.label()), Some(i));

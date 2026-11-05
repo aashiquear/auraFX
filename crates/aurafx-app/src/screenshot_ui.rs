@@ -89,7 +89,12 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     });
     state.screenshot_dialog.open = open;
     if save {
-        if let Some(path) = crate::dialogs::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx.png").save_file() {
+        if let Some(path) = crate::dialogs::FileDialog::new()
+            .add_filter("PNG image", &["png"])
+            .add_filter("SVG vector picture", &["svg"])
+            .set_file_name("aurafx.png")
+            .save_file()
+        {
             let d = &state.screenshot_dialog;
             let size = if (d.width, d.height) == view { None } else { Some((d.width, d.height)) };
             state.viewport.request_screenshot(ScreenshotRequest { path, size, transparent: d.transparent, id: 0, overlays: !d.no_overlays });

@@ -785,8 +785,8 @@ fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u
 #[pyfunction]
 fn export_scene(py: Python<'_>, path: String) -> PyResult<()> {
     let ext = std::path::Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "glb" | "obj") {
-        return Err(PyValueError::new_err("export_scene writes .glb or .obj files"));
+    if !matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl") {
+        return Err(PyValueError::new_err("export_scene writes .glb, .obj, .x3d or .wrl files (afx.screenshot('fig.svg') for a vector picture)"));
     }
     screenshot(py, path, None, None, false, true)
 }

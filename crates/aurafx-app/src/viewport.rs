@@ -738,7 +738,17 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             let vp = &mut state.viewport;
             let max = vp.renderer.as_ref().unwrap().max_size();
             let ext = req.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-            if matches!(ext.as_str(), "glb" | "obj") {
+            if ext == "svg" {
+                // A vector picture: shaded polygons sorted back to front, and the overlays.
+                let prims = aurafx_render::scene_export::vector_scene(&draws, &vp.camera, &vp.settings.lighting, sw, sh);
+                let ov = req.overlays.then(|| {
+                    let out = vp.offscreen.run(&overlays, rect.width(), sw, sh);
+                    (out.shapes.into_iter().map(|c| c.shape).collect::<Vec<_>>(), out.pixels_per_point)
+                });
+                let bg = (!req.transparent).then_some(vp.settings.background);
+                let res = crate::svg_export::write(&req.path, &prims, sw, sh, bg, ov.as_ref().map(|(s, k)| (s.as_slice(), *k)));
+                outcome = Some((req.clone(), res));
+            } else if matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl") {
                 // Scene export: the objects as drawn, named as in the pipeline.
                 let s = state.session.lock();
                 let objects: Vec<aurafx_render::scene_export::ExportObject> = draws

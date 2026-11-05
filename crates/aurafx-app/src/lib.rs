@@ -20,6 +20,7 @@ mod ray_tracing;
 mod screenshot_ui;
 mod server_ui;
 mod settings;
+mod svg_export;
 mod theme;
 mod viewport;
 mod views;

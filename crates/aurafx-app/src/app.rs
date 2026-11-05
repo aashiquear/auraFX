@@ -784,6 +784,8 @@ impl State {
                     if let Some(path) = crate::dialogs::FileDialog::new()
                         .add_filter("glTF binary", &["glb"])
                         .add_filter("Wavefront OBJ (vertex colors)", &["obj"])
+                        .add_filter("X3D", &["x3d"])
+                        .add_filter("VRML 2.0", &["wrl"])
                         .set_file_name("scene.glb")
                         .save_file()
                     {

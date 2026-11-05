@@ -31,6 +31,8 @@ pub struct RayTracing {
     latest: Option<(u64, Arc<ImageLayer>, u32)>,
     /// Draws without their triangles (edges, points), by mesh pointer.
     stripped: HashMap<usize, Arc<MeshData>>,
+    /// A picture traced for a screenshot: (view key, result, picture once done).
+    still: Option<(u64, Receiver<ImageLayer>, Option<Arc<ImageLayer>>)>,
 }
 
 /// What the view should draw this frame.
@@ -62,7 +64,7 @@ fn view_key(scene: u64, camera: &Camera, settings: &RenderSettings, w: u32, h: u
     ]) {
         v.to_bits().hash(&mut hs);
     }
-    (camera.orthographic, w, h, format!("{:?}{:?}", settings.lighting, settings.background)).hash(&mut hs);
+    (camera.orthographic, w, h, settings.transparent, format!("{:?}{:?}", settings.lighting, settings.background)).hash(&mut hs);
     hs.finish()
 }
 
@@ -135,7 +137,12 @@ impl RayTracing {
             return Frame { draws, layer: None, progress };
         };
         let layer = layer.clone();
-        // The picture replaces the traced triangles; edges and points stay.
+        let draws = self.strip(draws);
+        Frame { draws, layer: Some(layer), progress }
+    }
+
+    /// The draws with the traced triangles removed (edges and points stay).
+    pub fn strip(&mut self, draws: Vec<NodeDraw>) -> Vec<NodeDraw> {
         let mut out = Vec::with_capacity(draws.len());
         let mut live = Vec::new();
         for d in draws {
@@ -169,7 +176,57 @@ impl RayTracing {
             out.push(NodeDraw { mesh, ..d });
         }
         self.stripped.retain(|p, _| live.contains(p));
-        Frame { draws: out, layer: Some(layer), progress }
+        out
+    }
+
+    /// A finished picture at another size (for screenshots): None while it is being traced.
+    pub fn still(&mut self, draws: &[NodeDraw], camera: &Camera, settings: &RenderSettings, w: u32, h: u32) -> Option<Arc<ImageLayer>> {
+        let traced_draws: Vec<&NodeDraw> = draws.iter().filter(|d| traced(d)).collect();
+        if traced_draws.is_empty() {
+            return None;
+        }
+        let skey = scene_key(&traced_draws);
+        let vkey = view_key(skey, camera, settings, w, h);
+        if let Some((k, rx, done)) = &mut self.still {
+            if *k == vkey {
+                if done.is_none() {
+                    if let Ok(img) = rx.try_recv() {
+                        *done = Some(Arc::new(img));
+                    }
+                }
+                return done.clone();
+            }
+        }
+        let (tx, rx) = channel();
+        let scene = self.scene.as_ref().filter(|s| s.0 == skey).map(|s| s.1.clone());
+        let owned: Vec<NodeDraw> = if scene.is_none() { traced_draws.iter().map(|d| (*d).clone()).collect() } else { Vec::new() };
+        let view = self.view(camera, settings, w, h);
+        let wanted = settings.lighting.ray_samples.max(1);
+        std::thread::Builder::new()
+            .name("ray traced screenshot".into())
+            .spawn(move || {
+                let scene = scene.unwrap_or_else(|| Arc::new(Scene::build(&owned)));
+                let mut tracer = Tracer::new(scene, view);
+                while tracer.passes < wanted {
+                    tracer.pass();
+                }
+                let _ = tx.send(tracer.image());
+            })
+            .ok();
+        self.still = Some((vkey, rx, None));
+        None
+    }
+
+    fn view(&self, camera: &Camera, settings: &RenderSettings, w: u32, h: u32) -> View {
+        let bg = settings.background;
+        View {
+            camera: camera.clone(),
+            lighting: settings.lighting.clone(),
+            width: w,
+            height: h,
+            background: if settings.transparent { [0.0; 3] } else { [srgb_to_linear(bg[0]), srgb_to_linear(bg[1]), srgb_to_linear(bg[2])] },
+            bounces: settings.lighting.ray_bounces,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -178,15 +235,7 @@ impl RayTracing {
         let (tx, rx) = channel();
         let scene = self.scene.as_ref().filter(|s| s.0 == skey).map(|s| s.1.clone());
         let owned: Vec<NodeDraw> = if scene.is_none() { draws.iter().map(|d| (*d).clone()).collect() } else { Vec::new() };
-        let bg = settings.background;
-        let view = View {
-            camera: camera.clone(),
-            lighting: settings.lighting.clone(),
-            width: w,
-            height: h,
-            background: [srgb_to_linear(bg[0]), srgb_to_linear(bg[1]), srgb_to_linear(bg[2])],
-            bounces: settings.lighting.ray_bounces,
-        };
+        let view = self.view(camera, settings, w, h);
         let wanted = settings.lighting.ray_samples.max(1);
         let flag = stop.clone();
         let ctx = ctx.clone();

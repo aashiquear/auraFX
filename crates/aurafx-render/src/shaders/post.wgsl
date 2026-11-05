@@ -214,7 +214,7 @@ fn fs_final(v: VsOut) -> @location(0) vec4<f32> {
     } else if (fin.params.y > 0.5) {
         col = col / (col + vec3<f32>(1.0));
     }
-    return vec4<f32>(col, 1.0);
+    return vec4<f32>(col, textureLoad(final_src, c, 0).a);
 }
 
 // Depth-aware 4x4 blur of the occlusion (the per-pixel sample rotation repeats every 4 pixels

@@ -16,6 +16,7 @@ mod panels;
 mod pick;
 mod plugins_ui;
 mod ray_tracing;
+mod screenshot_ui;
 mod server_ui;
 mod settings;
 mod theme;

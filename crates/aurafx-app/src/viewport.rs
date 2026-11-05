@@ -3,12 +3,11 @@
 
 use crate::app::State;
 use aurafx_filters::Association;
-use aurafx_pipeline::session::CameraRequest;
+use aurafx_pipeline::session::{CameraRequest, ScreenshotRequest};
 use aurafx_pipeline::{colormap, DisplayProps, NodeId};
 use aurafx_render::{Camera, MeshData, NodeDraw, RenderSettings, Renderer};
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -38,7 +37,7 @@ pub struct Viewport {
     start: Instant,
     frame_times: Vec<f64>,
     last_frame: f64,
-    screenshot: Option<(PathBuf, Option<(u32, u32)>)>,
+    screenshot: Option<ScreenshotRequest>,
     /// Frames a scripted screenshot still waits.
     screenshot_wait: u8,
     camera_initialized: bool,
@@ -225,8 +224,13 @@ impl Viewport {
         self.camera_initialized = true;
     }
 
-    pub fn request_screenshot(&mut self, path: PathBuf, size: Option<(u32, u32)>) {
-        self.screenshot = Some((path, size));
+    /// The view's size in pixels.
+    pub fn size(&self) -> (u32, u32) {
+        self.renderer.as_ref().map(|r| (r.width, r.height)).unwrap_or((1, 1))
+    }
+
+    pub fn request_screenshot(&mut self, req: ScreenshotRequest) {
+        self.screenshot = Some(req);
     }
 
     fn sync_texture(&mut self, recreated: bool) {
@@ -694,7 +698,8 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
 
     // Render.
     let (draws, scalar_bar) = collect_draws(state);
-    let mut layers = remote_layers(state, ui.ctx(), w, h);
+    let remote = remote_layers(state, ui.ctx(), w, h);
+    let mut layers = remote.clone();
     // Ray tracing: a traced picture replaces the opaque surfaces once it is ready.
     let (shown, trace_progress) = if state.viewport.settings.lighting.ray_tracing && state.viewport.renderer.is_some() {
         let f = state.viewport.ray_tracing.frame(ui.ctx(), draws.clone(), &state.viewport.camera, &state.viewport.settings, w, h);
@@ -704,13 +709,14 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         state.viewport.ray_tracing.stop();
         (draws.clone(), None)
     };
-    if let Some(r) = state.viewport.renderer.as_mut() {
-        let recreated = r.resize(w, h);
+    if state.viewport.renderer.is_some() {
+        let vp = &mut state.viewport;
+        let r = vp.renderer.as_mut().unwrap();
+        let mut recreated = r.resize(w, h);
         r.set_layers(&layers);
-        let settings = state.viewport.settings.clone();
-        r.render(&state.viewport.camera, &shown, &settings);
+        r.render(&vp.camera, &shown, &vp.settings);
         if let Some((node, px, add, remove)) = state.viewport.pending_id_pick.take() {
-            match r.pick_ids(&state.viewport.camera, &draws, node, px) {
+            match state.viewport.renderer.as_mut().unwrap().pick_ids(&state.viewport.camera, &draws, node, px) {
                 Ok(ids) => {
                     let ids: Vec<usize> = ids.into_iter().map(|i| i as usize).collect();
                     apply_selection(state, node, Association::Cells, ids, add, remove);
@@ -718,10 +724,9 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 Err(e) => state.toast(format!("Selection failed: {e:#}"), true),
             }
         }
-        state.viewport.sync_texture(recreated);
-        // Screenshot requests (UI or Python).
-        // Requests from scripts wait until what the script did before is in the picture: data
-        // updated, camera moved, and app commands (lighting, ...) applied over a few frames.
+        // Screenshot requests (UI or Python). Requests from scripts wait until what the script
+        // did before is in the picture: data updated, camera moved, and app commands (lighting,
+        // ...) applied over a few frames.
         let py_req = if is_active {
             let mut s = state.session.lock();
             if !s.is_busy() && s.camera_request.is_none() {
@@ -732,26 +737,100 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         } else {
             None
         };
-        if let Some((p, w, h)) = py_req {
-            state.viewport.screenshot = Some((p, w.zip(h)));
+        if let Some(r) = py_req {
+            state.viewport.screenshot = Some(r);
             state.viewport.screenshot_wait = 2;
         }
-        let mut req = if state.viewport.screenshot_wait > 0 {
+        let req = if state.viewport.screenshot_wait > 0 {
             state.viewport.screenshot_wait -= 1;
             ui.ctx().request_repaint();
             None
         } else {
             state.viewport.screenshot.take()
         };
-        // A ray-traced screenshot waits for the tracer to finish.
-        if trace_progress.is_some() && req.is_some() {
-            state.viewport.screenshot = req.take();
+        let mut outcome = None;
+        if let Some(req) = req {
+            // A 0 keeps the view's shape.
+            let (sw, sh) = match req.size {
+                Some((0, 0)) | None => (w, h),
+                Some((sw, 0)) => (sw, (sw as u64 * h as u64 / w.max(1) as u64).max(1) as u32),
+                Some((0, sh)) => ((sh as u64 * w as u64 / h.max(1) as u64).max(1) as u32, sh),
+                Some(s) => s,
+            };
+            let as_shown = (sw, sh) == (w, h) && !req.transparent;
+            let vp = &mut state.viewport;
+            let max = vp.renderer.as_ref().unwrap().max_size();
+            let ext = req.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            if matches!(ext.as_str(), "glb" | "obj") {
+                // Scene export: the objects as drawn, named as in the pipeline.
+                let s = state.session.lock();
+                let objects: Vec<aurafx_render::scene_export::ExportObject> = draws
+                    .iter()
+                    .filter_map(|d| s.nodes.get(&d.id).map(|n| aurafx_render::scene_export::ExportObject { name: n.name.clone(), draw: d }))
+                    .collect();
+                let res = aurafx_render::scene_export::export(&req.path, &objects);
+                drop(s);
+                outcome = Some((req.clone(), res));
+            } else if as_shown && trace_progress.is_some() {
+                // A ray-traced screenshot waits for the tracer to finish.
+                vp.screenshot = Some(req);
+            } else if as_shown {
+                outcome = Some((req.clone(), vp.renderer.as_ref().unwrap().save_png(&req.path)));
+            } else if sw == 0 || sh == 0 || sw.max(sh) > max {
+                outcome = Some((req.clone(), Err(anyhow::anyhow!("{sw}x{sh} pixels: this GPU draws at most {max}x{max}"))));
+            } else {
+                // Render once more at the asked size (traced at that size when ray tracing).
+                let mut settings = vp.settings.clone();
+                settings.transparent = req.transparent;
+                let mut shot_layers = remote.clone();
+                let mut shot_draws = Some(draws.clone());
+                if settings.lighting.ray_tracing {
+                    match vp.ray_tracing.still(&draws, &vp.camera, &settings, sw, sh) {
+                        Some(img) => {
+                            shot_layers.push(img);
+                            shot_draws = Some(vp.ray_tracing.strip(draws.clone()));
+                        }
+                        None => shot_draws = None,
+                    }
+                }
+                match shot_draws {
+                    None => {
+                        vp.screenshot = Some(req);
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+                    }
+                    Some(shot_draws) => {
+                        let r = vp.renderer.as_mut().unwrap();
+                        r.resize(sw, sh);
+                        r.set_layers(&shot_layers);
+                        r.render(&vp.camera, &shot_draws, &settings);
+                        let res = r.save_png_with(&req.path, req.transparent);
+                        r.resize(w, h);
+                        r.set_layers(&layers);
+                        r.render(&vp.camera, &shown, &vp.settings);
+                        recreated = true;
+                        outcome = Some((req.clone(), res));
+                    }
+                }
+            }
+            if state.viewport.screenshot.is_some() {
+                let text = if trace_progress.is_some() || state.viewport.settings.lighting.ray_tracing {
+                    "Ray tracing the screenshot…"
+                } else {
+                    "Saving the screenshot…"
+                };
+                state.status = text.into();
+            }
         }
-        if let Some((path, _size)) = req {
-            match state.viewport.renderer.as_ref().unwrap().save_png(&path) {
-                Ok(()) => state.toast(format!("Saved {}", path.display()), false),
+        state.viewport.sync_texture(recreated);
+        if let Some((req, res)) = outcome {
+            match &res {
+                Ok(()) => state.toast(format!("Saved {}", req.path.display()), false),
                 Err(e) => state.toast(format!("Screenshot failed: {e:#}"), true),
             }
+            if req.id != 0 {
+                state.session.lock().screenshot_results.push((req.id, res.map_err(|e| format!("{e:#}"))));
+            }
+            state.status.clear();
         }
     }
     if let Some(tex) = state.viewport.texture {

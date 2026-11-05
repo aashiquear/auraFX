@@ -395,8 +395,11 @@ pub struct Session {
     /// Python-equivalent of UI actions, appended as they happen.
     pub trace: Vec<String>,
     pub camera_request: Option<CameraRequest>,
-    /// Set by Python/AI: (path, width, height). The UI fulfils it and clears it.
-    pub screenshot_request: Option<(PathBuf, Option<u32>, Option<u32>)>,
+    /// Set by Python/AI. The UI fulfils it, clears it and reports in `screenshot_results`.
+    pub screenshot_request: Option<ScreenshotRequest>,
+    /// Finished screenshots: (request id, error).
+    pub screenshot_results: Vec<(u64, Result<(), String>)>,
+    pub next_screenshot_id: u64,
     /// Series plotted from scripts / time analysis.
     pub chart: Chart,
     /// UI commands from scripts/AI the app executes: "theme light", "layout analyze", "hide Log", "show Charts".
@@ -430,6 +433,18 @@ pub struct Session {
 
 /// Default limit above which server outputs are sent as their surface.
 pub const REMOTE_MAX_BYTES: u64 = 64 << 20;
+
+/// A picture of the 3D view to save.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScreenshotRequest {
+    pub path: PathBuf,
+    /// Pixels (None: the view's size).
+    pub size: Option<(u32, u32)>,
+    /// Transparent background.
+    pub transparent: bool,
+    /// Reported back in `Session::screenshot_results` (0: nobody waits).
+    pub id: u64,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CameraRequest {

@@ -752,11 +752,51 @@ fn view(direction: Bound<'_, PyAny>, up: Option<[f64; 3]>) -> PyResult<()> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (path, width=None, height=None))]
-fn screenshot(path: String, width: Option<u32>, height: Option<u32>) {
+#[pyo3(signature = (path, width=None, height=None, transparent=false))]
+fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u32>, transparent: bool) -> PyResult<()> {
+    let id = request_screenshot(path, width, height, transparent);
+    // Wait until the app has saved it (a ray-traced picture may take a while).
+    py.detach(|| {
+        let start = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let mut s = session().lock();
+            if let Some(i) = s.screenshot_results.iter().position(|r| r.0 == id) {
+                return s.screenshot_results.remove(i).1;
+            }
+            if start.elapsed() > std::time::Duration::from_secs(3600) {
+                return Err("no 3D view saved the screenshot within an hour".into());
+            }
+        }
+    })
+    .map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
+}
+
+/// Export the visible objects as a 3D scene: `afx.export_scene("scene.glb")` (glTF binary, for
+/// Blender, three.js, PowerPoint, ...) or `.obj` (with vertex colors).
+#[pyfunction]
+fn export_scene(py: Python<'_>, path: String) -> PyResult<()> {
+    let ext = std::path::Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !matches!(ext.as_str(), "glb" | "obj") {
+        return Err(PyValueError::new_err("export_scene writes .glb or .obj files"));
+    }
+    screenshot(py, path, None, None, false)
+}
+
+fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, transparent: bool) -> u64 {
     let mut s = session().lock();
-    s.screenshot_request = Some((std::path::PathBuf::from(path), width, height));
+    // One of width/height keeps the view's aspect ratio (the UI fills in the other).
+    let size = match (width, height) {
+        (Some(w), Some(h)) => Some((w, h)),
+        (Some(w), None) => Some((w, 0)),
+        (None, Some(h)) => Some((0, h)),
+        _ => None,
+    };
+    s.next_screenshot_id += 1;
+    let id = s.next_screenshot_id;
+    s.screenshot_request = Some(aurafx_pipeline::session::ScreenshotRequest { path: std::path::PathBuf::from(path), size, transparent, id });
     s.revision += 1;
+    id
 }
 
 /// Add a line to the Charts panel: afx.plot(x, y, label="T max").
@@ -1361,6 +1401,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(servers, m)?)?;
     m.add_function(wrap_pyfunction!(lighting, m)?)?;
+    m.add_function(wrap_pyfunction!(export_scene, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;
     m.add_function(wrap_pyfunction!(apply_multi, m)?)?;
     m.add_function(wrap_pyfunction!(nodes, m)?)?;

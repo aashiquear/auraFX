@@ -14,6 +14,7 @@ bytemuck.workspace = true
 glam.workspace = true
 rayon.workspace = true
 half.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 wgpu = "30"
 image = { version = "0.25", default-features = false, features = ["png"] }

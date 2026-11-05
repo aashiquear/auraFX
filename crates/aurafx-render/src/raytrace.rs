@@ -19,7 +19,8 @@ pub fn traced(d: &NodeDraw) -> bool {
         && !d.mesh.tris.is_empty()
 }
 
-struct Material {
+/// How an object is colored: its color map (linear) and range, or its solid color.
+pub(crate) struct Material {
     lut: Vec<Vec3>,
     range: (f32, f32),
     log: bool,
@@ -29,7 +30,26 @@ struct Material {
 }
 
 impl Material {
-    fn color(&self, s: f32) -> Vec3 {
+    pub(crate) fn of(d: &NodeDraw) -> Material {
+        let cmap = d.display.effective_colormap();
+        let (lo, hi) = d.mesh.scalar_range.unwrap_or((0.0, 1.0));
+        Material {
+            lut: (0..256)
+                .map(|i| {
+                    let c = cmap.sample(i as f32 / 255.0);
+                    Vec3::new(srgb_to_linear(c[0]), srgb_to_linear(c[1]), srgb_to_linear(c[2]))
+                })
+                .collect(),
+            range: (lo as f32, hi as f32),
+            log: d.display.log_scale,
+            scalars: d.mesh.has_scalars,
+            solid: Vec3::from_array(d.display.solid_color),
+            lit: d.display.lighting,
+        }
+    }
+
+    /// Linear color for a scalar value (as the shader maps it).
+    pub(crate) fn color(&self, s: f32) -> Vec3 {
         if !self.scalars {
             return self.solid;
         }
@@ -103,22 +123,8 @@ impl Scene {
         let mut materials = Vec::new();
         for d in draws.iter().take(u16::MAX as usize) {
             let shift = (DVec3::from_array(d.mesh.origin) - origin).as_vec3();
-            let cmap = d.display.effective_colormap();
-            let (lo, hi) = d.mesh.scalar_range.unwrap_or((0.0, 1.0));
             let m = materials.len() as u16;
-            materials.push(Material {
-                lut: (0..256)
-                    .map(|i| {
-                        let c = cmap.sample(i as f32 / 255.0);
-                        Vec3::new(srgb_to_linear(c[0]), srgb_to_linear(c[1]), srgb_to_linear(c[2]))
-                    })
-                    .collect(),
-                range: (lo as f32, hi as f32),
-                log: d.display.log_scale,
-                scalars: d.mesh.has_scalars,
-                solid: Vec3::from_array(d.display.solid_color),
-                lit: d.display.lighting,
-            });
+            materials.push(Material::of(d));
             let tris = &d.mesh.tris[..d.mesh.tris.len() / 3 * 3];
             for v in tris {
                 pos.push(Vec3::from_array(v.pos) + shift);

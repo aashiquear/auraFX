@@ -3,6 +3,7 @@
 pub mod camera;
 pub mod raytrace;
 pub mod renderer;
+pub mod scene_export;
 pub mod server;
 pub mod tessellate;
 

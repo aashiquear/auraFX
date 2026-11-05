@@ -101,6 +101,7 @@ pub struct State {
     pub jobs_panel: crate::jobs_panel::JobsPanel,
     pub charts: crate::charts::ChartsState,
     pub anim_dialog: crate::animation::AnimDialog,
+    pub screenshot_dialog: crate::screenshot_ui::ScreenshotDialog,
     pub cmap_editor: crate::colormap_editor::ColormapEditor,
     pub plugins: crate::plugins_ui::PluginsWindow,
     pub server: crate::server_ui::ServerWindow,
@@ -359,6 +360,7 @@ impl AuraApp {
             file_browser: Default::default(),
             state_path: None,
             anim_dialog: Default::default(),
+            screenshot_dialog: Default::default(),
             cmap_editor: Default::default(),
             plugins: Default::default(),
             server: Default::default(),
@@ -599,9 +601,8 @@ impl State {
     }
 
     pub fn save_screenshot_dialog(&mut self) {
-        if let Some(path) = crate::dialogs::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx.png").save_file() {
-            self.viewport.request_screenshot(path, None);
-        }
+        let view = self.viewport.size();
+        self.screenshot_dialog.show_for(view);
     }
 
     pub fn run_python(&mut self, code: &str, origin: &str) {
@@ -777,6 +778,17 @@ impl State {
                 if ui.button("Save Screenshot…    Ctrl+Shift+S").clicked() {
                     ui.close();
                     self.save_screenshot_dialog();
+                }
+                if ui.button("Export Scene…").on_hover_text("The visible objects as a glTF (.glb) or OBJ file, for Blender, web viewers, slides").clicked() {
+                    ui.close();
+                    if let Some(path) = crate::dialogs::FileDialog::new()
+                        .add_filter("glTF binary", &["glb"])
+                        .add_filter("Wavefront OBJ (vertex colors)", &["obj"])
+                        .set_file_name("scene.glb")
+                        .save_file()
+                    {
+                        self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest { path, size: None, transparent: false, id: 0 });
+                    }
                 }
                 if ui.button("Animation…").on_hover_text("Time steps, a camera orbit or keyframes, saved as GIF, MP4 or PNG frames").clicked() {
                     ui.close();
@@ -1635,6 +1647,7 @@ impl eframe::App for AuraApp {
         st.animation_tick(ctx);
         st.animation_poll();
         crate::animation::dialog_ui(st, ctx);
+        crate::screenshot_ui::dialog_ui(st, ctx);
         crate::colormap_editor::editor_ui(st, ctx);
         st.plugins_tick(ctx);
         crate::plugins_ui::plugins_ui(st, ctx);

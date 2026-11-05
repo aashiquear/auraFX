@@ -88,9 +88,9 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF.
 - [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified in ParaView), CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
-- [~] Images: PNG/JPEG/TIFF/BMP/EXR, screenshot with resolution override and transparent background.
+- [~] Images: PNG (JPEG/TIFF/BMP/EXR todo), screenshot with resolution override and transparent background (done, iteration 16).
 - [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
-- [ ] Scene export: glTF, OBJ, X3D, VRML, POV-Ray, PDF/SVG vector (GL2PS-equivalent), WebGL/HTML interactive scene.
+- [~] Scene export: glTF (.glb) and OBJ with vertex colors (done, iteration 16); X3D, VRML, POV-Ray, PDF/SVG vector (GL2PS-equivalent), WebGL/HTML interactive scene todo.
 - [ ] Extracts and Catalyst-style in-situ scripts.
 
 ---
@@ -492,6 +492,19 @@ Done in iteration 15 (the rest of the lighting list):
   finishes, and in general until the data, camera and lighting the script set are in the
   picture. Tests: same depth and brightness as the rasterizer on a lit floor (ratio 0.98),
   shadow under a ball, noise 5x lower after 32 passes, deterministic.
+
+Done in iteration 16 (exporters):
+- **Screenshots at any size, with a transparent background** (File › Save Screenshot, or
+  `afx.screenshot(path, width=3840, transparent=True)`; give one of width/height to keep the
+  view's shape). Transparent pictures are rendered premultiplied and divided by coverage when
+  saved, so anti-aliased edges keep their color. With ray tracing on, the picture is traced at
+  the asked size first.
+- **`afx.screenshot` waits until the file is written** (and raises if it can't be), so a
+  script can change the camera, lighting or data between screenshots.
+- **Scene export** (File › Export Scene, `afx.export_scene("scene.glb")`): the visible
+  surfaces, lines and points with their display colors as glTF 2.0 binary (vertex colors,
+  normals, translucency, unlit objects, large coordinates in node translations) or OBJ with
+  vertex colors. ParaView 6.1 reads both with the same points, cells and bounds.
 
 Known gaps worth doing next: GPU ray tracing, materials and environment maps (P4); light widgets in the 3D view; MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real

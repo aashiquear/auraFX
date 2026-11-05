@@ -47,11 +47,14 @@ pub struct RenderSettings {
     pub background_top: Option<[f32; 3]>,
     /// Lights, shadows and screen effects.
     pub lighting: aurafx_pipeline::Lighting,
+    /// Clear to transparent (for screenshots): the color target then holds premultiplied
+    /// color, see [`Renderer::save_png_with`].
+    pub transparent: bool,
 }
 
 impl Default for RenderSettings {
     fn default() -> Self {
-        Self { background: [0.12, 0.13, 0.16], background_top: None, lighting: Default::default() }
+        Self { background: [0.12, 0.13, 0.16], background_top: None, lighting: Default::default(), transparent: false }
     }
 }
 
@@ -1466,7 +1469,11 @@ impl Renderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: srgb_to_linear(bg[0]), g: srgb_to_linear(bg[1]), b: srgb_to_linear(bg[2]), a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(if settings.transparent {
+                            wgpu::Color::TRANSPARENT
+                        } else {
+                            wgpu::Color { r: srgb_to_linear(bg[0]), g: srgb_to_linear(bg[1]), b: srgb_to_linear(bg[2]), a: 1.0 }
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1929,10 +1936,43 @@ impl Renderer {
         Ok((w, h, out))
     }
 
+    /// The largest picture this device can render.
+    pub fn max_size(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
+    }
+
     pub fn save_png(&self, path: &std::path::Path) -> Result<()> {
-        let (w, h, px) = self.read_pixels()?;
+        self.save_png_with(path, false)
+    }
+
+    /// Save the last picture; `transparent` when it was rendered with a transparent background
+    /// (the premultiplied colors are divided by coverage, so edges keep their color).
+    pub fn save_png_with(&self, path: &std::path::Path, transparent: bool) -> Result<()> {
+        let (w, h, mut px) = self.read_pixels()?;
+        if transparent {
+            unpremultiply(&mut px);
+        }
         image::save_buffer(path, &px, w, h, image::ColorType::Rgba8)?;
         Ok(())
+    }
+}
+
+/// sRGB-encoded premultiplied RGBA8 to straight alpha (premultiplication happened in linear).
+pub fn unpremultiply(px: &mut [u8]) {
+    let lin: Vec<f32> = (0..256).map(|i| srgb_to_linear(i as f32 / 255.0) as f32).collect();
+    for p in px.chunks_mut(4) {
+        let a = p[3] as f32 / 255.0;
+        if a <= 0.0 {
+            p[0] = 0;
+            p[1] = 0;
+            p[2] = 0;
+        } else if a < 1.0 {
+            for c in &mut p[..3] {
+                let l = (lin[*c as usize] / a).min(1.0);
+                let s = if l <= 0.0031308 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+                *c = (s * 255.0 + 0.5) as u8;
+            }
+        }
     }
 }
 

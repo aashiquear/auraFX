@@ -335,6 +335,7 @@ dependencies = [
  "image",
  "pollster 0.4.0",
  "rayon",
+ "serde_json",
  "tracing",
  "wgpu",
 ]

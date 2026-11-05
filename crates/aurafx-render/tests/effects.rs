@@ -93,3 +93,42 @@ fn lights_shadows_occlusion_and_final_pass() {
     let i = open[open.len() / 2];
     assert!(lum(&tm, i) < lum(&plain, i) - 30.0, "tone mapping compresses: {} vs {}", lum(&tm, i), lum(&plain, i));
 }
+
+#[test]
+fn transparent_background() {
+    let (w, h) = (120u32, 100u32);
+    let Ok(mut r) = headless(w, h) else {
+        eprintln!("no GPU adapter");
+        return;
+    };
+    let ball = DataSet::PolyData(aurafx_filters::sources::sphere([0.0, 0.0, 0.0], 0.5, 48, 24));
+    let mut cam = Camera::default();
+    cam.set_view([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], &ball.bounds());
+    cam.update_clip(&ball.bounds());
+    let mut d = DisplayProps::default();
+    d.solid_color = [0.9, 0.2, 0.1];
+    d.lighting = false;
+    let draws = [NodeDraw { id: 1, mesh: Arc::new(tessellate::tessellate(&ball, &d)), display: d, overlay: false }];
+    // A bright background would tint edges if the colors weren't unpremultiplied.
+    let settings = RenderSettings { background: [1.0, 1.0, 1.0], transparent: true, ..Default::default() };
+    for fxaa in [false, true] {
+        let settings = RenderSettings { lighting: Lighting { fxaa, ..Default::default() }, ..settings.clone() };
+        r.render(&cam, &draws, &settings);
+        let dir = std::env::temp_dir().join(format!("aurafx_transparent_{fxaa}.png"));
+        r.save_png_with(&dir, true).unwrap();
+        let img = image::open(&dir).unwrap().to_rgba8();
+        let _ = std::fs::remove_file(&dir);
+        assert_eq!(img.get_pixel(0, 0)[3], 0, "background is transparent");
+        let m = img.get_pixel(w / 2, h / 2).0;
+        assert!(
+            m[3] == 255 && (m[0] as i32 - 243).abs() <= 1 && (m[1] as i32 - 124).abs() <= 1 && (m[2] as i32 - 89).abs() <= 1,
+            "solid color in the middle: {m:?}"
+        );
+        // Partly covered edge pixels keep the ball's color (no white fringe).
+        let edge: Vec<_> = img.pixels().filter(|p| p[3] > 20 && p[3] < 235).collect();
+        assert!(!edge.is_empty(), "anti-aliased edge");
+        for p in &edge {
+            assert!(p[1] < 160 && p[2] < 140, "edge pixel {p:?} is tinted by the background");
+        }
+    }
+}

@@ -23,12 +23,20 @@ afx.reset_camera()
 
 ## Several views
 
-![Two linked views: the same slice drawn in both](images/views_split.png)
+![Two linked views: the data colored by temperature on the left, a Surface LIC slice on the right](images/views_split.png)
 
 The split buttons in the view toolbar (or **Windows › Split view right / down**,
 `afx.split_view("right")`) add a 3D view next to the active one. Each view has its own camera
 and its own list of visible objects; click a view to make it active (orange frame), then the
-eye icons in the Pipeline and `node.show()`/`hide()` apply to it.
+eye icons in the Pipeline and `node.show()`/`hide()` apply to it. From Python,
+`afx.active_view(1)` makes a view active (0 is the first one) and returns once it is, so the
+lines after it act on that view:
+
+```python
+afx.split_view("right")
+afx.active_view(0); d.show(); s.hide()   # left: the data
+afx.active_view(1); d.hide(); s.show()   # right: the slice
+```
 
 - **Link** (the chain button, `afx.link_views(True)`) keeps the cameras of the linked views
   together; **Match** (`afx.match_views()`) copies the active camera to the others once.

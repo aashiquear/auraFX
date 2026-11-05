@@ -377,6 +377,8 @@ impl AuraApp {
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
         };
+        // Scripts see that an app with a 3D view is running before the first frame.
+        state.session.lock().view_ids = vec![0];
         // Plugins first, so startup scripts and restored sessions can use their filters.
         state.sync_plugins(false);
         if let Some(p) = script {
@@ -1655,6 +1657,13 @@ impl eframe::App for AuraApp {
             })
             .collect();
         self.state.views_end_frame(&open_views);
+        {
+            let ids = self.state.view_ids();
+            let mut s = self.state.session.lock();
+            s.view_ids = ids;
+            s.active_view = self.state.active_view;
+            s.app_frame += 1;
+        }
         let st = &mut self.state;
         st.animation_tick(ctx);
         st.animation_poll();

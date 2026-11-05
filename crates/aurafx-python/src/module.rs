@@ -1010,9 +1010,37 @@ fn match_views() {
 }
 
 /// Make a 3D view active by number (0 = main view, 1, 2, ... = views added with split_view).
+/// Returns when the view is active, so `node.hide()` and the like that follow apply to it.
 #[pyfunction]
-fn active_view(index: u32) {
+fn active_view(py: Python<'_>, index: u32) -> PyResult<()> {
+    if session().lock().view_ids.is_empty() {
+        // No app (plain Python): nothing to switch.
+        return Ok(());
+    }
+    let wait = |done: &(dyn Fn(&aurafx_pipeline::Session) -> bool + Sync)| -> PyResult<()> {
+        py.detach(|| {
+            let start = std::time::Instant::now();
+            loop {
+                if done(&session().lock()) {
+                    return Ok(());
+                }
+                if start.elapsed() > std::time::Duration::from_secs(10) {
+                    return Err(PyRuntimeError::new_err("the app did not switch views within 10 s"));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        })
+    };
+    // Let earlier commands (split_view, ...) finish a frame so new views are known.
+    wait(&|s| s.app_commands.is_empty())?;
+    let frame = session().lock().app_frame;
+    wait(&|s| s.app_frame > frame)?;
+    let views = session().lock().view_ids.clone();
+    if !views.contains(&index) {
+        return Err(PyValueError::new_err(format!("no 3D view {index}; open views: {views:?}")));
+    }
     app_command(format!("activate {index}"));
+    wait(&|s| s.active_view == index && s.app_commands.is_empty())
 }
 
 /// UI theme: "dark", "light" or "system".

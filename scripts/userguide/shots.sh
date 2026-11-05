@@ -41,7 +41,12 @@ for name in "${names[@]}"; do
   pkill -x aurafx 2>/dev/null; sleep 0.5
   if [ -f "$png" ]; then
     convert "$png" -resize '1400x1400>' -strip "$png"
-    command -v pngquant >/dev/null && pngquant --force --skip-if-larger --quality 70-95 --output "$png" "$png"
+    if command -v pngquant >/dev/null; then
+      pngquant --force --skip-if-larger --quality 70-95 --output "$png" "$png"
+    elif [ "$(stat -c %s "$png")" -gt 400000 ]; then
+      # No pngquant: a 256-color palette keeps text sharp and brings the file under 400 KB.
+      convert "$png" -dither FloydSteinberg -colors 256 "PNG8:$png"
+    fi
     echo "$name: $(identify -format '%wx%h' "$png") $(du -h "$png" | cut -f1)"
   else
     echo "$name: FAILED (see $tmp/$name.log)"; tail -5 "$tmp/$name.log"

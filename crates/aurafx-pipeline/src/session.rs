@@ -404,6 +404,11 @@ pub struct Session {
     pub chart: Chart,
     /// UI commands from scripts/AI the app executes: "theme light", "layout analyze", "hide Log", "show Charts".
     pub app_commands: Vec<String>,
+    /// The app's open 3D views and the active one, published every frame (empty without an app).
+    pub view_ids: Vec<u32>,
+    pub active_view: u32,
+    /// Counts the app's frames (published with `view_ids`).
+    pub app_frame: u64,
     pub(crate) undo_stack: Vec<(String, crate::state::Snapshot)>,
     pub(crate) redo_stack: Vec<(String, crate::state::Snapshot)>,
     pub(crate) last_checkpoint: Option<(String, f64)>,

@@ -1,5 +1,5 @@
 //! Writers: VTK XML (.vtu .vtp .vti .vtr .vts .vtm), legacy VTK (.vtk), CSV, STL, PLY; Exodus,
-//! VTKHDF, EnSight Gold and Xdmf live in their own modules.
+//! VTKHDF, EnSight Gold, Xdmf and CGNS live in their own modules.
 
 use anyhow::{anyhow, bail, Context, Result};
 use aurafx_data::*;
@@ -25,6 +25,7 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
         v.push(("vtkhdf", "VTKHDF (HDF5)"));
         v.push(("case", "EnSight Gold"));
         v.push(("xmf", "Xdmf 3 (with an .h5 file)"));
+        v.push(("cgns", "CGNS (HDF5)"));
     }
     v.push(("csv", "CSV (point data or table)"));
     v
@@ -42,6 +43,7 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
         "e" | "exo" | "ex2" | "exii" | "g" => crate::exodus_writer::write_exodus(ds, path),
         "vtkhdf" | "hdf" => crate::vtkhdf::write_vtkhdf(ds, path),
         "case" | "encas" => crate::ensight_writer::write_ensight(ds, path),
+        "cgns" => crate::cgns_writer::write_cgns(ds, path),
         "xmf" | "xdmf" | "xdmf3" => crate::xdmf_writer::write_xdmf(ds, path),
         e => bail!("don't know how to write .{e} files"),
     };

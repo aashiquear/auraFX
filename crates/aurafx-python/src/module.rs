@@ -435,14 +435,15 @@ impl PyNode {
     }
 
     /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .vtkhdf .exo .case (EnSight Gold)
-    /// .xmf (Xdmf + .h5) .csv .stl .ply (format from the extension). all_times=True writes every
-    /// time step: into one Exodus (.exo) or VTKHDF (.vtkhdf) file, or as an EnSight or Xdmf series.
+    /// .xmf (Xdmf + .h5) .cgns .csv .stl .ply (format from the extension). all_times=True writes every
+    /// time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one mesh), or as an EnSight or
+    /// Xdmf series.
     #[pyo3(signature = (path, all_times=false))]
     fn save(&self, path: String, all_times: bool) -> PyResult<()> {
         let p = std::path::Path::new(&path);
         if all_times {
             if !aurafx_pipeline::Session::holds_all_times(p) {
-                return Err(PyValueError::new_err("all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case) or Xdmf (.xmf) file name"));
+                return Err(PyValueError::new_err("all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case), Xdmf (.xmf) or CGNS (.cgns) file name"));
             }
             return session().lock().save_all_times(self.id, p).map(|_| ()).map_err(err);
         }
@@ -989,11 +990,15 @@ fn ask(text: String, agent: bool) {
 }
 
 /// Add a 3D view next to the active one: "right" (side by side) or "down" (above/below).
-/// The new view becomes active and starts with the same camera and visible objects.
+/// The new view becomes active and starts with the same camera and visible objects. Returns
+/// its number once it exists (None without the app).
 #[pyfunction]
 #[pyo3(signature = (direction="right"))]
-fn split_view(direction: &str) {
+fn split_view(py: Python<'_>, direction: &str) -> PyResult<Option<u32>> {
     app_command(format!("split {direction}"));
+    settle(py, "add the view")?;
+    let s = session().lock();
+    Ok((!s.view_ids.is_empty()).then_some(s.active_view))
 }
 
 /// Link (or unlink) the cameras of all 3D views.
@@ -1009,6 +1014,33 @@ fn match_views() {
     app_command("match".into());
 }
 
+/// Wait (without the GIL) until `done` holds for the session the app updates every frame.
+fn wait_app(py: Python<'_>, what: &str, done: &(dyn Fn(&aurafx_pipeline::Session) -> bool + Sync)) -> PyResult<()> {
+    py.detach(|| {
+        let start = std::time::Instant::now();
+        loop {
+            if done(&session().lock()) {
+                return Ok(());
+            }
+            if start.elapsed() > std::time::Duration::from_secs(10) {
+                return Err(PyRuntimeError::new_err(format!("the app did not {what} within 10 s")));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    })
+}
+
+/// Wait until the app has run the queued commands and finished a frame after them (no-op
+/// without an app).
+fn settle(py: Python<'_>, what: &str) -> PyResult<()> {
+    if session().lock().view_ids.is_empty() {
+        return Ok(());
+    }
+    wait_app(py, what, &|s| s.app_commands.is_empty())?;
+    let frame = session().lock().app_frame;
+    wait_app(py, what, &|s| s.app_frame > frame)
+}
+
 /// Make a 3D view active by number (0 = main view, 1, 2, ... = views added with split_view).
 /// Returns when the view is active, so `node.hide()` and the like that follow apply to it.
 #[pyfunction]
@@ -1017,30 +1049,14 @@ fn active_view(py: Python<'_>, index: u32) -> PyResult<()> {
         // No app (plain Python): nothing to switch.
         return Ok(());
     }
-    let wait = |done: &(dyn Fn(&aurafx_pipeline::Session) -> bool + Sync)| -> PyResult<()> {
-        py.detach(|| {
-            let start = std::time::Instant::now();
-            loop {
-                if done(&session().lock()) {
-                    return Ok(());
-                }
-                if start.elapsed() > std::time::Duration::from_secs(10) {
-                    return Err(PyRuntimeError::new_err("the app did not switch views within 10 s"));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-        })
-    };
     // Let earlier commands (split_view, ...) finish a frame so new views are known.
-    wait(&|s| s.app_commands.is_empty())?;
-    let frame = session().lock().app_frame;
-    wait(&|s| s.app_frame > frame)?;
+    settle(py, "switch views")?;
     let views = session().lock().view_ids.clone();
     if !views.contains(&index) {
         return Err(PyValueError::new_err(format!("no 3D view {index}; open views: {views:?}")));
     }
     app_command(format!("activate {index}"));
-    wait(&|s| s.active_view == index && s.app_commands.is_empty())
+    wait_app(py, "switch views", &|s| s.active_view == index && s.app_commands.is_empty())
 }
 
 /// UI theme: "dark", "light" or "system".

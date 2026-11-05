@@ -86,7 +86,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 
 ### 1.3 Writers
 - [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF (iteration 21; read by ParaView 6.1.1 since iteration 22).
-- [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified in ParaView), EnSight Gold and Xdmf 3 (iteration 22; verified in ParaView), CGNS, OpenVDB, GenericIO, Fides.
+- [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified in ParaView), EnSight Gold and Xdmf 3 (iteration 22), CGNS/HDF5 (iteration 23), all verified in ParaView; OpenVDB, GenericIO, Fides.
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG (JPEG/TIFF/BMP/EXR todo), screenshot with resolution override and transparent background (done, iteration 16).
 - [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
@@ -632,7 +632,14 @@ while the app's worker held the node, and a color array set before the data arri
 for in the wrong attribute set. `cargo run -p aurafx-io --example inspect -- file [step]` prints
 what a file holds.
 
-Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters, CGNS writer,
+Done in iteration 23: **CGNS writer** (HDF5, CGNS 4 layout: structured zones, one element
+section per zone (typed, or MIXED with offsets) plus NGON/NFACE for polygons and polyhedra,
+bases by cell dimension, vertex and cell-center solutions with vectors as X/Y/Z, time series
+with per-step solutions and moving coordinates through `ZoneIterativeData` pointers); read by
+ParaView 6.1.1 with the same counts, bounds and ranges. `afx.split_view()` waits for the new
+view and returns its number (two splits in a row split the same view before).
+
+Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters,
 remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.

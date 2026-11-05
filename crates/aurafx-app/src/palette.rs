@@ -65,7 +65,7 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
             }
         }),
         ("Play / pause time", "animation", |s| s.playing = !s.playing),
-        ("Save data…", "export write vtu vtk csv stl exodus vtkhdf ensight xdmf", |s| s.save_data_dialog()),
+        ("Save data…", "export write vtu vtk csv stl exodus vtkhdf ensight xdmf cgns", |s| s.save_data_dialog()),
         ("Save state…", "session afx save", |s| s.save_state_dialog(false)),
         ("Undo", "revert back", |s| s.undo()),
         ("Redo", "again", |s| s.redo()),

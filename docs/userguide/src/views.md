@@ -33,7 +33,7 @@ eye icons in the Pipeline and `node.show()`/`hide()` apply to it. From Python,
 lines after it act on that view:
 
 ```python
-afx.split_view("right")
+afx.split_view("right")                 # returns the new view's number (1)
 afx.active_view(0); d.show(); s.hide()   # left: the data
 afx.active_view(1); d.hide(); s.show()   # right: the slice
 ```

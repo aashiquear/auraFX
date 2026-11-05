@@ -59,6 +59,7 @@ format follows the extension:
 | `.exo` | Exodus II with blocks and variables; `all_times=True` writes every time step |
 | `.case` | EnSight Gold (C binary): the case file plus a geometry file and one file per variable next to it; `all_times=True` writes every time step |
 | `.xmf` | Xdmf 3: the description plus an `.h5` file with the arrays; `all_times=True` writes every time step |
+| `.cgns` | CGNS (HDF5); `all_times=True` writes every time step when the cells stay the same (moving points are fine) |
 | `.csv` | the point data or the table |
 | `.stl .ply` | surfaces |
 
@@ -68,7 +69,8 @@ d.save("run_all.exo", all_times=True)
 d.save("run_all.vtkhdf", all_times=True)
 d.save("run.case", all_times=True)      # run.case, run.geo, run.Temp0000, ...
 d.save("run.xmf", all_times=True)       # run.xmf and run.h5
+d.save("run.cgns", all_times=True)
 ```
 
 When the data has several time steps and the chosen format holds them all (Exodus, VTKHDF,
-EnSight, Xdmf), the Save dialog writes every step.
+EnSight, Xdmf, CGNS), the Save dialog writes every step.

@@ -1549,10 +1549,10 @@ impl Session {
     /// Whether a file name is of a format that holds every time step (Exodus, VTKHDF).
     pub fn holds_all_times(path: &std::path::Path) -> bool {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf" | "case" | "encas" | "xmf" | "xdmf" | "xdmf3")
+        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf" | "case" | "encas" | "xmf" | "xdmf" | "xdmf3" | "cgns")
     }
 
-    /// Write node `id` at every time step to one file (Exodus, VTKHDF, EnSight or Xdmf, by extension).
+    /// Write node `id` at every time step to one file (Exodus, VTKHDF, EnSight, Xdmf or CGNS, by extension).
     pub fn save_all_times(&mut self, id: NodeId, path: &std::path::Path) -> Result<usize> {
         let saved = self.time_index;
         let n = self.times.len().max(1);
@@ -1581,6 +1581,8 @@ impl Session {
             aurafx_io::ensight_writer::write_ensight_steps(&refs, path)?;
         } else if matches!(ext.as_str(), "xmf" | "xdmf" | "xdmf3") {
             aurafx_io::xdmf_writer::write_xdmf_steps(&refs, path)?;
+        } else if ext == "cgns" {
+            aurafx_io::cgns_writer::write_cgns_steps(&refs, path)?;
         } else {
             aurafx_io::exodus_writer::write_exodus_steps(&refs, path)?;
         }

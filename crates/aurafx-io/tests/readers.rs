@@ -1049,3 +1049,122 @@ fn writers_share_static_geometry() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// CGNS writing: each kind of dataset, cells read back with the same nodes (quadratic orders
+/// included), polygons (NGON in 2-D) and polyhedra (NGON/NFACE) after the fixed cells with
+/// their cell values, and a series with moving points (GridCoordinatesPointers).
+#[test]
+fn cgns_writer_round_trip() {
+    use aurafx_data::*;
+    let dir = std::env::temp_dir().join(format!("aurafx_cgns_w_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let same = |a: &DataSet, b: &DataSet, arrays: &[(bool, &str)], what: &str| {
+        assert_eq!((a.n_points(), a.n_cells()), (b.n_points(), b.n_cells()), "{what}: counts");
+        let (ba, bb) = (a.bounds(), b.bounds());
+        for k in 0..3 {
+            assert!((ba.min[k] - bb.min[k]).abs() < 1e-6 && (ba.max[k] - bb.max[k]).abs() < 1e-6, "{what}: bounds");
+        }
+        for (pts, n) in arrays {
+            close(range_all(a, *pts, n), range_all(b, *pts, n), &format!("{what}: {n}"));
+        }
+    };
+    let first_leaf = |d: &DataSet| match d {
+        DataSet::MultiBlock(mb) => mb.leaves()[0].1.clone(),
+        d => d.clone(),
+    };
+    let can = match read_file(td("can.ex2")).unwrap() {
+        Loaded::Series(s) => load_step(&s.steps[5]).unwrap(),
+        Loaded::Static(d) => d,
+    };
+    let Loaded::Series(mixed) = read_file(td("cgns/mixed.cgns")).unwrap() else { panic!() };
+    let cases: Vec<(&str, DataSet, Vec<(bool, &str)>)> = vec![
+        ("can", (*can).clone(), vec![(true, "VEL"), (false, "EQPS")]),
+        ("disk", (*static_ds("disk_out_ref.ex2")).clone(), vec![(true, "Temp"), (true, "V")]),
+        ("image", (*static_ds("wavelet.vti")).clone(), vec![(true, "RTData")]),
+        ("sphere", (*static_ds("sphere.vtkhdf")).clone(), vec![(true, "Elevation"), (true, "Normals")]),
+        ("struct", (*static_ds("struct.vts")).clone(), vec![]),
+        ("rect", (*static_ds("rect.vtr")).clone(), vec![]),
+        ("tets", (*static_ds("cgns/tets.cgns")).clone(), vec![(true, "RTData"), (true, "Gradient")]),
+        ("mixed", (*load_step(&mixed.steps[1]).unwrap()).clone(), vec![(true, "Pressure"), (true, "Velocity"), (false, "Density"), (false, "Id")]),
+    ];
+    for (name, ds, arrays) in &cases {
+        let p = dir.join(format!("{name}.cgns"));
+        aurafx_io::writers::write_file(ds, &p).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let back = static_ds(p.to_str().unwrap());
+        same(&back, ds, arrays, name);
+    }
+
+    // Quadratic and linear volume cells keep their nodes in VTK order.
+    let ug = first_leaf(&static_ds("quadratic_shapes.vtu"));
+    let DataSet::UnstructuredGrid(u) = &ug else { panic!() };
+    // Volume cells CGNS has (others are written by their corners), plus a 27-node hexahedron.
+    use CellType::*;
+    let native = [Tetra, QuadraticTetra, Pyramid, QuadraticPyramid, Wedge, QuadraticWedge, Hexahedron, QuadraticHexahedron, TriquadraticHexahedron];
+    let mut vol = Cells::new();
+    for (t, ids) in u.cells.iter() {
+        if native.contains(&t) {
+            vol.push(t, ids);
+        }
+    }
+    vol.push(TriquadraticHexahedron, &(0..27).collect::<Vec<u32>>());
+    let ug = UnstructuredGrid { points: u.points.clone(), cells: vol.clone(), point_data: Attributes::new(), cell_data: Attributes::new(), field_data: Attributes::new() };
+    let p = dir.join("quadratic.cgns");
+    aurafx_io::writers::write_file(&DataSet::UnstructuredGrid(ug), &p).unwrap();
+    let DataSet::UnstructuredGrid(g) = first_leaf(&static_ds(p.to_str().unwrap())) else { panic!() };
+    assert!(!vol.is_empty());
+    assert_eq!(g.cells.types, vol.types);
+    assert_eq!(g.cells.connectivity, vol.connectivity);
+
+    // A pentagonal prism (polyhedron) between two hexahedra: the hexahedra come first.
+    let mut pts = Vec::new();
+    for z in [0.0, 1.0] {
+        for k in 0..5 {
+            let a = k as f64 * std::f64::consts::TAU / 5.0;
+            pts.extend([a.cos(), a.sin(), z]);
+        }
+    }
+    for z in [0.0, 1.0] {
+        pts.extend([3.0, 0.0, z, 4.0, 0.0, z, 4.0, 1.0, z, 3.0, 1.0, z]);
+    }
+    let mut cells = Cells::new();
+    cells.push(CellType::Hexahedron, &[10, 11, 12, 13, 14, 15, 16, 17]);
+    cells.push(CellType::PentagonalPrism, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    cells.push(CellType::Hexahedron, &[10, 11, 12, 13, 14, 15, 16, 17]);
+    let mut cd = Attributes::new();
+    cd.insert(Array::scalars_f64("id", vec![1.0, 2.0, 3.0]));
+    let ug = UnstructuredGrid { points: Points::new_f64(pts), cells, point_data: Attributes::new(), cell_data: cd, field_data: Attributes::new() };
+    let p = dir.join("poly.cgns");
+    aurafx_io::writers::write_file(&DataSet::UnstructuredGrid(ug), &p).unwrap();
+    let DataSet::UnstructuredGrid(g) = first_leaf(&static_ds(p.to_str().unwrap())) else { panic!() };
+    assert_eq!(g.cells.types, vec![CellType::Hexahedron, CellType::Hexahedron, CellType::Polyhedron]);
+    assert_eq!(g.cell_data.get("id").unwrap().data.to_f64_vec(), vec![1.0, 3.0, 2.0]);
+    assert_eq!(g.cells.polyhedron_faces.as_ref().unwrap()[2].len(), 7);
+
+    // A polygon surface (2-D base, NGON cells after the triangles).
+    let mut cells = Cells::new();
+    cells.push(CellType::Polygon, &[0, 1, 2, 3, 4]);
+    cells.push(CellType::Triangle, &[0, 1, 5]);
+    let pts = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.5, 1.0, 0.0, 0.5, 1.5, 0.0, -0.5, 1.0, 0.0, 0.5, -1.0, 0.0];
+    let pd = PolyData { points: Points::new_f64(pts), polys: cells, ..Default::default() };
+    let p = dir.join("polygons.cgns");
+    aurafx_io::writers::write_file(&DataSet::PolyData(pd), &p).unwrap();
+    let DataSet::UnstructuredGrid(g) = first_leaf(&static_ds(p.to_str().unwrap())) else { panic!() };
+    assert_eq!(g.cells.types, vec![CellType::Triangle, CellType::Polygon]);
+
+    // Three steps of the can (the points move with the displacements).
+    let Loaded::Series(s) = read_file(td("can.ex2")).unwrap() else { panic!() };
+    let steps: Vec<(f64, std::sync::Arc<DataSet>)> = [0usize, 20, 43].iter().map(|&k| (s.times[k], load_step(&s.steps[k]).unwrap())).collect();
+    let refs: Vec<(f64, &DataSet)> = steps.iter().map(|(t, d)| (*t, &**d)).collect();
+    let p = dir.join("series.cgns");
+    aurafx_io::cgns_writer::write_cgns_steps(&refs, &p).unwrap();
+    let Loaded::Series(back) = read_file(&p).unwrap() else { panic!("series") };
+    assert_eq!(back.times, steps.iter().map(|s| s.0).collect::<Vec<_>>());
+    for (k, (_, d)) in steps.iter().enumerate() {
+        same(&load_step(&back.steps[k]).unwrap(), d, &[(true, "DISPL"), (false, "EQPS")], &format!("series step {k}"));
+    }
+    if std::env::var("AURAFX_KEEP").is_ok() {
+        eprintln!("kept {}", dir.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

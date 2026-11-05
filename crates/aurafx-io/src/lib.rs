@@ -4,6 +4,7 @@
 //! magic bytes) and returns either a single dataset or a lazily-loaded time series.
 
 pub mod cgns;
+pub mod cgns_writer;
 pub mod csv;
 pub mod ensight;
 pub mod ensight_writer;

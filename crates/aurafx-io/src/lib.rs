@@ -13,12 +13,14 @@ pub mod legacy_vtk;
 pub mod molecular;
 pub mod netcdf3;
 pub mod openfoam;
+pub mod plot3d;
 pub mod series;
 pub mod stl;
 pub mod surfaces;
 pub mod tecplot;
 pub mod vtkhdf;
 pub mod writers;
+pub mod xdmf;
 pub mod xml_vtk;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -53,8 +55,11 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vtkhdf", "hdf"], "VTKHDF"),
         (&["case", "encas"], "EnSight Gold"),
         (&["tec", "tp", "dat", "plt"], "Tecplot ASCII"),
+        (&["xmf", "xdmf", "xdmf3"], "Xdmf"),
+        (&["xyz", "x", "p3d", "bin"], "PLOT3D grid (+ .q solution)"),
         (&["pdb", "ent"], "Protein Data Bank"),
         (&["cube"], "Gaussian cube"),
+        (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
     ]
 }
@@ -116,6 +121,10 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         let ds = (r.read)(path).with_context(|| format!("{} reader ({})", r.label, r.plugin))?;
         return Ok(Loaded::Static(Arc::new(ds)));
     }
+    // VASP files are known by name (POSCAR, CHGCAR, ...).
+    if molecular::is_vasp_name(path) {
+        return Ok(Loaded::Static(Arc::new(molecular::read_vasp(path)?)));
+    }
     // A wildcard file name stacks matching images into a volume.
     let wild = path.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.contains(['*', '?']));
     if wild && images::is_image_ext(path) {
@@ -134,13 +143,24 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "stl" => Loaded::Static(Arc::new(stl::read(path)?)),
         "ply" => Loaded::Static(Arc::new(surfaces::read_ply(path)?)),
         "obj" => Loaded::Static(Arc::new(surfaces::read_obj(path)?)),
-        "xyz" | "extxyz" => molecular::read_xyz(path)?,
+        "xyz" if plot3d::is_binary_grid(path) => Loaded::Static(Arc::new(plot3d::read(path, None)?)),
+        "xyz" => match molecular::read_xyz(path) {
+            Ok(l) => l,
+            Err(e) => match plot3d::read(path, None) {
+                Ok(d) => Loaded::Static(Arc::new(d)),
+                Err(_) => return Err(e),
+            },
+        },
+        "extxyz" => molecular::read_xyz(path)?,
+        "x" | "p3d" | "bin" => Loaded::Static(Arc::new(plot3d::read(path, None)?)),
+        "q" => bail!("{} is a PLOT3D solution: open the grid file (.xyz/.x/.g) next to it", path.display()),
         "data" | "lmp" => Loaded::Static(Arc::new(molecular::read_lammps_data(path)?)),
         "foam" => openfoam::open(path)?,
         "vtkhdf" | "hdf" | "vtkhdf5" => vtkhdf::open(path)?,
         "case" | "encas" => ensight::open(path)?,
         "tec" | "tp" => Loaded::Static(Arc::new(tecplot::read(path)?)),
         "pdb" | "ent" => molecular::read_pdb(path)?,
+        "xmf" | "xdmf" | "xdmf3" => xdmf::open(path)?,
         "cube" => Loaded::Static(Arc::new(molecular::read_cube(path)?)),
         "dat" | "plt" if tecplot::sniff(path) => Loaded::Static(Arc::new(tecplot::read(path)?)),
         "plt" => bail!("{}: binary Tecplot files are not supported yet; export Tecplot ASCII", path.display()),
@@ -229,6 +249,8 @@ pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
                 exodus::read_step(path, *frame).map(Arc::new)
             } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("case") || e.eq_ignore_ascii_case("encas")) {
                 ensight::read_step(path, *frame).map(Arc::new)
+            } else if xdmf::is_xdmf_ext(path) {
+                xdmf::read_step(path, *frame).map(Arc::new)
             } else if vtkhdf::is_vtkhdf_ext(path) {
                 vtkhdf::read_step(path, *frame).map(Arc::new)
             } else {

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">
+  <Domain>
+    <Grid Name="Grid">
+      <Geometry Origin="" Type="XYZ">
+        <DataItem DataType="Float" Dimensions="50 3" Format="HDF" Precision="4">sphere.h5:Data0</DataItem>
+      </Geometry>
+      <Topology Dimensions="96" Type="Mixed">
+        <DataItem DataType="Int" Dimensions="384" Format="HDF" Precision="8">sphere.h5:Data1</DataItem>
+      </Topology>
+      <Attribute Center="Node" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="Normals" Type="None">
+        <DataItem DataType="Float" Dimensions="50 3" Format="HDF" Precision="4">sphere.h5:Data2</DataItem>
+      </Attribute>
+      <Attribute Center="Node" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="Elevation" Type="Scalar">
+        <DataItem DataType="Float" Dimensions="50" Format="XML" Precision="4">0.5 0 0.45048442 0.3117449 0.11126047 0 0 0 0.45048442 0.3117449 0.11126047 0 0 0 0.45048442 0.3117449 0.11126047 0 0 0 0.45048442 0.3117449 0.11126047 0 0 0 0.45048442 0.3117449 0.11126047 0 0 0 0.45048442 0.3117449 0.11126047 0 0 0 0.45048442 0.3117449 0.11126047 0 0 0 0.45048442 0.3117449 0.11126047 0 0 0</DataItem>
+      </Attribute>
+    </Grid>
+  </Domain>
+</Xdmf>

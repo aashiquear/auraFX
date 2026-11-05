@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">
+  <Domain>
+    <Grid CollectionType="Temporal" GridType="Collection" Name="Collection">
+      <Grid Name="Grid">
+        <Time Value="0"/>
+        <Geometry Origin="" Type="XYZ">
+          <DataItem DataType="Float" Dimensions="530 3" Format="HDF" Precision="4">series.h5:Data0</DataItem>
+        </Geometry>
+        <Topology Dimensions="4224" Type="Mixed">
+          <DataItem DataType="Int" Dimensions="4224" Format="HDF" Precision="8">series.h5:Data1</DataItem>
+        </Topology>
+        <Attribute Center="Node" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="Elevation" Type="Scalar">
+          <DataItem DataType="Float" Dimensions="530" Format="HDF" Precision="4">series.h5:Data2</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Grid">
+        <Time Value="0.5"/>
+        <Geometry Origin="" Type="XYZ">
+          <DataItem DataType="Float" Dimensions="530 3" Format="HDF" Precision="4">series.h5:Data3</DataItem>
+        </Geometry>
+        <Topology Dimensions="4224" Type="Mixed">
+          <DataItem DataType="Int" Dimensions="4224" Format="HDF" Precision="8">series.h5:Data4</DataItem>
+        </Topology>
+        <Attribute Center="Node" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="Elevation" Type="Scalar">
+          <DataItem DataType="Float" Dimensions="530" Format="HDF" Precision="4">series.h5:Data5</DataItem>
+        </Attribute>
+      </Grid>
+      <Grid Name="Grid">
+        <Time Value="1"/>
+        <Geometry Origin="" Type="XYZ">
+          <DataItem DataType="Float" Dimensions="530 3" Format="HDF" Precision="4">series.h5:Data6</DataItem>
+        </Geometry>
+        <Topology Dimensions="1056" Type="Mixed">
+          <DataItem DataType="Int" Dimensions="4224" Format="HDF" Precision="8">series.h5:Data7</DataItem>
+        </Topology>
+        <Attribute Center="Node" ElementCell="" ElementDegree="0" ElementFamily="" ItemType="" Name="Elevation" Type="Scalar">
+          <DataItem DataType="Float" Dimensions="530" Format="HDF" Precision="4">series.h5:Data8</DataItem>
+        </Attribute>
+      </Grid>
+    </Grid>
+  </Domain>
+</Xdmf>

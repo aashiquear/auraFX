@@ -520,3 +520,157 @@ pub fn read_cube(path: &Path) -> Result<DataSet> {
         field_data: Attributes::new(),
     }))
 }
+
+/// A POSCAR block: atoms (Cartesian Å), species per atom, lattice vectors (rows), and the
+/// remaining lines.
+struct Poscar {
+    pos: Vec<[f64; 3]>,
+    species: Vec<String>,
+    lattice: [[f64; 3]; 3],
+    rest_line: usize,
+}
+
+fn parse_poscar(lines: &[&str]) -> Result<Poscar> {
+    let num = |s: &str| s.parse::<f64>().map_err(|_| anyhow!("bad number {s:?}"));
+    let f3 = |l: &str| -> Result<[f64; 3]> {
+        let v: Vec<f64> = l.split_whitespace().take(3).map(num).collect::<Result<_>>()?;
+        if v.len() < 3 {
+            bail!("expected three numbers in {l:?}");
+        }
+        Ok([v[0], v[1], v[2]])
+    };
+    let get = |i: usize| lines.get(i).copied().ok_or_else(|| anyhow!("the POSCAR is truncated"));
+    let scale_line: Vec<f64> = get(1)?.split_whitespace().map(num).collect::<Result<_>>()?;
+    let mut lat = [f3(get(2)?)?, f3(get(3)?)?, f3(get(4)?)?];
+    let vol = |l: &[[f64; 3]; 3]| {
+        let (a, b, c) = (l[0], l[1], l[2]);
+        (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])).abs()
+    };
+    // One scale factor, a negative volume, or three per-axis factors.
+    match scale_line.as_slice() {
+        [s] if *s < 0.0 => {
+            let f = (-s / vol(&lat)).cbrt();
+            lat = lat.map(|r| r.map(|v| v * f));
+        }
+        [s] => lat = lat.map(|r| r.map(|v| v * s)),
+        [a, b, c, ..] => lat = lat.map(|r| [r[0] * a, r[1] * b, r[2] * c]),
+        _ => bail!("bad scale line"),
+    }
+    // VASP 5: a line of species names before the counts.
+    let mut i = 5;
+    let mut names: Vec<String> = Vec::new();
+    if get(i)?.split_whitespace().next().is_some_and(|t| t.parse::<f64>().is_err()) {
+        names = get(i)?.split_whitespace().map(|s| s.split('/').next().unwrap_or(s).split('_').next().unwrap_or(s).to_string()).collect();
+        i += 1;
+    }
+    let counts: Vec<usize> = get(i)?.split_whitespace().map(|t| t.parse::<usize>().map_err(|_| anyhow!("bad atom count {t:?}"))).collect::<Result<_>>()?;
+    i += 1;
+    if get(i)?.trim_start().starts_with(['S', 's']) {
+        i += 1; // selective dynamics
+    }
+    let cartesian = get(i)?.trim_start().starts_with(['C', 'c', 'K', 'k']);
+    i += 1;
+    if names.is_empty() {
+        // VASP 4: names may follow the coordinates or come from the comment line.
+        names = get(0)?.split_whitespace().filter(|w| atomic_number(w) > 0.0).map(|s| s.to_string()).collect();
+    }
+    let mut pos = Vec::new();
+    let mut species = Vec::new();
+    for (k, &n) in counts.iter().enumerate() {
+        for _ in 0..n {
+            let p = f3(get(i)?)?;
+            i += 1;
+            let c = if cartesian {
+                let s = scale_line.first().copied().filter(|s| *s > 0.0).unwrap_or(1.0);
+                p.map(|v| v * s)
+            } else {
+                [0, 1, 2].map(|d| p[0] * lat[0][d] + p[1] * lat[1][d] + p[2] * lat[2][d])
+            };
+            pos.push(c);
+            species.push(names.get(k).cloned().unwrap_or_else(|| format!("X{}", k + 1)));
+        }
+    }
+    Ok(Poscar { pos, species, lattice: lat, rest_line: i })
+}
+
+fn poscar_atoms(p: &Poscar) -> DataSet {
+    let z: Vec<usize> = p.species.iter().map(|s| atomic_number(s) as usize).collect();
+    let mut ds = molecule(p.pos.clone(), z, &[], vec![Array::new("species", 1, ArrayData::String(p.species.clone()))]);
+    if let DataSet::PolyData(pd) = &mut ds {
+        pd.field_data.insert(Array::new("Lattice", 9, ArrayData::F64(p.lattice.iter().flatten().copied().collect())));
+    }
+    ds
+}
+
+/// VASP POSCAR/CONTCAR (atoms with bonds; the lattice as field data "Lattice"), and CHGCAR,
+/// LOCPOT, ELFCAR, PARCHG (atoms plus the first volumetric data set as an oriented image;
+/// CHGCAR values are divided by the cell volume, giving charge per Å³).
+pub fn read_vasp(path: &Path) -> Result<DataSet> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let lines: Vec<&str> = text.lines().collect();
+    let p = parse_poscar(&lines)?;
+    // Volumetric data follow a blank line: "NGX NGY NGZ" and the values (x fastest).
+    let mut i = p.rest_line;
+    while i < lines.len() && lines[i].split_whitespace().count() != 3 {
+        i += 1;
+    }
+    let grid = lines.get(i).and_then(|l| {
+        let v: Vec<usize> = l.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+        (v.len() == 3 && v.iter().all(|&n| n > 0)).then(|| [v[0], v[1], v[2]])
+    });
+    let Some(n) = grid else { return Ok(poscar_atoms(&p)) };
+    let total = n[0] * n[1] * n[2];
+    let vals: Vec<f64> = lines[i + 1..]
+        .iter()
+        .flat_map(|l| l.split_whitespace())
+        .take(total)
+        .map(|t| t.parse::<f64>().map_err(|_| anyhow!("bad value {t:?}")))
+        .collect::<Result<_>>()?;
+    if vals.len() < total {
+        bail!("{}: {} values for a {}x{}x{} grid", path.display(), vals.len(), n[0], n[1], n[2]);
+    }
+    let l = p.lattice;
+    let volume = (l[0][0] * (l[1][1] * l[2][2] - l[1][2] * l[2][1]) - l[0][1] * (l[1][0] * l[2][2] - l[1][2] * l[2][0])
+        + l[0][2] * (l[1][0] * l[2][1] - l[1][1] * l[2][0]))
+        .abs();
+    let name = path.file_name().and_then(|f| f.to_str()).unwrap_or("").to_ascii_uppercase();
+    let (array, data) = if name.starts_with("CHGCAR") || name.starts_with("PARCHG") || name.starts_with("CHG") {
+        ("charge_density", vals.iter().map(|v| v / volume).collect())
+    } else if name.starts_with("LOCPOT") {
+        ("potential", vals)
+    } else if name.starts_with("ELFCAR") {
+        ("elf", vals)
+    } else {
+        ("values", vals)
+    };
+    let len = |v: [f64; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let unit = |v: [f64; 3]| {
+        let s = len(v).max(1e-300);
+        v.map(|x| x / s)
+    };
+    let (ua, ub, uc) = (unit(l[0]), unit(l[1]), unit(l[2]));
+    // The grid spans the cell without repeating its far faces: spacing = |a| / NGX.
+    let mut img = ImageData {
+        extent: [0, n[0] as i64 - 1, 0, n[1] as i64 - 1, 0, n[2] as i64 - 1],
+        origin: [0.0; 3],
+        spacing: [len(l[0]) / n[0] as f64, len(l[1]) / n[1] as f64, len(l[2]) / n[2] as f64],
+        direction: [ua[0], ub[0], uc[0], ua[1], ub[1], uc[1], ua[2], ub[2], uc[2]],
+        point_data: Attributes::new(),
+        cell_data: Attributes::new(),
+        field_data: Attributes::new(),
+    };
+    img.point_data.insert_active(AttributeKind::Scalars, Array::scalars_f64(array, data));
+    Ok(DataSet::MultiBlock(MultiBlock {
+        blocks: vec![("volume".into(), Some(DataSet::ImageData(img))), ("atoms".into(), Some(poscar_atoms(&p)))],
+        field_data: Attributes::new(),
+    }))
+}
+
+pub fn is_vasp_name(path: &Path) -> bool {
+    let n = path.file_name().and_then(|f| f.to_str()).unwrap_or("").to_ascii_uppercase();
+    ["POSCAR", "CONTCAR", "CHGCAR", "CHG", "LOCPOT", "ELFCAR", "PARCHG"]
+        .iter()
+        .any(|p| n == *p || n.starts_with(&format!("{p}.")) || n.starts_with(&format!("{p}_")))
+        || n.ends_with(".VASP")
+        || n.ends_with(".POSCAR")
+}

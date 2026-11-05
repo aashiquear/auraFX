@@ -589,3 +589,90 @@ fn pdb_and_cube() {
     assert!((atoms.points.get(1)[0] - 1.4 * bohr).abs() < 1e-9);
     assert_eq!(atoms.lines.len(), 1, "O-H bond");
 }
+
+/// Xdmf files written by ParaView (HDF5 and inline data, Mixed topology, image data, a temporal
+/// collection) against ParaView's reader; a FEniCS-style file (xi:include of the mesh, a
+/// HyperSlab field) and a curvilinear Xdmf 2 grid by construction (ParaView drops the HyperSlab
+/// field and fails on the curvilinear grid).
+#[test]
+fn xdmf_matches_paraview() {
+    let s = static_ds("xdmf/sphere.xmf");
+    assert_eq!((s.n_points(), s.n_cells()), (50, 96));
+    close(range_all(&s, true, "Elevation"), (0.0, 0.5), "Elevation");
+    close(range_all(&s, true, "Normals"), (1.0, 1.0), "Normals");
+    let w = static_ds("xdmf/wavelet.xmf");
+    assert_eq!((w.n_points(), w.n_cells()), (120, 60));
+    let b = w.bounds();
+    assert_eq!((b.min, b.max), ([0.0; 3], [5.0, 4.0, 3.0]));
+    close(range_all(&w, true, "RTData"), (-13.0488920211792, 260.0), "RTData");
+    let Loaded::Series(series) = read_file(td("xdmf/series.xmf")).unwrap() else { panic!("series") };
+    assert_eq!(series.times, vec![0.0, 0.5, 1.0]);
+    let last = load_step(&series.steps[2]).unwrap();
+    assert_eq!((last.n_points(), last.n_cells()), (530, 1056));
+    close((last.bounds().min[2], last.bounds().max[2]), (-1.0, 1.4), "z");
+
+    let Loaded::Series(f) = read_file(td("xdmf/fenics.xdmf")).unwrap() else { panic!("fenics series") };
+    assert_eq!(f.times, vec![0.0, 0.5]);
+    let s1 = load_step(&f.steps[1]).unwrap();
+    assert_eq!((s1.n_points(), s1.n_cells()), (4, 2), "mesh from xi:include");
+    close(range_all(&s1, false, "p"), (5.0, 6.0), "p");
+    let u: Vec<f64> = (0..4).map(|i| s1.point_data().unwrap().get("u").unwrap().get(i, 0)).collect();
+    assert_eq!(u, [10.0, 20.0, 30.0, 40.0], "HyperSlab rows 1, 3, 5, 7");
+    let s0 = load_step(&f.steps[0]).unwrap();
+    close(range_all(&s0, true, "u"), (1.0, 4.0), "u at t=0");
+
+    let c = static_ds("xdmf/curvilinear.xmf");
+    let aurafx_data::DataSet::StructuredGrid(sg) = &*c else { panic!("structured grid") };
+    assert_eq!(sg.extent, [0, 2, 0, 1, 0, 0]);
+    assert_eq!(sg.points.get(5), [2.5, 1.4, 0.0]);
+    assert_eq!(sg.cell_data.get("V").unwrap().ncomp, 3);
+}
+
+/// PLOT3D: a multi-grid Fortran-unformatted file with IBLANK and its Q solution, a C binary
+/// double-precision grid and an ASCII 2-D grid, against ParaView's auto-detecting reader.
+#[test]
+fn plot3d_matches_paraview() {
+    let m = static_ds("plot3d/multi.xyz");
+    assert_eq!((m.n_points(), m.n_cells()), (24, 4));
+    let b = m.bounds();
+    assert_eq!((b.min, b.max), ([0.0; 3], [11.0, 0.5, 4.0]));
+    close(range_all(&m, true, "Density"), (1.0, 2.1), "Density");
+    close(range_all(&m, true, "Momentum"), (2.23607, 4.69574), "Momentum");
+    close(range_all(&m, true, "StagnationEnergy"), (3.0, 3.11), "StagnationEnergy");
+    close(range_all(&m, true, "Pressure"), (-0.856, 0.2), "Pressure");
+    close(range_all(&m, true, "IBlank"), (0.0, 1.0), "IBlank");
+    let s = static_ds("plot3d/single.bin");
+    assert_eq!((s.n_points(), s.n_cells()), (24, 6));
+    let b = s.bounds();
+    assert!((b.max[0] - 0.75).abs() < 1e-12 && (b.max[2] - 0.8).abs() < 1e-12);
+    let p = static_ds("plot3d/plane2d.xyz");
+    assert_eq!((p.n_points(), p.n_cells()), (6, 2));
+    assert_eq!(p.bounds().max, [2.0, 2.0, 0.0]);
+    // Molecular XYZ files still open as molecules.
+    let Loaded::Series(w) = read_file(td("water.xyz")).unwrap() else { panic!("water.xyz frames") };
+    assert!(matches!(&*load_step(&w.steps[0]).unwrap(), aurafx_data::DataSet::PolyData(_)));
+}
+
+/// VASP: a POSCAR (direct coordinates, VASP 5 species line) and a CHGCAR (values per cell
+/// volume, x fastest), by construction.
+#[test]
+fn vasp_files() {
+    let p = static_ds("vasp/POSCAR");
+    let aurafx_data::DataSet::PolyData(pd) = &*p else { panic!() };
+    assert_eq!(pd.points.len(), 8);
+    let x = pd.points.get(5);
+    assert!((x[0] - 2.82).abs() < 1e-12 && (x[2] - 2.82).abs() < 1e-12, "Cl at (½,½,½) of 5.64 Å: {x:?}");
+    let z: Vec<f64> = (0..8).map(|i| pd.point_data.get("atomic_number").unwrap().get(i, 0)).collect();
+    assert_eq!(z, [11.0, 11.0, 11.0, 11.0, 17.0, 17.0, 17.0, 17.0]);
+    assert_eq!(pd.lines.len(), 12, "nearest Na-Cl pairs at 2.82 Å inside the cell");
+    assert_eq!(pd.field_data.get("Lattice").unwrap().get(0, 0), 5.64);
+
+    let c = static_ds("vasp/CHGCAR");
+    let aurafx_data::DataSet::MultiBlock(mb) = &*c else { panic!() };
+    let Some(aurafx_data::DataSet::ImageData(img)) = &mb.blocks[0].1 else { panic!() };
+    assert_eq!(img.extent, [0, 3, 0, 2, 0, 1]);
+    assert_eq!(img.spacing, [0.75, 4.0 / 3.0, 2.5]);
+    // Stored as value × 60 (the cell volume): back to i + 10 j + 100 k.
+    let d = img.point_data.get("charge_density").unwrap();
+    assert!((d.get(1 + 4 * 2 + 12, 0) - 121.0).abs() < 1e-9);
+}

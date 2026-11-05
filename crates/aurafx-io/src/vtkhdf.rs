@@ -386,3 +386,8 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
     let root = f.group("VTKHDF").context("no VTKHDF group")?;
     read_any(&root, Some(step), &root)?.ok_or_else(|| anyhow!("{}: the VTKHDF group has no Type", path.display()))
 }
+
+/// An HDF5 dataset's values in their stored type, and its shape (for other HDF5-based readers).
+pub(crate) fn read_dataset(ds: &Dataset) -> Result<(ArrayData, Vec<usize>)> {
+    read(ds)
+}

@@ -434,15 +434,15 @@ impl PyNode {
         array_to_numpy(py, &arr.data, arr.ncomp)
     }
 
-    /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .exo .csv .stl .ply (format from the
-    /// extension; also .vtkhdf). all_times=True writes every time step into one Exodus (.exo) or
-    /// VTKHDF (.vtkhdf) file.
+    /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .vtkhdf .exo .case (EnSight Gold)
+    /// .xmf (Xdmf + .h5) .csv .stl .ply (format from the extension). all_times=True writes every
+    /// time step: into one Exodus (.exo) or VTKHDF (.vtkhdf) file, or as an EnSight or Xdmf series.
     #[pyo3(signature = (path, all_times=false))]
     fn save(&self, path: String, all_times: bool) -> PyResult<()> {
         let p = std::path::Path::new(&path);
         if all_times {
             if !aurafx_pipeline::Session::holds_all_times(p) {
-                return Err(PyValueError::new_err("all_times=True needs an Exodus (.exo) or VTKHDF (.vtkhdf) file name"));
+                return Err(PyValueError::new_err("all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case) or Xdmf (.xmf) file name"));
             }
             return session().lock().save_all_times(self.id, p).map(|_| ()).map_err(err);
         }

@@ -420,7 +420,28 @@ fn uniform(grid: &El, cx: &mut Ctx) -> Result<DataSet> {
     };
     if tl == "mixed" {
         let mut k = 0;
+        let mut faces: Vec<Vec<Vec<u32>>> = Vec::new();
         while k < conn.len() {
+            if conn[k] == 16 {
+                // Polyhedron: face count, then each face's node count and nodes.
+                let nf = *conn.get(k + 1).ok_or_else(|| anyhow!("truncated mixed topology"))? as usize;
+                k += 2;
+                let mut fs = Vec::with_capacity(nf);
+                let mut all: Vec<u32> = Vec::new();
+                for _ in 0..nf {
+                    let nn = *conn.get(k).ok_or_else(|| anyhow!("truncated mixed topology"))? as usize;
+                    let ids = check(conn.get(k + 1..k + 1 + nn).ok_or_else(|| anyhow!("truncated mixed topology"))?)?;
+                    k += 1 + nn;
+                    all.extend(&ids);
+                    fs.push(ids);
+                }
+                all.sort_unstable();
+                all.dedup();
+                cells.push(CellType::Polyhedron, &all);
+                faces.resize(cells.len() - 1, Vec::new());
+                faces.push(fs);
+                continue;
+            }
             let (n, ty) = mixed_type(conn[k]).ok_or_else(|| anyhow!("unknown Xdmf cell code {}", conn[k]))?;
             k += 1;
             let n = match n {
@@ -438,6 +459,10 @@ fn uniform(grid: &El, cx: &mut Ctx) -> Result<DataSet> {
                 (t, _) => t,
             };
             cells.push(ty, &ids);
+        }
+        if !faces.is_empty() {
+            faces.resize(cells.len(), Vec::new());
+            cells.polyhedron_faces = Some(faces);
         }
     } else {
         let (npe, ty) = topo_type(&tname).ok_or_else(|| anyhow!("topology type {tname} is not supported"))?;

@@ -6,6 +6,7 @@
 pub mod cgns;
 pub mod csv;
 pub mod ensight;
+pub mod ensight_writer;
 pub mod exodus;
 pub mod exodus_writer;
 pub mod hdf5w;
@@ -24,6 +25,7 @@ pub mod tecplot;
 pub mod vtkhdf;
 pub mod writers;
 pub mod xdmf;
+pub mod xdmf_writer;
 pub mod xml_vtk;
 
 use anyhow::{anyhow, bail, Context, Result};

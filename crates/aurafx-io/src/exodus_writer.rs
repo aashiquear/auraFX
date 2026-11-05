@@ -201,7 +201,7 @@ fn names_bytes(names: &[String], len: usize) -> Vec<u8> {
 const LEN_NAME: usize = 33;
 
 /// Arrays that are bookkeeping, not results.
-fn is_internal(name: &str) -> bool {
+pub(crate) fn is_internal(name: &str) -> bool {
     matches!(
         name,
         "GlobalNodeId"

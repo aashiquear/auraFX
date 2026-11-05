@@ -168,10 +168,13 @@ fn attribute(name: &str, value: &AttrValue) -> Vec<u8> {
     v
 }
 
-fn link(name: &str, target: &LinkTarget) -> Vec<u8> {
+/// A link message; `order` is its creation index (groups track creation order, which VTK's
+/// readers iterate by).
+fn link(name: &str, target: &LinkTarget, order: u64) -> Vec<u8> {
     let long = name.len() > 255;
     let soft = matches!(target, LinkTarget::Soft(_));
     let mut flags = if long { 1u8 } else { 0 };
+    flags |= 0x04; // creation order present
     if soft {
         flags |= 0x08; // link type present
     }
@@ -179,6 +182,7 @@ fn link(name: &str, target: &LinkTarget) -> Vec<u8> {
     if soft {
         v.push(1);
     }
+    v.extend_from_slice(&order.to_le_bytes());
     if long {
         v.extend_from_slice(&(name.len() as u16).to_le_bytes());
     } else {
@@ -262,9 +266,11 @@ impl Writer {
                         Node::SoftLink(p) => LinkTarget::Soft(p.clone()),
                         c => LinkTarget::Hard(self.node(c)?),
                     };
-                    links.push(link(name, &t));
+                    links.push(link(name, &t, links.len() as u64));
                 }
-                let mut li = vec![0, 0];
+                // Link info: creation order tracked (not indexed: the links are compact).
+                let mut li = vec![0, 1];
+                li.extend_from_slice(&(links.len() as u64).to_le_bytes());
                 li.extend_from_slice(&UNDEF.to_le_bytes());
                 li.extend_from_slice(&UNDEF.to_le_bytes());
                 let mut msgs = vec![(0x02, li), (0x0A, vec![0, 0])];

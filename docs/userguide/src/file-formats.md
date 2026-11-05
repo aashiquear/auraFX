@@ -39,9 +39,18 @@ Numbered files (`run_0001.vtu`…) open as a series when one of them is opened.
 | VTK legacy | `.vtk` | |
 | VTKHDF | `.vtkhdf` | all dataset kinds; multiblocks as a collection; time series with `all_times=True`; written with auraFX's own HDF5 encoder (read by h5py and VTK) |
 | Exodus II | `.exo` | blocks, nodal and element variables, every time step with `all_times=True` |
+| EnSight Gold | `.case` | C binary; one part per block (image, rectilinear and structured grids as blocks, the rest as elements of every standard type, polygons and polyhedra); every time step with `all_times=True`, the geometry written once when it does not change |
+| Xdmf 3 | `.xmf` + `.h5` | the description in the `.xmf`, the arrays in an HDF5 file beside it; block trees as spatial collections, time steps as a temporal collection that shares unchanged points and cells |
 | CSV, STL, PLY | | |
 | Scenes | `.glb .obj .x3d .wrl` | see [Exporting](exporting.md) |
 | Pictures | `.png .svg`, GIF/MP4 animations | see [Exporting](exporting.md) |
+
+Files written by the VTK XML, VTKHDF, Exodus, EnSight and Xdmf writers open in ParaView with
+the same points, cells and values. EnSight groups the cells of each part by type, so cells come
+back in a different order (each keeps its values); other cell types that EnSight or Xdmf do not
+have (Lagrange and Bezier cells, for example) are written by their corner points.
+
+![The can crash saved as EnSight (left) and Xdmf (right) with all 44 time steps, opened again](images/writers.png)
 
 ## Curved cells
 

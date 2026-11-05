@@ -514,7 +514,7 @@ impl State {
             let multi = self.session.lock().times.len() > 1;
             let _ = &ext;
             let r = if multi && aurafx_pipeline::Session::holds_all_times(&p) {
-                // Exodus and VTKHDF hold every time step in one file.
+                // Exodus, VTKHDF, EnSight and Xdmf hold every time step.
                 let mut s = self.session.lock();
                 match s.active {
                     Some(id) => s.save_all_times(id, &p).map(|n| format!("Saved {} ({n} time steps)", p.display())),

@@ -315,6 +315,8 @@ pub struct LogEntry {
 pub struct WorkItem {
     pub node: NodeId,
     pub generation: u64,
+    /// Which run of the node this is: a result is only kept if no one took the node over since.
+    run: u64,
     kind: WorkKind,
     /// Filled by remote work: the server's summary and delivery details.
     remote: Arc<parking_lot::Mutex<Option<crate::remote::Fetched>>>,
@@ -392,6 +394,9 @@ pub struct Session {
     pub log: Vec<LogEntry>,
     started: Option<Instant>,
     generation: u64,
+    /// The current run of every node being executed (see `WorkItem::run`).
+    runs: std::collections::HashMap<NodeId, u64>,
+    next_run: u64,
     /// Python-equivalent of UI actions, appended as they happen.
     pub trace: Vec<String>,
     pub camera_request: Option<CameraRequest>,
@@ -1240,7 +1245,7 @@ impl Session {
                 let d = &self.nodes[&id].display;
                 let max_surface = if d.draw_on == crate::display::DrawOn::Local || !server_can_draw(d) { u64::MAX } else { max_bytes };
                 let kind = WorkKind::Remote { client, specs, time, fetch, max_bytes, level, max_surface };
-                return Some(WorkItem { node: id, generation: self.generation, kind, remote: Default::default() });
+                return Some(WorkItem { node: id, generation: self.generation, run: self.new_run(id), kind, remote: Default::default() });
             }
             // A local filter needs the whole output of server inputs, not just their surface.
             let thin: Vec<NodeId> = n
@@ -1340,13 +1345,18 @@ impl Session {
             nm.running = true;
             nm.error = None;
             self.touch();
-            return Some(WorkItem { node: id, generation: self.generation, kind, remote: Default::default() });
+            return Some(WorkItem { node: id, generation: self.generation, run: self.new_run(id), kind, remote: Default::default() });
         }
         None
     }
 
     /// Store the result of a work item.
     pub fn complete(&mut self, item: WorkItem, result: Result<Arc<DataSet>>, elapsed_ms: f64) {
+        if self.runs.get(&item.node) != Some(&item.run) {
+            // Taken over by `update_blocking` (or the node was removed): a stale result.
+            return;
+        }
+        self.runs.remove(&item.node);
         let fetched = item.remote.lock().take();
         let host_name = match &item.kind {
             WorkKind::Remote { client, .. } => client.name.clone(),
@@ -1407,6 +1417,18 @@ impl Session {
                     };
                     leaf_attrs.map(|a| a.get(&cb.name).is_some()).unwrap_or(false)
                 };
+                // An array asked for before the data arrived (scripts, saved states) may be on
+                // the cells rather than the points, or the other way round.
+                let swapped = n.display.color_by.as_ref().filter(|cb| !has(cb)).map(|cb| ColorBy {
+                    assoc: match cb.assoc {
+                        aurafx_filters::Association::Points => aurafx_filters::Association::Cells,
+                        aurafx_filters::Association::Cells => aurafx_filters::Association::Points,
+                    },
+                    ..cb.clone()
+                });
+                if let Some(cb) = swapped.filter(|cb| has(cb)) {
+                    n.display.color_by = Some(cb);
+                }
                 let needs_default = match &n.display.color_by {
                     None => !n.auto_colored,
                     Some(cb) => !has(cb),
@@ -1458,7 +1480,20 @@ impl Session {
     }
 
     /// Run everything that is dirty on the current thread (used by Python and tests).
+    fn new_run(&mut self, id: NodeId) -> u64 {
+        self.next_run += 1;
+        self.runs.insert(id, self.next_run);
+        self.next_run
+    }
+
+    /// Run everything that is dirty now, on this thread. Nodes a worker thread is executing
+    /// are taken over (the caller holds the session, so the worker could not finish them) and
+    /// the worker's result is dropped when it arrives.
     pub fn update_blocking(&mut self) {
+        for n in self.nodes.values_mut().filter(|n| n.running) {
+            n.running = false;
+            self.runs.remove(&n.id);
+        }
         loop {
             let Some(item) = self.take_work() else { break };
             let t0 = Instant::now();
@@ -1514,10 +1549,10 @@ impl Session {
     /// Whether a file name is of a format that holds every time step (Exodus, VTKHDF).
     pub fn holds_all_times(path: &std::path::Path) -> bool {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf")
+        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf" | "case" | "encas" | "xmf" | "xdmf" | "xdmf3")
     }
 
-    /// Write node `id` at every time step to one file (Exodus or VTKHDF, by extension).
+    /// Write node `id` at every time step to one file (Exodus, VTKHDF, EnSight or Xdmf, by extension).
     pub fn save_all_times(&mut self, id: NodeId, path: &std::path::Path) -> Result<usize> {
         let saved = self.time_index;
         let n = self.times.len().max(1);
@@ -1542,6 +1577,10 @@ impl Session {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if matches!(ext.as_str(), "vtkhdf" | "hdf") {
             aurafx_io::vtkhdf::write_vtkhdf_steps(&refs, path)?;
+        } else if matches!(ext.as_str(), "case" | "encas") {
+            aurafx_io::ensight_writer::write_ensight_steps(&refs, path)?;
+        } else if matches!(ext.as_str(), "xmf" | "xdmf" | "xdmf3") {
+            aurafx_io::xdmf_writer::write_xdmf_steps(&refs, path)?;
         } else {
             aurafx_io::exodus_writer::write_exodus_steps(&refs, path)?;
         }

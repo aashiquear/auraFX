@@ -85,8 +85,8 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [ ] Every remaining reader in the catalog, tracked per entry in `docs/reference/format-matrix.md`.
 
 ### 1.3 Writers
-- [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF.
-- [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified in ParaView), CGNS, EnSight, Xdmf, OpenVDB, GenericIO, Fides.
+- [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF (iteration 21; read by ParaView 6.1.1 since iteration 22).
+- [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified in ParaView), EnSight Gold and Xdmf 3 (iteration 22; verified in ParaView), CGNS, OpenVDB, GenericIO, Fides.
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG (JPEG/TIFF/BMP/EXR todo), screenshot with resolution override and transparent background (done, iteration 16).
 - [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
@@ -286,7 +286,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 ---
 
-## Status (2026-11-04)
+## Status (2026-11-05)
 
 Done in iteration 2 (on top of iteration 1 below): light/dark/system themes; Windows menu with
 panel toggles and layout presets; undo/redo; `.afx` state files and last-session restore;
@@ -619,8 +619,21 @@ reader), and the **user guide** (`docs/userguide`: Markdown sources, mdBook HTML
 generated screenshot per feature (`scripts/userguide/shots.sh`, `build.sh`). Rule in CLAUDE.md:
 every feature ships with a guide entry and screenshot.
 
-Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters, more writers
-(CGNS, Xdmf, EnSight), remaining filter catalog (texture mapping, AMR, hyper tree grids,
+Done in iteration 22: **EnSight Gold writer** (C binary `.case`; parts per block, structured
+blocks, every element type, polygons and polyhedra, time series with the geometry written once
+when it does not change) and **Xdmf 3 writer** (`.xmf` + `.h5`; Co/Rect/SMesh, single-type or
+Mixed topologies with polyhedra, collections, temporal collections sharing unchanged points and
+cells); the Xdmf reader reads Mixed polyhedra. Both read by ParaView 6.1.1 with the same counts,
+bounds and ranges. VTKHDF output now opens in ParaView: our HDF5 groups did not track link
+creation order, which VTK iterates by, and ParaView's HDF5 then allocated until the machine
+swapped. Fixed along the way: `afx.active_view()` raced the app (per-view show/hide from
+scripts), blocking updates (`save(all_times=True)`, values over time) could use a stale output
+while the app's worker held the node, and a color array set before the data arrived was looked
+for in the wrong attribute set. `cargo run -p aurafx-io --example inspect -- file [step]` prints
+what a file holds.
+
+Known gaps worth doing next (P5): ADF CGNS, Tecplot SZL, MPAS/CAM, GDAL rasters, CGNS writer,
+remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

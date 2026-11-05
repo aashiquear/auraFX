@@ -846,3 +846,206 @@ fn vtkhdf_writer_round_trip() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// EnSight Gold writing: each kind of dataset, mixed cell types (cell values follow their
+/// cells when the elements are grouped by type) and a time series, read back with the same
+/// counts, bounds and ranges.
+#[test]
+fn ensight_writer_round_trip() {
+    use aurafx_data::*;
+    let dir = std::env::temp_dir().join(format!("aurafx_ensight_w_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let same = |a: &DataSet, b: &DataSet, arrays: &[(bool, &str)], what: &str| {
+        assert_eq!((a.n_points(), a.n_cells()), (b.n_points(), b.n_cells()), "{what}: counts");
+        let (ba, bb) = (a.bounds(), b.bounds());
+        for k in 0..3 {
+            assert!((ba.min[k] - bb.min[k]).abs() < 1e-4 && (ba.max[k] - bb.max[k]).abs() < 1e-4, "{what}: bounds");
+        }
+        for (pts, n) in arrays {
+            close(range_all(a, *pts, n), range_all(b, *pts, n), &format!("{what}: {n}"));
+        }
+    };
+    let can = match read_file(td("can.ex2")).unwrap() {
+        Loaded::Series(s) => load_step(&s.steps[5]).unwrap(),
+        Loaded::Static(d) => d,
+    };
+    let Loaded::Series(mixed) = read_file(td("ensight/mixed.case")).unwrap() else { panic!() };
+    let mixed0 = load_step(&mixed.steps[0]).unwrap();
+    let cases: Vec<(&str, DataSet, Vec<(bool, &str)>)> = vec![
+        ("can", (*can).clone(), vec![(true, "VEL"), (false, "EQPS")]),
+        ("disk", (*static_ds("disk_out_ref.ex2")).clone(), vec![(true, "Temp"), (true, "V")]),
+        ("image", (*static_ds("wavelet.vti")).clone(), vec![(true, "RTData")]),
+        ("sphere", (*static_ds("sphere.vtkhdf")).clone(), vec![(true, "Elevation"), (true, "Normals")]),
+        ("struct", (*static_ds("struct.vts")).clone(), vec![]),
+        ("rect", (*static_ds("rect.vtr")).clone(), vec![]),
+        ("quadratic", (*static_ds("quadratic_shapes.vtu")).clone(), vec![]),
+        ("mixed", (*mixed0).clone(), vec![(true, "temperature"), (true, "velocity"), (false, "pressure")]),
+    ];
+    for (name, ds, arrays) in &cases {
+        let p = dir.join(format!("{name}.case"));
+        aurafx_io::writers::write_file(ds, &p).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let back = static_ds(p.to_str().unwrap());
+        same(&back, ds, arrays, name);
+    }
+
+    // Triangle, quad, triangle with cell values 0, 1, 2: read back grouped as tria3, tria3,
+    // quad4, and each cell keeps its value.
+    let mut cells = Cells::new();
+    cells.push(CellType::Triangle, &[0, 1, 4]);
+    cells.push(CellType::Quad, &[1, 2, 3, 4]);
+    cells.push(CellType::Triangle, &[0, 4, 5]);
+    let mut cd = Attributes::new();
+    cd.insert(Array::scalars_f64("id", vec![0.0, 1.0, 2.0]));
+    let pts = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0];
+    let ug = UnstructuredGrid { points: Points::new_f64(pts), cells: cells.clone(), point_data: Attributes::new(), cell_data: cd, field_data: Attributes::new() };
+    let p = dir.join("grouped.case");
+    aurafx_io::writers::write_file(&DataSet::UnstructuredGrid(ug), &p).unwrap();
+    let back = static_ds(p.to_str().unwrap());
+    let DataSet::MultiBlock(mb) = &*back else { panic!() };
+    let Some(DataSet::UnstructuredGrid(g)) = &mb.blocks[0].1 else { panic!() };
+    let ids = g.cell_data.get("id").unwrap();
+    for c in 0..3 {
+        let original = ids.get(c, 0) as usize;
+        assert_eq!(g.cells.cell(c), cells.cell(original), "cell {c}");
+    }
+
+    // A time series.
+    let Loaded::Series(s) = read_file(td("series.pvd")).unwrap() else { panic!() };
+    let steps: Vec<(f64, std::sync::Arc<DataSet>)> = s.times.iter().zip(&s.steps).map(|(t, r)| (*t, load_step(r).unwrap())).collect();
+    let refs: Vec<(f64, &DataSet)> = steps.iter().map(|(t, d)| (*t, &**d)).collect();
+    let p = dir.join("series.case");
+    aurafx_io::ensight_writer::write_ensight_steps(&refs, &p).unwrap();
+    let Loaded::Series(back) = read_file(&p).unwrap() else { panic!("series") };
+    assert_eq!(back.times.len(), s.times.len());
+    for (a, b) in back.times.iter().zip(&s.times) {
+        assert!((a - b).abs() < 1e-9 * (1.0 + b.abs()));
+    }
+    for (k, (_, d)) in steps.iter().enumerate() {
+        same(&load_step(&back.steps[k]).unwrap(), d, &[(true, "Elevation")], &format!("series step {k}"));
+    }
+    if std::env::var("AURAFX_KEEP").is_ok() {
+        eprintln!("kept {}", dir.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// Xdmf writing (XML + HDF5): each kind of dataset, multiblock trees, a strip split into
+/// triangles and a prism written as a polyhedron (cell values follow), and a time series.
+#[test]
+fn xdmf_writer_round_trip() {
+    use aurafx_data::*;
+    let dir = std::env::temp_dir().join(format!("aurafx_xdmf_w_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let same = |a: &DataSet, b: &DataSet, arrays: &[(bool, &str)], what: &str| {
+        assert_eq!((a.n_points(), a.n_cells()), (b.n_points(), b.n_cells()), "{what}: counts");
+        let (ba, bb) = (a.bounds(), b.bounds());
+        for k in 0..3 {
+            assert!((ba.min[k] - bb.min[k]).abs() < 1e-9 && (ba.max[k] - bb.max[k]).abs() < 1e-9, "{what}: bounds");
+        }
+        for (pts, n) in arrays {
+            close(range_all(a, *pts, n), range_all(b, *pts, n), &format!("{what}: {n}"));
+        }
+    };
+    let can = match read_file(td("can.ex2")).unwrap() {
+        Loaded::Series(s) => load_step(&s.steps[5]).unwrap(),
+        Loaded::Static(d) => d,
+    };
+    let cases: Vec<(&str, DataSet, Vec<(bool, &str)>)> = vec![
+        ("can", (*can).clone(), vec![(true, "VEL"), (false, "EQPS")]),
+        ("disk", (*static_ds("disk_out_ref.ex2")).clone(), vec![(true, "Temp"), (true, "V")]),
+        ("image", (*static_ds("wavelet.vti")).clone(), vec![(true, "RTData")]),
+        ("sphere", (*static_ds("sphere.vtkhdf")).clone(), vec![(true, "Elevation"), (true, "Normals")]),
+        ("struct", (*static_ds("struct.vts")).clone(), vec![]),
+        ("rect", (*static_ds("rect.vtr")).clone(), vec![]),
+        ("quadratic", (*static_ds("quadratic_shapes.vtu")).clone(), vec![]),
+        ("group", (*static_ds("group.vtm")).clone(), vec![]),
+    ];
+    for (name, ds, arrays) in &cases {
+        let p = dir.join(format!("{name}.xmf"));
+        aurafx_io::writers::write_file(ds, &p).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let back = static_ds(p.to_str().unwrap());
+        same(&back, ds, arrays, name);
+    }
+
+    // A strip of two triangles (cell 0) and a pentagonal prism (cell 1).
+    let mut pts = Vec::new();
+    for z in [0.0, 1.0] {
+        for k in 0..5 {
+            let a = k as f64 * std::f64::consts::TAU / 5.0;
+            pts.extend([a.cos(), a.sin(), z]);
+        }
+    }
+    pts.extend([0.0, 0.0, 2.0, 1.0, 0.0, 2.0, 0.0, 1.0, 2.0, 1.0, 1.0, 2.0]);
+    let mut cells = Cells::new();
+    cells.push(CellType::TriangleStrip, &[10, 11, 12, 13]);
+    cells.push(CellType::PentagonalPrism, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    let mut cd = Attributes::new();
+    cd.insert(Array::scalars_f64("id", vec![7.0, 9.0]));
+    let ug = UnstructuredGrid { points: Points::new_f64(pts), cells, point_data: Attributes::new(), cell_data: cd, field_data: Attributes::new() };
+    let p = dir.join("poly.xmf");
+    aurafx_io::writers::write_file(&DataSet::UnstructuredGrid(ug), &p).unwrap();
+    let back = static_ds(p.to_str().unwrap());
+    let DataSet::UnstructuredGrid(g) = &*back else { panic!() };
+    assert_eq!(g.cells.types, vec![CellType::Triangle, CellType::Triangle, CellType::Polyhedron]);
+    assert_eq!(g.cell_data.get("id").unwrap().data.to_f64_vec(), vec![7.0, 7.0, 9.0]);
+    let faces = g.cells.polyhedron_faces.as_ref().unwrap();
+    assert_eq!(faces[2].len(), 7);
+    assert_eq!(g.cells.cell(2), &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    // A time series.
+    let Loaded::Series(s) = read_file(td("series.pvd")).unwrap() else { panic!() };
+    let steps: Vec<(f64, std::sync::Arc<DataSet>)> = s.times.iter().zip(&s.steps).map(|(t, r)| (*t, load_step(r).unwrap())).collect();
+    let refs: Vec<(f64, &DataSet)> = steps.iter().map(|(t, d)| (*t, &**d)).collect();
+    let p = dir.join("series.xmf");
+    aurafx_io::xdmf_writer::write_xdmf_steps(&refs, &p).unwrap();
+    let Loaded::Series(back) = read_file(&p).unwrap() else { panic!("series") };
+    assert_eq!(back.times, s.times);
+    for (k, (_, d)) in steps.iter().enumerate() {
+        same(&load_step(&back.steps[k]).unwrap(), d, &[(true, "Elevation")], &format!("series step {k}"));
+    }
+    if std::env::var("AURAFX_KEEP").is_ok() {
+        eprintln!("kept {}", dir.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A series whose geometry does not change: EnSight writes one geometry file, Xdmf stores the
+/// points and connectivity once; both read back with each step's values.
+#[test]
+fn writers_share_static_geometry() {
+    use aurafx_data::*;
+    let dir = std::env::temp_dir().join(format!("aurafx_static_geo_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let base = (*static_ds("sphere.vtkhdf")).clone();
+    let steps: Vec<(f64, DataSet)> = (0..3)
+        .map(|k| {
+            let mut d = base.clone();
+            let n = d.n_points();
+            d.point_data_mut().unwrap().insert(Array::scalars_f64("step", vec![k as f64; n]));
+            (k as f64 * 0.5, d)
+        })
+        .collect();
+    let refs: Vec<(f64, &DataSet)> = steps.iter().map(|(t, d)| (*t, d)).collect();
+    aurafx_io::ensight_writer::write_ensight_steps(&refs, &dir.join("s.case")).unwrap();
+    aurafx_io::xdmf_writer::write_xdmf_steps(&refs, &dir.join("s.xmf")).unwrap();
+    assert!(dir.join("s.geo").exists() && !dir.join("s.geo0000").exists());
+    let xml = std::fs::read_to_string(dir.join("s.xmf")).unwrap();
+    assert_eq!(xml.matches("s.h5:/s0/connectivity").count(), 3, "{xml}");
+    assert!(!xml.contains("/s1/connectivity") && !xml.contains("/s2/points"));
+    for f in ["s.case", "s.xmf"] {
+        let Loaded::Series(back) = read_file(dir.join(f)).unwrap() else { panic!("{f}: series") };
+        assert_eq!(back.times, vec![0.0, 0.5, 1.0], "{f}");
+        for k in 0..3 {
+            let d = load_step(&back.steps[k]).unwrap();
+            assert_eq!((d.n_points(), d.n_cells()), (base.n_points(), base.n_cells()), "{f}");
+            close(range_all(&d, true, "step"), (k as f64, k as f64), &format!("{f} step {k}"));
+        }
+    }
+    if std::env::var("AURAFX_KEEP").is_ok() {
+        eprintln!("kept {}", dir.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

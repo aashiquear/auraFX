@@ -57,6 +57,8 @@ format follows the extension:
 | `.vtk` | legacy VTK |
 | `.vtkhdf` | VTKHDF (HDF5); multiblocks as a collection with the block tree; `all_times=True` writes every time step into one file |
 | `.exo` | Exodus II with blocks and variables; `all_times=True` writes every time step |
+| `.case` | EnSight Gold (C binary): the case file plus a geometry file and one file per variable next to it; `all_times=True` writes every time step |
+| `.xmf` | Xdmf 3: the description plus an `.h5` file with the arrays; `all_times=True` writes every time step |
 | `.csv` | the point data or the table |
 | `.stl .ply` | surfaces |
 
@@ -64,7 +66,9 @@ format follows the extension:
 d.save("slice.vtp")
 d.save("run_all.exo", all_times=True)
 d.save("run_all.vtkhdf", all_times=True)
+d.save("run.case", all_times=True)      # run.case, run.geo, run.Temp0000, ...
+d.save("run.xmf", all_times=True)       # run.xmf and run.h5
 ```
 
-When the data has several time steps and the chosen format holds them all (Exodus, VTKHDF),
-the Save dialog writes every step.
+When the data has several time steps and the chosen format holds them all (Exodus, VTKHDF,
+EnSight, Xdmf), the Save dialog writes every step.

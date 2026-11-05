@@ -28,7 +28,9 @@ Tooling: `mdbook` (cargo install mdbook) and Google Chrome (headless, for the PD
   around app runs.
 - Compare readers, writers and filters against ParaView 6.1.1 (`pvpython` in
   `~/Downloads/ParaView-6.1.1-MPI-Linux-Python3.12-x86_64/bin`). Do not point ParaView at
-  files our writers produced unless the file is small: a malformed file can make the HDF5
-  library allocate until the machine swaps (this has crashed sessions twice).
+  files our writers produced unless the file is small, and always run pvpython with a memory
+  cap and a timeout: `(ulimit -v 8000000; timeout 180 pvpython check.py)`. A malformed file
+  can make the HDF5 library allocate until the machine swaps (this crashed sessions twice);
+  under the cap it fails with `bad_alloc` instead. ParaView's Python also has h5py.
 - Count tests with `grep -oE 'ok\. [0-9]+ passed; [0-9]+ failed'` over `cargo test` output.
 - Commit, do not push. Work in ROADMAP.md phase order and keep its Status section current.

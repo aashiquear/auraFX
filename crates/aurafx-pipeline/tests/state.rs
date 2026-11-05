@@ -343,3 +343,42 @@ fn temporal_filters_on_a_rotating_flow() {
     s.update_blocking();
     assert!(std::sync::Arc::ptr_eq(&d, &out(&s, ts)));
 }
+
+/// A worker thread holds a reader's run (as the app's worker does while the time changes)
+/// when a script saves every time step: the blocking update takes the run over, so each step
+/// is written with its own data, and the worker's late result is dropped.
+#[test]
+fn blocking_updates_take_over_runs_held_by_a_worker() {
+    let mut s = Session::new();
+    let r = s.open_file(td("can.ex2")).unwrap();
+    s.update_blocking();
+    s.set_time_index(43);
+    let held = s.take_work().expect("the reader is dirty");
+    let path = std::env::temp_dir().join(format!("aurafx-takeover-{}.case", std::process::id()));
+    assert_eq!(s.save_all_times(r, &path).unwrap(), 44);
+    // The worker finishes late with the last step's data: dropped.
+    let late = held.execute();
+    s.complete(held, late, 1.0);
+    let eqps_max = |d: &aurafx_data::DataSet| {
+        let aurafx_data::DataSet::MultiBlock(mb) = d else { panic!() };
+        mb.leaves().iter().map(|(_, l)| l.cell_data().unwrap().get("EQPS").unwrap().range(None).1).fold(f64::MIN, f64::max)
+    };
+    let aurafx_io::Loaded::Series(written) = aurafx_io::read_file(&path).unwrap() else { panic!() };
+    let aurafx_io::Loaded::Series(original) = aurafx_io::read_file(td("can.ex2")).unwrap() else { panic!() };
+    for k in [0, 30, 43] {
+        let (a, b) = (aurafx_io::load_step(&written.steps[k]).unwrap(), aurafx_io::load_step(&original.steps[k]).unwrap());
+        assert!((eqps_max(&a) - eqps_max(&b)).abs() < 1e-6, "step {k}");
+    }
+    // The node shows the restored time step, not the worker's stale result.
+    assert_eq!(s.time_index, 43);
+    s.update_blocking();
+    let shown = s.nodes[&r].output.clone().unwrap();
+    let last = aurafx_io::load_step(&original.steps[43]).unwrap();
+    assert!((eqps_max(&shown) - eqps_max(&last)).abs() < 1e-6);
+    let dir = path.parent().unwrap();
+    for e in std::fs::read_dir(dir).unwrap().flatten() {
+        if e.file_name().to_string_lossy().starts_with(&format!("aurafx-takeover-{}.", std::process::id())) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}

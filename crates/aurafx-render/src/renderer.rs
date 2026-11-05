@@ -2121,6 +2121,10 @@ impl Renderer {
 
     /// Read back the current color target as RGBA8 (sRGB) pixels.
     pub fn read_pixels(&self) -> Result<(u32, u32, Vec<u8>)> {
+        self.read_texture(&self.color)
+    }
+
+    fn read_texture(&self, texture: &wgpu::Texture) -> Result<(u32, u32, Vec<u8>)> {
         let (w, h) = (self.width, self.height);
         let bytes_per_row = (4 * w).div_ceil(256) * 256;
         let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -2131,7 +2135,7 @@ impl Renderer {
         });
         let mut enc = self.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo { texture: &self.color, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
             wgpu::TexelCopyBufferInfo {
                 buffer: &buf,
                 layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bytes_per_row), rows_per_image: Some(h) },
@@ -2155,6 +2159,30 @@ impl Renderer {
         drop(data);
         buf.unmap();
         Ok((w, h, out))
+    }
+
+    /// The last picture with something drawn over it (scalar bar, labels...) by `paint`, which
+    /// gets the device, queue and a view (sRGB format) of a copy of the picture; the picture
+    /// shown is left as it was. Returns (width, height, sRGB RGBA8 pixels).
+    pub fn read_pixels_with(&self, paint: impl FnOnce(&wgpu::Device, &wgpu::Queue, &wgpu::TextureView, u32, u32) -> Result<()>) -> Result<(u32, u32, Vec<u8>)> {
+        let (w, h) = (self.width, self.height);
+        let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+        let copy = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("annotated picture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[COLOR_FORMAT],
+        });
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        enc.copy_texture_to_texture(self.color.as_image_copy(), copy.as_image_copy(), size);
+        self.queue.submit(Some(enc.finish()));
+        let view = copy.create_view(&wgpu::TextureViewDescriptor { format: Some(COLOR_FORMAT), ..Default::default() });
+        paint(&self.device, &self.queue, &view, w, h)?;
+        self.read_texture(&copy)
     }
 
     /// The largest picture this device can render.

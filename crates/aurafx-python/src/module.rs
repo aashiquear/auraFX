@@ -773,9 +773,9 @@ fn view(direction: Bound<'_, PyAny>, up: Option<[f64; 3]>) -> PyResult<()> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (path, width=None, height=None, transparent=false))]
-fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u32>, transparent: bool) -> PyResult<()> {
-    let id = request_screenshot(path, width, height, transparent);
+#[pyo3(signature = (path, width=None, height=None, transparent=false, annotations=true))]
+fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u32>, transparent: bool, annotations: bool) -> PyResult<()> {
+    let id = request_screenshot(path, width, height, transparent, annotations);
     // Wait until the app has saved it (a ray-traced picture may take a while).
     wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
 }
@@ -788,10 +788,10 @@ fn export_scene(py: Python<'_>, path: String) -> PyResult<()> {
     if !matches!(ext.as_str(), "glb" | "obj") {
         return Err(PyValueError::new_err("export_scene writes .glb or .obj files"));
     }
-    screenshot(py, path, None, None, false)
+    screenshot(py, path, None, None, false, true)
 }
 
-fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, transparent: bool) -> u64 {
+fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, transparent: bool, overlays: bool) -> u64 {
     let mut s = session().lock();
     // One of width/height keeps the view's aspect ratio (the UI fills in the other).
     let size = match (width, height) {
@@ -802,7 +802,7 @@ fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, tra
     };
     s.next_screenshot_id += 1;
     let id = s.next_screenshot_id;
-    s.screenshot_request = Some(aurafx_pipeline::session::ScreenshotRequest { path: std::path::PathBuf::from(path), size, transparent, id });
+    s.screenshot_request = Some(aurafx_pipeline::session::ScreenshotRequest { path: std::path::PathBuf::from(path), size, transparent, id, overlays });
     s.revision += 1;
     id
 }
@@ -1159,7 +1159,7 @@ fn save_animation(
                 }
             }
             cue.call1((t,))?;
-            screenshot(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false)?;
+            screenshot(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false, true)?;
         }
         Ok(())
     };

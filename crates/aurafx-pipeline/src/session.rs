@@ -456,6 +456,8 @@ pub struct ScreenshotRequest {
     pub transparent: bool,
     /// Reported back in `Session::screenshot_results` (0: nobody waits).
     pub id: u64,
+    /// Include the scalar bar, labels, annotations and orientation axes.
+    pub overlays: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

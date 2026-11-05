@@ -543,6 +543,13 @@ Done in iteration 16 (exporters):
   800×600, 378k-triangle frame in about 18 ms per sample; the GPU leaves the CPU free for
   filters.
 
+Done in iteration 17:
+- **Screenshots and animation frames include the overlays**: color legend, axes grid labels,
+  time label, text annotations and orientation axes. They are painted by the same code as in
+  the view, through an offscreen egui pass at the picture's scale, so a 4× screenshot has the
+  same layout with sharp text. `afx.screenshot(..., annotations=False)` or the Save Screenshot
+  dialog leaves them out.
+
 Known gaps worth doing next (P4): TAA, sinusoid/comparative animation cues, X3D/VRML and
 vector (SVG/PDF) export, more widgets (cylinder, cone, spline); then P5 breadth; light widgets in the 3D view; MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real

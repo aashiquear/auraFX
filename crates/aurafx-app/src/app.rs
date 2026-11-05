@@ -787,7 +787,13 @@ impl State {
                         .set_file_name("scene.glb")
                         .save_file()
                     {
-                        self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest { path, size: None, transparent: false, id: 0 });
+                        self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest {
+                            path,
+                            size: None,
+                            transparent: false,
+                            id: 0,
+                            overlays: true,
+                        });
                     }
                 }
                 if ui.button("Animation…").on_hover_text("Time steps, a camera orbit or keyframes, saved as GIF, MP4 or PNG frames").clicked() {

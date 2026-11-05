@@ -56,6 +56,10 @@ pub struct Viewport {
     remote_images: HashMap<String, RemoteImage>,
     /// Path tracing of the opaque surfaces (View › Lighting › Ray tracing).
     ray_tracing: crate::ray_tracing::RayTracing,
+    /// This frame's overlays (scalar bar, labels...) and the view's width in points, for
+    /// screenshots and animation frames.
+    overlays: Option<(crate::overlays::Overlays, f32)>,
+    offscreen: crate::overlays::Offscreen,
 }
 
 /// The latest picture a server drew for this view, and the request in flight.
@@ -138,6 +142,8 @@ impl Viewport {
             ruler: Vec::new(),
             remote_images: HashMap::new(),
             ray_tracing: Default::default(),
+            overlays: None,
+            offscreen: Default::default(),
         }
     }
 
@@ -178,8 +184,15 @@ impl Viewport {
     pub fn frame_end(&mut self, _ctx: &egui::Context) {}
 
     /// Save what was rendered last frame.
-    pub fn save_current_png(&self, path: &std::path::Path) -> anyhow::Result<()> {
-        self.renderer.as_ref().ok_or_else(|| anyhow::anyhow!("no renderer"))?.save_png(path)
+    /// Save the last picture with its overlays (scalar bar, labels...), e.g. animation frames.
+    pub fn save_current_png(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        let r = self.renderer.as_ref().ok_or_else(|| anyhow::anyhow!("no renderer"))?;
+        let (w, h, px) = match &self.overlays {
+            Some((o, width)) => self.offscreen.read(r, o, *width)?,
+            None => r.read_pixels()?,
+        };
+        image::save_buffer(path, &px, w, h, image::ColorType::Rgba8)?;
+        Ok(())
     }
 
     pub fn camera_initialized(&self) -> bool {
@@ -643,6 +656,19 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
 
     // Render.
     let (draws, scalar_bar) = collect_draws(state);
+    let overlays = {
+        let s = state.session.lock();
+        crate::overlays::Overlays {
+            scalar_bar: scalar_bar.clone(),
+            grid_boxes: state.viewport.grid_boxes.clone(),
+            notes: s.annotations.clone(),
+            time_label: if s.show_time_label { s.current_time().map(|t| format!("t = {}", aurafx_data::info::g(t))) } else { None },
+            orientation_axes: state.settings.show_orientation_axes,
+            background: state.viewport.settings.background,
+            camera: state.viewport.camera.clone(),
+        }
+    };
+    state.viewport.overlays = Some((overlays.clone(), rect.width()));
     let remote = remote_layers(state, ui.ctx(), w, h);
     let mut layers = remote.clone();
     // Ray tracing: a traced picture replaces the opaque surfaces once it is ready.
@@ -726,7 +752,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 // A ray-traced screenshot waits for the tracer to finish.
                 vp.screenshot = Some(req);
             } else if as_shown {
-                outcome = Some((req.clone(), vp.renderer.as_ref().unwrap().save_png(&req.path)));
+                let r = vp.renderer.as_ref().unwrap();
+                let res = if req.overlays { vp.offscreen.read(r, &overlays, rect.width()) } else { r.read_pixels() }
+                    .and_then(|(w, h, px)| image::save_buffer(&req.path, &px, w, h, image::ColorType::Rgba8).map_err(Into::into));
+                outcome = Some((req.clone(), res));
             } else if sw == 0 || sh == 0 || sw.max(sh) > max {
                 outcome = Some((req.clone(), Err(anyhow::anyhow!("{sw}x{sh} pixels: this GPU draws at most {max}x{max}"))));
             } else {
@@ -754,7 +783,14 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                         r.resize(sw, sh);
                         r.set_layers(&shot_layers);
                         r.render(&vp.camera, &shot_draws, &settings);
-                        let res = r.save_png_with(&req.path, req.transparent);
+                        // Overlays laid out as on the view (same width in points), scaled up.
+                        let shot_overlays = crate::overlays::Overlays { background: settings.background, ..overlays.clone() };
+                        let res = if req.overlays { vp.offscreen.read(r, &shot_overlays, rect.width()) } else { r.read_pixels() }.and_then(|(w, h, mut px)| {
+                            if req.transparent {
+                                aurafx_render::renderer::unpremultiply(&mut px);
+                            }
+                            image::save_buffer(&req.path, &px, w, h, image::ColorType::Rgba8).map_err(Into::into)
+                        });
                         r.resize(w, h);
                         r.set_layers(&layers);
                         r.render(&vp.camera, &shown, &vp.settings);
@@ -828,14 +864,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             state.open_sample("disk_out_ref.ex2");
         }
     }
-    for b in state.viewport.grid_boxes.clone() {
-        crate::axes_grid::draw_labels(&painter, &state.viewport.camera, rect, &b, ["X", "Y", "Z"], fg);
-    }
-    if let Some((label, cmap, (lo, hi), log)) = scalar_bar {
-        let bgc = state.viewport.settings.background;
-        let plate = Color32::from_rgb((bgc[0] * 255.0) as u8, (bgc[1] * 255.0) as u8, (bgc[2] * 255.0) as u8);
-        draw_scalar_bar(&painter, rect, &label, &cmap, lo, hi, log, fg, plate);
-    }
+    crate::overlays::paint(&painter, rect, &overlays);
     if let Some(r) = selection_rect {
         painter.rect(r, 0.0, Color32::from_rgba_unmultiplied(255, 40, 200, 30), Stroke::new(1.5, Color32::from_rgb(255, 40, 200)), egui::StrokeKind::Inside);
     }
@@ -879,96 +908,16 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             painter.galley(r.min + Vec2::splat(4.0), galley, Color32::WHITE);
         }
     }
-    // Annotations and the time label.
-    let (notes, time_label) = {
-        let s = state.session.lock();
-        (s.annotations.clone(), if s.show_time_label { s.current_time().map(|t| format!("t = {}", aurafx_data::info::g(t))) } else { None })
-    };
-    let mut stacks: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
-    let mut place = |text: &str, corner: &str, size: f32| {
-        let (anchor, base) = match corner {
-            "upper right" => (egui::Align2::RIGHT_TOP, rect.right_top() + Vec2::new(-12.0, 52.0)),
-            "lower left" => (egui::Align2::LEFT_BOTTOM, rect.left_bottom() + Vec2::new(90.0, -12.0)),
-            "lower right" => (egui::Align2::RIGHT_BOTTOM, rect.right_bottom() + Vec2::new(-12.0, -12.0)),
-            "upper center" => (egui::Align2::CENTER_TOP, rect.center_top() + Vec2::new(0.0, 52.0)),
-            "lower center" => (egui::Align2::CENTER_BOTTOM, rect.center_bottom() + Vec2::new(0.0, -12.0)),
-            _ => (egui::Align2::LEFT_TOP, rect.left_top() + Vec2::new(12.0, 52.0)),
-        };
-        let off = stacks.entry(corner.to_string()).or_insert(0.0);
-        let dy = if anchor.y() == egui::Align::Max { -*off } else { *off };
-        painter.text(base + Vec2::new(0.0, dy), anchor, text, egui::FontId::proportional(size), fg);
-        *off += size * 1.35;
-    };
-    if let Some(t) = &time_label {
-        place(t, "upper right", 16.0);
-    }
-    for a in &notes {
-        place(&a.text, &a.corner, a.size);
-    }
     viewport_toolbar(state, ui, rect);
     // Mark the active view when several are open.
     if state.views.len() > 0 && is_active {
         ui.painter().rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, crate::theme::ACCENT), egui::StrokeKind::Inside);
-    }
-    if state.settings.show_orientation_axes {
-        draw_axes(&painter, rect, &state.viewport.camera);
     }
     // Keep animating while dragging or playing.
     if response.dragged() {
         ui.ctx().request_repaint();
     }
     interacted
-}
-
-fn draw_scalar_bar(p: &egui::Painter, rect: Rect, label: &str, map: &colormap::ColorMap, lo: f64, hi: f64, log: bool, txt: Color32, bg: Color32) {
-    let bar_w = 18.0;
-    let bar_h = (rect.height() * 0.45).clamp(80.0, 320.0);
-    let x = rect.right() - 96.0;
-    let y0 = rect.center().y - bar_h / 2.0;
-    // A soft plate behind the bar keeps its labels readable over the data.
-    let title_w = (label.len() as f32 * 7.5).max(bar_w + 70.0);
-    let plate = Rect::from_min_max(Pos2::new((x + bar_w / 2.0 - title_w / 2.0).min(x - 6.0), y0 - 28.0), Pos2::new(rect.right() - 6.0, y0 + bar_h + 10.0));
-    p.rect_filled(plate, 6.0, bg.gamma_multiply(0.72));
-    let n = 64;
-    for i in 0..n {
-        let t0 = i as f32 / n as f32;
-        let t1 = (i + 1) as f32 / n as f32;
-        let c = map.sample(1.0 - (t0 + t1) * 0.5);
-        let col = Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8);
-        p.rect_filled(Rect::from_min_max(Pos2::new(x, y0 + t0 * bar_h), Pos2::new(x + bar_w, y0 + t1 * bar_h + 0.5)), 0.0, col);
-    }
-    p.rect_stroke(Rect::from_min_size(Pos2::new(x, y0), Vec2::new(bar_w, bar_h)), 0.0, Stroke::new(1.0, txt), egui::StrokeKind::Outside);
-    let font = egui::FontId::proportional(12.0);
-    let ticks = 5;
-    for k in 0..ticks {
-        let f = k as f64 / (ticks - 1) as f64;
-        let v = if log && lo > 0.0 { (lo.ln() + f * (hi.ln() - lo.ln())).exp() } else { lo + f * (hi - lo) };
-        let y = y0 + bar_h * (1.0 - f as f32);
-        p.line_segment([Pos2::new(x + bar_w, y), Pos2::new(x + bar_w + 4.0, y)], Stroke::new(1.0, txt));
-        p.text(Pos2::new(x + bar_w + 6.0, y), egui::Align2::LEFT_CENTER, aurafx_data::info::g(v), font.clone(), txt);
-    }
-    p.text(Pos2::new(x + bar_w / 2.0, y0 - 8.0), egui::Align2::CENTER_BOTTOM, label, egui::FontId::proportional(13.0), txt);
-}
-
-fn draw_axes(p: &egui::Painter, rect: Rect, cam: &Camera) {
-    let view = cam.view_matrix();
-    let origin = Pos2::new(rect.left() + 48.0, rect.bottom() - 48.0);
-    let len = 32.0;
-    let mut axes: Vec<(f64, Pos2, &str, Color32)> = Vec::new();
-    for (i, (name, col)) in
-        [("X", Color32::from_rgb(240, 90, 90)), ("Y", Color32::from_rgb(120, 220, 120)), ("Z", Color32::from_rgb(110, 150, 255))].into_iter().enumerate()
-    {
-        let mut v = glam::DVec4::ZERO;
-        v[i] = 1.0;
-        let r = view * v; // rotation only (w = 0)
-        let end = origin + Vec2::new(r.x as f32 * len, -r.y as f32 * len);
-        axes.push((r.z, end, name, col));
-    }
-    axes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    for (_, end, name, col) in axes {
-        p.line_segment([origin, end], Stroke::new(2.0, col));
-        p.text(end + (end - origin).normalized() * 8.0, egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(12.0), col);
-    }
 }
 
 /// Colors for the pipeline tree dots etc.

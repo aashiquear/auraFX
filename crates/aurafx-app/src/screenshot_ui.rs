@@ -10,6 +10,7 @@ pub struct ScreenshotDialog {
     height: u32,
     keep_aspect: bool,
     transparent: bool,
+    no_overlays: bool,
 }
 
 impl ScreenshotDialog {
@@ -70,6 +71,12 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
             ui.label("Background");
             ui.checkbox(&mut d.transparent, "transparent");
             ui.end_row();
+            ui.label("Annotations");
+            let mut on = !d.no_overlays;
+            if ui.checkbox(&mut on, "color legend, labels, axes").changed() {
+                d.no_overlays = !on;
+            }
+            ui.end_row();
         });
         if d.width != view.0 || d.height != view.1 {
             ui.weak("Point sizes and line widths are in pixels, so they look thinner in a larger picture.");
@@ -85,7 +92,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
         if let Some(path) = crate::dialogs::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx.png").save_file() {
             let d = &state.screenshot_dialog;
             let size = if (d.width, d.height) == view { None } else { Some((d.width, d.height)) };
-            state.viewport.request_screenshot(ScreenshotRequest { path, size, transparent: d.transparent, id: 0 });
+            state.viewport.request_screenshot(ScreenshotRequest { path, size, transparent: d.transparent, id: 0, overlays: !d.no_overlays });
             state.screenshot_dialog.open = false;
         }
     }

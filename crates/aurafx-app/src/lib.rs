@@ -11,6 +11,7 @@ mod dialogs;
 mod icons;
 mod jobs_panel;
 mod lighting_ui;
+mod overlays;
 mod palette;
 mod panels;
 mod pick;

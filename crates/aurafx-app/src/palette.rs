@@ -27,7 +27,7 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
                 .set_file_name("scene.glb")
                 .save_file()
             {
-                s.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest { path, size: None, transparent: false, id: 0 });
+                s.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest { path, size: None, transparent: false, id: 0, overlays: true });
             }
         }),
         ("Reset camera", "fit view zoom", |s| s.session.lock().camera_request = Some(CameraRequest::ResetToBounds)),

@@ -29,7 +29,8 @@ and Q-criterion), Cell Size, Mesh Quality, Elevation, Cell Centers, Connectivity
 Extract Selection, Temporal Statistics (mean, min, max and standard deviation over all time
 steps), Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator, and the particle
 filters (Particle Tracer, Particle Path, Streak Line) that follow particles through a
-time-varying flow.
+time-varying flow. Texture Map to Plane / Cylinder / Sphere, Perlin Noise and Spatio Temporal
+Harmonics are described [below](#textures-and-made-up-data).
 
 ## Geometry
 
@@ -42,7 +43,78 @@ Rename Array, Pass Arrays, and OpenFOAM Boundary Patches.
 ## Sources
 
 **Sources** adds objects without a file: Sphere, Cone, Cylinder, Box, Plane, Line, Point
-Cloud, Wavelet (a test volume) and Unstructured Cell Types (one of every cell type, for tests).
+Cloud, Wavelet (a test volume), Spatio Temporal Harmonics (a test volume of waves with its own
+time steps) and Unstructured Cell Types (one of every cell type, for tests).
+
+## Textures and made-up data
+
+### Showing an image on a surface
+
+An image (PNG or JPEG) can be wrapped onto a surface, the way a world map goes onto a globe.
+The surface needs **texture coordinates**, which say where each point falls in the image. Some
+files and the Plane source come with them. For anything else, add one of these filters
+(**Filters › Texture Map to Plane / Cylinder / Sphere**):
+
+| Filter | How the image is laid on | Parameters |
+|---|---|---|
+| **Texture Map to Plane** | projected straight onto the surface from a plane, like a slide projector | **Automatic** fits the plane to the points and stretches the image over the bounds. Turn it off and give **Origin** (image corner), **Point 1** (the image's right edge) and **Point 2** (its top edge). |
+| **Texture Map to Cylinder** | rolled around an axis: up the axis is up the image, around it is across | **Automatic** puts the axis along the object's longest side. Turn it off and give **Point 1** and **Point 2**, the axis ends. |
+| **Texture Map to Sphere** | wrapped around a center: the image's top at the +z pole, its bottom at the −z pole | **Center** (under Show advanced; empty = the middle of the points) |
+
+**Prevent seam** (cylinder and sphere, on by default) runs the image across half the way
+round and back mirrored. That avoids a visible join, but shows the image twice. Turn it off
+to wrap the image once, as for a world map. A thin seam then shows where the edges meet
+(ParaView shows the same seam).
+
+Then pick the image in **Properties › Display › Texture › Choose…** (× removes it). The row
+appears when the object has texture coordinates. The image replaces the array colors and the
+solid color; lighting and the material still apply. Coordinates outside 0 to 1 repeat the
+image.
+
+![A cylinder and a globe with the same map, from Texture Map to Cylinder and Texture Map to Sphere](images/texture_maps.png)
+
+```python
+ball = afx.sphere(radius=1, theta=128, phi=96)
+globe = ball.texture_map_to_sphere(prevent_seam=False)
+globe.set(texture="/path/to/world.jpg")       # texture=None removes it
+p = d.texture_map_to_plane(automatic=False, origin=(0, 0, 0), point1=(10, 0, 0), point2=(0, 5, 0))
+c = d.texture_map_to_cylinder(point1=(0, 0, -1), point2=(0, 0, 1), automatic=False)
+```
+
+The new array is called **Texture Coordinates**. The three filters give the same numbers as
+ParaView's filters of the same names, and the coordinates can also be colored by like any
+other array.
+
+Limits:
+- The image is shown on surfaces (Surface and Surface With Edges) and on lines. Points and
+  volumes don't show it.
+- Ray tracing, scene export and pictures drawn on a server show the solid color instead of
+  the image.
+- The coordinates are stored at half precision for drawing (about 1/2000 of the image
+  width), which only matters for images repeated many times.
+
+### Made-up data for tests and demos
+
+| Filter or source | What it makes | Parameters |
+|---|---|---|
+| **Perlin Noise** (filter) | a smooth random-looking value at every point (array **PerlinNoise**), for test data or rough-looking surfaces | **Frequency** (bumps per unit along x, y, z), **Phase** (shifts the pattern), **Amplitude**, result name |
+| **Spatio Temporal Harmonics** (filter) | a sum of travelling sine waves at every point (array **SpatioTemporalHarmonics**) | **Harmonics**: 6 numbers per wave (amplitude, temporal frequency, wave vector x y z, phase). The value is the sum of amplitude × sin(frequency × time + wave vector · point + phase). |
+| **Spatio Temporal Harmonics** (source, **Sources** menu) | an image volume with those waves and **20 time steps of its own** (one period), so it animates without a file | **Whole extent** (x min, x max, y min, y max, z min, z max; spacing 1), **Harmonics**, **Time steps** |
+
+The source's time steps join the time toolbar like a file's. The filter follows the time of
+its input. On data without time steps it uses time 0, as ParaView does. Both match ParaView's
+filter and source with the same defaults (ParaView rounds π/5 to 0.6283 in its defaults, and
+so does auraFX).
+
+![The harmonics source at its sixth time step, and a plane warped by Perlin noise](images/harmonics_noise.png)
+
+```python
+h = afx.spatio_temporal_harmonics_grid()     # waves in a 21×21×21 volume, 20 time steps
+h.set(harmonics=[2, 1, 0.3, 0, 0, 0])         # one wave along x
+afx.time(5)
+n = afx.plane(xres=200, yres=200).perlin_noise(frequency=(4, 4, 4), amplitude=0.1)
+n.warp_by_scalar(array="PerlinNoise")
+```
 
 ## Programmable filters
 

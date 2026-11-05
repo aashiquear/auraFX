@@ -3,7 +3,8 @@
 ## Time steps
 
 Files with several time steps (Exodus, `.pvd`, OpenFOAM cases, LAMMPS dumps, numbered file
-series, VTKHDF, EnSight, Xdmf, NetCDF, CGNS) show the **time toolbar**: play/pause, first,
+series, VTKHDF, EnSight, Xdmf, NetCDF, CGNS), and the Spatio Temporal Harmonics source, show
+the **time toolbar**: play/pause, first,
 previous, next, last, a slider, the step number, the time value and the playback speed.
 Every filter follows the time step; filters that look across time (Temporal Statistics,
 Particle Tracer, Temporal Interpolator…) read the steps they need.

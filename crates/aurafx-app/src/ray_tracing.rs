@@ -177,6 +177,7 @@ impl RayTracing {
                         origin: m.origin,
                         volume: None,
                         lic: Vec::new(),
+                        textured: m.textured,
                     })
                 })
                 .clone();

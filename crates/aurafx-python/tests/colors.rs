@@ -148,7 +148,25 @@ def sneaky(data):
     ));
     assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
     assert_eq!(out.stdout.trim(), "True ['inproc']\nTrue", "{}", out.stdout);
+    {
+        let s = session.lock();
+        let sl = s.nodes.values().find(|n| n.def().is_some_and(|d| d.id == "slice") && s.remote_host(n.id).is_some()).expect("slice on the server");
+        assert!(sl.remote.is_some());
+    }
+
+    // Textures and made-up data (the user guide's examples).
+    let img = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/images/planet.jpg");
+    let out = rt.run(&format!(
+        "ball = afx.sphere(radius=1, theta=128, phi=96)\nglobe = ball.texture_map_to_sphere(prevent_seam=False)\nglobe.set(texture={img:?})\nprint('Texture Coordinates' in str(globe.info()))\n\
+         h = afx.spatio_temporal_harmonics_grid()\nh.set(harmonics=[2, 1, 0.3, 0, 0, 0])\nafx.time(5)\nprint(len(afx.times()) >= 20)\n\
+         n = afx.plane(xres=200, yres=200).perlin_noise(frequency=(4, 4, 4), amplitude=0.1)\nw = n.warp_by_scalar(array='PerlinNoise')\nprint(w.info()['n_points'])\n\
+         try:\n    globe.set(texture='/no/such.png')\nexcept ValueError as e:\n    print('no image' in str(e))\nglobe.set(texture=None)"
+    ));
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "True\nTrue\n40401\nTrue", "{}", out.stdout);
     let s = session.lock();
-    let sl = s.nodes.values().find(|n| n.def().is_some_and(|d| d.id == "slice") && s.remote_host(n.id).is_some()).expect("slice on the server");
-    assert!(sl.remote.is_some());
+    let g = s.nodes.values().find(|n| n.def().is_some_and(|d| d.id == "texture_map_to_sphere")).unwrap();
+    assert_eq!(g.display.texture, None);
+    let h = s.nodes.values().find(|n| n.def().is_some_and(|d| d.id == "spatio_temporal_harmonics_grid")).unwrap();
+    assert_eq!(h.params.floats("harmonics"), vec![2.0, 1.0, 0.3, 0.0, 0.0, 0.0]);
 }

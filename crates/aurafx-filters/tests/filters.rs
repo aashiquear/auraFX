@@ -777,3 +777,85 @@ fn cell_splits_conform_across_faces() {
         }
     }
 }
+
+/// Sum of each component, first tuple and last tuple of a point array.
+fn summary(d: &DataSet, name: &str) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let a = d.point_data().unwrap().get(name).unwrap_or_else(|| panic!("no {name}"));
+    let (n, c) = (a.len(), a.ncomp);
+    let v: Vec<f64> = (0..n * c).map(|i| a.data.get_f64(i)).collect();
+    let sums = (0..c).map(|k| (0..n).map(|i| v[i * c + k]).sum()).collect();
+    (sums, v[..c].to_vec(), v[(n - 1) * c..].to_vec())
+}
+
+fn close_all(tag: &str, got: &[f64], want: &[f64], tol: f64) {
+    assert_eq!(got.len(), want.len(), "{tag}");
+    for (g, w) in got.iter().zip(want) {
+        assert!((g - w).abs() <= tol * (1.0 + w.abs()), "{tag}: got {got:?}, ParaView {want:?}");
+    }
+}
+
+/// Texture Map to Plane / Cylinder / Sphere, Perlin Noise and Spatio Temporal Harmonics
+/// against ParaView 6.1.1 (sums, first and last tuples of the arrays it makes).
+#[test]
+fn texture_maps_noise_and_harmonics_match_paraview() {
+    use serde_json::json;
+    type Case<'a> = (&'a str, &'a str, Vec<(&'a str, serde_json::Value)>, [f64; 2], [f64; 2], [f64; 2]);
+    let sphere = td("sphere.vtp");
+    let contour = td("contour.vtp");
+    let manual_plane = || vec![("automatic", json!(false)), ("origin", json!([-1, -1, 0])), ("point1", json!([1, -1, 0.2])), ("point2", json!([-1, 1, 0.5]))];
+    let manual_cyl = || vec![("automatic", json!(false)), ("point1", json!([0, 0, -1])), ("point2", json!([0.2, 0.1, 1])), ("prevent_seam", json!(false))];
+    let sphere_cases: Vec<Case> = vec![
+        ("plane auto", "texture_map_to_plane", vec![], [265.000061, 265.000122], [0.5, 0.5], [0.565917, 0.482338]),
+        ("plane manual", "texture_map_to_plane", manual_plane(), [262.376221, 249.411835], [0.544554, 0.588235], [0.511118, 0.337452]),
+        ("cylinder auto", "texture_map_to_cylinder", vec![], [264.999969, 265.0], [0.5, 1.0], [0.083333, 0.004657]),
+        ("cylinder seam", "texture_map_to_cylinder", vec![("prevent_seam", json!(false))], [253.499847, 265.0], [0.25, 1.0], [0.958333, 0.004657]),
+        ("cylinder manual", "texture_map_to_cylinder", manual_cyl(), [278.310944, 261.728455], [0.574188, 0.987654], [0.957426, 0.010225]),
+        ("sphere", "texture_map_to_sphere", vec![], [264.499969, 265.0], [0.0, 0.0], [0.083333, 0.956522]),
+        ("sphere seam", "texture_map_to_sphere", vec![("prevent_seam", json!(false))], [253.249847, 265.0], [0.0, 0.0], [0.958333, 0.956522]),
+    ];
+    let contour_cases: Vec<Case> = vec![
+        ("plane auto", "texture_map_to_plane", vec![], [244.030579, 230.792053], [0.399588, 0.20079], [0.599725, 0.685263]),
+        ("plane manual", "texture_map_to_plane", manual_plane(), [293.961884, 212.162369], [-0.201944, -1.421091], [1.237624, 1.917968]),
+        ("cylinder auto", "texture_map_to_cylinder", vec![], [234.701614, 230.999725], [0.6484, 0.092073], [0.40828, 1.0]),
+        ("cylinder seam", "texture_map_to_cylinder", vec![("prevent_seam", json!(false))], [225.219498, 230.999725], [0.6758, 0.092073], [0.20414, 1.0]),
+        ("cylinder manual", "texture_map_to_cylinder", manual_cyl(), [231.840714, 234.381546], [0.725582, -1.644086], [0.235952, 3.057424]),
+        ("sphere", "texture_map_to_sphere", vec![], [232.267807, 231.000015], [0.629777, 0.786266], [0.382639, 0.12019]),
+        ("sphere seam", "texture_map_to_sphere", vec![("prevent_seam", json!(false))], [225.270767, 231.000015], [0.685112, 0.786266], [0.19132, 0.12019]),
+    ];
+    for (data, cases) in [(&sphere, sphere_cases), (&contour, contour_cases)] {
+        for (tag, id, set, sums, first, last) in cases {
+            let out = run(id, Some(data), &set);
+            let (s, f, l) = summary(&out, "Texture Coordinates");
+            close_all(&format!("{tag} sums"), &s, &sums, 2e-5);
+            close_all(&format!("{tag} first"), &f, &first, 2e-5);
+            close_all(&format!("{tag} last"), &l, &last, 2e-5);
+            assert_eq!(out.point_data().unwrap().active(AttributeKind::TCoords).map(|a| a.name.as_str()), Some("Texture Coordinates"));
+        }
+    }
+
+    let wavelet = td("wavelet.vti");
+    let p = run("perlin_noise", Some(&wavelet), &[("frequency", json!([0.15, 0.2, 0.25])), ("phase", json!([0.3, 0.1, 0.7])), ("amplitude", json!(2.5))]);
+    let (s, f, l) = summary(&p, "PerlinNoise");
+    close_all("perlin", &[s[0], f[0], l[0]], &[622.142334, -0.283101, -0.111462], 1e-5);
+    let p = run("perlin_noise", Some(&sphere), &[]);
+    let (s, f, l) = summary(&p, "PerlinNoise");
+    close_all("perlin default", &[s[0], f[0], l[0]], &[60.971581, -0.859183, 0.818144], 1e-5);
+
+    let h = run("spatio_temporal_harmonics", Some(&wavelet), &[]);
+    let (s, f, l) = summary(&h, "SpatioTemporalHarmonics");
+    close_all("harmonics filter", &[s[0], f[0], l[0]], &[-241.929211, -2.000078, -1.999893], 1e-6);
+    assert!(h.point_data().unwrap().get("RTData").is_some());
+
+    // The source at its first time step and at its fourth (0.9425).
+    let def = find("spatio_temporal_harmonics_grid").unwrap();
+    let params = def.default_params();
+    let times = (def.temporal.unwrap().output_times)(&params, &[]);
+    assert_eq!(times.len(), 20);
+    let g = def.run(None, &params).unwrap();
+    assert_eq!(g.n_points(), 21 * 21 * 21);
+    let (s, f, l) = summary(&g, "SpatioTemporalHarmonics");
+    close_all("harmonics source t0", &[s[0], f[0], l[0]], &[881.490474, 2.000171, 1.9998], 1e-6);
+    let v = aurafx_filters::texture::harmonics_grid([-10, 10, -10, 10, -10, 10], &aurafx_filters::texture::DEFAULT_HARMONICS, times[3]).unwrap();
+    let (s, f, l) = summary(&v, "SpatioTemporalHarmonics");
+    close_all("harmonics source t3", &[s[0], f[0], l[0]], &[358.824287, 1.621371, 1.621274], 1e-6);
+}

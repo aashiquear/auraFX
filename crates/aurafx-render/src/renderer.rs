@@ -90,6 +90,9 @@ struct GpuNode {
     uniform: wgpu::Buffer,
     lut_name: String,
     lut: wgpu::Texture,
+    /// Image file shown on the surface ("" = none) and its texture.
+    tex_key: String,
+    tex: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
     /// The uniform alone, for the shadow pass (which writes the shadow map).
     shadow_bg: wgpu::BindGroup,
@@ -158,6 +161,11 @@ pub struct Renderer {
     ao_bg: wgpu::BindGroup,
     env: GpuEnv,
     env_sampler: wgpu::Sampler,
+    /// Images shown on surfaces (display texture), by file path; None when it failed to load.
+    textures: HashMap<String, Option<wgpu::TextureView>>,
+    /// 1×1 white texture bound when a node shows no image.
+    white: wgpu::TextureView,
+    tex_sampler: wgpu::Sampler,
     /// An environment that could not be loaded (not retried every frame).
     env_failed: Option<String>,
     pipe_sky: wgpu::RenderPipeline,
@@ -462,6 +470,22 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 8,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
@@ -529,6 +553,16 @@ impl Renderer {
             ..Default::default()
         });
         let env = GpuEnv::upload(&device, &queue, None);
+        let tex_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("surface texture"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let white = upload_image(&device, &queue, 1, 1, &[255, 255, 255, 255]);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
@@ -1146,6 +1180,9 @@ impl Renderer {
             ao_bg,
             env,
             env_sampler,
+            textures: HashMap::new(),
+            white,
+            tex_sampler,
             env_failed: None,
             pipe_sky,
             sky_bgl,
@@ -1395,7 +1432,32 @@ impl Renderer {
         )
     }
 
-    fn make_bind_group(&self, uniform: &wgpu::Buffer, lut: &wgpu::Texture) -> wgpu::BindGroup {
+    /// The texture of an image file shown on surfaces (loaded once; white if it cannot be read).
+    fn surface_texture(&mut self, path: &str) -> wgpu::TextureView {
+        if !self.textures.contains_key(path) {
+            let t = match image::open(path) {
+                Ok(img) => {
+                    let img = img.to_rgba8();
+                    let max = self.device.limits().max_texture_dimension_2d;
+                    let img = if img.width() > max || img.height() > max {
+                        let f = max as f64 / img.width().max(img.height()) as f64;
+                        image::imageops::resize(&img, (img.width() as f64 * f) as u32, (img.height() as f64 * f) as u32, image::imageops::FilterType::Triangle)
+                    } else {
+                        img
+                    };
+                    Some(upload_image(&self.device, &self.queue, img.width(), img.height(), img.as_raw()))
+                }
+                Err(e) => {
+                    tracing::warn!("texture {path}: {e}");
+                    None
+                }
+            };
+            self.textures.insert(path.to_string(), t);
+        }
+        self.textures[path].clone().unwrap_or_else(|| self.white.clone())
+    }
+
+    fn make_bind_group(&self, uniform: &wgpu::Buffer, lut: &wgpu::Texture, tex: &wgpu::TextureView) -> wgpu::BindGroup {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("node bg"),
             layout: &self.bgl,
@@ -1407,6 +1469,8 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.shadow_sampler) },
                 wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&self.env.view) },
                 wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.env_sampler) },
+                wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(tex) },
+                wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(&self.tex_sampler) },
             ],
         })
     }
@@ -1454,7 +1518,7 @@ impl Renderer {
         let ids: Vec<NodeId> = self.nodes.keys().copied().collect();
         for id in ids {
             let g = &self.nodes[&id];
-            let bg = self.make_bind_group(&g.uniform, &g.lut);
+            let bg = self.make_bind_group(&g.uniform, &g.lut, &g.tex);
             self.nodes.get_mut(&id).unwrap().bind_group = bg;
         }
     }
@@ -1559,7 +1623,8 @@ impl Renderer {
                         mapped_at_creation: false,
                     });
                     let lut = self.lut_texture(&draw.display);
-                    let bind_group = self.make_bind_group(&uniform, &lut);
+                    let tex = self.white.clone();
+                    let bind_group = self.make_bind_group(&uniform, &lut, &tex);
                     let shadow_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("node shadow"),
                         layout: &self.shadow_bgl,
@@ -1567,20 +1632,42 @@ impl Renderer {
                     });
                     self.nodes.insert(
                         draw.id,
-                        GpuNode { volume, mesh_ptr: ptr, tris, lines, points, uniform, lut_name: draw.display.colormap_key(), lut, bind_group, shadow_bg, lic },
+                        GpuNode {
+                            volume,
+                            mesh_ptr: ptr,
+                            tris,
+                            lines,
+                            points,
+                            uniform,
+                            lut_name: draw.display.colormap_key(),
+                            lut,
+                            tex_key: String::new(),
+                            tex,
+                            bind_group,
+                            shadow_bg,
+                            lic,
+                        },
                     );
                 }
             }
         }
-        let g = self.nodes.get(&draw.id).unwrap();
         let key = draw.display.colormap_key();
-        if g.lut_name != key {
+        if self.nodes[&draw.id].lut_name != key {
             let lut = self.lut_texture(&draw.display);
-            let bind_group = self.make_bind_group(&g.uniform, &lut);
             let g = self.nodes.get_mut(&draw.id).unwrap();
             g.lut = lut;
-            g.bind_group = bind_group;
             g.lut_name = key;
+            g.tex_key = "\0".into(); // rebuild the bind group below
+        }
+        let tex_key = if draw.mesh.textured { draw.display.texture.clone().unwrap_or_default() } else { String::new() };
+        if self.nodes[&draw.id].tex_key != tex_key {
+            let tex = if tex_key.is_empty() { self.white.clone() } else { self.surface_texture(&tex_key) };
+            let g = &self.nodes[&draw.id];
+            let bind_group = self.make_bind_group(&g.uniform, &g.lut, &tex);
+            let g = self.nodes.get_mut(&draw.id).unwrap();
+            g.tex = tex;
+            g.tex_key = tex_key;
+            g.bind_group = bind_group;
         }
     }
 
@@ -1968,7 +2055,12 @@ impl Renderer {
                     d.display.specular.max(0.0),
                     aurafx_pipeline::display::specular_power(d.display.roughness),
                 ],
-                env: [if self.env.env.is_some() { 1.0 } else { 0.0 }, self.env_intensity, self.env.mips.saturating_sub(1) as f32, 0.0],
+                env: [
+                    if self.env.env.is_some() { 1.0 } else { 0.0 },
+                    self.env_intensity,
+                    self.env.mips.saturating_sub(1) as f32,
+                    if d.mesh.textured && !g.tex_key.is_empty() { 1.0 } else { 0.0 },
+                ],
                 sh,
             };
             self.queue.write_buffer(&g.uniform, 0, bytemuck::bytes_of(&u));
@@ -2269,4 +2361,33 @@ fn pollster_block<F: std::future::Future>(f: F) -> F::Output {
         }
         std::thread::yield_now();
     }
+}
+
+/// An RGBA8 (sRGB) image as a texture with mipmaps (made on the CPU), for surfaces.
+fn upload_image(device: &wgpu::Device, queue: &wgpu::Queue, w: u32, h: u32, rgba: &[u8]) -> wgpu::TextureView {
+    let levels = 32 - w.max(h).max(1).leading_zeros();
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("surface texture"),
+        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        mip_level_count: levels,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mut img = image::RgbaImage::from_raw(w, h, rgba.to_vec()).expect("image size");
+    for level in 0..levels {
+        let (lw, lh) = (img.width(), img.height());
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &tex, mip_level: level, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            img.as_raw(),
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * lw), rows_per_image: Some(lh) },
+            wgpu::Extent3d { width: lw, height: lh, depth_or_array_layers: 1 },
+        );
+        if level + 1 < levels {
+            img = image::imageops::resize(&img, (lw / 2).max(1), (lh / 2).max(1), image::imageops::FilterType::Triangle);
+        }
+    }
+    tex.create_view(&Default::default())
 }

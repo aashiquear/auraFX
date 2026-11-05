@@ -187,6 +187,24 @@ fn s(key: &str, label: &str, default: &str) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Str, ParamValue::Str(default.into()))
 }
 
+fn harmonics_spec() -> ParamSpec {
+    ParamSpec::new("harmonics", "Harmonics", ParamKind::Floats, ParamValue::Floats(crate::texture::DEFAULT_HARMONICS.to_vec()))
+        .help("6 numbers per wave: amplitude, temporal frequency, wave vector x y z, phase. Value = sum of amplitude * sin(frequency * time + wave vector . point + phase).")
+}
+
+fn harmonics_param(p: &Params) -> Vec<f64> {
+    p.floats("harmonics")
+}
+
+fn harmonics_grid(p: &Params, t: f64) -> Result<DataSet> {
+    let e = p.floats("extent");
+    if e.len() != 6 {
+        return Err(anyhow!("the extent takes 6 numbers (x min, x max, y min, y max, z min, z max)"));
+    }
+    let e: [i64; 6] = std::array::from_fn(|k| e[k].round() as i64);
+    crate::texture::harmonics_grid(e, &harmonics_param(p), t)
+}
+
 /// Component selection: "" or "Magnitude" -> None, "X"/"0" -> Some(0) ...
 fn comp(p: &Params) -> Option<usize> {
     match p.str("component").as_str() {
@@ -1502,6 +1520,113 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "texture_map_to_plane",
+            label: "Texture Map to Plane",
+            category: "Data",
+            description: "Texture coordinates from a plane: fitted to the points, or through Origin, Point 1 and Point 2.",
+            keywords: &["texture coordinates", "uv", "tcoords", "planar mapping", "image on surface"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                b("automatic", "Automatic", true).help("Fit the plane to the points (Origin and Point 1 must stay at 0 0 0)."),
+                v3("origin", "Origin", [0.0; 3]).help("Where s and t are 0."),
+                v3("point1", "Point 1", [0.0; 3]).help("Where s is 1 (t = 0)."),
+                v3("point2", "Point 2", [0.0; 3]).help("Where t is 1 (s = 0)."),
+            ],
+            apply: |input, p| {
+                let (o, p1, p2) = (p.vec3("origin", [0.0; 3]), p.vec3("point1", [0.0; 3]), p.vec3("point2", [0.0; 3]));
+                per_leaf(input.unwrap(), &|d| crate::texture::map_to_plane(d, p.bool("automatic", true), o, p1, p2))
+            },
+        },
+        FilterDef {
+            id: "texture_map_to_cylinder",
+            label: "Texture Map to Cylinder",
+            category: "Data",
+            description: "Texture coordinates around a cylinder: t along its axis, s around it.",
+            keywords: &["texture coordinates", "uv", "tcoords", "cylindrical mapping", "image on surface", "wrap"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                b("automatic", "Automatic", true).help("Put the axis along the longest side of the data's oriented bounding box."),
+                v3("point1", "Point 1", [0.0; 3]).help("Axis start (t = 0) when Automatic is off."),
+                v3("point2", "Point 2", [0.0; 3]).help("Axis end (t = 1) when Automatic is off."),
+                b("prevent_seam", "Prevent seam", true).help("s goes 0 to 1 and back around the axis, so the texture shows twice without a seam."),
+            ],
+            apply: |input, p| {
+                let (p1, p2) = (p.vec3("point1", [0.0; 3]), p.vec3("point2", [0.0; 3]));
+                per_leaf(input.unwrap(), &|d| crate::texture::map_to_cylinder(d, p.bool("automatic", true), p1, p2, p.bool("prevent_seam", true)))
+            },
+        },
+        FilterDef {
+            id: "texture_map_to_sphere",
+            label: "Texture Map to Sphere",
+            category: "Data",
+            description: "Texture coordinates on a sphere around the data: t from pole to pole (along z), s around z.",
+            keywords: &["texture coordinates", "uv", "tcoords", "spherical mapping", "globe", "earth texture", "image on surface"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("center", "Center", [f64::NAN; 3]).help("Leave empty to use the mean of the points.").advanced(),
+                b("prevent_seam", "Prevent seam", true).help("s goes 0 to 1 and back around z, so the texture shows twice without a seam. Turn off for a world map."),
+            ],
+            apply: |input, p| {
+                let c = p.vec3("center", [f64::NAN; 3]);
+                let c = if c.iter().any(|x| x.is_nan()) { None } else { Some(c) };
+                per_leaf(input.unwrap(), &|d| crate::texture::map_to_sphere(d, c, p.bool("prevent_seam", true)))
+            },
+        },
+        FilterDef {
+            id: "perlin_noise",
+            label: "Perlin Noise",
+            category: "Data",
+            description: "Smooth random-looking values at every point (Perlin noise), for textures and test data.",
+            keywords: &["noise", "random", "procedural", "turbulence", "texture"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("frequency", "Frequency", [1.0; 3]).help("Bumps per unit length along x, y and z."),
+                v3("phase", "Phase", [0.0; 3]).help("Shifts the pattern (half a unit per 1)."),
+                f("amplitude", "Amplitude", 1.0, f64::NEG_INFINITY, f64::INFINITY),
+                s("result", "Result name", "PerlinNoise"),
+            ],
+            apply: |input, p| {
+                let (fr, ph, a, name) = (p.vec3("frequency", [1.0; 3]), p.vec3("phase", [0.0; 3]), p.f64("amplitude", 1.0), p.str("result"));
+                per_leaf(input.unwrap(), &|d| crate::texture::perlin_noise(d, fr, ph, a, &name))
+            },
+        },
+        FilterDef {
+            id: "spatio_temporal_harmonics",
+            label: "Spatio Temporal Harmonics",
+            category: "Data",
+            description: "A sum of travelling sine waves at every point, changing with the input's time.",
+            keywords: &["waves", "sine", "harmonics", "synthetic", "test data", "animation"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, p| {
+                    let h = harmonics_param(p);
+                    let d = (ctx.fetch)(ctx.time)?;
+                    let t = if ctx.input_times.is_empty() { 0.0 } else { ctx.time };
+                    per_leaf(&d, &|d| crate::texture::harmonics(d, &h, t))
+                },
+                output_times: |_, t| t.to_vec(),
+            }),
+            multi: None,
+            params: vec![harmonics_spec()],
+            apply: |input, p| {
+                let h = harmonics_param(p);
+                per_leaf(input.unwrap(), &|d| crate::texture::harmonics(d, &h, 0.0))
+            },
+        },
+        FilterDef {
             id: "cell_size",
             label: "Cell Size",
             category: "Data",
@@ -1826,6 +1951,34 @@ fn build() -> Vec<FilterDef> {
                 let dims = b.map(|v| v.round().clamp(1.0, 200.0) as usize);
                 Ok(DataSet::UnstructuredGrid(crate::sources::unstructured_cell_types(ty, dims, p.i64("order", 3).clamp(1, 10) as usize)))
             },
+        },
+        FilterDef {
+            id: "spatio_temporal_harmonics_grid",
+            label: "Spatio Temporal Harmonics",
+            category: "Sources",
+            description: "Image volume of travelling sine waves with its own time steps (animated test data).",
+            keywords: &["waves", "sine", "harmonics", "synthetic", "test data", "animation", "time steps", "uniform grid"],
+            is_source: true,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, p| harmonics_grid(p, ctx.time),
+                output_times: |p, _| {
+                    let mut t = p.floats("time_steps");
+                    t.retain(|x| x.is_finite());
+                    t.sort_by(f64::total_cmp);
+                    t.dedup();
+                    t
+                },
+            }),
+            multi: None,
+            params: vec![
+                ParamSpec::new("extent", "Whole extent", ParamKind::Floats, ParamValue::Floats(vec![-10.0, 10.0, -10.0, 10.0, -10.0, 10.0]))
+                    .help("x min, x max, y min, y max, z min, z max (point indices, spacing 1)."),
+                harmonics_spec(),
+                ParamSpec::new("time_steps", "Time steps", ParamKind::Floats, ParamValue::Floats(crate::texture::DEFAULT_TIMES.to_vec()))
+                    .help("The source's time steps (default: one period of the first wave in 20 steps)."),
+            ],
+            apply: |_, p| harmonics_grid(p, p.floats("time_steps").first().copied().unwrap_or(0.0)),
         },
         FilterDef {
             id: "wavelet",

@@ -25,6 +25,7 @@ pub mod sources;
 pub mod streamlines;
 pub mod surface;
 pub mod temporal;
+pub mod texture;
 pub mod threshold;
 pub mod transform;
 pub mod warp;

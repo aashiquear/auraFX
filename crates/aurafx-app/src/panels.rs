@@ -949,6 +949,39 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     });
                     ui.end_row();
                 }
+                if matches!(d.representation, Representation::Surface | Representation::SurfaceWithEdges) {
+                    let has_tc = info.as_ref().is_some_and(|i| {
+                        i.point_arrays.iter().any(|a| {
+                            let n = a.name.to_ascii_lowercase();
+                            a.ncomp == 2 && (n.contains("texture") || n.contains("tcoord"))
+                        })
+                    });
+                    if has_tc || d.texture.is_some() {
+                        ui.label("Texture");
+                        ui.horizontal(|ui| {
+                            let shown = d
+                                .texture
+                                .as_deref()
+                                .map(|t| std::path::Path::new(t).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| t.to_string()))
+                                .unwrap_or_else(|| "none".into());
+                            ui.label(shown).on_hover_text(d.texture.clone().unwrap_or_else(|| "An image shown on the surface through its texture coordinates".into()));
+                            if ui.small_button("Choose…").on_hover_text("Pick a PNG or JPEG image to show on the surface").clicked() {
+                                if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg"]).pick_file() {
+                                    d.texture = Some(p.to_string_lossy().into_owned());
+                                }
+                            }
+                            if d.texture.is_some() && ui.small_button(crate::icons::X).on_hover_text("No texture").clicked() {
+                                d.texture = None;
+                            }
+                        });
+                        ui.end_row();
+                        if !has_tc {
+                            ui.label("");
+                            ui.weak("No texture coordinates: add Texture Map to Plane, Cylinder or Sphere");
+                            ui.end_row();
+                        }
+                    }
+                }
                 if d.representation == Representation::SurfaceLic {
                     let vectors: Vec<String> = info
                         .as_ref()

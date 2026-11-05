@@ -11,7 +11,7 @@ struct NodeUniform {
     light_dirs: array<vec4<f32>, 8>,   // world direction towards the light; w = casts shadows
     light_colors: array<vec4<f32>, 8>, // color * intensity
     material: vec4<f32>,       // metallic, roughness, specular, highlight power
-    env: vec4<f32>,            // environment on, intensity, mip levels, 0
+    env: vec4<f32>,            // environment on, intensity, mip levels, textured
     sh: array<vec4<f32>, 9>,   // environment irradiance (spherical harmonics, RGB)
 };
 
@@ -22,6 +22,8 @@ struct NodeUniform {
 @group(0) @binding(4) var shadow_sampler: sampler_comparison;
 @group(0) @binding(5) var env_map: texture_2d<f32>;
 @group(0) @binding(6) var env_sampler: sampler;
+@group(0) @binding(7) var surface_tex: texture_2d<f32>;
+@group(0) @binding(8) var surface_sampler: sampler;
 
 /// Equirectangular coordinates of a direction (+Z up).
 fn env_uv(d: vec3<f32>) -> vec2<f32> {
@@ -51,6 +53,8 @@ struct VertexOut {
     @location(1) normal: vec3<f32>,
     @location(2) scalar: f32,
     @location(3) shadow: vec4<f32>,
+    // Texture coordinates (textured surfaces: packed as two halves in the scalar).
+    @location(4) uv: vec2<f32>,
 };
 
 /// Fraction of light reaching a point (3x3 percentage-closer filtering of the shadow map).
@@ -90,6 +94,16 @@ fn scalar_color(s: f32) -> vec3<f32> {
         t = clamp((v - lo) / (hi - lo), 0.0, 1.0);
     }
     return textureSample(lut, lut_sampler, t).rgb;
+}
+
+/// The image on a textured surface (t = 0 is the image's bottom row, as in VTK), else the
+/// scalar or solid color.
+fn surface_color(s: f32, uv: vec2<f32>) -> vec3<f32> {
+    let c = textureSample(surface_tex, surface_sampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb;
+    if (node.env.w > 0.5) {
+        return c;
+    }
+    return base_color(s);
 }
 
 fn base_color(s: f32) -> vec3<f32> {
@@ -164,6 +178,10 @@ fn vs_mesh(in: VertexIn) -> VertexOut {
     out.normal = in.normal;
     out.scalar = in.scalar;
     out.shadow = node.shadow_vp * vec4<f32>(in.pos, 1.0);
+    out.uv = vec2<f32>(0.0);
+    if (node.env.w > 0.5) {
+        out.uv = unpack2x16float(bitcast<u32>(in.scalar));
+    }
     return out;
 }
 
@@ -175,23 +193,23 @@ fn vs_shadow(in: VertexIn) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs_mesh(in: VertexOut) -> @location(0) vec4<f32> {
-    let c = shade(base_color(in.scalar), in.normal, in.world, in.shadow);
+    let c = shade(surface_color(in.scalar, in.uv), in.normal, in.world, in.shadow);
     return vec4<f32>(c, node.color.a);
 }
 
 @fragment
 fn fs_line(in: VertexOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(base_color(in.scalar), node.color.a);
+    return vec4<f32>(surface_color(in.scalar, in.uv), node.color.a);
 }
 
 @fragment
 fn fs_mesh_oit(in: VertexOut) -> OitOut {
-    return oit(shade(base_color(in.scalar), in.normal, in.world, in.shadow), node.color.a, in.clip.z);
+    return oit(shade(surface_color(in.scalar, in.uv), in.normal, in.world, in.shadow), node.color.a, in.clip.z);
 }
 
 @fragment
 fn fs_line_oit(in: VertexOut) -> OitOut {
-    return oit(base_color(in.scalar), node.color.a, in.clip.z);
+    return oit(surface_color(in.scalar, in.uv), node.color.a, in.clip.z);
 }
 
 // ---- point sprites: 6 vertices per instance ----

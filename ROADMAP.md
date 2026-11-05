@@ -123,7 +123,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Connectivity ★, Rectilinear Grid Connectivity, Extract Surface ★, Extract Edges, Feature Edges ★, Feature Edges Region Ids, Extract Region Surface, Extract Enclosed Points, Extract Cells By Region, Extract Cells By Type, Extract Cells Along Line, Extract Cells Along Lines (custom source), Extract Location, Extract Ghost Cells, Ghost Cells, Remove Ghost Information, Extract Selection ★, Extract Time Steps, Extract Particles Over Time, Extract AMR Blocks, Extract CTH Parts, Geometry Filter, Outline ★, Outline Corners, Outline Curvilinear DataSet, Outline Generic DataSet, Bounding Ruler
 - [~] Transform ★, Axis-Aligned Transform, Reflect, Axis-Aligned Reflect, Shrink, Explode DataSet, Crop, Image Shrink, Align Image Origins, Stitch Image Data With Ghosts
 - [~] Triangulate ★, Tetrahedralize ★, Tessellate (done: uniform levels instead of ParaView's chord-error refinement), Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
-- [ ] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics
+- [x] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics (filter and source; checked against ParaView), plus the display Texture (an image on a surface)
 - [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR, Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
 - [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
@@ -706,9 +706,22 @@ any name until the first answer). Parallel servers pass them to every process; s
 keep server nodes' parameters (they were dropped on load before). Tested in-process, with a
 3-process parallel server, and through a real aurafx-server process (the guide screenshot).
 
+Done in iteration 30: **texture mapping and made-up data**. Texture Map to Plane (least-squares
+plane or origin/point 1/point 2), Cylinder (axis from the oriented bounding box, with VTK's
+Jacobi eigenvector signs, or two points) and Sphere (center = mean of the points), each with
+Prevent Seam, ported from VTK so all 14 cases on two surfaces match ParaView 6.1.1 to float
+precision. The display gets a **Texture** (PNG/JPEG, mipmapped, repeating): texture
+coordinates travel packed as two halves in the vertex scalar, so the vertex layout is
+unchanged; the image replaces array colors, lighting still applies (ray tracing, scene export
+and server-drawn pictures show the solid color). **Perlin Noise** (VTK's Graphics Gems
+version, bit-exact hashing) and **Spatio Temporal Harmonics** as a filter (input's time; time 0
+on static data, as ParaView) and as a source with **time steps of its own**: sources can now
+be temporal (their steps join the animation, they recompute per step, saved states keep
+them). Values match ParaView's filters and source (default harmonics and times as ParaView's
+rounded defaults).
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), GDAL vectors,
-remaining filter catalog (texture mapping, AMR, hyper tree grids,
-molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+remaining filter catalog (AMR, hyper tree grids, cell grid, molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)

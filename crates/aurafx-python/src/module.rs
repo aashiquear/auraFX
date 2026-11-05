@@ -125,6 +125,15 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                     _ => d.specular = v.max(0.0),
                 });
             }
+            "texture" => {
+                let v = val.as_str().filter(|t| !t.trim().is_empty()).map(str::to_string);
+                if let Some(t) = &v {
+                    if !std::path::Path::new(t).is_file() {
+                        return Err(PyValueError::new_err(format!("texture: no image file {t}")));
+                    }
+                }
+                s.set_display(id, |d| d.texture = v);
+            }
             "lic_vectors" => {
                 let v = val.as_str().map(str::to_string);
                 s.set_display(id, |d| d.lic_vectors = v);

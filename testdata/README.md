@@ -16,5 +16,6 @@ Small files are committed. Larger ones are ignored by git and can be recreated:
 | `rasters/*.tif`, `rasters/dem.asc` | `pvpython scripts/gen_rasters.py`: GeoTIFFs written by the GDAL library inside ParaView (elevation with no-data, RGB, 4 planar tiled bands, pixel-is-point) and an Esri ASCII grid of the same elevations; ParaView reference values in `rasters_match_paraview`, committed |
 | `netcdf/pop_ocean.nc` | `python3 scripts/gen_pop.py`: POP-style ocean history (2-D TLONG/TLAT, depth in cm positive down, an island as fill values), committed |
 | `netcdf/cam_se.nc`, `netcdf/cam_se_connectivity.nc` | `python3 scripts/gen_cam.py`: CAM-SE-style output on a cubed sphere (turned 10 degrees so no column sits on the seam) and its connectivity file; ParaView reference values for both in `cam_and_pop_match_paraview`, committed |
+| `images/planet.jpg` | `python3 scripts/gen_texture.py`: a made-up planet map (equirectangular, 1024 × 512, wraps without a seam) for texture tests and the user guide, committed |
 
 Tests that need a missing file skip themselves.

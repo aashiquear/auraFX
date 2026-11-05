@@ -18,6 +18,9 @@ d.set(color_by="V", component=0)        # x component of a vector
 d.set(color_by=None, solid_color=(0.8, 0.2, 0.1))
 ```
 
+To show an image on a surface instead of colors (a map on a globe), see
+[Textures](filters.md#showing-an-image-on-a-surface).
+
 ## Color maps
 
 Eighteen maps ship with the app (Viridis, Inferno, Magma, Plasma, Cool to Warm, Jet,

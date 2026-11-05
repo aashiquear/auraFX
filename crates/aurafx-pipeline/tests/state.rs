@@ -443,3 +443,38 @@ fn reader_options_reread_the_file() {
     let d = s.nodes[&r].output.clone().unwrap();
     assert_eq!((d.n_points(), d.n_cells()), (642, 949));
 }
+
+/// A source with time steps of its own (Spatio Temporal Harmonics): its steps become the
+/// animation's, it is recomputed for the current one, filters below follow, and a saved state
+/// brings it back with them.
+#[test]
+fn source_with_time_steps() {
+    let value_at = |s: &Session, id, i: usize| s.nodes[&id].output.as_ref().unwrap().point_data().unwrap().get("SpatioTemporalHarmonics").unwrap().get(i, 0);
+    let mut s = Session::new();
+    let src = s.add_source("spatio_temporal_harmonics_grid").unwrap();
+    s.set_param(src, "extent", ParamValue::Floats(vec![-2.0, 2.0, -2.0, 2.0, 0.0, 0.0]));
+    let cut = s.add_filter("threshold", src).unwrap();
+    s.update_blocking();
+    assert_eq!(s.times.len(), 20);
+    assert_eq!(s.times[3], 0.9425);
+    let h = aurafx_filters::texture::DEFAULT_HARMONICS;
+    let expect = |t: f64| aurafx_filters::texture::harmonics_value(&h, [-2.0, -2.0, 0.0], t);
+    assert!((value_at(&s, src, 0) - expect(0.0)).abs() < 1e-12);
+    s.set_time_index(3);
+    s.update_blocking();
+    assert!((value_at(&s, src, 0) - expect(0.9425)).abs() < 1e-12);
+    // The threshold below was recomputed at the new time too.
+    let range = |s: &Session, id| s.nodes[&id].output.as_ref().unwrap().point_data().unwrap().get("SpatioTemporalHarmonics").unwrap().range(None);
+    assert_eq!(range(&s, cut).1, range(&s, src).1);
+    // Fewer time steps from the parameter.
+    s.set_param(src, "time_steps", ParamValue::Floats(vec![0.0, 0.5]));
+    s.update_blocking();
+    assert_eq!(s.times, vec![0.0, 0.5]);
+    let path = std::env::temp_dir().join(format!("aurafx-harmonics-{}.afx", std::process::id()));
+    s.save_state(&path, None).unwrap();
+    let mut t = Session::new();
+    t.load_state(&path).unwrap();
+    t.update_blocking();
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(t.times, vec![0.0, 0.5]);
+}

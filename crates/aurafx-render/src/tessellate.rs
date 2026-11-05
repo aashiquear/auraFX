@@ -30,6 +30,8 @@ pub struct MeshData {
     pub volume: Option<VolumeData>,
     /// Surface LIC: the vector at each vertex of `tris` (empty for other representations).
     pub lic: Vec<[f32; 4]>,
+    /// The vertices carry texture coordinates (packed in `scalar`) for the display's image.
+    pub textured: bool,
 }
 
 /// A scalar field on a uniform grid for ray casting. Values are normalized to [0, 1] over `range`
@@ -130,6 +132,28 @@ fn leaves_at(ds: &DataSet, repr: Representation, level: u32, cell_offset: usize)
             }
         },
     }
+}
+
+/// The texture coordinates of a point set: the active ones, else a 2-component point array
+/// named like texture coordinates.
+pub fn tcoords(attrs: &Attributes) -> Option<&aurafx_data::Array> {
+    let ok = |a: &&aurafx_data::Array| a.ncomp >= 2 && a.scalar_type() != ScalarType::String;
+    attrs.active(aurafx_data::AttributeKind::TCoords).filter(ok).or_else(|| {
+        attrs.iter().filter(ok).find(|a| {
+            let n = a.name.to_ascii_lowercase();
+            a.ncomp == 2 && (n.contains("texture") || n.contains("tcoord"))
+        })
+    })
+}
+
+/// Texture coordinates packed as two halves into one float (unpacked by the shader).
+fn packed_tcoords(a: &aurafx_data::Array) -> Vec<f32> {
+    (0..a.len())
+        .map(|i| {
+            let (u, v) = (half::f16::from_f64(a.get(i, 0)).to_bits() as u32, half::f16::from_f64(a.get(i, 1)).to_bits() as u32);
+            f32::from_bits(u | (v << 16))
+        })
+        .collect()
 }
 
 /// Per-point scalar values (component or magnitude) for coloring, or None.
@@ -395,8 +419,16 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         emit_lines(&pd, origin, None, None, 0, &mut mesh.lines);
         return mesh;
     }
+    // An image on the surface replaces the array colors where there are texture coordinates.
+    if display.texture.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+        let has = |d: &DataSet| d.point_data().is_some_and(|a| tcoords(a).is_some());
+        mesh.textured = match ds {
+            DataSet::MultiBlock(mb) => mb.leaves().into_iter().any(|(_, d)| has(d)),
+            d => has(d),
+        };
+    }
     // Global scalar range for consistent coloring across leaves.
-    if let Some(cb) = &display.color_by {
+    if let Some(cb) = display.color_by.as_ref().filter(|_| !mesh.textured) {
         let mut lo = f64::INFINITY;
         let mut hi = f64::NEG_INFINITY;
         let mut visit = |d: &DataSet| {
@@ -428,6 +460,7 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
     for leaf in leaves(ds, display.representation, display.nonlinear_subdivision.min(6)) {
         let pd = &leaf.pd;
         let (pscal, cscal) = match &display.color_by {
+            _ if mesh.textured => (tcoords(&pd.point_data).map(packed_tcoords), None),
             Some(cb) if mesh.has_scalars => match cb.assoc {
                 Association::Points => (point_scalars(&pd.point_data, &cb.name, cb.component), None),
                 Association::Cells => (None, point_scalars(&pd.cell_data, &cb.name, cb.component)),

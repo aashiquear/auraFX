@@ -99,6 +99,8 @@ pub struct DisplayProps {
     pub roughness: f32,
     /// Material: strength of highlights on non-metals.
     pub specular: f32,
+    /// Image file (PNG, JPEG) shown on the surface through its texture coordinates.
+    pub texture: Option<String>,
 }
 
 /// Roughness whose highlights match the classic shading (Blinn-Phong power 60).
@@ -146,6 +148,7 @@ impl Default for DisplayProps {
             nonlinear_subdivision: 1,
             draw_on: DrawOn::Auto,
             lic_vectors: None,
+            texture: None,
             lic_strength: 0.8,
             lic_length: 20,
             metallic: 0.0,

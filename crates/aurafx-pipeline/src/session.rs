@@ -38,6 +38,12 @@ enum Plan {
     Temporal { def: Arc<FilterDef>, params: Params, input: Box<Plan>, extra: Vec<Arc<DataSet>>, state: TemporalState },
 }
 
+/// The (empty) input a source with time steps is run on.
+fn no_input() -> Arc<DataSet> {
+    static EMPTY: std::sync::OnceLock<Arc<DataSet>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(|| Arc::new(DataSet::PolyData(Default::default()))).clone()
+}
+
 type PlanCache = std::sync::Mutex<std::collections::HashMap<(usize, u64), Arc<DataSet>>>;
 
 impl Plan {
@@ -632,6 +638,9 @@ impl Session {
         self.active = Some(id);
         self.camera_request = Some(CameraRequest::ResetToBounds);
         self.trace.push(format!("{} = afx.{}()", self.py_var(id), def.id));
+        if def.temporal.is_some() {
+            self.rebuild_times();
+        }
         self.touch();
         Ok(id)
     }
@@ -1136,7 +1145,8 @@ impl Session {
         match &n.kind {
             NodeKind::Reader { loaded: Loaded::Series(s), .. } => s.times.clone(),
             NodeKind::Remote { times, .. } => times.clone(),
-            NodeKind::Reader { .. } | NodeKind::Source { .. } => Vec::new(),
+            NodeKind::Source { def } => def.temporal.map(|t| (t.output_times)(&n.params, &[])).unwrap_or_default(),
+            NodeKind::Reader { .. } => Vec::new(),
             NodeKind::Filter { def } => match def.temporal {
                 Some(t) => (t.output_times)(&n.params, &n.input.map(|i| self.node_times(i, depth + 1)).unwrap_or_default()),
                 None => union_times(n.input.iter().chain(n.extra_inputs.iter()).map(|&i| self.node_times(i, depth + 1))),
@@ -1153,7 +1163,8 @@ impl Session {
         match &n.kind {
             NodeKind::Reader { loaded: Loaded::Series(_), .. } => true,
             NodeKind::Remote { times, .. } => !times.is_empty(),
-            NodeKind::Reader { .. } | NodeKind::Source { .. } => false,
+            NodeKind::Source { def } => def.temporal.is_some_and(|t| !(t.output_times)(&n.params, &[]).is_empty()),
+            NodeKind::Reader { .. } => false,
             NodeKind::Filter { .. } => n.input.iter().chain(n.extra_inputs.iter()).any(|&i| self.time_dependent(i, depth + 1)),
         }
     }
@@ -1172,6 +1183,14 @@ impl Session {
             NodeKind::Reader { loaded: Loaded::Series(s), .. } => {
                 Plan::Series { series: s.clone(), current: n.output_time_index.zip(n.output.clone()), piece: self.piece, options: reader_options_of(&n.params) }
             }
+            // A source with time steps of its own (Spatio Temporal Harmonics).
+            NodeKind::Source { def } if def.temporal.is_some() => Plan::Temporal {
+                def: def.clone(),
+                params: n.params.clone(),
+                input: Box::new(Plan::Fixed(no_input())),
+                extra: Vec::new(),
+                state: n.temporal_state.clone(),
+            },
             NodeKind::Reader { .. } | NodeKind::Source { .. } | NodeKind::Remote { .. } => Plan::Fixed(data()?),
             NodeKind::Filter { def } if def.temporal.is_some() => Plan::Temporal {
                 def: def.clone(),
@@ -1203,7 +1222,11 @@ impl Session {
             let readers: Vec<NodeId> = self
                 .nodes
                 .values()
-                .filter(|n| n.series().is_some() || matches!(&n.kind, NodeKind::Remote { times, .. } if !times.is_empty()))
+                .filter(|n| {
+                    n.series().is_some()
+                        || matches!(&n.kind, NodeKind::Remote { times, .. } if !times.is_empty())
+                        || matches!(&n.kind, NodeKind::Source { def } if def.temporal.is_some())
+                })
                 .map(|n| n.id)
                 .collect();
             for r in readers {
@@ -1305,6 +1328,26 @@ impl Session {
                         continue;
                     }
                     WorkKind::LoadStep { step: s.steps[index].clone(), index, piece: self.piece, options: reader_options_of(&n.params) }
+                }
+                NodeKind::Source { def } if def.temporal.is_some() => {
+                    let times = (def.temporal.unwrap().output_times)(&n.params, &[]);
+                    let time = self.current_time().filter(|_| !times.is_empty()).or_else(|| times.first().copied()).unwrap_or(0.0);
+                    let key = {
+                        use std::hash::{Hash, Hasher};
+                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                        serde_json::to_string(&n.params).unwrap_or_default().hash(&mut h);
+                        h.finish()
+                    };
+                    // The step at or before the current time (as readers do).
+                    let time = times.iter().rev().find(|&&x| x <= time + 1e-12 * (1.0 + time.abs())).or(times.first()).copied().unwrap_or(time);
+                    if n.output.is_some() && n.temporal_key == Some((key, time)) {
+                        self.nodes.get_mut(&id).unwrap().dirty = false;
+                        self.touch();
+                        continue;
+                    }
+                    let (def, params, state) = (def.clone(), n.params.clone(), n.temporal_state.clone());
+                    self.nodes.get_mut(&id).unwrap().temporal_key = Some((key, time));
+                    WorkKind::Temporal { def, params, input: Plan::Fixed(no_input()), extra: Vec::new(), state, time }
                 }
                 NodeKind::Source { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: None, extra: Vec::new() },
                 NodeKind::Remote { .. } => continue,

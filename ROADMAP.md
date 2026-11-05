@@ -255,7 +255,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 ## 9. Distributed and remote (parity with pvserver)
 
-- [ ] Client/server split: `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
+- [~] Client/server split (data server done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery; server-side rendering todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
 - [ ] Multi-process data parallel (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
 - [ ] Collaboration: shared sessions with multiple clients.
 - [ ] In-situ: Catalyst/Conduit endpoint, live visualization of running jobs.
@@ -281,7 +281,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 | P3 Simulation | mostly done (Slurm untested) | Job runner local + SSH, templates, sweeps, watch folders, remote file browser, GPU monitoring |
 | P4 Rendering depth | in progress | Volume rendering, widgets, lighting/SSAO/EDL, animation + keyframes, exporters, LIC, ray tracing |
 | P5 Breadth | started | Remaining readers/writers/filters from the catalog, AMR/HTG/molecule/cell-grid types, higher-order cells |
-| P6 Scale | not started | Client/server, distributed, in-situ, collaboration, out-of-core |
+| P6 Scale | started (data server) | Client/server, distributed, in-situ, collaboration, out-of-core |
 | P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
 
 ---
@@ -363,7 +363,22 @@ at every level: same point counts at levels 0-3 and areas within 1e-7 on
 gives positive volumes where ParaView's are signed or wrong (inverted 15-node wedge,
 quadratic-linear wedge 0.07 instead of 0.56, cubic line 1.48 for a 2.25 arc).
 
-Known gaps worth doing next: curved pyramids in cutting filters; client/server and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
+Done in iteration 10: client/server. `aurafx-server` is a headless program that the app starts
+on a host over SSH (`aurafx-server --stdio`, so keys, jump hosts and `~/.ssh/config` apply and
+no port is opened). Its parts:
+- **Server side:** the server runs its own pipeline session. Each request carries the upstream
+  recipe of the node it wants; the server re-runs only what changed and keeps the rest.
+- **What comes back:** the data itself when it is under 64 MB, else its surface, or only a
+  summary for hidden nodes. "Bring all data" fetches everything.
+- **Opening files:** File › Open on Server… browses the host, checks the server and can
+  install it. From Python: `afx.load(path, host=...)` or `ssh://host/path`.
+- **Where filters run:** built-in filters below a server file (including temporal filters)
+  run on the server; Python and plugin filters run locally on the data brought over.
+- **Tests:** the results match local runs in tests through an in-process server, a server
+  process and a real SSH host (a 32-core Ubuntu box). Guide: `docs/client-server.md`.
+
+Known gaps worth doing next: server-side rendering for huge surfaces and MPI-parallel
+servers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)

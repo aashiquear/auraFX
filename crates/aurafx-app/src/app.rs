@@ -103,6 +103,7 @@ pub struct State {
     pub anim_dialog: crate::animation::AnimDialog,
     pub cmap_editor: crate::colormap_editor::ColormapEditor,
     pub plugins: crate::plugins_ui::PluginsWindow,
+    pub server: crate::server_ui::ServerWindow,
     pub anim_job: Option<crate::animation::AnimJob>,
     pub anim_done_tx: std::sync::mpsc::Sender<Result<PathBuf, String>>,
     pub anim_done_rx: std::sync::mpsc::Receiver<Result<PathBuf, String>>,
@@ -360,6 +361,7 @@ impl AuraApp {
             anim_dialog: Default::default(),
             cmap_editor: Default::default(),
             plugins: Default::default(),
+            server: Default::default(),
             anim_job: None,
             anim_done_tx: anim_tx,
             anim_done_rx: anim_rx,
@@ -700,6 +702,14 @@ impl State {
                 if ui.button("Open…    Ctrl+O").clicked() {
                     ui.close();
                     self.open_file_dialog();
+                }
+                if ui
+                    .button(format!("{} Open on Server…", crate::icons::CLOUD))
+                    .on_hover_text("Read and filter a file on another machine (over SSH); only what you view comes back")
+                    .clicked()
+                {
+                    ui.close();
+                    self.server.open = true;
                 }
                 let has_data = self.session.lock().active_node().map(|n| n.output.is_some()).unwrap_or(false);
                 if ui.add_enabled(has_data, egui::Button::new("Save Data…")).on_hover_text("Write the selected node's data (VTK, CSV, STL, PLY)").clicked() {
@@ -1473,6 +1483,9 @@ impl eframe::App for AuraApp {
                 "show" if arg.eq_ignore_ascii_case("plugins") => {
                     self.state.plugins.open = true;
                 }
+                "show" if arg.eq_ignore_ascii_case("server") || arg.eq_ignore_ascii_case("open on server") => {
+                    self.state.server.open = true;
+                }
                 "show" if arg.eq_ignore_ascii_case("colormap") || arg.eq_ignore_ascii_case("color map editor") => {
                     self.state.cmap_editor.open = true;
                 }
@@ -1594,6 +1607,7 @@ impl eframe::App for AuraApp {
         crate::colormap_editor::editor_ui(st, ctx);
         st.plugins_tick(ctx);
         crate::plugins_ui::plugins_ui(st, ctx);
+        crate::server_ui::server_ui(st, ctx);
         if let Some(p) = crate::dialogs::file_browser_ui(&mut st.file_browser, ctx) {
             st.open_file(p);
         }

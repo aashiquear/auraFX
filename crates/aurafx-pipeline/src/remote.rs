@@ -1,0 +1,651 @@
+//! Client/server: readers and filters run on another machine (like ParaView's pvserver).
+//!
+//! The client starts `aurafx-server --stdio` on a host (over SSH, or locally) and talks to it
+//! through the process's stdin/stdout, so authentication, jump hosts and port forwarding are
+//! whatever `ssh` already does. The server holds its own [`Session`]: every request carries the
+//! upstream recipe of the node it wants (readers with remote paths, filters with parameters),
+//! the server brings its session in line, runs what changed and caches the rest, and sends back
+//! the data, only its surface (for big outputs), or only a summary.
+//!
+//! Messages are a postcard-encoded header plus an optional attachment (a dataset, postcard-encoded
+//! and LZ4-compressed): `u32 header length, header, u64 attachment length, attachment`.
+
+use crate::session::{NodeId, Session};
+use anyhow::{anyhow, bail, Context, Result};
+use aurafx_data::{DataSet, DataSetInfo};
+use aurafx_filters::Params;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::sync::Arc;
+
+pub const PROTOCOL: u32 = 1;
+
+/// One node of the recipe the client sends, keyed by the client's node id.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeSpec {
+    pub id: NodeId,
+    pub kind: SpecKind,
+    #[serde(with = "wire_params")]
+    pub params: Params,
+    pub input: Option<NodeId>,
+    pub extra: Vec<NodeId>,
+}
+
+/// Parameters on the wire: `ParamValue` is untagged (for readable state files), which binary
+/// formats cannot decode, so it travels as a tagged copy.
+mod wire_params {
+    use aurafx_filters::{Association, ParamValue, Params};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    enum Wire {
+        Bool(bool),
+        Int(i64),
+        Float(f64),
+        Vec3([f64; 3]),
+        Str(String),
+        Array(bool, String),
+        Floats(Vec<f64>),
+    }
+
+    pub fn serialize<S: Serializer>(p: &Params, s: S) -> Result<S::Ok, S::Error> {
+        let v: Vec<(&String, Wire)> =
+            p.0.iter()
+                .map(|(k, v)| {
+                    let w = match v {
+                        ParamValue::Bool(b) => Wire::Bool(*b),
+                        ParamValue::Int(i) => Wire::Int(*i),
+                        ParamValue::Float(f) => Wire::Float(*f),
+                        ParamValue::Vec3(a) => Wire::Vec3(*a),
+                        ParamValue::Str(t) => Wire::Str(t.clone()),
+                        ParamValue::Array { assoc, name } => Wire::Array(*assoc == Association::Cells, name.clone()),
+                        ParamValue::Floats(f) => Wire::Floats(f.clone()),
+                    };
+                    (k, w)
+                })
+                .collect();
+        v.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Params, D::Error> {
+        let v: Vec<(String, Wire)> = Vec::deserialize(d)?;
+        Ok(Params(
+            v.into_iter()
+                .map(|(k, w)| {
+                    let p = match w {
+                        Wire::Bool(b) => ParamValue::Bool(b),
+                        Wire::Int(i) => ParamValue::Int(i),
+                        Wire::Float(f) => ParamValue::Float(f),
+                        Wire::Vec3(a) => ParamValue::Vec3(a),
+                        Wire::Str(t) => ParamValue::Str(t),
+                        Wire::Array(cells, name) => ParamValue::Array { assoc: if cells { Association::Cells } else { Association::Points }, name },
+                        Wire::Floats(f) => ParamValue::Floats(f),
+                    };
+                    (k, p)
+                })
+                .collect(),
+        ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SpecKind {
+    /// A file on the server.
+    Reader { path: String },
+    /// A built-in filter or source.
+    Filter { id: String },
+}
+
+/// What to send back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Fetch {
+    /// Only the summary (arrays, ranges, bounds, time steps): the data stays on the server.
+    Info,
+    /// The outer surface, which is all the 3D view draws.
+    Surface,
+    /// Everything.
+    Full,
+    /// Everything when it is smaller than the limit, else the surface.
+    #[default]
+    Auto,
+}
+
+/// What a reply carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Payload {
+    #[default]
+    None,
+    Surface,
+    Full,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Request {
+    Hello {
+        protocol: u32,
+    },
+    Compute {
+        specs: Vec<NodeSpec>,
+        target: NodeId,
+        time: Option<f64>,
+        fetch: Fetch,
+        max_bytes: u64,
+        surface_level: u32,
+    },
+    /// The client removed these nodes.
+    Forget {
+        ids: Vec<NodeId>,
+    },
+    Shutdown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfo {
+    pub protocol: u32,
+    pub version: String,
+    pub hostname: String,
+    pub cpus: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Reply {
+    Hello(ServerInfo),
+    /// `info` describes the full output on the server; the attachment is the payload.
+    Data {
+        info: Option<DataSetInfo>,
+        times: Vec<f64>,
+        payload: Payload,
+        server_ms: f64,
+        full_bytes: u64,
+    },
+    Ok,
+    Error {
+        message: String,
+    },
+}
+
+// ---------------------------------------------------------------- framing
+
+fn write_msg<T: Serialize>(w: &mut impl Write, msg: &T, attachment: &[u8]) -> Result<()> {
+    let head = postcard::to_allocvec(msg)?;
+    w.write_all(&(head.len() as u32).to_le_bytes())?;
+    w.write_all(&head)?;
+    w.write_all(&(attachment.len() as u64).to_le_bytes())?;
+    w.write_all(attachment)?;
+    w.flush()?;
+    Ok(())
+}
+
+/// Read one frame: (header bytes, attachment). An error here means the stream is unusable.
+fn read_frame(r: &mut impl Read) -> Result<(Vec<u8>, Vec<u8>)> {
+    let mut b4 = [0u8; 4];
+    r.read_exact(&mut b4).context("connection closed")?;
+    let n = u32::from_le_bytes(b4) as usize;
+    if n > 64 << 20 {
+        bail!("bad message header ({n} bytes): is something else printing on the server's output (e.g. a login script)?");
+    }
+    let mut head = vec![0u8; n];
+    r.read_exact(&mut head)?;
+    let mut b8 = [0u8; 8];
+    r.read_exact(&mut b8)?;
+    let m = u64::from_le_bytes(b8) as usize;
+    let mut att = vec![0u8; m];
+    r.read_exact(&mut att)?;
+    Ok((head, att))
+}
+
+fn read_msg<T: for<'de> Deserialize<'de>>(r: &mut impl Read) -> Result<(T, Vec<u8>)> {
+    let (head, att) = read_frame(r)?;
+    Ok((postcard::from_bytes(&head).context("bad message (client and server versions differ?)")?, att))
+}
+
+/// Encode a dataset for the wire.
+pub fn encode(ds: &DataSet) -> Result<Vec<u8>> {
+    let raw = postcard::to_allocvec(ds)?;
+    Ok(lz4_flex::compress_prepend_size(&raw))
+}
+
+pub fn decode(bytes: &[u8]) -> Result<DataSet> {
+    let raw = lz4_flex::decompress_size_prepended(bytes).map_err(|e| anyhow!("decompressing data: {e}"))?;
+    Ok(postcard::from_bytes(&raw)?)
+}
+
+// ---------------------------------------------------------------- server
+
+/// The server side: answer requests from `input` on `output` until the client goes away.
+pub fn serve(input: impl Read, output: impl Write) -> Result<()> {
+    let mut r = BufReader::new(input);
+    let mut w = BufWriter::new(output);
+    let mut srv = Server::default();
+    loop {
+        let Ok((head, _)) = read_frame(&mut r) else { return Ok(()) }; // client went away
+        let req: Request = match postcard::from_bytes(&head) {
+            Ok(m) => m,
+            Err(e) => {
+                write_msg(&mut w, &Reply::Error { message: format!("could not read the request: {e}") }, &[])?;
+                continue;
+            }
+        };
+        let (reply, att) = match req {
+            Request::Shutdown => {
+                write_msg(&mut w, &Reply::Ok, &[])?;
+                return Ok(());
+            }
+            other => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| srv.handle(other))) {
+                Ok(r) => r,
+                Err(p) => {
+                    let msg =
+                        p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "unknown".into());
+                    // The session may be half-updated: start over (the next request resends everything).
+                    srv = Server::default();
+                    (Reply::Error { message: format!("the server failed: {msg}") }, vec![])
+                }
+            },
+        };
+        write_msg(&mut w, &reply, &att)?;
+    }
+}
+
+struct Server {
+    session: Session,
+    /// Client node id -> (server node id, the spec it was built from).
+    nodes: HashMap<NodeId, (NodeId, NodeSpec)>,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        let mut session = Session::new();
+        session.suspend_undo = 1;
+        Self { session, nodes: HashMap::new() }
+    }
+}
+
+impl Server {
+    fn handle(&mut self, req: Request) -> (Reply, Vec<u8>) {
+        match req {
+            Request::Hello { .. } => (
+                Reply::Hello(ServerInfo {
+                    protocol: PROTOCOL,
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    hostname: hostname(),
+                    cpus: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
+                }),
+                vec![],
+            ),
+            Request::Forget { ids } => {
+                for id in ids {
+                    if let Some((sid, _)) = self.nodes.remove(&id) {
+                        self.session.remove_node(sid);
+                    }
+                }
+                (Reply::Ok, vec![])
+            }
+            Request::Compute { specs, target, time, fetch, max_bytes, surface_level } => {
+                match self.compute(&specs, target, time, fetch, max_bytes, surface_level) {
+                    Ok(r) => r,
+                    Err(e) => (Reply::Error { message: format!("{e:#}") }, vec![]),
+                }
+            }
+            Request::Shutdown => (Reply::Ok, vec![]),
+        }
+    }
+
+    fn reconcile(&mut self, specs: &[NodeSpec]) -> Result<()> {
+        for spec in specs {
+            if let Some((sid, old)) = self.nodes.get(&spec.id) {
+                if old == spec {
+                    continue;
+                }
+                let same_shape = old.kind == spec.kind && old.input == spec.input && old.extra == spec.extra;
+                let sid = *sid;
+                if same_shape && self.session.nodes.contains_key(&sid) {
+                    self.session.set_params(sid, spec.params.clone());
+                    self.nodes.get_mut(&spec.id).unwrap().1 = spec.clone();
+                    continue;
+                }
+                self.session.remove_node(sid);
+                self.nodes.remove(&spec.id);
+            }
+            let map = |id: NodeId, nodes: &HashMap<NodeId, (NodeId, NodeSpec)>| nodes.get(&id).map(|n| n.0).ok_or_else(|| anyhow!("input {id} was not sent"));
+            let sid = match &spec.kind {
+                SpecKind::Reader { path } => self.session.open_file(expand_home(path))?,
+                SpecKind::Filter { id } => {
+                    let def = aurafx_filters::find(id).ok_or_else(|| anyhow!("the server has no filter {id:?}"))?;
+                    if def.is_source {
+                        self.session.add_source(id)?
+                    } else {
+                        let input = map(spec.input.ok_or_else(|| anyhow!("{id} needs an input"))?, &self.nodes)?;
+                        if spec.extra.is_empty() {
+                            self.session.add_filter(id, input)?
+                        } else {
+                            let mut all = vec![input];
+                            for e in &spec.extra {
+                                all.push(map(*e, &self.nodes)?);
+                            }
+                            self.session.add_filter_multi(id, &all)?
+                        }
+                    }
+                }
+            };
+            self.session.set_params(sid, spec.params.clone());
+            self.nodes.insert(spec.id, (sid, spec.clone()));
+        }
+        Ok(())
+    }
+
+    fn compute(&mut self, specs: &[NodeSpec], target: NodeId, time: Option<f64>, fetch: Fetch, max_bytes: u64, level: u32) -> Result<(Reply, Vec<u8>)> {
+        let t0 = std::time::Instant::now();
+        self.reconcile(specs)?;
+        if let Some(t) = time {
+            self.session.set_time_value(t);
+        }
+        self.session.update_blocking();
+        let sid = self.nodes.get(&target).ok_or_else(|| anyhow!("node {target} was not sent"))?.0;
+        let n = self.session.nodes.get(&sid).ok_or_else(|| anyhow!("node {target} is gone"))?;
+        if let Some(e) = &n.error {
+            bail!("{e}");
+        }
+        let out = n.output.clone().ok_or_else(|| anyhow!("no output"))?;
+        let full_bytes = out.n_bytes() as u64;
+        let times = self.session.node_times(sid, 0);
+        let surface_useful = !matches!(&*out, DataSet::PolyData(_) | DataSet::Table(_));
+        let payload = match fetch {
+            Fetch::Info => Payload::None,
+            Fetch::Full => Payload::Full,
+            Fetch::Surface if surface_useful => Payload::Surface,
+            Fetch::Surface => Payload::Full,
+            Fetch::Auto if full_bytes <= max_bytes || !surface_useful => Payload::Full,
+            Fetch::Auto => Payload::Surface,
+        };
+        let att = match payload {
+            Payload::None => vec![],
+            Payload::Full => encode(&out)?,
+            Payload::Surface => encode(&DataSet::PolyData(aurafx_filters::surface::extract_surface_level(&out, level)?))?,
+        };
+        let info = n.info.clone().or_else(|| Some(DataSetInfo::of(&out)));
+        Ok((Reply::Data { info, times, payload, server_ms: t0.elapsed().as_secs_f64() * 1e3, full_bytes }, att))
+    }
+}
+
+fn expand_home(p: &str) -> String {
+    match p.strip_prefix("~/").or(if p == "~" { Some("") } else { None }) {
+        Some(rest) => match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            Ok(h) => format!("{}/{rest}", h.trim_end_matches('/')),
+            Err(_) => p.to_string(),
+        },
+        None => p.to_string(),
+    }
+}
+
+fn hostname() -> String {
+    std::fs::read_to_string("/etc/hostname")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .unwrap_or_else(|| "server".into())
+}
+
+// ---------------------------------------------------------------- client
+
+/// Result of a remote computation.
+#[derive(Debug, Clone)]
+pub struct Fetched {
+    pub data: DataSet,
+    pub info: Option<DataSetInfo>,
+    pub times: Vec<f64>,
+    pub payload: Payload,
+    pub server_ms: f64,
+    pub full_bytes: u64,
+    pub sent_bytes: u64,
+}
+
+struct Conn {
+    child: Option<std::process::Child>,
+    r: Box<dyn Read + Send>,
+    w: Box<dyn Write + Send>,
+}
+
+type Spawner = Box<dyn Fn() -> Result<(Conn, Arc<Mutex<String>>)> + Send + Sync>;
+
+/// A connection to one server, started on first use and restarted if it drops. Requests are
+/// served one at a time.
+pub struct RemoteClient {
+    pub name: String,
+    conn: Mutex<Option<Conn>>,
+    spawn: Spawner,
+    stderr: Mutex<Arc<Mutex<String>>>,
+    pub info: Mutex<Option<ServerInfo>>,
+}
+
+impl std::fmt::Debug for RemoteClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RemoteClient({})", self.name)
+    }
+}
+
+/// Shell command that starts the server on a host: `$AURAFX_SERVER`, `aurafx-server` on the
+/// PATH, or `~/.local/bin/aurafx-server`.
+pub const SERVER_COMMAND: &str = r#"S="${AURAFX_SERVER:-$(command -v aurafx-server || echo "$HOME/.local/bin/aurafx-server")}"; exec "$S" --stdio"#;
+
+impl RemoteClient {
+    /// A server started on `host` (through ssh for remote hosts).
+    pub fn for_host(host: aurafx_jobs::Host) -> Arc<Self> {
+        let name = host.name.clone();
+        let spawn: Spawner = Box::new(move || {
+            let mut c = host.command(SERVER_COMMAND);
+            // On this machine, use the server installed next to the app.
+            if host.is_local() && std::env::var_os("AURAFX_SERVER").is_none() {
+                if let Some(p) = std::env::current_exe()
+                    .ok()
+                    .map(|e| e.with_file_name(if cfg!(windows) { "aurafx-server.exe" } else { "aurafx-server" }))
+                    .filter(|p| p.exists())
+                {
+                    c.env("AURAFX_SERVER", p);
+                }
+            }
+            c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+            let mut child = c.spawn().with_context(|| format!("starting aurafx-server on {}", host.name))?;
+            let r = child.stdout.take().unwrap();
+            let w = child.stdin.take().unwrap();
+            let err = Arc::new(Mutex::new(String::new()));
+            if let Some(mut e) = child.stderr.take() {
+                let err = err.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n) = e.read(&mut buf) {
+                        if n == 0 {
+                            break;
+                        }
+                        let mut s = err.lock();
+                        s.push_str(&String::from_utf8_lossy(&buf[..n]));
+                        if s.len() > 8192 {
+                            let cut = s.len() - 8192;
+                            s.drain(..cut);
+                        }
+                    }
+                });
+            }
+            Ok((Conn { child: Some(child), r: Box::new(r), w: Box::new(BufWriter::new(w)) }, err))
+        });
+        Arc::new(Self { name, conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+    }
+
+    /// A client over existing streams (tests, or a server in the same process).
+    pub fn from_streams(name: &str, r: impl Read + Send + 'static, w: impl Write + Send + 'static) -> Arc<Self> {
+        let cell = Mutex::new(Some((Box::new(r) as Box<dyn Read + Send>, Box::new(w) as Box<dyn Write + Send>)));
+        let spawn: Spawner = Box::new(move || {
+            let (r, w) = cell.lock().take().ok_or_else(|| anyhow!("the connection was closed"))?;
+            Ok((Conn { child: None, r, w }, Arc::default()))
+        });
+        Arc::new(Self { name: name.to_string(), conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+    }
+
+    /// A server running on threads of this process (for trying client/server locally).
+    pub fn in_process(name: &str) -> Arc<Self> {
+        let (c2s_r, c2s_w) = pipe();
+        let (s2c_r, s2c_w) = pipe();
+        std::thread::spawn(move || {
+            let _ = serve(c2s_r, s2c_w);
+        });
+        Self::from_streams(name, s2c_r, c2s_w)
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.conn.lock().is_some()
+    }
+
+    fn connect(&self) -> Result<Conn> {
+        let (mut conn, err) = (self.spawn)()?;
+        *self.stderr.lock() = err.clone();
+        let hello = (|| -> Result<ServerInfo> {
+            write_msg(&mut conn.w, &Request::Hello { protocol: PROTOCOL }, &[])?;
+            match read_msg::<Reply>(&mut conn.r)?.0 {
+                Reply::Hello(info) if info.protocol == PROTOCOL => Ok(info),
+                Reply::Hello(info) => bail!("server speaks protocol {} (this auraFX: {PROTOCOL}); update aurafx-server", info.protocol),
+                other => bail!("unexpected greeting {other:?}"),
+            }
+        })();
+        match hello {
+            Ok(info) => {
+                *self.info.lock() = Some(info);
+                Ok(conn)
+            }
+            Err(e) => {
+                if let Some(mut ch) = conn.child.take() {
+                    let _ = ch.kill();
+                    let _ = ch.wait();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                let msg = err.lock().trim().to_string();
+                if msg.is_empty() {
+                    Err(e.context(format!("could not start aurafx-server on {}", self.name)))
+                } else {
+                    Err(anyhow!("could not start aurafx-server on {}: {msg}", self.name))
+                }
+            }
+        }
+    }
+
+    /// Send a request and wait for the reply, connecting (or reconnecting once) as needed.
+    pub fn request(&self, req: &Request) -> Result<(Reply, Vec<u8>)> {
+        let mut guard = self.conn.lock();
+        let mut first: Option<anyhow::Error> = None;
+        for _ in 0..2 {
+            if guard.is_none() {
+                match self.connect() {
+                    Ok(c) => *guard = Some(c),
+                    Err(e) => return Err(first.map(|f| f.context(format!("{e:#}"))).unwrap_or(e)),
+                }
+            }
+            let conn = guard.as_mut().unwrap();
+            let res = write_msg(&mut conn.w, req, &[]).and_then(|_| read_msg::<Reply>(&mut conn.r));
+            match res {
+                Ok(r) => return Ok(r),
+                Err(e) => {
+                    if let Some(mut ch) = guard.take().and_then(|c| c.child) {
+                        let _ = ch.kill();
+                        let _ = ch.wait();
+                    }
+                    let err = self.stderr.lock().lock().trim().to_string();
+                    let e = if err.is_empty() { e } else { e.context(err) };
+                    if first.is_some() {
+                        return Err(e);
+                    }
+                    first = Some(e);
+                }
+            }
+        }
+        Err(first.unwrap_or_else(|| anyhow!("no connection")))
+    }
+
+    /// Run `target` (with its upstream `specs`) on the server.
+    pub fn compute(&self, specs: Vec<NodeSpec>, target: NodeId, time: Option<f64>, fetch: Fetch, max_bytes: u64, surface_level: u32) -> Result<Fetched> {
+        let (reply, att) = self.request(&Request::Compute { specs, target, time, fetch, max_bytes, surface_level })?;
+        match reply {
+            Reply::Data { info, times, payload, server_ms, full_bytes } => {
+                let data = if att.is_empty() { DataSet::PolyData(Default::default()) } else { decode(&att)? };
+                Ok(Fetched { data, info, times, payload, server_ms, full_bytes, sent_bytes: att.len() as u64 })
+            }
+            Reply::Error { message } => Err(anyhow!("{message}")),
+            other => bail!("unexpected reply {other:?}"),
+        }
+    }
+
+    /// Tell a connected server to drop nodes (does nothing when not connected).
+    pub fn forget(self: &Arc<Self>, ids: Vec<NodeId>) {
+        if !self.is_connected() || ids.is_empty() {
+            return;
+        }
+        let me = self.clone();
+        std::thread::spawn(move || {
+            let _ = me.request(&Request::Forget { ids });
+        });
+    }
+}
+
+impl Drop for RemoteClient {
+    fn drop(&mut self) {
+        if let Some(mut c) = self.conn.lock().take() {
+            let _ = write_msg(&mut c.w, &Request::Shutdown, &[]);
+            if let Some(mut ch) = c.child {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = ch.kill();
+                    let _ = ch.wait();
+                });
+            }
+        }
+    }
+}
+
+/// An in-memory byte pipe (reader, writer).
+fn pipe() -> (PipeReader, PipeWriter) {
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    (PipeReader { rx, buf: Vec::new(), pos: 0 }, PipeWriter { tx, buf: Vec::new() })
+}
+
+struct PipeReader {
+    rx: std::sync::mpsc::Receiver<Vec<u8>>,
+    buf: Vec<u8>,
+    pos: usize,
+}
+
+impl Read for PipeReader {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        while self.pos >= self.buf.len() {
+            match self.rx.recv() {
+                Ok(b) => {
+                    self.buf = b;
+                    self.pos = 0;
+                }
+                Err(_) => return Ok(0),
+            }
+        }
+        let n = out.len().min(self.buf.len() - self.pos);
+        out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
+        self.pos += n;
+        Ok(n)
+    }
+}
+
+struct PipeWriter {
+    tx: std::sync::mpsc::Sender<Vec<u8>>,
+    buf: Vec<u8>,
+}
+
+impl Write for PipeWriter {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !self.buf.is_empty() {
+            self.tx.send(std::mem::take(&mut self.buf)).map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+        }
+        Ok(())
+    }
+}

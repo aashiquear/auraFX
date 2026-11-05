@@ -134,6 +134,21 @@ def sneaky(data):
     );
     assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
     assert_eq!(out.stdout.trim(), "45 2 [['LagrangeHexahedron', 2]]\n16 0", "{}", out.stdout);
+    {
+        let s = session.lock();
+        assert!(s.nodes.values().any(|n| n.display.nonlinear_subdivision == 3));
+    }
+
+    // Client/server: a file opened on a server (here one running in this process).
+    session.lock().remote_clients.insert("inproc".into(), aurafx_pipeline::remote::RemoteClient::in_process("inproc"));
+    let disk = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/disk_out_ref.ex2");
+    let out = rt.run(&format!(
+        "r = afx.load({:?}, host='inproc')\nsl = r.slice(normal=(0, 0, 1))\nprint(sl.info()['n_cells'] > 0, [x['name'] for x in afx.servers()])\ntry:\n    afx.load('ssh://inproc/no/such/file.vtu')\nexcept Exception as e:\n    print('such' in str(e))",
+        disk.display().to_string()
+    ));
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "True ['inproc']\nTrue", "{}", out.stdout);
     let s = session.lock();
-    assert!(s.nodes.values().any(|n| n.display.nonlinear_subdivision == 3));
+    let sl = s.nodes.values().find(|n| n.def().is_some_and(|d| d.id == "slice") && s.remote_host(n.id).is_some()).expect("slice on the server");
+    assert!(sl.remote.is_some());
 }

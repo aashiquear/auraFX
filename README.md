@@ -39,6 +39,7 @@ plan, with every ParaView 6.1.1 reader, filter and view mapped to a phase, is in
 | **Interaction** | Several 3D views side by side or stacked with linked cameras; pick values on surfaces; rectangle selection of visible cells (or through); ruler; interactive slice/clip plane widget; camera presets; time player |
 | **UI** | Dark, light or system theme; Windows menu with panel toggles and layout presets; command palette (Ctrl+K); undo/redo; `.afx` session files and last-session restore; charts; spreadsheet; keyframe animation (camera and filter values on a timeline) and export (GIF, MP4, PNG) |
 | **Python** | Embedded interpreter with the `afx` module, NumPy in and out, console with completion, `--script`, trace export |
+| **Client/server** | File › Open on Server… reads and filters data on another machine through `aurafx-server` over SSH; only what you view comes back (its surface when big); `afx.load(path, host="cluster")`; see [docs/client-server.md](docs/client-server.md) |
 | **Plugins** | Python plugins add filters, sources and readers with `@afx.filter`, `@afx.source`, `@afx.reader`; reload on save; Plugins window (Edit menu); see [docs/plugins.md](docs/plugins.md) |
 | **AI** | Ollama (honours `OLLAMA_HOST`), Anthropic, OpenAI-compatible; streaming; pipeline-aware; **agent mode** runs code and iterates on results |
 | **Simulations** | Local, SSH and Slurm jobs; NVIDIA/AMD GPU selection; parameter sweeps; live logs; auto-open results; **live reload** of files a running solver writes; GPU monitor; remote file browser |

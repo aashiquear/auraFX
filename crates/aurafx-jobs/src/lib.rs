@@ -96,7 +96,7 @@ impl Host {
     }
     /// List a directory: (name, is_dir, size).
     pub fn list_dir(&self, path: &str) -> Result<Vec<(String, bool, u64)>> {
-        let out = self.run_capture(&format!("cd {} && for f in .* *; do [ \"$f\" = . ] && continue; [ -e \"$f\" ] || continue; if [ -d \"$f\" ]; then echo \"d 0 $f\"; else echo \"f $(stat -c %s \"$f\" 2>/dev/null || stat -f %z \"$f\") $f\"; fi; done", shell_quote(path)), Duration::from_secs(20))?;
+        let out = self.run_capture(&format!("cd {} && for f in .* *; do [ \"$f\" = . ] && continue; [ -e \"$f\" ] || continue; if [ -d \"$f\" ]; then echo \"d 0 $f\"; else echo \"f $(stat -c %s \"$f\" 2>/dev/null || stat -f %z \"$f\") $f\"; fi; done", shell_path(path)), Duration::from_secs(20))?;
         Ok(out
             .lines()
             .filter_map(|l| {
@@ -185,6 +185,17 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> Result<std::process
 
 pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// A path for a shell command, quoted, with a leading `~` left for the shell to expand.
+fn shell_path(p: &str) -> String {
+    if p == "~" {
+        "\"$HOME\"".into()
+    } else if let Some(rest) = p.strip_prefix("~/") {
+        format!("\"$HOME\"/{}", shell_quote(rest))
+    } else {
+        shell_quote(p)
+    }
 }
 
 fn shellexpand(p: &str) -> String {
@@ -625,6 +636,15 @@ pub fn clear_finished(jobs: &SharedJobs) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_dir_expands_home() {
+        let h = Host::local();
+        let home = h.list_dir("~").unwrap();
+        let direct = h.list_dir(&std::env::var("HOME").unwrap()).unwrap();
+        assert_eq!(home, direct);
+        assert!(h.list_dir("/no/such/dir").is_err());
+    }
 
     fn wait(jobs: &SharedJobs, id: JobId) -> JobState {
         for _ in 0..200 {

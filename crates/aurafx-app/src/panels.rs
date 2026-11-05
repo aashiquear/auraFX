@@ -44,6 +44,9 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
         selected: bool,
         /// Names of the extra inputs of multi-input filters.
         extra: Vec<String>,
+        /// Runs on this server.
+        server: Option<String>,
+        remote: Option<aurafx_pipeline::RemoteStatus>,
     }
     state.pipeline_selection.retain(|n| state.session.lock().nodes.contains_key(n));
     let multi_sel = state.pipeline_selection.clone();
@@ -88,6 +91,8 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                     summary: n.info.as_ref().map(|i| format!("{}: {} points, {} cells", i.kind, i.n_points, i.n_cells)).unwrap_or_default(),
                     selected: multi_sel.contains(&id),
                     extra: n.extra_inputs.iter().filter_map(|e| s.nodes.get(e)).map(|e| e.name.clone()).collect(),
+                    server: s.remote_host(id).map(|h| h.name),
+                    remote: n.remote.clone(),
                 }
             })
             .collect()
@@ -160,6 +165,9 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
                 if !r.extra.is_empty() {
                     ui.label(RichText::new(format!("+{}", r.extra.len())).weak().small()).on_hover_text(format!("Also reads: {}", r.extra.join(", ")));
+                }
+                if let Some(h) = &r.server {
+                    ui.label(RichText::new(crate::icons::CLOUD).color(crate::theme::INFO)).on_hover_text(remote_text(h, r.remote.as_ref()));
                 }
                 if resp.double_clicked() {
                     state.rename_target = Some((r.id, r.name.clone()));
@@ -566,6 +574,20 @@ fn inputs_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId, m: aurafx_filters
     }
 }
 
+/// One line about a node that runs on a server.
+fn remote_text(host: &str, st: Option<&aurafx_pipeline::RemoteStatus>) -> String {
+    use aurafx_pipeline::remote::Payload;
+    let human = crate::server_ui::human;
+    match st {
+        None => format!("Runs on {host}"),
+        Some(s) => match s.payload {
+            Payload::None => format!("On {host}: data stays there ({}); shown when visible", human(s.full_bytes)),
+            Payload::Surface => format!("On {host}: showing its surface ({} of {}) · server {:.0} ms", human(s.sent_bytes), human(s.full_bytes), s.server_ms),
+            Payload::Full => format!("On {host}: all data here ({} sent) · server {:.0} ms", human(s.sent_bytes), s.server_ms),
+        },
+    }
+}
+
 pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
     let snapshot = {
         let s = state.session.lock();
@@ -582,10 +604,11 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                 input_info,
                 n.error.clone(),
                 n.last_exec_ms,
+                s.remote_host(n.id).map(|h| (h.name, n.remote.clone(), n.fetch_full)),
             )
         })
     };
-    let Some((id, name, kind, def, params, display, info, input_info, error, ms)) = snapshot else {
+    let Some((id, name, kind, def, params, display, info, input_info, error, ms, server)) = snapshot else {
         ui.label(RichText::new("Select a node in the pipeline to edit its properties.").weak());
         return;
     };
@@ -598,6 +621,22 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         });
     });
+    if let Some((host, st, full)) = &server {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(format!("{} {}", crate::icons::CLOUD, remote_text(host, st.as_ref()))).small().color(crate::theme::INFO));
+            let partial = st.as_ref().is_some_and(|s| s.payload != aurafx_pipeline::remote::Payload::Full);
+            if partial || *full {
+                let mut f = *full;
+                if ui
+                    .checkbox(&mut f, "Bring all data")
+                    .on_hover_text("Transfer the whole output (for the spreadsheet, saving or local filters), not just its surface")
+                    .changed()
+                {
+                    state.session.lock().set_fetch_full(id, f);
+                }
+            }
+        });
+    }
     if let Some(e) = error {
         ui.colored_label(crate::theme::ERROR, e);
     }

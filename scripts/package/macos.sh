@@ -16,11 +16,12 @@ export PYO3_PYTHON="$PYROOT/bin/python3"
 export CARGO_TARGET_DIR="$ROOT/target/package/cargo-macos"
 export MACOSX_DEPLOYMENT_TARGET=11.0
 export RUSTFLAGS="${RUSTFLAGS:-} -L native=$PYROOT/lib -C link-arg=-Wl,-rpath,@executable_path/../Resources/python/lib"
-cargo build --release -p aurafx-app --manifest-path "$ROOT/Cargo.toml"
+cargo build --release -p aurafx-app -p aurafx-server --manifest-path "$ROOT/Cargo.toml"
 
 APP="$WORK/auraFX.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 install -m 755 "$CARGO_TARGET_DIR/release/aurafx" "$APP/Contents/MacOS/aurafx"
+install -m 755 "$CARGO_TARGET_DIR/release/aurafx-server" "$APP/Contents/MacOS/aurafx-server"
 # Make sure the binary refers to libpython through @rpath.
 OLD="$(otool -L "$APP/Contents/MacOS/aurafx" | awk '/libpython/ {print $1}')"
 if [ -n "$OLD" ] && [ "${OLD#@rpath}" = "$OLD" ]; then

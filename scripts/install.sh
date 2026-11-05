@@ -40,7 +40,7 @@ if [ "$UNINSTALL" = 1 ]; then
   if [ "$OS" = "Darwin" ]; then
     rm -rf "/Applications/auraFX.app" "$HOME/Applications/auraFX.app"
   else
-    rm -rf "$PREFIX/opt/aurafx" "$PREFIX/bin/aurafx" "$DATA_HOME/applications/aurafx.desktop"
+    rm -rf "$PREFIX/opt/aurafx" "$PREFIX/bin/aurafx" "$PREFIX/bin/aurafx-server" "$DATA_HOME/applications/aurafx.desktop"
     find "$DATA_HOME/icons/hicolor" -name aurafx.png -delete 2>/dev/null || true
   fi
   say "removed"
@@ -72,6 +72,8 @@ if [ "$OS" = "Linux" ]; then
   tar -xzf "$FILE" -C "$TMP/x"
   mv "$TMP/x"/* "$PREFIX/opt/aurafx"
   ln -sf "$PREFIX/opt/aurafx/usr/bin/aurafx" "$PREFIX/bin/aurafx"
+  # The data server, so other auraFX apps can open files on this machine over ssh.
+  [ -x "$PREFIX/opt/aurafx/usr/bin/aurafx-server" ] && ln -sf "$PREFIX/opt/aurafx/usr/bin/aurafx-server" "$PREFIX/bin/aurafx-server"
   mkdir -p "$DATA_HOME/applications"
   sed "s|^Exec=.*|Exec=$PREFIX/opt/aurafx/usr/bin/aurafx %F|" "$PREFIX/opt/aurafx/usr/share/applications/aurafx.desktop" > "$DATA_HOME/applications/aurafx.desktop"
   for d in "$PREFIX/opt/aurafx/usr/share/icons/hicolor"/*; do

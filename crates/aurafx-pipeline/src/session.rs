@@ -115,6 +115,11 @@ impl Plan {
     }
 }
 
+/// Built-in filters run on a server; Python and plugin filters only here.
+pub fn runs_on_server(def: &FilterDef) -> bool {
+    def.ext.is_none() && !def.is_source && !matches!(def.id, "programmable_filter" | "programmable_source" | "python_calculator")
+}
+
 fn union_times(lists: impl Iterator<Item = Vec<f64>>) -> Vec<f64> {
     let mut t: Vec<f64> = lists.flatten().collect();
     t.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -131,9 +136,22 @@ fn run_temporal(def: &FilterDef, params: &Params, input: &Plan, extra: &[Arc<Dat
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
-    Reader { path: PathBuf, loaded: Loaded },
-    Source { def: Arc<FilterDef> },
-    Filter { def: Arc<FilterDef> },
+    Reader {
+        path: PathBuf,
+        loaded: Loaded,
+    },
+    /// A file on another machine, read (and filtered) by an aurafx-server there.
+    Remote {
+        host: aurafx_jobs::Host,
+        path: String,
+        times: Vec<f64>,
+    },
+    Source {
+        def: Arc<FilterDef>,
+    },
+    Filter {
+        def: Arc<FilterDef>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +185,22 @@ pub struct Node {
     /// (upstream + parameter fingerprint, time) of a temporal filter's current output, so a
     /// time change does not re-run filters whose result does not depend on it.
     pub(crate) temporal_key: Option<(u64, f64)>,
+    /// Set when the node runs on a server: what came back.
+    pub remote: Option<RemoteStatus>,
+    /// Bring the whole output of a server node over, however big.
+    pub fetch_full: bool,
+}
+
+/// How a node that runs on a server was delivered.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteStatus {
+    pub host: String,
+    pub payload: crate::remote::Payload,
+    /// Size of the full output on the server.
+    pub full_bytes: u64,
+    /// Bytes transferred (compressed).
+    pub sent_bytes: u64,
+    pub server_ms: f64,
 }
 
 impl Node {
@@ -193,18 +227,24 @@ impl Node {
             file_signature: 0,
             temporal_state: TemporalState::default(),
             temporal_key: None,
+            remote: None,
+            fetch_full: false,
         }
     }
 
     pub fn def(&self) -> Option<&Arc<FilterDef>> {
         match &self.kind {
             NodeKind::Source { def } | NodeKind::Filter { def } => Some(def),
-            NodeKind::Reader { .. } => None,
+            NodeKind::Reader { .. } | NodeKind::Remote { .. } => None,
         }
     }
     pub fn type_label(&self) -> String {
         match &self.kind {
             NodeKind::Reader { path, .. } => path.extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default(),
+            NodeKind::Remote { path, host, .. } => {
+                let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default();
+                format!("{ext} on {}", host.name)
+            }
             NodeKind::Source { def } | NodeKind::Filter { def } => def.label.to_string(),
         }
     }
@@ -270,13 +310,38 @@ pub struct WorkItem {
     pub node: NodeId,
     pub generation: u64,
     kind: WorkKind,
+    /// Filled by remote work: the server's summary and delivery details.
+    remote: Arc<parking_lot::Mutex<Option<crate::remote::Fetched>>>,
 }
 
 enum WorkKind {
-    LoadStep { step: aurafx_data::TimeStepRef, index: usize },
+    LoadStep {
+        step: aurafx_data::TimeStepRef,
+        index: usize,
+    },
     Static(Arc<DataSet>),
-    Run { def: Arc<FilterDef>, params: Params, input: Option<Arc<DataSet>>, extra: Vec<Arc<DataSet>> },
-    Temporal { def: Arc<FilterDef>, params: Params, input: Plan, extra: Vec<Arc<DataSet>>, state: TemporalState, time: f64 },
+    Run {
+        def: Arc<FilterDef>,
+        params: Params,
+        input: Option<Arc<DataSet>>,
+        extra: Vec<Arc<DataSet>>,
+    },
+    Temporal {
+        def: Arc<FilterDef>,
+        params: Params,
+        input: Plan,
+        extra: Vec<Arc<DataSet>>,
+        state: TemporalState,
+        time: f64,
+    },
+    Remote {
+        client: Arc<crate::remote::RemoteClient>,
+        specs: Vec<crate::remote::NodeSpec>,
+        time: Option<f64>,
+        fetch: crate::remote::Fetch,
+        max_bytes: u64,
+        level: u32,
+    },
 }
 
 impl WorkItem {
@@ -293,6 +358,12 @@ impl WorkItem {
             WorkKind::Temporal { def, params, input, extra, state, time } => {
                 let cache = PlanCache::default();
                 run_temporal(def, params, input, extra, state, *time, &cache).map(Arc::new)
+            }
+            WorkKind::Remote { client, specs, time, fetch, max_bytes, level } => {
+                let mut f = client.compute(specs.clone(), self.node, *time, *fetch, *max_bytes, *level)?;
+                let data = Arc::new(std::mem::replace(&mut f.data, DataSet::PolyData(Default::default())));
+                *self.remote.lock() = Some(f);
+                Ok(data)
             }
         }
     }
@@ -341,7 +412,14 @@ pub struct Session {
     pub show_time_label: bool,
     /// Animation export requested by a script: (output path, fps, orbit frames or None for time steps).
     pub animation_request: Option<(PathBuf, f32, Option<usize>)>,
+    /// Connections to aurafx-server processes, by host name.
+    pub remote_clients: std::collections::HashMap<String, Arc<crate::remote::RemoteClient>>,
+    /// Outputs of server nodes larger than this come back as their surface (0 = default).
+    pub remote_max_bytes: u64,
 }
+
+/// Default limit above which server outputs are sent as their surface.
+pub const REMOTE_MAX_BYTES: u64 = 64 << 20;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CameraRequest {
@@ -440,6 +518,8 @@ impl Session {
             file_signature: 0,
             temporal_state: TemporalState::default(),
             temporal_key: None,
+            remote: None,
+            fetch_full: false,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -479,6 +559,8 @@ impl Session {
             file_signature: 0,
             temporal_state: TemporalState::default(),
             temporal_key: None,
+            remote: None,
+            fetch_full: false,
         };
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -522,6 +604,8 @@ impl Session {
             file_signature: 0,
             temporal_state: TemporalState::default(),
             temporal_key: None,
+            remote: None,
+            fetch_full: false,
         };
         // ParaView-style: hide the input when adding a filter that replaces its look.
         if matches!(
@@ -571,7 +655,7 @@ impl Session {
         for n in self.nodes.values_mut() {
             let def = match &mut n.kind {
                 NodeKind::Source { def } | NodeKind::Filter { def } => def,
-                NodeKind::Reader { .. } => continue,
+                NodeKind::Reader { .. } | NodeKind::Remote { .. } => continue,
             };
             if ids.iter().any(|i| i == def.id) {
                 if let Some(new) = aurafx_filters::find(def.id) {
@@ -692,6 +776,17 @@ impl Session {
         for l in lost_input {
             self.mark_dirty(l);
         }
+        let mut forget: std::collections::HashMap<String, Vec<NodeId>> = Default::default();
+        for r in &to_remove {
+            if let Some(h) = self.remote_host(*r) {
+                forget.entry(h.name).or_default().push(*r);
+            }
+        }
+        for (h, ids) in forget {
+            if let Some(c) = self.remote_clients.get(&h) {
+                c.forget(ids);
+            }
+        }
         for r in &to_remove {
             if let Some(n) = self.nodes.shift_remove(r) {
                 if let NodeKind::Reader { path, loaded } = n.kind {
@@ -746,7 +841,128 @@ impl Session {
         }
         if let Some(n) = self.nodes.get_mut(&id) {
             n.visible = visible;
+            // A server node that only sent its summary now needs its data.
+            if visible && n.remote.as_ref().is_some_and(|r| r.payload == crate::remote::Payload::None) {
+                n.dirty = true;
+            }
             self.touch();
+        }
+    }
+
+    /// Replace all parameters of a node.
+    pub fn set_params(&mut self, id: NodeId, params: Params) {
+        if let Some(n) = self.nodes.get_mut(&id) {
+            if n.params != params {
+                n.params = params;
+                self.mark_dirty(id);
+            }
+        }
+    }
+
+    /// Go to the last time step at or before `t`.
+    pub fn set_time_value(&mut self, t: f64) {
+        let eps = 1e-12 * (1.0 + t.abs());
+        let idx = self.times.iter().rposition(|&x| x <= t + eps).unwrap_or(0);
+        self.set_time_index(idx);
+    }
+
+    // ------------------------------------------------------------------ remote
+
+    /// Open a file on another machine; an aurafx-server there reads it and runs the filters
+    /// added below it. The data arrives (or its surface, when large) once it has run.
+    pub fn open_remote(&mut self, host: aurafx_jobs::Host, path: &str) -> NodeId {
+        let file = path.rsplit(['/', '\\']).next().unwrap_or(path).to_string();
+        self.checkpoint(format!("Open {file} on {}", host.name));
+        let id = self.alloc();
+        let name = self.unique_name(if file.is_empty() { "data" } else { &file });
+        let trace = format!("{} = afx.load({:?}, host={:?})", self.py_var(id), path, host.name);
+        let mut node = Node::new(id, name, NodeKind::Remote { host: host.clone(), path: path.to_string(), times: Vec::new() }, Params::default(), None);
+        node.dirty = true;
+        self.nodes.insert(id, node);
+        self.active = Some(id);
+        self.trace.push(trace);
+        self.log(LogLevel::Info, format!("Opening {path} on {}", host.name));
+        self.touch();
+        id
+    }
+
+    /// The host a node runs on: server readers, and built-in filters whose inputs all run on
+    /// the same server. Python and plugin filters run here.
+    pub fn remote_host(&self, id: NodeId) -> Option<aurafx_jobs::Host> {
+        self.remote_host_at(id, 0)
+    }
+
+    fn remote_host_at(&self, id: NodeId, depth: usize) -> Option<aurafx_jobs::Host> {
+        let n = self.nodes.get(&id)?;
+        if depth > 256 {
+            return None;
+        }
+        match &n.kind {
+            NodeKind::Remote { host, .. } => Some(host.clone()),
+            NodeKind::Filter { def } if runs_on_server(def) => {
+                let h = self.remote_host_at(n.input?, depth + 1)?;
+                for e in &n.extra_inputs {
+                    if self.remote_host_at(*e, depth + 1)? != h {
+                        return None;
+                    }
+                }
+                Some(h)
+            }
+            _ => None,
+        }
+    }
+
+    /// The recipe of a server node: it and everything upstream, inputs first.
+    fn remote_specs(&self, id: NodeId) -> Vec<crate::remote::NodeSpec> {
+        fn walk(s: &Session, id: NodeId, out: &mut Vec<crate::remote::NodeSpec>, seen: &mut std::collections::HashSet<NodeId>) {
+            if !seen.insert(id) {
+                return;
+            }
+            let Some(n) = s.nodes.get(&id) else { return };
+            for i in n.input.iter().chain(n.extra_inputs.iter()) {
+                walk(s, *i, out, seen);
+            }
+            let kind = match &n.kind {
+                NodeKind::Remote { path, .. } => crate::remote::SpecKind::Reader { path: path.clone() },
+                NodeKind::Filter { def } | NodeKind::Source { def } => crate::remote::SpecKind::Filter { id: def.id.to_string() },
+                NodeKind::Reader { path, .. } => crate::remote::SpecKind::Reader { path: path.display().to_string() },
+            };
+            out.push(crate::remote::NodeSpec { id, kind, params: n.params.clone(), input: n.input, extra: n.extra_inputs.clone() });
+        }
+        let mut out = Vec::new();
+        walk(self, id, &mut out, &mut Default::default());
+        out
+    }
+
+    /// How much of a server node's output to bring over.
+    fn remote_fetch(&self, id: NodeId) -> crate::remote::Fetch {
+        use crate::remote::Fetch;
+        let n = &self.nodes[&id];
+        let local_child = self.nodes.values().any(|c| (c.input == Some(id) || c.extra_inputs.contains(&id)) && self.remote_host(c.id).is_none());
+        if n.fetch_full || local_child {
+            Fetch::Full
+        } else if n.visible {
+            Fetch::Auto
+        } else {
+            Fetch::Info
+        }
+    }
+
+    /// The connection to a host's server (started on first use, on a worker thread).
+    pub fn client_for(&mut self, host: &aurafx_jobs::Host) -> Arc<crate::remote::RemoteClient> {
+        self.remote_clients.entry(host.name.clone()).or_insert_with(|| crate::remote::RemoteClient::for_host(host.clone())).clone()
+    }
+
+    /// Bring the whole output of a server node over (for the spreadsheet or saving).
+    pub fn set_fetch_full(&mut self, id: NodeId, on: bool) {
+        if let Some(n) = self.nodes.get_mut(&id) {
+            if n.fetch_full != on {
+                n.fetch_full = on;
+                if n.remote.is_some() {
+                    n.dirty = true;
+                }
+                self.touch();
+            }
         }
     }
 
@@ -832,6 +1048,7 @@ impl Session {
         }
         match &n.kind {
             NodeKind::Reader { loaded: Loaded::Series(s), .. } => s.times.clone(),
+            NodeKind::Remote { times, .. } => times.clone(),
             NodeKind::Reader { .. } | NodeKind::Source { .. } => Vec::new(),
             NodeKind::Filter { def } => match def.temporal {
                 Some(t) => (t.output_times)(&n.params, &n.input.map(|i| self.node_times(i, depth + 1)).unwrap_or_default()),
@@ -848,6 +1065,7 @@ impl Session {
         }
         match &n.kind {
             NodeKind::Reader { loaded: Loaded::Series(_), .. } => true,
+            NodeKind::Remote { times, .. } => !times.is_empty(),
             NodeKind::Reader { .. } | NodeKind::Source { .. } => false,
             NodeKind::Filter { .. } => n.input.iter().chain(n.extra_inputs.iter()).any(|&i| self.time_dependent(i, depth + 1)),
         }
@@ -865,7 +1083,7 @@ impl Session {
         }
         Ok(match &n.kind {
             NodeKind::Reader { loaded: Loaded::Series(s), .. } => Plan::Series { series: s.clone(), current: n.output_time_index.zip(n.output.clone()) },
-            NodeKind::Reader { .. } | NodeKind::Source { .. } => Plan::Fixed(data()?),
+            NodeKind::Reader { .. } | NodeKind::Source { .. } | NodeKind::Remote { .. } => Plan::Fixed(data()?),
             NodeKind::Filter { def } if def.temporal.is_some() => Plan::Temporal {
                 def: def.clone(),
                 params: n.params.clone(),
@@ -893,7 +1111,12 @@ impl Session {
         let idx = idx.min(self.times.len().saturating_sub(1));
         if idx != self.time_index {
             self.time_index = idx;
-            let readers: Vec<NodeId> = self.nodes.values().filter(|n| n.series().is_some()).map(|n| n.id).collect();
+            let readers: Vec<NodeId> = self
+                .nodes
+                .values()
+                .filter(|n| n.series().is_some() || matches!(&n.kind, NodeKind::Remote { times, .. } if !times.is_empty()))
+                .map(|n| n.id)
+                .collect();
             for r in readers {
                 self.mark_dirty(r);
             }
@@ -940,6 +1163,36 @@ impl Session {
             if n.extra_inputs.iter().any(|e| self.nodes.get(e).map(|x| x.dirty || x.running).unwrap_or(false)) {
                 continue;
             }
+            if let Some(host) = self.remote_host(id) {
+                let n = &self.nodes[&id];
+                let (level, fetch) = (n.display.nonlinear_subdivision.min(6), self.remote_fetch(id));
+                let time = if self.time_dependent(id, 0) { self.current_time() } else { None };
+                let max_bytes = if self.remote_max_bytes == 0 { REMOTE_MAX_BYTES } else { self.remote_max_bytes };
+                let specs = self.remote_specs(id);
+                let client = self.client_for(&host);
+                let nm = self.nodes.get_mut(&id).unwrap();
+                nm.running = true;
+                nm.error = None;
+                self.touch();
+                let kind = WorkKind::Remote { client, specs, time, fetch, max_bytes, level };
+                return Some(WorkItem { node: id, generation: self.generation, kind, remote: Default::default() });
+            }
+            // A local filter needs the whole output of server inputs, not just their surface.
+            let thin: Vec<NodeId> = n
+                .input
+                .iter()
+                .chain(n.extra_inputs.iter())
+                .copied()
+                .filter(|i| self.nodes.get(i).and_then(|x| x.remote.as_ref()).is_some_and(|r| r.payload != crate::remote::Payload::Full))
+                .collect();
+            if !thin.is_empty() {
+                for i in thin {
+                    if let Some(x) = self.nodes.get_mut(&i) {
+                        x.dirty = true;
+                    }
+                }
+                continue;
+            }
             let kind = match &n.kind {
                 NodeKind::Reader { loaded: Loaded::Static(ds), .. } => WorkKind::Static(ds.clone()),
                 NodeKind::Reader { loaded: Loaded::Series(s), .. } => {
@@ -956,6 +1209,7 @@ impl Session {
                     WorkKind::LoadStep { step: s.steps[index].clone(), index }
                 }
                 NodeKind::Source { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: None, extra: Vec::new() },
+                NodeKind::Remote { .. } => continue,
                 NodeKind::Filter { def } => {
                     let mut extra = Vec::new();
                     let mut missing = None;
@@ -1021,17 +1275,56 @@ impl Session {
             nm.running = true;
             nm.error = None;
             self.touch();
-            return Some(WorkItem { node: id, generation: self.generation, kind });
+            return Some(WorkItem { node: id, generation: self.generation, kind, remote: Default::default() });
         }
         None
     }
 
     /// Store the result of a work item.
     pub fn complete(&mut self, item: WorkItem, result: Result<Arc<DataSet>>, elapsed_ms: f64) {
+        let fetched = item.remote.lock().take();
+        let host_name = match &item.kind {
+            WorkKind::Remote { client, .. } => client.name.clone(),
+            _ => String::new(),
+        };
+        let mut new_times = false;
+        if let (Some(f), Some(n)) = (&fetched, self.nodes.get_mut(&item.node)) {
+            if let NodeKind::Remote { times, .. } = &mut n.kind {
+                if *times != f.times {
+                    *times = f.times.clone();
+                    new_times = true;
+                }
+                if n.output.is_none() && result.is_ok() {
+                    self.camera_request = Some(CameraRequest::ResetToBounds);
+                }
+            }
+        }
+        if new_times {
+            self.rebuild_times();
+        }
         let Some(n) = self.nodes.get_mut(&item.node) else { return };
         n.running = false;
         n.last_exec_ms = elapsed_ms;
+        let summary_only = fetched.as_ref().is_some_and(|f| f.payload == crate::remote::Payload::None);
         match result {
+            Ok(ds) if summary_only => {
+                // The data stayed on the server: keep its summary, color later.
+                let f = fetched.unwrap();
+                n.info = f.info.clone();
+                n.output = Some(ds);
+                n.error = None;
+                n.remote = Some(RemoteStatus {
+                    host: host_name.clone(),
+                    payload: f.payload,
+                    full_bytes: f.full_bytes,
+                    sent_bytes: f.sent_bytes,
+                    server_ms: f.server_ms,
+                });
+                if item.generation == self.generation {
+                    n.dirty = false;
+                }
+                self.data_revision += 1;
+            }
             Ok(ds) => {
                 // Friendly default: color by the active scalar the first time data arrives,
                 // and fall back when an inherited color array does not exist in this output.
@@ -1059,6 +1352,19 @@ impl Session {
                 }
                 n.auto_colored = true;
                 n.info = Some(DataSetInfo::of(&ds));
+                n.remote = None;
+                if let Some(f) = &fetched {
+                    if f.info.is_some() {
+                        n.info = f.info.clone();
+                    }
+                    n.remote = Some(RemoteStatus {
+                        host: host_name.clone(),
+                        payload: f.payload,
+                        full_bytes: f.full_bytes,
+                        sent_bytes: f.sent_bytes,
+                        server_ms: f.server_ms,
+                    });
+                }
                 n.output = Some(ds);
                 n.error = None;
                 if let WorkKind::LoadStep { index, .. } = item.kind {

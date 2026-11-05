@@ -19,12 +19,13 @@ export PYO3_PYTHON="$PYROOT/bin/python3"
 export CARGO_TARGET_DIR="$ROOT/target/package/cargo"
 # python-build-standalone reports its build-machine LIBDIR (/install/lib); link against the bundled copy.
 export RUSTFLAGS="${RUSTFLAGS:-} -L native=$PYROOT/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/aurafx/python/lib"
-cargo build --release -p aurafx-app --manifest-path "$ROOT/Cargo.toml"
+cargo build --release -p aurafx-app -p aurafx-server --manifest-path "$ROOT/Cargo.toml"
 
 # 3. AppDir layout (also used for the tarball).
 APPDIR="$WORK/auraFX.AppDir"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib/aurafx" "$APPDIR/usr/share/applications"
 install -m 755 "$CARGO_TARGET_DIR/release/aurafx" "$APPDIR/usr/bin/aurafx"
+install -m 755 "$CARGO_TARGET_DIR/release/aurafx-server" "$APPDIR/usr/bin/aurafx-server"
 cp -a "$PYROOT" "$APPDIR/usr/lib/aurafx/python"
 # Trim things the embedded interpreter never needs.
 rm -rf "$APPDIR/usr/lib/aurafx/python/include" "$APPDIR/usr/lib/aurafx/python/share"

@@ -27,13 +27,14 @@ $PyRoot = "$Work/python"
 
 $env:PYO3_PYTHON = "$PyRoot/python.exe"
 $env:CARGO_TARGET_DIR = "$Root/target/package/cargo-windows"
-cargo build --release -p aurafx-app --manifest-path "$Root/Cargo.toml"
+cargo build --release -p aurafx-app -p aurafx-server --manifest-path "$Root/Cargo.toml"
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
 # Stage: aurafx.exe + python DLLs next to it + python\ (stdlib, site-packages).
 $Stage = "$Work/auraFX"
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item "$env:CARGO_TARGET_DIR/release/aurafx.exe" $Stage
+Copy-Item "$env:CARGO_TARGET_DIR/release/aurafx-server.exe" $Stage
 Copy-Item -Recurse $PyRoot "$Stage/python"
 Copy-Item "$PyRoot/python3*.dll" $Stage
 Get-ChildItem "$Stage/python" -Recurse -Directory -Include "test","tests","__pycache__","idlelib","tkinter","turtledemo" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue

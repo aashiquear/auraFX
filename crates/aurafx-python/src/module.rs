@@ -63,6 +63,7 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 }
             }
             "visible" | "show" => s.set_visible(id, val.as_bool().unwrap_or(true)),
+            "fetch_full" | "all_data" => s.set_fetch_full(id, val.as_bool().unwrap_or(true)),
             "color_by" => {
                 if let Some(n) = val.as_str() {
                     let cb = resolve_color_by(&s, id, n, None)?;
@@ -541,12 +542,56 @@ fn plugins<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
     Ok(l)
 }
 
+/// Open a file. With `host=` (a host from the Simulations panel, an ssh alias or user@machine,
+/// or "local") or an `ssh://host/path` URL, the file is read on that machine by aurafx-server
+/// and filters added below it run there too.
 #[pyfunction]
-#[pyo3(signature = (path, **kwargs))]
-fn load(path: String, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
-    let id = session().lock().open_file(&path).map_err(err)?;
+#[pyo3(signature = (path, host=None, **kwargs))]
+fn load(path: String, host: Option<String>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+    let (host, path) = match (host, path.strip_prefix("ssh://")) {
+        (Some(h), _) => (Some(h), path),
+        (None, Some(rest)) => {
+            let (h, p) = rest.split_once('/').ok_or_else(|| PyValueError::new_err("use ssh://host/path/to/file"))?;
+            let p = if p.starts_with('~') { p.to_string() } else { format!("/{p}") };
+            (Some(h.to_string()), p)
+        }
+        (None, None) => (None, path),
+    };
+    let id = match host {
+        Some(h) => {
+            let host = aurafx_jobs::resolve_host(Some(&h));
+            let mut s = session().lock();
+            let id = s.open_remote(host, &path);
+            s.update_blocking();
+            if let Some(e) = s.nodes.get(&id).and_then(|n| n.error.clone()) {
+                s.remove_node(id);
+                return Err(PyRuntimeError::new_err(e));
+            }
+            id
+        }
+        None => session().lock().open_file(&path).map_err(err)?,
+    };
     apply_kwargs(id, kwargs)?;
     Ok(PyNode { id })
+}
+
+/// Servers this session talks to: name, whether connected, and the machine's details.
+#[pyfunction]
+fn servers(py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+    let s = session().lock();
+    let mut out = Vec::new();
+    for (name, c) in &s.remote_clients {
+        let d = PyDict::new(py);
+        d.set_item("name", name)?;
+        d.set_item("connected", c.is_connected())?;
+        if let Some(i) = c.info.lock().as_ref() {
+            d.set_item("hostname", &i.hostname)?;
+            d.set_item("cpus", i.cpus)?;
+            d.set_item("version", &i.version)?;
+        }
+        out.push(d.unbind());
+    }
+    Ok(out)
 }
 
 #[pyfunction]
@@ -1259,6 +1304,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNode>()?;
     m.add_class::<FilterCall>()?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
+    m.add_function(wrap_pyfunction!(servers, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;
     m.add_function(wrap_pyfunction!(apply_multi, m)?)?;
     m.add_function(wrap_pyfunction!(nodes, m)?)?;

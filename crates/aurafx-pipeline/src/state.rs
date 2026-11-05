@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq)]
 pub enum KindSnap {
     Reader(PathBuf),
+    /// A file on a server: (host, path there).
+    Remote(aurafx_jobs::Host, String),
     Source(String),
     Filter(String),
 }
@@ -48,6 +50,7 @@ pub struct CameraState {
 pub(crate) fn kind_snap(n: &Node) -> KindSnap {
     match &n.kind {
         NodeKind::Reader { path, .. } => KindSnap::Reader(path.clone()),
+        NodeKind::Remote { host, path, .. } => KindSnap::Remote(host.clone(), path.clone()),
         NodeKind::Source { def } => KindSnap::Source(def.id.to_string()),
         NodeKind::Filter { def } => KindSnap::Filter(def.id.to_string()),
     }
@@ -136,6 +139,7 @@ impl Session {
                 };
                 NodeKind::Reader { path: path.clone(), loaded }
             }
+            KindSnap::Remote(host, path) => NodeKind::Remote { host: host.clone(), path: path.clone(), times: Vec::new() },
             KindSnap::Source(f) => NodeKind::Source { def: aurafx_filters::find(f).ok_or_else(|| anyhow!("unknown source {f}"))? },
             KindSnap::Filter(f) => NodeKind::Filter { def: aurafx_filters::find(f).ok_or_else(|| anyhow!("unknown filter {f}"))? },
         };
@@ -208,6 +212,7 @@ impl Session {
             .map(|n| {
                 let (kind, what) = match &n.kind {
                     NodeKind::Reader { path, .. } => ("reader", path.display().to_string()),
+                    NodeKind::Remote { path, .. } => ("remote", path.clone()),
                     NodeKind::Source { def } => ("source", def.id.to_string()),
                     NodeKind::Filter { def } => ("filter", def.id.to_string()),
                 };
@@ -228,6 +233,10 @@ impl Session {
                     "visible": n.visible,
                     "params": params,
                     "display": n.display,
+                    "host": match &n.kind {
+                        NodeKind::Remote { host, .. } => serde_json::to_value(host).ok(),
+                        _ => None,
+                    },
                 })
             })
             .collect();
@@ -271,11 +280,15 @@ impl Session {
                     KindSnap::Reader(if abs.exists() { abs } else { rel.filter(|r| r.exists()).unwrap_or(abs) })
                 }
                 Some("source") => KindSnap::Source(what.clone()),
+                Some("remote") => {
+                    let host = n.get("host").cloned().and_then(|h| serde_json::from_value(h).ok()).ok_or_else(|| anyhow!("remote node without host"))?;
+                    KindSnap::Remote(host, what.clone())
+                }
                 _ => KindSnap::Filter(what.clone()),
             };
             let def = match &kind {
                 KindSnap::Source(f) | KindSnap::Filter(f) => aurafx_filters::find(f),
-                KindSnap::Reader(_) => None,
+                KindSnap::Reader(_) | KindSnap::Remote(..) => None,
             };
             let mut params = def.as_ref().map(|d| d.default_params()).unwrap_or_default();
             if let (Some(def), Some(obj)) = (&def, n.get("params").and_then(|p| p.as_object())) {

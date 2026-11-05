@@ -4,10 +4,13 @@
 pub mod animation;
 pub mod colormap;
 pub mod display;
+pub mod remote;
 pub mod session;
 pub mod state;
 
 pub use animation::{Animation, CameraKey, ParamKey, ParamTrack};
 pub use display::{ColorBy, DisplayProps, Representation};
-pub use session::{stat_of, Annotation, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, Selection, Session, SharedSession, WorkItem};
+pub use session::{
+    stat_of, Annotation, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, RemoteStatus, Selection, Session, SharedSession, WorkItem,
+};
 pub use state::{CameraState, Snapshot};

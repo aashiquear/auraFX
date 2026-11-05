@@ -15,6 +15,7 @@ mod palette;
 mod panels;
 mod pick;
 mod plugins_ui;
+mod ray_tracing;
 mod server_ui;
 mod settings;
 mod theme;

@@ -1,6 +1,7 @@
 //! GPU rendering of pipeline nodes with wgpu.
 
 pub mod camera;
+pub mod raytrace;
 pub mod renderer;
 pub mod server;
 pub mod tessellate;

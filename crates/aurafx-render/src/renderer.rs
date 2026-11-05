@@ -32,6 +32,7 @@ struct NodeUniform {
 }
 
 /// What to draw for one pipeline node this frame.
+#[derive(Clone)]
 pub struct NodeDraw {
     pub id: NodeId,
     pub mesh: Arc<MeshData>,

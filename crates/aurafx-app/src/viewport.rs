@@ -39,6 +39,8 @@ pub struct Viewport {
     frame_times: Vec<f64>,
     last_frame: f64,
     screenshot: Option<(PathBuf, Option<(u32, u32)>)>,
+    /// Frames a scripted screenshot still waits.
+    screenshot_wait: u8,
     camera_initialized: bool,
     pub mode: InteractMode,
     drag_start: Option<Pos2>,
@@ -53,6 +55,8 @@ pub struct Viewport {
     pub ruler: Vec<glam::DVec3>,
     /// Pictures of server-drawn objects, per host.
     remote_images: HashMap<String, RemoteImage>,
+    /// Path tracing of the opaque surfaces (View › Lighting › Ray tracing).
+    ray_tracing: crate::ray_tracing::RayTracing,
 }
 
 /// The latest picture a server drew for this view, and the request in flight.
@@ -157,6 +161,7 @@ impl Viewport {
             frame_times: Vec::new(),
             last_frame: 0.0,
             screenshot: None,
+            screenshot_wait: 0,
             camera_initialized: false,
             mode: InteractMode::Navigate,
             drag_start: None,
@@ -167,6 +172,7 @@ impl Viewport {
             select_through: false,
             ruler: Vec::new(),
             remote_images: HashMap::new(),
+            ray_tracing: Default::default(),
         }
     }
 
@@ -688,12 +694,21 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
 
     // Render.
     let (draws, scalar_bar) = collect_draws(state);
-    let layers = remote_layers(state, ui.ctx(), w, h);
+    let mut layers = remote_layers(state, ui.ctx(), w, h);
+    // Ray tracing: a traced picture replaces the opaque surfaces once it is ready.
+    let (shown, trace_progress) = if state.viewport.settings.lighting.ray_tracing && state.viewport.renderer.is_some() {
+        let f = state.viewport.ray_tracing.frame(ui.ctx(), draws.clone(), &state.viewport.camera, &state.viewport.settings, w, h);
+        layers.extend(f.layer);
+        (f.draws, f.progress)
+    } else {
+        state.viewport.ray_tracing.stop();
+        (draws.clone(), None)
+    };
     if let Some(r) = state.viewport.renderer.as_mut() {
         let recreated = r.resize(w, h);
         r.set_layers(&layers);
         let settings = state.viewport.settings.clone();
-        r.render(&state.viewport.camera, &draws, &settings);
+        r.render(&state.viewport.camera, &shown, &settings);
         if let Some((node, px, add, remove)) = state.viewport.pending_id_pick.take() {
             match r.pick_ids(&state.viewport.camera, &draws, node, px) {
                 Ok(ids) => {
@@ -705,8 +720,33 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         }
         state.viewport.sync_texture(recreated);
         // Screenshot requests (UI or Python).
-        let py_req = if is_active { state.session.lock().screenshot_request.take() } else { None };
-        let req = state.viewport.screenshot.take().or_else(|| py_req.map(|(p, w, h)| (p, w.zip(h))));
+        // Requests from scripts wait until what the script did before is in the picture: data
+        // updated, camera moved, and app commands (lighting, ...) applied over a few frames.
+        let py_req = if is_active {
+            let mut s = state.session.lock();
+            if !s.is_busy() && s.camera_request.is_none() {
+                s.screenshot_request.take()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some((p, w, h)) = py_req {
+            state.viewport.screenshot = Some((p, w.zip(h)));
+            state.viewport.screenshot_wait = 2;
+        }
+        let mut req = if state.viewport.screenshot_wait > 0 {
+            state.viewport.screenshot_wait -= 1;
+            ui.ctx().request_repaint();
+            None
+        } else {
+            state.viewport.screenshot.take()
+        };
+        // A ray-traced screenshot waits for the tracer to finish.
+        if trace_progress.is_some() && req.is_some() {
+            state.viewport.screenshot = req.take();
+        }
         if let Some((path, _size)) = req {
             match state.viewport.renderer.as_ref().unwrap().save_png(&path) {
                 Ok(()) => state.toast(format!("Saved {}", path.display()), false),
@@ -722,6 +762,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     let painter = ui.painter_at(rect);
     let fg = crate::theme::overlay_text(state.viewport.settings.background);
     let fg_weak = fg.linear_multiply(0.6);
+    if let Some((done, wanted)) = trace_progress {
+        let text = if done == 0 { "Ray tracing…".to_string() } else { format!("Ray tracing {done}/{wanted}") };
+        painter.text(rect.right_bottom() + Vec2::new(-10.0, -8.0), egui::Align2::RIGHT_BOTTOM, text, egui::FontId::proportional(12.0), fg_weak);
+    }
     if empty {
         let c = rect.center();
         painter.text(c + Vec2::new(0.0, -30.0), egui::Align2::CENTER_CENTER, "auraFX", egui::FontId::proportional(34.0), fg_weak);

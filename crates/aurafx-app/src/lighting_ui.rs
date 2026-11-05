@@ -102,6 +102,15 @@ pub fn lighting_ui(ui: &mut egui::Ui, l: &mut Lighting) -> bool {
             ui.add(egui::Slider::new(&mut l.edl_strength, 0.1..=4.0).logarithmic(true).show_value(false)).on_hover_text("Strength");
         }
     });
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut l.ray_tracing, "Ray tracing").on_hover_text(
+            "Path-trace opaque surfaces on the CPU: soft shadows, sky light and light bouncing between surfaces. Refines while the view is still; screenshots wait for it to finish",
+        );
+        if l.ray_tracing {
+            ui.add(egui::DragValue::new(&mut l.ray_samples).range(1..=4096).suffix(" samples")).on_hover_text("Samples per pixel to stop at");
+            ui.add(egui::DragValue::new(&mut l.ray_bounces).range(0..=8).suffix(" bounces")).on_hover_text("Light bounces after the first hit");
+        }
+    });
     ui.checkbox(&mut l.fxaa, "FXAA").on_hover_text("Smooth remaining jagged edges (thin lines, textures)");
     ui.horizontal(|ui| {
         ui.label("Tone mapping");

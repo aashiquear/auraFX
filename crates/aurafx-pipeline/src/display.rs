@@ -236,6 +236,12 @@ pub struct Lighting {
     pub fxaa: bool,
     pub tone_mapping: ToneMapping,
     pub exposure: f32,
+    /// Path-trace opaque surfaces (refines while the view is still).
+    pub ray_tracing: bool,
+    /// Samples per pixel the ray tracer stops at.
+    pub ray_samples: u32,
+    /// Diffuse bounces after the first hit.
+    pub ray_bounces: u32,
 }
 
 impl Default for Lighting {
@@ -253,6 +259,9 @@ impl Default for Lighting {
             fxaa: false,
             tone_mapping: ToneMapping::None,
             exposure: 1.0,
+            ray_tracing: false,
+            ray_samples: 128,
+            ray_bounces: 3,
         }
     }
 }
@@ -279,7 +288,7 @@ impl Lighting {
             lights: self.lights.clone(),
             ambient: self.ambient,
             shadows: self.shadows,
-            ..Lighting { edl: false, ssao: false, fxaa: false, tone_mapping: ToneMapping::None, exposure: 1.0, ..Default::default() }
+            ..Lighting { edl: false, ssao: false, fxaa: false, tone_mapping: ToneMapping::None, exposure: 1.0, ray_tracing: false, ..Default::default() }
         }
     }
 }

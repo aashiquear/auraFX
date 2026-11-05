@@ -31,7 +31,7 @@ fn path_tracer() {
     let lighting = Lighting { lights: vec![sun], ambient: Some(0.2), ..Default::default() };
     let scene = Arc::new(Scene::build(&draws));
     assert_eq!(scene.triangles(), (draws[0].mesh.tris.len() + draws[1].mesh.tris.len()) / 3);
-    let view = View { camera: cam.clone(), lighting: lighting.clone(), width: w, height: h, background: [0.0; 3], bounces: 2 };
+    let view = View { camera: cam.clone(), lighting: lighting.clone(), width: w, height: h, background: [0.0; 3], bounces: 2, environment: None };
     let t0 = std::time::Instant::now();
     let mut tracer = Tracer::new(scene.clone(), view.clone());
     tracer.pass();

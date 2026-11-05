@@ -320,3 +320,22 @@ fn fs_lic(v: VsOut) -> @location(0) vec4<f32> {
     let f = 1.0 - clamp(here.w - 1.0, 0.0, 1.0) * (1.0 - e);
     return vec4<f32>(f, f, f, 1.0);
 }
+
+// ---- environment as the background ----
+struct SkyUniform {
+    forward: vec4<f32>,
+    right: vec4<f32>,   // scaled by the half-width of the view
+    up: vec4<f32>,      // scaled by the half-height
+    params: vec4<f32>,  // intensity, width, height, 0
+};
+@group(0) @binding(0) var<uniform> sky: SkyUniform;
+@group(0) @binding(1) var sky_map: texture_2d<f32>;
+@group(0) @binding(2) var sky_sampler: sampler;
+
+@fragment
+fn fs_sky(v: VsOut) -> @location(0) vec4<f32> {
+    let ndc = vec2<f32>(v.pos.x / sky.params.y * 2.0 - 1.0, 1.0 - v.pos.y / sky.params.z * 2.0);
+    let d = normalize(sky.forward.xyz + sky.right.xyz * ndc.x + sky.up.xyz * ndc.y);
+    let uv = vec2<f32>(atan2(d.y, d.x) / 6.2831853 + 0.5, acos(clamp(d.z, -1.0, 1.0)) / 3.1415927);
+    return vec4<f32>(textureSampleLevel(sky_map, sky_sampler, uv, 0.0).rgb * sky.params.x, 1.0);
+}

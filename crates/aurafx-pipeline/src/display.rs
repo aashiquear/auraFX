@@ -93,6 +93,20 @@ pub struct DisplayProps {
     pub lic_strength: f32,
     /// Surface LIC: streak half-length in pixels.
     pub lic_length: u32,
+    /// Material: 0 = plastic-like, 1 = metal (colored reflections, no diffuse light).
+    pub metallic: f32,
+    /// Material: 0 = mirror-like highlights and reflections, 1 = matte.
+    pub roughness: f32,
+    /// Material: strength of highlights on non-metals.
+    pub specular: f32,
+}
+
+/// Roughness whose highlights match the classic shading (Blinn-Phong power 60).
+pub const DEFAULT_ROUGHNESS: f32 = 0.4238;
+
+/// Blinn-Phong highlight power for a roughness.
+pub fn specular_power(roughness: f32) -> f32 {
+    2.0 / roughness.clamp(0.02, 1.0).powi(4) - 2.0
 }
 
 /// Where an object on a server is drawn.
@@ -134,6 +148,9 @@ impl Default for DisplayProps {
             lic_vectors: None,
             lic_strength: 0.8,
             lic_length: 20,
+            metallic: 0.0,
+            roughness: DEFAULT_ROUGHNESS,
+            specular: 0.12,
         }
     }
 }
@@ -242,6 +259,13 @@ pub struct Lighting {
     pub ray_samples: u32,
     /// Diffuse bounces after the first hit.
     pub ray_bounces: u32,
+    /// Environment map lighting the scene: "" (none), "sky", "studio", "white" or an image file
+    /// (.hdr, .png, .jpg; equirectangular, +Z up). It replaces the ambient light and adds
+    /// reflections.
+    pub environment: String,
+    pub environment_intensity: f32,
+    /// Show the environment behind the objects instead of the background color.
+    pub show_environment: bool,
 }
 
 impl Default for Lighting {
@@ -262,20 +286,29 @@ impl Default for Lighting {
             ray_tracing: false,
             ray_samples: 128,
             ray_bounces: 3,
+            environment: String::new(),
+            environment_intensity: 1.0,
+            show_environment: false,
         }
     }
 }
 
 impl Lighting {
-    /// The lights in effect and the ambient term.
+    /// The lights in effect and the ambient term. With an environment (which lights the
+    /// scene too) the built-in lights are dimmed by half; custom lights stay as set.
     pub fn effective_lights(&self) -> (Vec<Light>, f32) {
-        let lights = if !self.lights.is_empty() {
+        let mut lights = if !self.lights.is_empty() {
             self.lights.clone()
         } else if self.light_kit {
             Light::kit()
         } else {
             Light::single()
         };
+        if self.lights.is_empty() && !self.environment.trim().is_empty() {
+            for l in &mut lights {
+                l.intensity *= 0.5;
+            }
+        }
         let ambient = self.ambient.unwrap_or(if lights.len() > 1 { 0.15 } else { 0.3 });
         (lights, ambient)
     }
@@ -288,6 +321,9 @@ impl Lighting {
             lights: self.lights.clone(),
             ambient: self.ambient,
             shadows: self.shadows,
+            environment: self.environment.clone(),
+            environment_intensity: self.environment_intensity,
+            show_environment: false,
             ..Lighting { edl: false, ssao: false, fxaa: false, tone_mapping: ToneMapping::None, exposure: 1.0, ray_tracing: false, ..Default::default() }
         }
     }

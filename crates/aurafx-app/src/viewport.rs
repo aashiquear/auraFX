@@ -646,6 +646,9 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     let remote = remote_layers(state, ui.ctx(), w, h);
     let mut layers = remote.clone();
     // Ray tracing: a traced picture replaces the opaque surfaces once it is ready.
+    if let Some(r) = &state.viewport.renderer {
+        state.viewport.ray_tracing.environment = r.environment();
+    }
     let (shown, trace_progress) = if state.viewport.settings.lighting.ray_tracing && state.viewport.renderer.is_some() {
         let f = state.viewport.ray_tracing.frame(ui.ctx(), draws.clone(), &state.viewport.camera, &state.viewport.settings, w, h);
         layers.extend(f.layer);

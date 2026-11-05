@@ -17,7 +17,7 @@ half.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 wgpu = "30"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "hdr"] }
 
 [dev-dependencies]
 aurafx-io.workspace = true

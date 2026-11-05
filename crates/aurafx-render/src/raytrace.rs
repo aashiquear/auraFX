@@ -27,6 +27,10 @@ pub(crate) struct Material {
     scalars: bool,
     solid: Vec3,
     lit: bool,
+    metallic: f32,
+    roughness: f32,
+    specular: f32,
+    power: f32,
 }
 
 impl Material {
@@ -45,6 +49,10 @@ impl Material {
             scalars: d.mesh.has_scalars,
             solid: Vec3::from_array(d.display.solid_color),
             lit: d.display.lighting,
+            metallic: d.display.metallic.clamp(0.0, 1.0),
+            roughness: d.display.roughness.clamp(0.0, 1.0),
+            specular: d.display.specular.max(0.0),
+            power: aurafx_pipeline::display::specular_power(d.display.roughness),
         }
     }
 
@@ -402,6 +410,8 @@ pub struct View {
     pub background: [f32; 3],
     /// Diffuse bounces after the first hit.
     pub bounces: u32,
+    /// The environment lighting the scene (see `Lighting::environment`).
+    pub environment: Option<std::sync::Arc<crate::env::Environment>>,
 }
 
 /// Accumulates passes for one view of one scene.
@@ -476,7 +486,21 @@ impl Tracer {
         let mut first = None;
         for bounce in 0..=self.view.bounces {
             let Some((t, tri, u, v)) = sc.intersect(o, d, f32::INFINITY, false) else {
-                out += through * if bounce == 0 { Vec3::from_array(self.view.background) } else { Vec3::splat(self.ambient) };
+                let lighting = &self.view.lighting;
+                let sky = || match &self.view.environment {
+                    Some(e) => e.sample(d) * lighting.environment_intensity,
+                    None => Vec3::splat(self.ambient),
+                };
+                out += through
+                    * if bounce > 0 {
+                        // Clamped: a rare bounce into a tiny bright spot (the sun) would leave
+                        // speckles that take thousands of passes to average out.
+                        sky().min(Vec3::splat(4.0))
+                    } else if lighting.show_environment && self.view.environment.is_some() {
+                        sky()
+                    } else {
+                        Vec3::from_array(self.view.background)
+                    };
                 break;
             };
             if bounce == 0 {
@@ -503,6 +527,7 @@ impl Tracer {
                 n = -n;
             }
             let p = o + d * t + ng * eps;
+            let spec_color = Vec3::splat(m.specular).lerp(albedo, m.metallic);
             // Direct light, with soft shadows (lights a few degrees wide).
             for (l, col) in &self.lights {
                 let (lt, lb) = basis(*l);
@@ -513,14 +538,36 @@ impl Tracer {
                 if ndl <= 0.0 || ng.dot(ld) <= 0.0 || sc.intersect(p, ld, f32::INFINITY, true).is_some() {
                     continue;
                 }
-                out += through * albedo * *col * ndl;
-                if bounce == 0 {
-                    let hv = (ld - d).normalize();
-                    out += through * *col * n.dot(hv).max(0.0).powf(60.0) * 0.12;
-                }
+                out += through * albedo * *col * ndl * (1.0 - m.metallic);
+                let hv = (ld - d).normalize();
+                out += through * spec_color * *col * n.dot(hv).max(0.0).powf(m.power);
             }
-            // Diffuse bounce (cosine-weighted, so the weight is the albedo).
-            through *= albedo;
+            // Next direction: a glossy reflection (weight: the reflectance at normal incidence)
+            // or a diffuse bounce (cosine-weighted, so the weight is the albedo).
+            let f0 = Vec3::splat(m.specular / 3.0).lerp(albedo, m.metallic);
+            let (ws, wd) = (f0.max_element(), 1.0 - m.metallic);
+            let p_spec = if ws + wd > 0.0 { ws / (ws + wd) } else { 0.0 };
+            if rng.next() < p_spec {
+                let r = d - n * (2.0 * d.dot(n));
+                let g = m.roughness * m.roughness;
+                let jitter = cosine_dir(n, rng) - n;
+                let nd = (r + jitter * g).normalize_or_zero();
+                if nd.dot(ng) <= 0.0 {
+                    break;
+                }
+                through *= f0 / p_spec;
+                if bounce >= 2 {
+                    let keep = through.max_element().clamp(0.05, 1.0);
+                    if rng.next() > keep {
+                        break;
+                    }
+                    through /= keep;
+                }
+                o = p;
+                d = nd;
+                continue;
+            }
+            through *= albedo * (wd / (1.0 - p_spec));
             if bounce >= 2 {
                 let keep = through.max_element().clamp(0.05, 1.0);
                 if rng.next() > keep {

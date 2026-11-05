@@ -116,6 +116,15 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_f64().unwrap_or(1.0) as f32;
                 s.set_display(id, |d| d.volume_opacity = v);
             }
+            "metallic" | "roughness" | "specular" => {
+                let v = val.as_f64().ok_or_else(|| PyValueError::new_err(format!("{key} must be a number")))? as f32;
+                let k = key.to_string();
+                s.set_display(id, |d| match k.as_str() {
+                    "metallic" => d.metallic = v.clamp(0.0, 1.0),
+                    "roughness" => d.roughness = v.clamp(0.02, 1.0),
+                    _ => d.specular = v.max(0.0),
+                });
+            }
             "lic_vectors" => {
                 let v = val.as_str().map(str::to_string);
                 s.set_display(id, |d| d.lic_vectors = v);

@@ -86,6 +86,30 @@ pub fn lighting_ui(ui: &mut egui::Ui, l: &mut Lighting) -> bool {
             }
         });
     }
+    ui.horizontal(|ui| {
+        ui.label("Environment")
+            .on_hover_text("A picture of the surroundings that lights the objects (soft ambient light, reflections on shiny and metallic surfaces)");
+        let shown = if l.environment.is_empty() {
+            "none".to_string()
+        } else {
+            std::path::Path::new(&l.environment).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| l.environment.clone())
+        };
+        egui::ComboBox::from_id_salt("environment").selected_text(shown).show_ui(ui, |ui| {
+            ui.selectable_value(&mut l.environment, String::new(), "none");
+            for b in aurafx_render::env::BUILT_IN {
+                ui.selectable_value(&mut l.environment, b.to_string(), b);
+            }
+            if ui.selectable_label(false, "Image file…").on_hover_text("Equirectangular .hdr, .png or .jpg, +Z up").clicked() {
+                if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Environment map", &["hdr", "png", "jpg", "jpeg"]).pick_file() {
+                    l.environment = p.display().to_string();
+                }
+            }
+        });
+        if !l.environment.is_empty() {
+            ui.add(egui::DragValue::new(&mut l.environment_intensity).range(0.0..=10.0).speed(0.01)).on_hover_text("Brightness");
+            ui.checkbox(&mut l.show_environment, "as background");
+        }
+    });
     ui.separator();
     ui.checkbox(&mut l.shadows, "Shadows").on_hover_text("Shadows from the key light (custom lights: the first one with shadows ticked)");
     ui.horizontal(|ui| {

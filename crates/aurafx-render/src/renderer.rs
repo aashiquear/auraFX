@@ -29,6 +29,9 @@ struct NodeUniform {
     light_info: [f32; 4],
     light_dirs: [[f32; 4]; 8],
     light_colors: [[f32; 4]; 8],
+    material: [f32; 4],
+    env: [f32; 4],
+    sh: [[f32; 4]; 9],
 }
 
 /// What to draw for one pipeline node this frame.
@@ -140,6 +143,7 @@ pub struct Renderer {
     oit: OitTargets,
     /// Set from the render settings each frame.
     light_kit: bool,
+    env_intensity: f32,
     shadow_view: wgpu::TextureView,
     shadow_sampler: wgpu::Sampler,
     shadow_bgl: wgpu::BindGroupLayout,
@@ -152,6 +156,14 @@ pub struct Renderer {
     pipe_ssao: wgpu::RenderPipeline,
     ao_uniform: wgpu::Buffer,
     ao_bg: wgpu::BindGroup,
+    env: GpuEnv,
+    env_sampler: wgpu::Sampler,
+    /// An environment that could not be loaded (not retried every frame).
+    env_failed: Option<String>,
+    pipe_sky: wgpu::RenderPipeline,
+    sky_bgl: wgpu::BindGroupLayout,
+    sky_uniform: wgpu::Buffer,
+    sky_bg: wgpu::BindGroup,
     pipe_ao_blur: wgpu::RenderPipeline,
     ao_blur_bgl: wgpu::BindGroupLayout,
     ao_target: AoTarget,
@@ -326,6 +338,55 @@ pub struct ImageLayer {
     pub depth: Vec<f32>,
 }
 
+fn env_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+/// The environment map on the GPU (a black pixel when there is none).
+struct GpuEnv {
+    env: Option<std::sync::Arc<crate::env::Environment>>,
+    view: wgpu::TextureView,
+    mips: u32,
+}
+
+impl GpuEnv {
+    fn upload(device: &wgpu::Device, queue: &wgpu::Queue, env: Option<std::sync::Arc<crate::env::Environment>>) -> Self {
+        let levels = match &env {
+            Some(e) => e.mips(),
+            None => vec![(1, 1, vec![half::f16::ZERO, half::f16::ZERO, half::f16::ZERO, half::f16::ONE])],
+        };
+        let (w, h) = (levels[0].0 as u32, levels[0].1 as u32);
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("environment"),
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            mip_level_count: levels.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (level, (lw, lh, data)) in levels.iter().enumerate() {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: level as u32, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                bytemuck::cast_slice(&data.iter().map(|h| h.to_bits()).collect::<Vec<u16>>()),
+                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(8 * *lw as u32), rows_per_image: Some(*lh as u32) },
+                wgpu::Extent3d { width: *lw as u32, height: *lh as u32, depth_or_array_layers: 1 },
+            );
+        }
+        Self { env, view: texture.create_view(&Default::default()), mips: levels.len() as u32 }
+    }
+}
+
 fn vertex_layout(step: wgpu::VertexStepMode) -> wgpu::VertexBufferLayout<'static> {
     wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -394,6 +455,13 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
+                env_tex_entry(5),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
@@ -451,6 +519,16 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let env_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("environment"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let env = GpuEnv::upload(&device, &queue, None);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
@@ -948,6 +1026,58 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let sky_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sky bgl"),
+            entries: &[
+                uniform_entry(0),
+                env_tex_entry(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let sky_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&sky_bgl)], immediate_size: 0 });
+        let pipe_sky = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sky"),
+            layout: Some(&sky_layout),
+            vertex: wgpu::VertexState { module: &post_shader, entry_point: Some("vs_full"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &post_shader,
+                entry_point: Some("fs_sky"),
+                targets: &[Some(wgpu::ColorTargetState { format: COLOR_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+            multiview_mask: None,
+            cache: None,
+        });
+        let sky_uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sky uniform"),
+            size: 64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let sky_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sky"),
+            layout: &sky_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: sky_uniform.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&env.view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&env_sampler) },
+            ],
+        });
         let final_uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("final uniform"),
             size: 16,
@@ -1003,6 +1133,7 @@ impl Renderer {
             oit_bgl,
             oit,
             light_kit: true,
+            env_intensity: 1.0,
             shadow_view,
             shadow_sampler,
             shadow_bgl,
@@ -1013,6 +1144,13 @@ impl Renderer {
             pipe_ssao,
             ao_uniform,
             ao_bg,
+            env,
+            env_sampler,
+            env_failed: None,
+            pipe_sky,
+            sky_bgl,
+            sky_uniform,
+            sky_bg,
             pipe_ao_blur,
             ao_blur_bgl,
             ao_target,
@@ -1263,8 +1401,58 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.shadow_view) },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.shadow_sampler) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&self.env.view) },
+                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.env_sampler) },
             ],
         })
+    }
+
+    /// The environment in use (for the ray tracer).
+    pub fn environment(&self) -> Option<std::sync::Arc<crate::env::Environment>> {
+        self.env.env.clone()
+    }
+
+    /// Load the environment the settings name (once), and rebind every node to it.
+    fn sync_environment(&mut self, lighting: &aurafx_pipeline::Lighting) {
+        let want = lighting.environment.trim();
+        let have = self.env.env.as_ref().map(|e| e.name.as_str()).unwrap_or("");
+        if want == have || self.env_failed.as_deref() == Some(want) {
+            return;
+        }
+        let env = if want.is_empty() {
+            None
+        } else {
+            match crate::env::Environment::load(want) {
+                Ok(e) => Some(std::sync::Arc::new(e)),
+                Err(e) => {
+                    tracing::warn!("environment: {e:#}");
+                    self.env_failed = Some(want.to_string());
+                    None
+                }
+            }
+        };
+        if env.is_some() {
+            self.env_failed = None;
+        }
+        if env.is_none() && self.env.env.is_none() {
+            return;
+        }
+        self.env = GpuEnv::upload(&self.device, &self.queue, env);
+        self.sky_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sky"),
+            layout: &self.sky_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.sky_uniform.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.env.view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.env_sampler) },
+            ],
+        });
+        let ids: Vec<NodeId> = self.nodes.keys().copied().collect();
+        for id in ids {
+            let g = &self.nodes[&id];
+            let bg = self.make_bind_group(&g.uniform, &g.lut);
+            self.nodes.get_mut(&id).unwrap().bind_group = bg;
+        }
     }
 
     fn upload_volume(&self, v: &crate::tessellate::VolumeData) -> GpuVolume {
@@ -1401,6 +1589,8 @@ impl Renderer {
             self.sync_node(d);
         }
         self.light_kit = settings.lighting.light_kit;
+        self.sync_environment(&settings.lighting);
+        self.env_intensity = settings.lighting.environment_intensity.max(0.0);
         // Lights in world coordinates (camera-relative ones follow the view).
         let (lights, ambient) = settings.lighting.effective_lights();
         let f = (camera.eye - camera.target).normalize_or_zero();
@@ -1484,6 +1674,19 @@ impl Renderer {
                 }),
                 ..Default::default()
             });
+            if settings.lighting.show_environment && self.env.env.is_some() && !settings.transparent {
+                let aspect = self.width as f64 / self.height.max(1) as f64;
+                let f = camera.forward();
+                let r = camera.right();
+                let u = r.cross(f).normalize_or_zero();
+                let half = if camera.orthographic { 0.35 } else { (camera.fov_y_deg.to_radians() * 0.5).tan() };
+                let v = |a: DVec3| [a.x as f32, a.y as f32, a.z as f32, 0.0];
+                let data = [v(f), v(r * half * aspect), v(u * half), [self.env_intensity, self.width as f32, self.height as f32, 0.0]];
+                self.queue.write_buffer(&self.sky_uniform, 0, bytemuck::cast_slice(&data));
+                pass.set_pipeline(&self.pipe_sky);
+                pass.set_bind_group(0, &self.sky_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
             for (l, bg, u) in &self.layers {
                 let size = [l.width as f32, l.height as f32, self.width as f32, self.height as f32];
                 self.queue.write_buffer(u, 0, bytemuck::cast_slice(&size));
@@ -1722,6 +1925,12 @@ impl Renderer {
             dirs[k] = [d[0], d[1], d[2], if casts { 1.0 } else { 0.0 }];
             colors[k] = [c[0], c[1], c[2], 0.0];
         }
+        let mut sh = [[0.0f32; 4]; 9];
+        if let Some(e) = &self.env.env {
+            for (k, c) in e.sh.iter().enumerate() {
+                sh[k] = [c.x, c.y, c.z, 0.0];
+            }
+        }
         let light_info = [self.lights.len().min(8) as f32, self.ambient, if self.shadow_vp.is_some() { 1.0 } else { 0.0 }, 0.0015];
         for d in draws {
             let g = &self.nodes[&d.id];
@@ -1749,6 +1958,14 @@ impl Renderer {
                 light_info,
                 light_dirs: dirs,
                 light_colors: colors,
+                material: [
+                    d.display.metallic.clamp(0.0, 1.0),
+                    d.display.roughness.clamp(0.0, 1.0),
+                    d.display.specular.max(0.0),
+                    aurafx_pipeline::display::specular_power(d.display.roughness),
+                ],
+                env: [if self.env.env.is_some() { 1.0 } else { 0.0 }, self.env_intensity, self.env.mips.saturating_sub(1) as f32, 0.0],
+                sh,
             };
             self.queue.write_buffer(&g.uniform, 0, bytemuck::bytes_of(&u));
             if let (Some(gv), Some(v)) = (&g.volume, &d.mesh.volume) {

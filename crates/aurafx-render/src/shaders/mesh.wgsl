@@ -10,6 +10,9 @@ struct NodeUniform {
     light_info: vec4<f32>,     // light count, ambient, shadows on, shadow bias
     light_dirs: array<vec4<f32>, 8>,   // world direction towards the light; w = casts shadows
     light_colors: array<vec4<f32>, 8>, // color * intensity
+    material: vec4<f32>,       // metallic, roughness, specular, highlight power
+    env: vec4<f32>,            // environment on, intensity, mip levels, 0
+    sh: array<vec4<f32>, 9>,   // environment irradiance (spherical harmonics, RGB)
 };
 
 @group(0) @binding(0) var<uniform> node: NodeUniform;
@@ -17,6 +20,24 @@ struct NodeUniform {
 @group(0) @binding(2) var lut_sampler: sampler;
 @group(0) @binding(3) var shadow_map: texture_depth_2d;
 @group(0) @binding(4) var shadow_sampler: sampler_comparison;
+@group(0) @binding(5) var env_map: texture_2d<f32>;
+@group(0) @binding(6) var env_sampler: sampler;
+
+/// Equirectangular coordinates of a direction (+Z up).
+fn env_uv(d: vec3<f32>) -> vec2<f32> {
+    return vec2<f32>(atan2(d.y, d.x) / 6.2831853 + 0.5, acos(clamp(d.z, -1.0, 1.0)) / 3.1415927);
+}
+
+/// Diffuse light from the environment for a surface facing `n`.
+fn env_irradiance(n: vec3<f32>) -> vec3<f32> {
+    let b0 = 0.282095;
+    var e = node.sh[0].rgb * b0;
+    e = e + node.sh[1].rgb * (0.488603 * n.y) + node.sh[2].rgb * (0.488603 * n.z) + node.sh[3].rgb * (0.488603 * n.x);
+    e = e + node.sh[4].rgb * (1.092548 * n.x * n.y) + node.sh[5].rgb * (1.092548 * n.y * n.z);
+    e = e + node.sh[6].rgb * (0.315392 * (3.0 * n.z * n.z - 1.0)) + node.sh[7].rgb * (1.092548 * n.x * n.z);
+    e = e + node.sh[8].rgb * (0.546274 * (n.x * n.x - n.y * n.y));
+    return max(e, vec3<f32>(0.0)) * node.env.y;
+}
 
 struct VertexIn {
     @location(0) pos: vec3<f32>,
@@ -87,7 +108,14 @@ fn shade(color: vec3<f32>, n_in: vec3<f32>, world: vec3<f32>, shadow: vec4<f32>)
     if (dot(n, view_dir) < 0.0) {
         n = -n;
     }
+    let metallic = node.material.x;
+    let power = node.material.w;
+    // Metals reflect in their own color and at full strength, and have no diffuse light.
+    let spec_color = mix(vec3<f32>(node.material.z), color, metallic);
     var light = vec3<f32>(node.light_info.y);
+    if (node.env.x > 0.5) {
+        light = env_irradiance(n);
+    }
     var spec = vec3<f32>(0.0);
     let count = u32(node.light_info.x);
     for (var k = 0u; k < count; k = k + 1u) {
@@ -99,9 +127,19 @@ fn shade(color: vec3<f32>, n_in: vec3<f32>, world: vec3<f32>, shadow: vec4<f32>)
         let c = node.light_colors[k].rgb;
         light = light + c * max(dot(n, l), 0.0) * vis;
         let h = normalize(l + view_dir);
-        spec = spec + c * pow(max(dot(n, h), 0.0), 60.0) * 0.12 * vis;
+        spec = spec + c * pow(max(dot(n, h), 0.0), power) * vis;
     }
-    return color * light + spec;
+    var out = color * light * (1.0 - metallic) + spec * spec_color;
+    if (node.env.x > 0.5) {
+        // Reflection of the environment, blurrier for rougher surfaces (Schlick's Fresnel).
+        let r = reflect(-view_dir, n);
+        let rough = node.material.y;
+        let reflected = textureSampleLevel(env_map, env_sampler, env_uv(r), rough * node.env.z).rgb * node.env.y;
+        let f0 = mix(vec3<f32>(node.material.z / 3.0), color, metallic);
+        let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - max(dot(n, view_dir), 0.0), 5.0) * (1.0 - rough);
+        out = out + reflected * fresnel * (1.0 - 0.6 * rough);
+    }
+    return out;
 }
 
 // ---- weighted blended order-independent transparency (McGuire & Bavoil 2013) ----

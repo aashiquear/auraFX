@@ -881,6 +881,19 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
 
+                if matches!(d.representation, Representation::Surface | Representation::SurfaceWithEdges | Representation::SurfaceLic) && d.lighting {
+                    ui.label("Material");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut d.metallic).range(0.0..=1.0).speed(0.01).prefix("metal ")).on_hover_text("0 plastic-like, 1 metal: reflections in the object's color, no diffuse light");
+                        ui.add(egui::DragValue::new(&mut d.roughness).range(0.02..=1.0).speed(0.01).prefix("rough ")).on_hover_text("Small: sharp highlights and mirror-like reflections; 1: matte");
+                        ui.add(egui::DragValue::new(&mut d.specular).range(0.0..=1.0).speed(0.01).prefix("shine ")).on_hover_text("Strength of highlights on non-metals");
+                        let default = aurafx_pipeline::DisplayProps::default();
+                        if (d.metallic, d.roughness, d.specular) != (default.metallic, default.roughness, default.specular) && ui.small_button("reset").clicked() {
+                            (d.metallic, d.roughness, d.specular) = (default.metallic, default.roughness, default.specular);
+                        }
+                    });
+                    ui.end_row();
+                }
                 if d.representation == Representation::SurfaceLic {
                     let vectors: Vec<String> = info
                         .as_ref()

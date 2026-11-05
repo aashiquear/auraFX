@@ -157,7 +157,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture.
 - [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
 - [x] Lighting (iterations 14–15): light kit, custom lights (camera-relative or fixed, colored), shadows, screen-space ambient occlusion, Eye-Dome Lighting, ACES/Reinhard tone mapping and exposure, MSAA + FXAA, order-independent transparency. Light widgets done in iteration 16. Not done: TAA. Original list: key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
-- [~] Surface LIC and ray tracing (Rust path tracer) done in iteration 15; environment maps/skyboxes, materials editor not yet.
+- [x] Surface LIC and ray tracing (Rust path tracer, iteration 15); environment maps as light and background, materials (metallic, roughness, specular) in Properties (iteration 16). GPU ray tracing not yet.
 - [~] Axes grid (data axes grid with ticks and labels, orientation axes, scalar bars and text done; custom bounds and units todo): Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
 - [~] Widgets (implicit plane, box, sphere, line, point, light and ruler done): implicit plane, box, sphere, cylinder, cone, annulus, frustum, line, polyline, spline, handle/point, distance, protractor, ruler, slider, light, coordinate frame, four-lines, contour, display-sized plane, text, logo, equalizer, progress bar.
 - [~] Selection: by click/rubber band/polygon on points/cells/blocks, through-frustum, by query (`field > value`, nearest, etc.), grow/shrink, invert, hover tooltips and interactive labels, "Find Data" panel.
@@ -523,7 +523,19 @@ Done in iteration 16 (exporters):
   function before each frame (after the keyframes) and returns when the file is written; the
   script renders frames with the waiting screenshot and the app encodes them.
 
-Known gaps worth doing next: GPU ray tracing, materials and environment maps (P4); light widgets in the 3D view; MPI launchers (srun) and ghost cells for parallel servers;
+- **Materials:** metallic, roughness and highlight strength per object (Properties ›
+  Material, `node.set(metallic=1, roughness=0.2)`); the defaults reproduce the earlier
+  shading exactly. Metals reflect in their own color; glTF export carries the factors.
+- **Environment maps** (View › Lighting › Environment, `afx.lighting(environment="sky")`):
+  built-in sky, studio and white, or an equirectangular .hdr/.png/.jpg. The environment
+  replaces the flat ambient light with its diffuse light (spherical harmonics), adds
+  reflections blurred by roughness (mip levels), and can be shown as the background. The
+  built-in lights are dimmed by half while an environment is on. The path tracer uses the same
+  materials (a glossy lobe for reflections) and the environment for rays that leave the scene;
+  in a white room both give a matte grey its own color, and a metal ball reflects the sky above
+  and the ground below.
+
+Known gaps worth doing next: GPU ray tracing (P4); light widgets in the 3D view; MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

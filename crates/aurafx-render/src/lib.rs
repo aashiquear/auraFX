@@ -1,6 +1,7 @@
 //! GPU rendering of pipeline nodes with wgpu.
 
 pub mod camera;
+pub mod env;
 pub mod raytrace;
 pub mod renderer;
 pub mod scene_export;

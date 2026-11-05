@@ -94,7 +94,11 @@ fn write_glb(path: &Path, objects: &[&ExportObject]) -> Result<()> {
         let opacity = d.display.opacity.clamp(0.0, 1.0);
         let mut mat = serde_json::json!({
             "name": o.name,
-            "pbrMetallicRoughness": {"baseColorFactor": [1.0, 1.0, 1.0, opacity], "metallicFactor": 0.0, "roughnessFactor": 0.8},
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [1.0, 1.0, 1.0, opacity],
+                "metallicFactor": d.display.metallic.clamp(0.0, 1.0),
+                "roughnessFactor": d.display.roughness.clamp(0.0, 1.0),
+            },
             "doubleSided": true,
         });
         if opacity < 1.0 {

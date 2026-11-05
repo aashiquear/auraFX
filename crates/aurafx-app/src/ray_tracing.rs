@@ -31,6 +31,8 @@ pub struct RayTracing {
     latest: Option<(u64, Arc<ImageLayer>, u32)>,
     /// Draws without their triangles (edges, points), by mesh pointer.
     stripped: HashMap<usize, Arc<MeshData>>,
+    /// The renderer's environment map (set each frame).
+    pub environment: Option<Arc<aurafx_render::env::Environment>>,
     /// A picture traced for a screenshot: (view key, result, picture once done).
     still: Option<(u64, Receiver<ImageLayer>, Option<Arc<ImageLayer>>)>,
 }
@@ -53,9 +55,9 @@ fn scene_key(draws: &[&NodeDraw]) -> u64 {
     h.finish()
 }
 
-fn view_key(scene: u64, camera: &Camera, settings: &RenderSettings, w: u32, h: u32) -> u64 {
+fn view_key(scene: u64, camera: &Camera, settings: &RenderSettings, w: u32, h: u32, env: Option<&str>) -> u64 {
     let mut hs = std::collections::hash_map::DefaultHasher::new();
-    scene.hash(&mut hs);
+    (scene, env).hash(&mut hs);
     for v in camera.eye.to_array().iter().chain(&camera.target.to_array()).chain(&camera.up.to_array()).chain(&[
         camera.fov_y_deg,
         camera.ortho_height,
@@ -93,7 +95,7 @@ impl RayTracing {
             return Frame { draws, layer: None, progress: None };
         }
         let skey = scene_key(&traced_draws);
-        let vkey = view_key(skey, camera, settings, w, h);
+        let vkey = view_key(skey, camera, settings, w, h, self.environment.as_ref().map(|e| e.name.as_str()));
         let wanted = settings.lighting.ray_samples.max(1);
         // Messages from the tracer.
         if let Some((key, _, rx)) = &self.job {
@@ -186,7 +188,7 @@ impl RayTracing {
             return None;
         }
         let skey = scene_key(&traced_draws);
-        let vkey = view_key(skey, camera, settings, w, h);
+        let vkey = view_key(skey, camera, settings, w, h, self.environment.as_ref().map(|e| e.name.as_str()));
         if let Some((k, rx, done)) = &mut self.still {
             if *k == vkey {
                 if done.is_none() {
@@ -226,6 +228,7 @@ impl RayTracing {
             height: h,
             background: if settings.transparent { [0.0; 3] } else { [srgb_to_linear(bg[0]), srgb_to_linear(bg[1]), srgb_to_linear(bg[2])] },
             bounces: settings.lighting.ray_bounces,
+            environment: self.environment.clone(),
         }
     }
 

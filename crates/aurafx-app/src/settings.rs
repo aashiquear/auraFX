@@ -30,6 +30,11 @@ pub struct Settings {
     pub disabled_plugins: Vec<PathBuf>,
     /// Threads for filters (0 = all cores). Takes effect at the next start.
     pub threads: usize,
+    /// Key, fill and head lights in the 3D views (else a single light).
+    pub light_kit: bool,
+    /// Eye-Dome Lighting in the 3D views.
+    pub eye_dome_lighting: bool,
+    pub edl_strength: f32,
 }
 
 impl Default for Settings {
@@ -51,6 +56,9 @@ impl Default for Settings {
             plugin_paths: Vec::new(),
             disabled_plugins: Vec::new(),
             threads: 0,
+            light_kit: true,
+            eye_dome_lighting: false,
+            edl_strength: 1.0,
         }
     }
 }

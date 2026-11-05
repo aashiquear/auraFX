@@ -148,7 +148,7 @@ impl Viewport {
             render_state,
             renderer,
             camera: Camera::default(),
-            settings: RenderSettings { background, background_top: None },
+            settings: RenderSettings { background, ..Default::default() },
             texture: None,
             meshes: HashMap::new(),
             grid_meshes: HashMap::new(),

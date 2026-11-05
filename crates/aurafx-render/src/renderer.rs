@@ -25,6 +25,8 @@ struct NodeUniform {
     color: [f32; 4],
     range: [f32; 4],
     flags: [f32; 4],
+    fill_dir: [f32; 4],
+    lights: [f32; 4],
 }
 
 /// What to draw for one pipeline node this frame.
@@ -40,11 +42,16 @@ pub struct NodeDraw {
 pub struct RenderSettings {
     pub background: [f32; 3],
     pub background_top: Option<[f32; 3]>,
+    /// Key, fill and head lights (else one light, as before).
+    pub light_kit: bool,
+    /// Eye-Dome Lighting: shade by depth differences (point clouds, dense meshes).
+    pub edl: bool,
+    pub edl_strength: f32,
 }
 
 impl Default for RenderSettings {
     fn default() -> Self {
-        Self { background: [0.12, 0.13, 0.16], background_top: None }
+        Self { background: [0.12, 0.13, 0.16], background_top: None, light_kit: true, edl: false, edl_strength: 1.0 }
     }
 }
 
@@ -91,9 +98,6 @@ pub struct Renderer {
     bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     pipe_tris: wgpu::RenderPipeline,
-    pipe_tris_blend: wgpu::RenderPipeline,
-    pipe_lines: wgpu::RenderPipeline,
-    pipe_points: wgpu::RenderPipeline,
     pipe_overlay_tris: wgpu::RenderPipeline,
     pipe_overlay_lines: wgpu::RenderPipeline,
     pipe_overlay_points: wgpu::RenderPipeline,
@@ -112,6 +116,65 @@ pub struct Renderer {
     /// Images drawn into the scene (server-drawn objects), with the image they came from.
     layers: Vec<(Arc<ImageLayer>, wgpu::BindGroup, wgpu::Buffer)>,
     samples: u32,
+    pipe_lines_opaque: wgpu::RenderPipeline,
+    pipe_points_opaque: wgpu::RenderPipeline,
+    pipe_tris_oit: wgpu::RenderPipeline,
+    pipe_lines_oit: wgpu::RenderPipeline,
+    pipe_points_oit: wgpu::RenderPipeline,
+    pipe_edl: wgpu::RenderPipeline,
+    edl_uniform: wgpu::Buffer,
+    edl_bg: wgpu::BindGroup,
+    pipe_oit_composite: wgpu::RenderPipeline,
+    oit_bgl: wgpu::BindGroupLayout,
+    oit: OitTargets,
+    /// Set from the render settings each frame.
+    light_kit: bool,
+}
+
+const OIT_ACCUM: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+const OIT_REVEAL: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
+
+/// Targets of weighted blended transparency: accumulated color and revealage, drawn with the
+/// scene's sample count and resolved for the composite pass.
+struct OitTargets {
+    accum: wgpu::TextureView,
+    reveal: wgpu::TextureView,
+    accum_resolved: Option<wgpu::TextureView>,
+    reveal_resolved: Option<wgpu::TextureView>,
+    bind_group: wgpu::BindGroup,
+}
+
+impl OitTargets {
+    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, w: u32, h: u32, samples: u32) -> Self {
+        let make = |label: &str, format: wgpu::TextureFormat, count: u32| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: count,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | if count == 1 { wgpu::TextureUsages::TEXTURE_BINDING } else { wgpu::TextureUsages::empty() },
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        };
+        let accum = make("oit accum", OIT_ACCUM, samples);
+        let reveal = make("oit reveal", OIT_REVEAL, samples);
+        let (accum_resolved, reveal_resolved) =
+            if samples > 1 { (Some(make("oit accum resolved", OIT_ACCUM, 1)), Some(make("oit reveal resolved", OIT_REVEAL, 1))) } else { (None, None) };
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("oit"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(accum_resolved.as_ref().unwrap_or(&accum)) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(reveal_resolved.as_ref().unwrap_or(&reveal)) },
+            ],
+        });
+        Self { accum, reveal, accum_resolved, reveal_resolved, bind_group }
+    }
 }
 
 /// A picture of some objects with its depth, drawn into the scene as if it were geometry
@@ -224,12 +287,59 @@ impl Renderer {
         use wgpu::PrimitiveTopology::{LineList, TriangleList};
         use wgpu::VertexStepMode::{Instance, Vertex};
         let pipe_tris = make_pipeline("tris", "vs_mesh", "fs_mesh", TriangleList, Vertex, false, true, false);
-        let pipe_tris_blend = make_pipeline("tris blend", "vs_mesh", "fs_mesh", TriangleList, Vertex, true, true, false);
-        let pipe_lines = make_pipeline("lines", "vs_mesh", "fs_line", LineList, Vertex, true, false, false);
-        let pipe_points = make_pipeline("points", "vs_point", "fs_point", TriangleList, Instance, true, false, false);
         let pipe_overlay_tris = make_pipeline("overlay tris", "vs_mesh", "fs_mesh", TriangleList, Vertex, true, false, true);
         let pipe_overlay_lines = make_pipeline("overlay lines", "vs_mesh", "fs_line", LineList, Vertex, true, false, true);
         let pipe_overlay_points = make_pipeline("overlay points", "vs_point", "fs_point", TriangleList, Instance, true, false, true);
+        // Opaque lines and points write depth (for occlusion and Eye-Dome Lighting).
+        let pipe_lines_opaque = make_pipeline("lines opaque", "vs_mesh", "fs_line", LineList, Vertex, false, false, false);
+        let pipe_points_opaque = make_pipeline("points opaque", "vs_point", "fs_point", TriangleList, Instance, false, false, false);
+        // Translucent geometry: weighted blended order-independent transparency.
+        let make_oit = |label: &str, vs: &str, fs: &str, topology: wgpu::PrimitiveTopology, step: wgpu::VertexStepMode| {
+            let add = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
+            let keep =
+                wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::OneMinusSrc, operation: wgpu::BlendOperation::Add };
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(vs),
+                    buffers: &[Some(vertex_layout(step))],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fs),
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: OIT_ACCUM,
+                            blend: Some(wgpu::BlendState { color: add, alpha: add }),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(wgpu::ColorTargetState {
+                            format: OIT_REVEAL,
+                            blend: Some(wgpu::BlendState { color: keep, alpha: keep }),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                    ],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState { topology, cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipe_tris_oit = make_oit("tris oit", "vs_mesh", "fs_mesh_oit", TriangleList, Vertex);
+        let pipe_lines_oit = make_oit("lines oit", "vs_mesh", "fs_line_oit", LineList, Vertex);
+        let pipe_points_oit = make_oit("points oit", "vs_point", "fs_point_oit", TriangleList, Instance);
 
         let vol_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aurafx volume shader"),
@@ -423,8 +533,81 @@ impl Renderer {
             cache: None,
         });
 
+        let post_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("aurafx post shader"),
+            source: wgpu::ShaderSource::Wgsl(ms(include_str!("shaders/post.wgsl")).into()),
+        });
+        let uniform_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+            count: None,
+        };
+        let edl_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("edl bgl"), entries: &[uniform_entry(0)] });
+        let edl_uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("edl uniform"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let edl_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("edl"),
+            layout: &edl_bgl,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: edl_uniform.as_entire_binding() }],
+        });
+        let edl_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&scene_bgl), Some(&edl_bgl)],
+            immediate_size: 0,
+        });
+        let multiply = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::Src, operation: wgpu::BlendOperation::Add };
+        let pipe_edl = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("eye-dome lighting"),
+            layout: Some(&edl_layout),
+            vertex: wgpu::VertexState { module: &post_shader, entry_point: Some("vs_full"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &post_shader,
+                entry_point: Some("fs_edl"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: Some(wgpu::BlendState { color: multiply, alpha: wgpu::BlendComponent::OVER }),
+                    write_mask: wgpu::ColorWrites::COLOR,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+            multiview_mask: None,
+            cache: None,
+        });
+        let oit_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("oit bgl"), entries: &[tex_entry(0), tex_entry(1)] });
+        let oit_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&oit_bgl)], immediate_size: 0 });
+        let pipe_oit_composite = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("transparency composite"),
+            layout: Some(&oit_layout),
+            vertex: wgpu::VertexState { module: &post_shader, entry_point: Some("vs_full"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &post_shader,
+                entry_point: Some("fs_oit"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+            multiview_mask: None,
+            cache: None,
+        });
+
         let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16, samples);
         let scene_bg = Self::make_scene_bg(&device, &scene_bgl, &depth_view);
+        let oit = OitTargets::new(&device, &oit_bgl, 16, 16, samples);
         Self {
             device,
             queue,
@@ -438,9 +621,6 @@ impl Renderer {
             bgl,
             sampler,
             pipe_tris,
-            pipe_tris_blend,
-            pipe_lines,
-            pipe_points,
             pipe_overlay_tris,
             pipe_overlay_lines,
             pipe_overlay_points,
@@ -458,6 +638,18 @@ impl Renderer {
             layer_bgl,
             layers: Vec::new(),
             samples,
+            pipe_lines_opaque,
+            pipe_points_opaque,
+            pipe_tris_oit,
+            pipe_lines_oit,
+            pipe_points_oit,
+            pipe_edl,
+            edl_uniform,
+            edl_bg,
+            pipe_oit_composite,
+            oit_bgl,
+            oit,
+            light_kit: true,
         }
     }
 
@@ -650,6 +842,7 @@ impl Renderer {
         self.msaa_view = mv;
         self.scene_bg = Self::make_scene_bg(&self.device, &self.scene_bgl, &dv);
         self.depth_view = dv;
+        self.oit = OitTargets::new(&self.device, &self.oit_bgl, w, h, self.samples);
         self.width = w;
         self.height = h;
         true
@@ -801,38 +994,26 @@ impl Renderer {
         for d in draws {
             self.sync_node(d);
         }
+        self.light_kit = settings.light_kit;
         self.write_uniforms(camera, draws, None);
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("aurafx render") });
-        // Draw classes: 0 opaque, 1 volume, 2 translucent; overlays last.
-        let class = |d: &NodeDraw| -> (bool, u8) {
-            (
-                d.overlay,
-                if d.mesh.volume.is_some() {
-                    1
-                } else if d.display.opacity < 1.0 {
-                    2
-                } else {
-                    0
-                },
-            )
-        };
-        let mut order: Vec<&NodeDraw> = draws.iter().collect();
-        order.sort_by_key(|d| class(d));
-        let (opaque, rest): (Vec<&NodeDraw>, Vec<&NodeDraw>) = order.into_iter().partition(|d| class(d) == (false, 0));
-        let _ = &self.layers;
+        let opaque: Vec<&NodeDraw> = draws.iter().filter(|d| !d.overlay && d.mesh.volume.is_none() && d.display.opacity >= 1.0).collect();
+        let volumes: Vec<&NodeDraw> = draws.iter().filter(|d| !d.overlay && d.mesh.volume.is_some()).collect();
+        let translucent: Vec<&NodeDraw> = draws.iter().filter(|d| !d.overlay && d.mesh.volume.is_none() && d.display.opacity < 1.0).collect();
+        let overlays: Vec<&NodeDraw> = draws.iter().filter(|d| d.overlay).collect();
         let bg = settings.background;
-        // Pass 1: opaque geometry writes depth.
+        // 1. Opaque geometry (and server pictures) writes depth.
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("opaque"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_view,
                     depth_slice: None,
-                    resolve_target: if rest.is_empty() && self.samples > 1 { Some(&self.color_view) } else { None },
+                    resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: srgb_to_linear(bg[0]), g: srgb_to_linear(bg[1]), b: srgb_to_linear(bg[2]), a: 1.0 }),
-                        store: if rest.is_empty() && self.samples > 1 { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -853,22 +1034,98 @@ impl Renderer {
                 self.draw_node(&mut pass, d);
             }
         }
-        // Pass 2: volumes (which read the opaque depth), translucent surfaces and overlays.
-        if !rest.is_empty() {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("blended"),
+        let load_pass = |encoder: &mut wgpu::CommandEncoder, label: &'static str, view: &wgpu::TextureView, depth: Option<&wgpu::TextureView>| {
+            encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(label),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: depth.map(|d| wgpu::RenderPassDepthStencilAttachment { view: d, depth_ops: None, stencil_ops: None }),
+                    ..Default::default()
+                })
+                .forget_lifetime()
+        };
+        // 2. Eye-Dome Lighting darkens what lies behind its neighbours.
+        if settings.edl && (!opaque.is_empty() || !self.layers.is_empty()) {
+            let u = [
+                camera.near as f32,
+                camera.far as f32,
+                if camera.orthographic { 1.0 } else { 0.0 },
+                settings.edl_strength,
+                self.width as f32,
+                self.height as f32,
+                (self.width.max(self.height) as f32 / 900.0).max(1.0).round(),
+                0.0,
+            ];
+            self.queue.write_buffer(&self.edl_uniform, 0, bytemuck::cast_slice(&u));
+            let mut pass = load_pass(&mut encoder, "edl", &self.msaa_view, None);
+            pass.set_pipeline(&self.pipe_edl);
+            pass.set_bind_group(0, &self.scene_bg, &[]);
+            pass.set_bind_group(1, &self.edl_bg, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        // 3. Volumes (they read the opaque depth).
+        if !volumes.is_empty() {
+            let mut pass = load_pass(&mut encoder, "volumes", &self.msaa_view, Some(&self.depth_view));
+            for d in &volumes {
+                self.draw_node(&mut pass, d);
+            }
+        }
+        // 4. Translucent geometry, independent of drawing order, then composited over the scene.
+        if !translucent.is_empty() {
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("transparency"),
+                    color_attachments: &[
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: &self.oit.accum,
+                            depth_slice: None,
+                            resolve_target: self.oit.accum_resolved.as_ref(),
+                            ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: &self.oit.reveal,
+                            depth_slice: None,
+                            resolve_target: self.oit.reveal_resolved.as_ref(),
+                            ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::WHITE), store: wgpu::StoreOp::Store },
+                        }),
+                    ],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &self.depth_view, depth_ops: None, stencil_ops: None }),
+                    ..Default::default()
+                });
+                for d in &translucent {
+                    self.draw_node(&mut pass, d);
+                }
+            }
+            let mut pass = load_pass(&mut encoder, "transparency composite", &self.msaa_view, None);
+            pass.set_pipeline(&self.pipe_oit_composite);
+            pass.set_bind_group(0, &self.oit.bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        // 5. Overlays (selection highlights) show through everything.
+        if !overlays.is_empty() {
+            let mut pass = load_pass(&mut encoder, "overlays", &self.msaa_view, Some(&self.depth_view));
+            for d in &overlays {
+                self.draw_node(&mut pass, d);
+            }
+        }
+        // 6. Resolve the samples into the color target.
+        if self.samples > 1 {
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("resolve"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_view,
                     depth_slice: None,
-                    resolve_target: if self.samples > 1 { Some(&self.color_view) } else { None },
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: if self.samples > 1 { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store } },
+                    resolve_target: Some(&self.color_view),
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &self.depth_view, depth_ops: None, stencil_ops: None }),
+                depth_stencil_attachment: None,
                 ..Default::default()
             });
-            for d in &rest {
-                self.draw_node(&mut pass, d);
-            }
         }
         self.queue.submit(Some(encoder.finish()));
     }
@@ -876,12 +1133,14 @@ impl Renderer {
     /// Per-node uniforms; `target` marks the node whose cell ids an ID pass should record.
     fn write_uniforms(&self, camera: &Camera, draws: &[NodeDraw], target: Option<NodeId>) {
         let aspect = self.width as f64 / self.height.max(1) as f64;
-        let light = {
+        let (light, fill) = {
             let f = (camera.eye - camera.target).normalize_or_zero();
             let r = camera.right();
             let u = r.cross(-f).normalize_or_zero();
-            (f * 1.0 + r * 0.3 + u * 0.5).normalize_or_zero()
+            ((f * 1.0 + r * 0.3 + u * 0.5).normalize_or_zero(), (f * 1.0 - r * 0.6 - u * 0.3).normalize_or_zero())
         };
+        // Light kit: key 0.6, fill 0.25, head 0.2, ambient 0.15; one light: key 0.7, ambient 0.3.
+        let lights = if self.light_kit { [0.6f32, 0.25, 0.2, 0.15] } else { [0.7, 0.0, 0.0, 0.3] };
         for d in draws {
             let g = &self.nodes[&d.id];
             let origin = DVec3::from_array(d.mesh.origin);
@@ -901,6 +1160,8 @@ impl Renderer {
                     if d.display.points_as_spheres { 1.0 } else { 0.0 },
                     if target == Some(d.id) { 1.0 } else { 0.0 },
                 ],
+                fill_dir: [fill.x as f32, fill.y as f32, fill.z as f32, 0.0],
+                lights,
             };
             self.queue.write_buffer(&g.uniform, 0, bytemuck::bytes_of(&u));
             if let (Some(gv), Some(v)) = (&g.volume, &d.mesh.volume) {
@@ -1028,8 +1289,10 @@ impl Renderer {
         let translucent = d.display.opacity < 1.0;
         let (pt, pl, pp) = if d.overlay {
             (&self.pipe_overlay_tris, &self.pipe_overlay_lines, &self.pipe_overlay_points)
+        } else if translucent {
+            (&self.pipe_tris_oit, &self.pipe_lines_oit, &self.pipe_points_oit)
         } else {
-            (if translucent { &self.pipe_tris_blend } else { &self.pipe_tris }, &self.pipe_lines, &self.pipe_points)
+            (&self.pipe_tris, &self.pipe_lines_opaque, &self.pipe_points_opaque)
         };
         for (buf, n) in &g.tris {
             pass.set_pipeline(pt);

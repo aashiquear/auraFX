@@ -881,6 +881,20 @@ fn time_label(on: bool) {
     s.revision += 1;
 }
 
+/// 3D view lighting: `afx.lighting(edl=True, edl_strength=1.0, light_kit=True)`.
+#[pyfunction]
+#[pyo3(signature = (edl=None, edl_strength=None, light_kit=None))]
+fn lighting(edl: Option<bool>, edl_strength: Option<f32>, light_kit: Option<bool>) {
+    if let Some(on) = edl {
+        app_command(format!("lighting edl {} {}", if on { "on" } else { "off" }, edl_strength.map(|v| v.to_string()).unwrap_or_default()));
+    } else if let Some(v) = edl_strength {
+        app_command(format!("lighting edl on {v}"));
+    }
+    if let Some(on) = light_kit {
+        app_command(format!("lighting kit {}", if on { "on" } else { "off" }));
+    }
+}
+
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
 #[pyfunction]
 fn show_panel(name: String) {
@@ -1318,6 +1332,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FilterCall>()?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(servers, m)?)?;
+    m.add_function(wrap_pyfunction!(lighting, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;
     m.add_function(wrap_pyfunction!(apply_multi, m)?)?;
     m.add_function(wrap_pyfunction!(nodes, m)?)?;

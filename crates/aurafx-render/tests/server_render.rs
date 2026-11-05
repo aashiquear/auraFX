@@ -7,6 +7,13 @@ use aurafx_render::server::{render_camera, ServerRenderer};
 use aurafx_render::*;
 use std::sync::Arc;
 
+/// In-process servers draw on background threads: shut them down (dropping their GPU devices)
+/// before the test process exits, or the driver may be torn down under them.
+fn shut_down(s: Session) {
+    drop(s);
+    std::thread::sleep(std::time::Duration::from_millis(600));
+}
+
 #[test]
 fn server_drawn_objects_match_local_drawing() {
     let Some(hook) = ServerRenderer::new() else {
@@ -82,6 +89,7 @@ fn server_drawn_objects_match_local_drawing() {
     s.set_display(c, |d| d.opacity = 1.0);
     s.update_blocking();
     assert_eq!(s.nodes[&c].remote.as_ref().unwrap().payload, Payload::Drawn);
+    shut_down(s);
 }
 
 /// A parallel server's workers each draw their piece; the coordinator composites the pictures
@@ -152,4 +160,5 @@ fn parallel_server_composites_pieces_by_depth() {
     }
     assert!(covered > 5000);
     assert!(differ * 100 < covered, "{differ} pixels differ");
+    shut_down(s);
 }

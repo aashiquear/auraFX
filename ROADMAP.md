@@ -156,7 +156,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [x] Scalar coloring with color maps (ColorBrewer, viridis family, ParaView presets, imported `.json/.xml`), range modes (auto, custom, time-wide), log scale, discrete, NaN/above/below colors, opacity transfer functions, per-component or magnitude, categorical.
 - [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture.
 - [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
-- [~] Lighting (headlight and MSAA done): key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
+- [~] Lighting (light kit, Eye-Dome Lighting, MSAA and order-independent transparency done): key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
 - [ ] Surface LIC, ray tracing (OSPRay/Embree- or Rust path tracer, optional), environment maps/skyboxes, materials editor.
 - [~] Axes grid (data axes grid with ticks and labels, orientation axes, scalar bars and text done; custom bounds and units todo): Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
 - [~] Widgets (implicit plane and ruler done): implicit plane, box, sphere, cylinder, cone, annulus, frustum, line, polyline, spline, handle/point, distance, protractor, ruler, slider, light, coordinate frame, four-lines, contour, display-sized plane, text, logo, equalizer, progress bar.
@@ -445,7 +445,24 @@ Two side fixes came out of this:
   point id, so results no longer depend on how points are numbered.
 - **Test race:** a test no longer changes a process-wide variable while another test runs.
 
-Known gaps worth doing next: MPI launchers (srun) and ghost cells for parallel servers;
+Done in iteration 14 (rendering depth, back in roadmap phase order):
+- **Order-independent transparency:** translucent surfaces, lines and points are drawn with
+  weighted blended transparency (McGuire & Bavoil). They accumulate into two targets that are
+  composited over the scene, so the picture no longer depends on drawing order (a test swaps the
+  order and gets identical pixels).
+- **Eye-Dome Lighting** (View menu, `afx.lighting(edl=True)`): outlines and depth cues for point
+  clouds, particles and dense meshes. It runs after the opaque pass, so pictures drawn on a
+  server get it too.
+- **Light kit:** key, fill and head lights, on by default; it brightens the side facing away
+  from the key light.
+- **Opaque points and lines** now write depth, so they hide behind surfaces and take part in EDL.
+
+The frame is now an opaque pass, EDL, volumes, transparency accumulation and composite,
+overlays, then one multisample resolve. A test-only crash on exit was also fixed: in-process
+GPU servers are now shut down before the test process ends.
+
+Known gaps worth doing next: SSAO, shadows, FXAA/tone mapping and custom lights (P4); Surface
+LIC and ray tracing (P4); MPI launchers (srun) and ghost cells for parallel servers;
 temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 

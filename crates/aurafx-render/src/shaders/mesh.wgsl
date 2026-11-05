@@ -6,6 +6,8 @@ struct NodeUniform {
     color: vec4<f32>,          // solid color + opacity
     range: vec4<f32>,          // lo, hi, log_scale, use_scalar
     flags: vec4<f32>,          // lighting, point_size_px, spheres, 0
+    fill_dir: vec4<f32>,       // fill light direction (light kit)
+    lights: vec4<f32>,         // key, fill, head intensities, ambient
 };
 
 @group(0) @binding(0) var<uniform> node: NodeUniform;
@@ -60,12 +62,29 @@ fn shade(color: vec3<f32>, n_in: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     if (dot(n, view_dir) < 0.0) {
         n = -n;
     }
+    // Key light (specular too), fill light from the other side, headlight along the view.
     let l = normalize(node.light_dir.xyz);
-    let diffuse = max(dot(n, l), 0.0);
+    let key = max(dot(n, l), 0.0);
     let h = normalize(l + view_dir);
     let spec = pow(max(dot(n, h), 0.0), 60.0) * 0.08;
-    let ambient = 0.3;
-    return color * (ambient + 0.7 * diffuse) + vec3<f32>(spec);
+    let fill = max(dot(n, normalize(node.fill_dir.xyz)), 0.0);
+    let head = max(dot(n, view_dir), 0.0);
+    let light = node.lights.w + node.lights.x * key + node.lights.y * fill + node.lights.z * head;
+    return color * light + vec3<f32>(spec * node.lights.x / 0.7);
+}
+
+// ---- weighted blended order-independent transparency (McGuire & Bavoil 2013) ----
+struct OitOut {
+    @location(0) accum: vec4<f32>,
+    @location(1) reveal: vec4<f32>,
+};
+
+fn oit(c: vec3<f32>, a: f32, z: f32) -> OitOut {
+    let w = clamp(pow(min(1.0, a * 10.0) + 0.01, 3.0) * 1e8 * pow(1.0 - z * 0.9, 3.0), 1e-2, 3e3);
+    var o: OitOut;
+    o.accum = vec4<f32>(c * a, a) * w;
+    o.reveal = vec4<f32>(a);
+    return o;
 }
 
 @vertex
@@ -87,6 +106,16 @@ fn fs_mesh(in: VertexOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_line(in: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(base_color(in.scalar), node.color.a);
+}
+
+@fragment
+fn fs_mesh_oit(in: VertexOut) -> OitOut {
+    return oit(shade(base_color(in.scalar), in.normal, in.world), node.color.a, in.clip.z);
+}
+
+@fragment
+fn fs_line_oit(in: VertexOut) -> OitOut {
+    return oit(base_color(in.scalar), node.color.a, in.clip.z);
 }
 
 // ---- point sprites: 6 vertices per instance ----
@@ -115,12 +144,8 @@ fn vs_point(@builtin(vertex_index) vi: u32, in: VertexIn) -> PointOut {
     return out;
 }
 
-@fragment
-fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
+fn point_color(in: PointOut) -> vec3<f32> {
     let r2 = dot(in.uv, in.uv);
-    if (r2 > 1.0) {
-        discard;
-    }
     var c = base_color(in.scalar);
     if (node.flags.z > 0.5 && node.flags.x > 0.5) {
         let z = sqrt(max(0.0, 1.0 - r2));
@@ -130,5 +155,21 @@ fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
         let spec = pow(max(dot(n, normalize(l + vec3<f32>(0.0, 0.0, 1.0))), 0.0), 30.0) * 0.3;
         c = c * (0.3 + 0.7 * diffuse) + vec3<f32>(spec);
     }
-    return vec4<f32>(c, node.color.a);
+    return c;
+}
+
+@fragment
+fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
+    if (dot(in.uv, in.uv) > 1.0) {
+        discard;
+    }
+    return vec4<f32>(point_color(in), node.color.a);
+}
+
+@fragment
+fn fs_point_oit(in: PointOut) -> OitOut {
+    if (dot(in.uv, in.uv) > 1.0) {
+        discard;
+    }
+    return oit(point_color(in), node.color.a, in.clip.z);
 }

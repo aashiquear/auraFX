@@ -893,6 +893,14 @@ impl State {
                 ui.separator();
                 ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
                 ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
+                ui.checkbox(&mut self.settings.light_kit, "Light kit").on_hover_text("Key, fill and head lights (off: one light)");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.settings.eye_dome_lighting, "Eye-Dome Lighting")
+                        .on_hover_text("Shade by depth differences: outlines and depth cues for point clouds, particles and dense meshes");
+                    if self.settings.eye_dome_lighting {
+                        ui.add(egui::Slider::new(&mut self.settings.edl_strength, 0.1..=4.0).logarithmic(true).show_value(false)).on_hover_text("Strength");
+                    }
+                });
                 if ui.button(format!("{} Color Map Editor…", crate::icons::PENCIL_SIMPLE)).clicked() {
                     ui.close();
                     self.cmap_editor.open = true;
@@ -1395,6 +1403,14 @@ impl eframe::App for AuraApp {
         let st = &mut self.state;
         st.viewport.frame_begin(ctx, frame);
         st.viewport.settings.background = st.settings.background_for(ctx.theme() == egui::Theme::Dark);
+        st.viewport.settings.light_kit = st.settings.light_kit;
+        st.viewport.settings.edl = st.settings.eye_dome_lighting;
+        st.viewport.settings.edl_strength = st.settings.edl_strength;
+        for v in st.views.values_mut() {
+            v.settings.light_kit = st.settings.light_kit;
+            v.settings.edl = st.settings.eye_dome_lighting;
+            v.settings.edl_strength = st.settings.edl_strength;
+        }
         {
             let cam = st.camera_state();
             let mut s = st.session.lock();
@@ -1496,6 +1512,22 @@ impl eframe::App for AuraApp {
                 }
                 "show" if arg.eq_ignore_ascii_case("plugins") => {
                     self.state.plugins.open = true;
+                }
+                "lighting" => {
+                    // "lighting edl on|off [strength]", "lighting kit on|off"
+                    let mut it = arg.split_whitespace();
+                    let (what, val) = (it.next().unwrap_or(""), it.next().unwrap_or("on"));
+                    let on = !matches!(val, "off" | "false" | "0");
+                    match what {
+                        "edl" => {
+                            self.state.settings.eye_dome_lighting = on;
+                            if let Some(v) = it.next().and_then(|v| v.parse::<f32>().ok()) {
+                                self.state.settings.edl_strength = v;
+                            }
+                        }
+                        "kit" => self.state.settings.light_kit = on,
+                        _ => {}
+                    }
                 }
                 "show" if arg.eq_ignore_ascii_case("server") || arg.eq_ignore_ascii_case("open on server") => {
                     self.state.server.open = true;

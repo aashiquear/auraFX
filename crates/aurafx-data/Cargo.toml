@@ -12,3 +12,6 @@ indexmap.workspace = true
 rayon.workspace = true
 serde.workspace = true
 half.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -103,24 +103,24 @@ struct Leaf {
 }
 
 /// Collect renderable leaves: everything is turned into polydata (surfaces) first.
-fn leaves(ds: &DataSet, repr: Representation) -> Vec<Leaf> {
-    leaves_at(ds, repr, 0)
+fn leaves(ds: &DataSet, repr: Representation, level: u32) -> Vec<Leaf> {
+    leaves_at(ds, repr, level, 0)
 }
 
-fn leaves_at(ds: &DataSet, repr: Representation, cell_offset: usize) -> Vec<Leaf> {
+fn leaves_at(ds: &DataSet, repr: Representation, level: u32, cell_offset: usize) -> Vec<Leaf> {
     match ds {
         DataSet::MultiBlock(mb) => {
             let mut off = cell_offset;
             let mut out = Vec::new();
             for (_, d) in mb.leaves() {
-                out.extend(leaves_at(d, repr, off));
+                out.extend(leaves_at(d, repr, level, off));
                 off += d.n_cells();
             }
             out
         }
         DataSet::Table(_) => vec![],
         DataSet::PolyData(pd) => vec![Leaf { pd: pd.clone(), cell_offset }],
-        other => match aurafx_filters::surface::extract_surface(other) {
+        other => match aurafx_filters::surface::extract_surface_level(other, level) {
             Ok(pd) => vec![Leaf { pd, cell_offset }],
             Err(e) => {
                 tracing::warn!("surface extraction failed: {e:#}");
@@ -397,7 +397,7 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         }
     }
 
-    for leaf in leaves(ds, display.representation) {
+    for leaf in leaves(ds, display.representation, display.nonlinear_subdivision.min(6)) {
         let pd = &leaf.pd;
         let (pscal, cscal) = match &display.color_by {
             Some(cb) if mesh.has_scalars => match cb.assoc {

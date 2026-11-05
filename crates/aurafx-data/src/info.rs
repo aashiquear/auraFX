@@ -22,6 +22,31 @@ pub struct DataSetInfo {
     pub cell_arrays: Vec<ArrayInfo>,
     pub field_arrays: Vec<ArrayInfo>,
     pub blocks: Vec<String>,
+    /// Cell types and their counts, most common first.
+    #[serde(default)]
+    pub cell_types: Vec<(String, usize)>,
+    /// Number of curved (higher-order) cells.
+    #[serde(default)]
+    pub curved_cells: usize,
+}
+
+fn cell_types(ds: &DataSet, counts: &mut std::collections::BTreeMap<u8, usize>) {
+    match ds {
+        DataSet::UnstructuredGrid(ug) => {
+            for t in &ug.cells.types {
+                *counts.entry(*t as u8).or_default() += 1;
+            }
+        }
+        DataSet::PolyData(pd) => {
+            for c in [&pd.verts, &pd.lines, &pd.polys, &pd.strips] {
+                for t in &c.types {
+                    *counts.entry(*t as u8).or_default() += 1;
+                }
+            }
+        }
+        DataSet::MultiBlock(m) => m.leaves().into_iter().for_each(|(_, d)| cell_types(d, counts)),
+        _ => {}
+    }
 }
 
 fn arrays(a: &Attributes) -> Vec<ArrayInfo> {
@@ -54,6 +79,10 @@ impl DataSetInfo {
             DataSet::Table(t) => (arrays(&t.columns), vec![]),
             _ => (ds.point_data().map(arrays).unwrap_or_default(), ds.cell_data().map(arrays).unwrap_or_default()),
         };
+        let mut counts = std::collections::BTreeMap::new();
+        cell_types(ds, &mut counts);
+        let mut ct: Vec<(u8, usize)> = counts.into_iter().collect();
+        ct.sort_by(|a, b| b.1.cmp(&a.1));
         Self {
             kind: ds.type_name().to_string(),
             n_points: ds.n_points(),
@@ -67,6 +96,8 @@ impl DataSetInfo {
                 DataSet::MultiBlock(m) => m.leaves().into_iter().map(|(n, _)| n).collect(),
                 _ => vec![],
             },
+            cell_types: ct.iter().map(|(t, n)| (crate::CellType::from_vtk(*t).map(|c| c.name()).unwrap_or("?").to_string(), *n)).collect(),
+            curved_cells: ct.iter().filter(|(t, _)| crate::CellType::from_vtk(*t).and_then(|c| c.high_order()).is_some()).map(|(_, n)| n).sum(),
         }
     }
 
@@ -84,6 +115,10 @@ impl DataSetInfo {
                     s += &format!("\n  {} ({} x {}, range {} .. {})", a.name, a.dtype, a.ncomp, g(a.range.0), g(a.range.1));
                 }
             }
+        }
+        if self.curved_cells > 0 || self.cell_types.len() > 1 {
+            let t: Vec<String> = self.cell_types.iter().map(|(n, c)| format!("{c} {n}")).collect();
+            s += &format!("\ncell types: {}", t.join(", "));
         }
         if !self.blocks.is_empty() {
             s += &format!("\nblocks: {}", self.blocks.join(", "));

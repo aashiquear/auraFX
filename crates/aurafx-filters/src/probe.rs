@@ -69,7 +69,7 @@ impl Locator {
             let loc = Self { pts: Vec::new(), simplices: Vec::new(), bins: Vec::new(), dims: [1; 3], lo: b.min, size: b.size(), tol, grid: Some(axes) };
             return Ok((loc, as_explicit(ds)));
         }
-        let ds = as_explicit(ds);
+        let ds = crate::higher_order::as_linear(ds);
         let (points, ..) = parts(&ds).ok_or_else(|| anyhow!("probe: unsupported dataset type"))?;
         let pts: Vec<[f64; 3]> = (0..points.len()).map(|i| points.get(i)).collect();
         let mut tets = Vec::new();

@@ -445,7 +445,7 @@ pub fn triangulate(ds: &DataSet) -> Result<PolyData> {
 
 /// Decompose every 3D cell into tetrahedra (2D cells into triangles).
 pub fn tetrahedralize(ds: &DataSet) -> Result<UnstructuredGrid> {
-    let ex = as_explicit(ds);
+    let ex = crate::higher_order::as_linear(ds);
     let (points, pd, cd, fd) = parts(&ex).ok_or_else(|| anyhow!("tetrahedralize: unsupported dataset"))?;
     let mut cells = Cells::new();
     let mut parents = Vec::new();

@@ -127,7 +127,7 @@ pub fn integrate_variables(ds: &DataSet) -> Result<Table> {
     let mut measure = 0.0;
     let mut dim_seen = 0u8;
     let mut visit = |d: &DataSet| -> Result<()> {
-        let d = as_explicit(d);
+        let d = crate::higher_order::as_linear(d);
         let Some((pts, pd, cd, _)) = parts(&d) else { return Ok(()) };
         let max_dim = {
             let mut m = 0u8;

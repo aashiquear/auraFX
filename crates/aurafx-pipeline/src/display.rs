@@ -78,6 +78,9 @@ pub struct DisplayProps {
     pub colormap_reverse: bool,
     /// Number of flat color bands (0 = continuous).
     pub colormap_bands: u32,
+    /// Curved (higher-order) cells: 0 = straight through the corners, 1 = through the nodes,
+    /// each further level halves the pieces (ParaView's "Nonlinear Subdivision Level").
+    pub nonlinear_subdivision: u32,
 }
 
 impl Default for DisplayProps {
@@ -102,6 +105,7 @@ impl Default for DisplayProps {
             colormap_stops: None,
             colormap_reverse: false,
             colormap_bands: 0,
+            nonlinear_subdivision: 1,
         }
     }
 }

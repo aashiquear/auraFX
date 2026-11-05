@@ -1,14 +1,14 @@
 //! Slice (cut) by an implicit function, and the shared simplex-cutting core used by Contour.
 
 use crate::interp::{PointBuilder, ScalarFn};
-use crate::simplex::{as_explicit, decompose, for_each_cell, parts, Simplex};
+use crate::simplex::{decompose, for_each_cell, parts, Simplex};
 use anyhow::Result;
 use aurafx_data::*;
 
 /// Cut every simplex at the zero level of `f`. Output: triangles for tets, lines for
 /// triangles, vertices for lines. Point data is interpolated; cell data copied from parents.
 pub fn cut_at_zero(ds: &DataSet, f: &ScalarFn, merge_points: bool) -> Result<PolyData> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let (points, pd, cd, fd) = parts(&ds).ok_or_else(|| anyhow::anyhow!("slice: unsupported dataset"))?;
     let n = points.len();
     let vals: Vec<f64> = (0..n).map(|i| f.eval(i)).collect();
@@ -81,14 +81,14 @@ pub fn cut_at_zero(ds: &DataSet, f: &ScalarFn, merge_points: bool) -> Result<Pol
 }
 
 pub fn slice_plane(ds: &DataSet, origin: [f64; 3], normal: [f64; 3]) -> Result<PolyData> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let (points, ..) = parts(&ds).ok_or_else(|| anyhow::anyhow!("slice: unsupported dataset"))?;
     let n = normalize(normal);
     cut_at_zero(&ds, &ScalarFn::Plane { origin, normal: n, points }, true)
 }
 
 pub fn slice_sphere(ds: &DataSet, center: [f64; 3], radius: f64) -> Result<PolyData> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let (points, ..) = parts(&ds).ok_or_else(|| anyhow::anyhow!("slice: unsupported dataset"))?;
     cut_at_zero(&ds, &ScalarFn::Sphere { center, radius, points }, true)
 }

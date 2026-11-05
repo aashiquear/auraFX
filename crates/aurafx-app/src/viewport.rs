@@ -117,7 +117,7 @@ pub const SELECTION_NODE_ID: NodeId = u64::MAX;
 const GRID_NODE_ID_BASE: NodeId = 1 << 62;
 
 fn display_key(d: &DisplayProps) -> String {
-    format!("{:?}|{:?}|{:?}|{}", d.representation, d.color_by, d.range, d.lighting)
+    format!("{:?}|{:?}|{:?}|{}|{}", d.representation, d.color_by, d.range, d.lighting, d.nonlinear_subdivision)
 }
 
 impl Viewport {

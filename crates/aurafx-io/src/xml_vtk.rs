@@ -26,6 +26,9 @@ struct FileCtx<'a> {
     compressor: Compressor,
     appended: Option<&'a [u8]>,
     appended_base64: bool,
+    /// File version older than 2.2: Lagrange/Bezier hexahedra list their last two vertical
+    /// edges the other way round (VTK converts them on reading too).
+    old_hex_order: bool,
 }
 
 /// Generic XML tree node (small files only hold metadata; bulk data is referenced by offset).
@@ -286,6 +289,15 @@ fn read_attributes(ctx: &FileCtx, node: Option<&Node>) -> Result<Attributes> {
             attrs.set_active(kind, n);
         }
     }
+    // Higher-order cells find their degrees and rational weights by these names.
+    for tag in ["HigherOrderDegrees", "RationalWeights"] {
+        if let Some(n) = node.attr(tag).filter(|n| *n != tag && attrs.get(tag).is_none()) {
+            if let Some(mut a) = attrs.remove(n) {
+                a.name = tag.to_string();
+                attrs.insert(a);
+            }
+        }
+    }
     Ok(attrs)
 }
 
@@ -405,6 +417,11 @@ pub fn read_bytes(bytes: &[u8], path: &Path) -> Result<DataSet> {
         },
         appended: appended.map(|(b, _)| b),
         appended_base64: appended.map(|(_, b)| b).unwrap_or(false),
+        old_hex_order: {
+            let v = vtkfile.attr("version").unwrap_or("0.1");
+            let (a, b) = v.split_once('.').unwrap_or((v, "0"));
+            (a.parse::<u32>().unwrap_or(0), b.parse::<u32>().unwrap_or(0)) < (2, 2)
+        },
     };
     let body = vtkfile.child(ty).ok_or_else(|| anyhow!("missing <{ty}> element"))?;
     let mut ds = match ty {
@@ -528,6 +545,26 @@ fn read_polydata(ctx: &FileCtx, body: &Node) -> Result<DataSet> {
     Ok(DataSet::PolyData(out))
 }
 
+/// Files before version 2.2 number the vertical edges of Lagrange and Bezier hexahedra
+/// (0,0), (1,0), (0,1), (1,1); now they go round: (0,0), (1,0), (1,1), (0,1).
+fn upgrade_hex_order(ug: &mut UnstructuredGrid) {
+    use aurafx_data::higher_order::{cell_order, Shape};
+    let degrees = ug.cell_data.get("HigherOrderDegrees").filter(|a| a.ncomp == 3).cloned();
+    for c in 0..ug.cells.len() {
+        if !matches!(ug.cells.types[c], CellType::LagrangeHexahedron | CellType::BezierHexahedron) {
+            continue;
+        }
+        let (a, b) = (ug.cells.offsets[c] as usize, ug.cells.offsets[c + 1] as usize);
+        let deg = degrees.as_ref().filter(|d| c < d.len()).map(|d| [d.get(c, 0), d.get(c, 1), d.get(c, 2)]);
+        let Some([p, q, r]) = cell_order(Shape::Hexahedron, b - a, deg) else { continue };
+        let (n, start) = (r - 1, 8 + 4 * (p - 1) + 4 * (q - 1));
+        let ids = &mut ug.cells.connectivity[a..b];
+        for k in 0..n {
+            ids.swap(start + 2 * n + k, start + 3 * n + k);
+        }
+    }
+}
+
 fn read_unstructured(ctx: &FileCtx, body: &Node) -> Result<DataSet> {
     let mut out = UnstructuredGrid::default();
     let mut first = true;
@@ -537,6 +574,9 @@ fn read_unstructured(ctx: &FileCtx, body: &Node) -> Result<DataSet> {
         ug.cells = read_cells_block(ctx, p.child("Cells"), None)?;
         ug.point_data = read_attributes(ctx, p.child("PointData"))?;
         ug.cell_data = read_attributes(ctx, p.child("CellData"))?;
+        if ctx.old_hex_order {
+            upgrade_hex_order(&mut ug);
+        }
         if first {
             out = ug;
             first = false;

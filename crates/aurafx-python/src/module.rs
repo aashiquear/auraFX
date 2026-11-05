@@ -91,6 +91,10 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_u64().unwrap_or(0) as u32;
                 s.set_display(id, |d| d.colormap_bands = v);
             }
+            "nonlinear_subdivision" | "curved_subdivision" => {
+                let v = val.as_u64().unwrap_or(1).min(6) as u32;
+                s.set_display(id, |d| d.nonlinear_subdivision = v);
+            }
             "opacity" => {
                 let o = val.as_f64().unwrap_or(1.0) as f32;
                 s.set_display(id, |d| d.opacity = o);

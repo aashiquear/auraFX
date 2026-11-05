@@ -127,4 +127,13 @@ def sneaky(data):
     assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
     assert_eq!(out.stdout.trim(), "['RTData', 'one', 'twice']\n5\nTrue\nTrue", "{}", out.stdout);
     let _ = std::fs::remove_dir_all(&dir);
+
+    // Higher-order cells: the cell type source, Tessellate and the display subdivision level.
+    let out = rt.run(
+        "c = afx.unstructured_cell_types(cell_type='Lagrange Hexahedron', blocks=(2, 1, 1), order=2)\nprint(c.info()['n_points'], c.info()['n_cells'], c.info()['cell_types'])\nt = c.tessellate(level=1)\nprint(t.info()['n_cells'], t.info()['curved_cells'])\nc.set(nonlinear_subdivision=3)",
+    );
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "45 2 [['LagrangeHexahedron', 2]]\n16 0", "{}", out.stdout);
+    let s = session.lock();
+    assert!(s.nodes.values().any(|n| n.display.nonlinear_subdivision == 3));
 }

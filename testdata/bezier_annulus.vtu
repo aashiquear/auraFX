@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<VTKFile type="UnstructuredGrid" version="2.2" byte_order="LittleEndian">
+<UnstructuredGrid>
+<Piece NumberOfPoints="27" NumberOfCells="1">
+<PointData Scalars="T" RationalWeights="RationalWeights">
+<DataArray type="Float64" Name="RationalWeights" NumberOfComponents="1" format="ascii">1 1 1 1 1 1 1 1 1 0.70710678118654757 1 0.70710678118654757 1 0.70710678118654757 1 0.70710678118654757 1 1 1 1 0.70710678118654757 0.70710678118654757 1 1 0.70710678118654757 0.70710678118654757 0.70710678118654757</DataArray>
+<DataArray type="Float64" Name="T" NumberOfComponents="1" format="ascii">1 2 2 1 1 2 2 1 1.5 2 1.5 1 1.5 2 1.5 1 1 2 2 1 1 2 1.5 1.5 1.5 1.5 1.5</DataArray>
+</PointData>
+<CellData>
+<DataArray type="Float64" Name="cell" NumberOfComponents="1" format="ascii">0</DataArray>
+</CellData>
+<Points>
+<DataArray type="Float64" Name="Points" NumberOfComponents="3" format="ascii">1 0 0 2 0 0 0 2 0 0 1 0 1 0 1 2 0 1 0 2 1 0 1 1 1.5 0 0 2 2 0 0 1.5 0 1 1 0 1.5 0 1 2 2 1 0 1.5 1 1 1 1 1 0 0.5 2 0 0.5 0 2 0.5 0 1 0.5 1 1 0.5 2 2 0.5 1.5 0 0.5 0 1.5 0.5 1.5 1.5 0 1.5 1.5 1 1.5 1.5 0.5</DataArray>
+</Points>
+<Cells>
+<DataArray type="Int64" Name="connectivity" NumberOfComponents="1" format="ascii">0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26</DataArray>
+<DataArray type="Int64" Name="offsets" NumberOfComponents="1" format="ascii">27</DataArray>
+<DataArray type="UInt8" Name="types" NumberOfComponents="1" format="ascii">79</DataArray>
+</Cells>
+</Piece>
+</UnstructuredGrid>
+</VTKFile>

@@ -3,12 +3,12 @@
 use crate::attributes::cell_to_point;
 use crate::interp::{PointBuilder, ScalarFn};
 use crate::params::Association;
-use crate::simplex::{as_explicit, decompose, for_each_cell, parts, Simplex};
+use crate::simplex::{decompose, for_each_cell, parts, Simplex};
 use anyhow::{anyhow, Result};
 use aurafx_data::*;
 
 pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<UnstructuredGrid> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let (points, pd, cd, fd) = parts(&ds).ok_or_else(|| anyhow!("clip: unsupported dataset"))?;
     let n = points.len();
     let sign = if inside_out { -1.0 } else { 1.0 };
@@ -134,26 +134,26 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
 }
 
 pub fn clip_plane(ds: &DataSet, origin: [f64; 3], normal: [f64; 3], inside_out: bool) -> Result<UnstructuredGrid> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let (points, ..) = parts(&ds).ok_or_else(|| anyhow!("clip: unsupported dataset"))?;
     clip_with(&ds, &ScalarFn::Plane { origin, normal: crate::slice::normalize(normal), points }, inside_out)
 }
 
 pub fn clip_sphere(ds: &DataSet, center: [f64; 3], radius: f64, inside_out: bool) -> Result<UnstructuredGrid> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let (points, ..) = parts(&ds).ok_or_else(|| anyhow!("clip: unsupported dataset"))?;
     // Sphere function is negative inside; "keep inside" is the natural default, so flip.
     clip_with(&ds, &ScalarFn::Sphere { center, radius, points }, !inside_out)
 }
 
 pub fn clip_box(ds: &DataSet, min: [f64; 3], max: [f64; 3], inside_out: bool) -> Result<UnstructuredGrid> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let (points, ..) = parts(&ds).ok_or_else(|| anyhow!("clip: unsupported dataset"))?;
     clip_with(&ds, &ScalarFn::Box { min, max, points }, !inside_out)
 }
 
 pub fn clip_scalar(ds: &DataSet, assoc: Association, array: &str, comp: Option<usize>, value: f64, inside_out: bool) -> Result<UnstructuredGrid> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let ds: std::borrow::Cow<DataSet> = if assoc == Association::Cells { std::borrow::Cow::Owned(cell_to_point(&ds, &[array.to_string()])?) } else { ds };
     let (_, pd, ..) = parts(&ds).ok_or_else(|| anyhow!("clip: unsupported dataset"))?;
     let arr = pd.get(array).ok_or_else(|| anyhow!("clip: no point array {array:?}"))?;

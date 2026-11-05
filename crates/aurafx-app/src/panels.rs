@@ -862,6 +862,13 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     });
                     ui.end_row();
                 }
+                if info.as_ref().is_some_and(|i| i.curved_cells > 0) {
+                    ui.label("Curved cells");
+                    ui.add(egui::Slider::new(&mut d.nonlinear_subdivision, 0..=4).text("subdivision")).on_hover_text(
+                        "How finely curved (higher-order) cells are drawn: 0 straight between corners, 1 through their nodes, each further level halves the pieces",
+                    );
+                    ui.end_row();
+                }
                 ui.label("Lighting");
                 ui.checkbox(&mut d.lighting, "");
                 ui.end_row();
@@ -880,6 +887,20 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
     });
 }
 
+/// "LagrangeHexahedron" -> "Lagrange hexahedron".
+fn split_camel(s: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            out.push(' ');
+            out.extend(ch.to_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 fn info_body(ui: &mut egui::Ui, info: &aurafx_data::DataSetInfo) {
     egui::Grid::new("info").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         ui.label("Type");
@@ -891,6 +912,15 @@ fn info_body(ui: &mut egui::Ui, info: &aurafx_data::DataSetInfo) {
         ui.label("Cells");
         ui.label(info.n_cells.to_string());
         ui.end_row();
+        if info.cell_types.len() > 1 || info.curved_cells > 0 {
+            ui.label("Cell types");
+            ui.vertical(|ui| {
+                for (name, n) in &info.cell_types {
+                    ui.label(format!("{n} {}", split_camel(name)));
+                }
+            });
+            ui.end_row();
+        }
         ui.label("Memory");
         ui.label(format!("{:.1} MB", info.bytes as f64 / 1e6));
         ui.end_row();

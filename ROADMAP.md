@@ -38,7 +38,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Datasets: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`, `UnstructuredGrid`, `Table`, `PointCloud`/particles.
 - [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid`.
 - [x] Cell types: all VTK linear types (vertex, line, polyline, tri, quad, polygon, tet, hex, wedge, pyramid, pentagonal/hexagonal prism, polyhedron).
-- [~] Higher-order: quadratic cells drawn curved through their mid-edge nodes (tets, hexes, wedges, pyramids, shells, edges); Lagrange and Bezier still drawn from corner nodes.
+- [x] Higher-order: Lagrange and Bezier cells of any order (curve, triangle, quad, tet, hex, wedge; per-cell `HigherOrderDegrees`, rational Bezier weights) and quadratic cells, drawn curved and cut/integrated through their nodes like VTK (checked against ParaView 6.1.1). Lagrange/Bezier pyramids and serendipity quadratic cells (8-node quad, 20-node hex, 15-node wedge) are still cut through their corners only.
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
 - [~] Selections (IDs, rectangle/frustum, visible-only, threshold query done): IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
 - [~] Spatial structures (cell locator for probe and stream tracer done): point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
@@ -122,7 +122,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Clean ★, Clean to Grid, Clean Cells to Grid, Merge Blocks ★, Convert To Multi Block, Convert To Partitioned DataSet Collection, Convert AMR dataset to Multiblock, Convert To Point Cloud, Convert To Cell Grid, Convert Polyhedral Cells, Convert Into Molecule, Convert Selection, Image Data To AMR, Image Data To Uniform Grid, Image Data to Point Set, Rectilinear Data to Point Set, Table To Points ★, Table To Structured Grid, Transpose Table, Points Matching Transform
 - [~] Connectivity ★, Rectilinear Grid Connectivity, Extract Surface ★, Extract Edges, Feature Edges ★, Feature Edges Region Ids, Extract Region Surface, Extract Enclosed Points, Extract Cells By Region, Extract Cells By Type, Extract Cells Along Line, Extract Cells Along Lines (custom source), Extract Location, Extract Ghost Cells, Ghost Cells, Remove Ghost Information, Extract Selection ★, Extract Time Steps, Extract Particles Over Time, Extract AMR Blocks, Extract CTH Parts, Geometry Filter, Outline ★, Outline Corners, Outline Curvilinear DataSet, Outline Generic DataSet, Bounding Ruler
 - [~] Transform ★, Axis-Aligned Transform, Reflect, Axis-Aligned Reflect, Shrink, Explode DataSet, Crop, Image Shrink, Align Image Origins, Stitch Image Data With Ghosts
-- [~] Triangulate ★, Tetrahedralize ★, Tessellate, Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
+- [~] Triangulate ★, Tetrahedralize ★, Tessellate (done: uniform levels instead of ParaView's chord-error refinement), Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
 - [ ] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics
 - [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR, Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
 - [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
@@ -138,7 +138,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 
 ### 2.4 Sources
 - [~] Geometric: Sphere ★, Cone ★, Cylinder ★, Box ★, Plane ★, Line ★, Disk, Ellipse, Arrow, Axes, Superquadric, Point Source, PolyLine Source, PolyPoint Source, Spline Source, Outline Source
-- [~] Synthetic data: Wavelet ★, Mandelbrot, Fast Uniform Grid, Hierarchical Fractal, Hyper Tree Grid (+Random), AMR Gaussian Pulse, Data Object Generator, Unstructured Cell Types, Partitioned DataSet Collection Source, Cell Grid Source, Spatio Temporal Harmonics Uniform Grid, Time Source, Trivial Producer
+- [~] Synthetic data: Wavelet ★, Mandelbrot, Fast Uniform Grid, Hierarchical Fractal, Hyper Tree Grid (+Random), AMR Gaussian Pulse, Data Object Generator, Unstructured Cell Types (done, counts match ParaView), Partitioned DataSet Collection Source, Cell Grid Source, Spatio Temporal Harmonics Uniform Grid, Time Source, Trivial Producer
 - [ ] Selection sources (ID, global ID, pedigree ID, location, frustum, threshold, value, block, query, composite/hierarchical ID)
 
 ### 2.5 Filter infrastructure
@@ -336,8 +336,27 @@ and `afx.make_*` constructors, and the Programmable Filter, Programmable Source 
 Calculator with a code editor in Properties. Text parameters now keep what you type until you
 apply it (they used to lose keystrokes). Guide: `docs/plugins.md`.
 
-Known gaps worth doing next: Lagrange/Bezier cell tessellation;
-client/server and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
+Done in iteration 9: arbitrary-order Lagrange and Bezier cells. Node numbering matches VTK for
+orders 1 to 6, including anisotropic orders. Extract Surface and the 3D view draw curved cells
+through their nodes, with a "Curved cells" subdivision level on the Display panel and on
+Extract Surface. Slice, Clip, Contour, Probe, Integrate Variables and Tetrahedralize use VTK's
+linear sub-cells. New: the Tessellate filter, the Unstructured Cell Types source, a Lagrange
+sample, and three curved test meshes (`scripts/gen_higher_order.py`).
+
+Against ParaView 6.1.1, Integrate Variables, Slice, Clip, Contour and Extract Surface at levels
+0-3 agree to about 1e-8 on Lagrange hexes, a rational Bezier hex and one cell of every other
+shape. There are two deliberate differences:
+- auraFX draws curved faces as quads, where ParaView splits them into triangles.
+- On Bezier cells, ParaView integrates the control net (3.0 for the quarter cylinder) and
+  skips Lagrange curves with an odd number of points; auraFX integrates the evaluated cells.
+
+VTK XML files are now written as version 2.2, so ParaView reads our Lagrange hexes correctly.
+Older files are converted on reading the way VTK does. Curved cells also orient their faces
+from their corners, because VTK's Lagrange wedges are wound opposite to linear ones. Legacy
+`.vtk` files cannot carry degrees or rational weights for VTK, so use `.vtu` for curved cells.
+
+Known gaps worth doing next: Lagrange/Bezier pyramids and serendipity quadratic cells in
+cutting filters; client/server and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)

@@ -6,13 +6,22 @@ use aurafx_data::*;
 use std::collections::HashMap;
 
 /// Returns a PolyData with polys/lines/verts and cell data copied from the parent cells.
+/// Curved (higher-order) cells are drawn through their nodes, like ParaView's default
+/// nonlinear subdivision level of 1.
 pub fn extract_surface(ds: &DataSet) -> Result<PolyData> {
+    extract_surface_level(ds, 1)
+}
+
+/// Extract Surface with a nonlinear subdivision level for curved cells: 0 uses only their
+/// corners, 1 goes through their nodes, and each further level halves those pieces with points
+/// evaluated on the curved cell.
+pub fn extract_surface_level(ds: &DataSet, level: u32) -> Result<PolyData> {
     match ds {
         DataSet::ImageData(_) | DataSet::RectilinearGrid(_) | DataSet::StructuredGrid(_) => structured_surface(ds),
         DataSet::MultiBlock(mb) => {
             let mut out: Option<PolyData> = None;
             for (_, leaf) in mb.leaves() {
-                let pd = extract_surface(leaf)?;
+                let pd = extract_surface_level(leaf, level)?;
                 match &mut out {
                     None => out = Some(pd),
                     Some(acc) => append_poly(acc, &pd),
@@ -21,7 +30,7 @@ pub fn extract_surface(ds: &DataSet) -> Result<PolyData> {
             Ok(out.unwrap_or_default())
         }
         DataSet::Table(_) => Ok(PolyData::default()),
-        _ => explicit_surface(ds),
+        _ => explicit_surface(ds, level),
     }
 }
 
@@ -67,7 +76,7 @@ fn structured_surface(ds: &DataSet) -> Result<PolyData> {
     let ndim = [nx, ny, nz].iter().filter(|&&n| n > 1).count();
     if ndim <= 1 {
         // Line or point: handled via generic path.
-        return explicit_surface(&as_explicit(ds));
+        return explicit_surface(&as_explicit(ds), 0);
     }
     if ndim == 2 {
         for k in 0..nz.saturating_sub(1).max(1) {
@@ -176,15 +185,24 @@ fn face_mids(face: &[usize], edges: &[((usize, usize), usize)], pts: &[u32]) -> 
         .collect()
 }
 
-fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
+fn explicit_surface(ds: &DataSet, level: u32) -> Result<PolyData> {
     let ds = as_explicit(ds);
     let (points, pd, cd, fd) = crate::simplex::parts(&ds).ok_or_else(|| anyhow::anyhow!("unsupported dataset for surface extraction"))?;
+    // Curved cells evaluate extra points (appended after the original ones).
+    let curved = crate::higher_order::has_curved(&ds);
+    let mut ev = crate::higher_order::Evaluator::new(points, pd, cd);
+    let cells_of = match ds.as_ref() {
+        DataSet::UnstructuredGrid(ug) => Some(&ug.cells),
+        _ => None,
+    };
     // Face hashing for 3D cells.
     struct FaceRec {
         count: u32,
         cell: usize,
         /// Linear polygons drawn for this face (one, or several for a curved quadratic face).
         polys: Vec<Vec<u32>>,
+        /// Face index (and orientation) of a curved cell, tessellated only if on the boundary.
+        curved: Option<(usize, bool)>,
     }
     let mut faces: HashMap<Vec<u32>, FaceRec> = HashMap::new();
     let mut verts = Cells::new();
@@ -196,6 +214,53 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
     let mut face_order: Vec<Vec<u32>> = Vec::new();
 
     for_each_cell(&ds, |cid, ty, pts, ph_faces| {
+        let ho = if curved { ev.cell(cid, ty, pts.len()) } else { None };
+        if let Some(cell) = ho.as_ref().filter(|_| level == 0 && ty.dimension() < 3) {
+            // Level 0: straight cells through the corners.
+            let corners = &pts[..cell.shape.corners().len()];
+            if ty.dimension() == 1 {
+                lines.push(CellType::Line, corners);
+                parent_l.push(cid);
+            } else {
+                polys.push(cell.shape.linear_type(), corners);
+                parent_p.push(cid);
+            }
+            return;
+        }
+        if let Some(cell) = ho.filter(|_| level > 0) {
+            let corners = cell.shape.corners().len();
+            let key_of = |f: &[usize]| f.iter().map(|&k| pts[k]).collect::<Vec<u32>>();
+            match cell.shape.dimension() {
+                1 => {
+                    let n = crate::higher_order::divisions(&cell, level)[0];
+                    let line: Vec<u32> = (0..=n).map(|i| ev.point(&cell, pts, [i as f64 / n as f64, 0.0, 0.0])).collect();
+                    lines.push(CellType::PolyLine, &line);
+                    parent_l.push(cid);
+                }
+                2 => {
+                    let all: Vec<usize> = (0..corners).collect();
+                    for p in crate::higher_order::face_polys(&mut ev, &cell, pts, &all, level) {
+                        polys.push(if p.len() == 3 { CellType::Triangle } else { CellType::Quad }, &p);
+                        parent_p.push(cid);
+                    }
+                }
+                _ => {
+                    let flip = crate::higher_order::flipped(points, pts, cell.shape);
+                    for (fi, f) in crate::higher_order::faces_of(cell.shape, flip).iter().enumerate() {
+                        let mut key = key_of(f);
+                        key.sort_unstable();
+                        match faces.get_mut(&key) {
+                            Some(r) => r.count += 1,
+                            None => {
+                                face_order.push(key.clone());
+                                faces.insert(key, FaceRec { count: 1, cell: cid, polys: Vec::new(), curved: Some((fi, flip)) });
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
         match ty.dimension() {
             0 => {
                 verts.push(ty, pts);
@@ -233,7 +298,7 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
                         Some(r) => r.count += 1,
                         None => {
                             face_order.push(key.clone());
-                            faces.insert(key, FaceRec { count: 1, cell: cid, polys });
+                            faces.insert(key, FaceRec { count: 1, cell: cid, polys, curved: None });
                         }
                     }
                 };
@@ -281,7 +346,21 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
     for key in face_order {
         let r = &faces[&key];
         if r.count == 1 {
-            for p in &r.polys {
+            let tess;
+            let face_polys = match (r.curved, cells_of) {
+                (Some((fi, flip)), Some(cells)) => {
+                    let ids = cells.cell(r.cell);
+                    match ev.cell(r.cell, cells.types[r.cell], ids.len()) {
+                        Some(cell) => {
+                            tess = crate::higher_order::face_polys(&mut ev, &cell, ids, crate::higher_order::faces_of(cell.shape, flip)[fi], level);
+                            &tess
+                        }
+                        None => &r.polys,
+                    }
+                }
+                _ => &r.polys,
+            };
+            for p in face_polys {
                 let ty = match p.len() {
                     3 => CellType::Triangle,
                     4 => CellType::Quad,
@@ -297,7 +376,14 @@ fn explicit_surface(ds: &DataSet) -> Result<PolyData> {
     all_conn.extend(&verts.connectivity);
     all_conn.extend(&lines.connectivity);
     all_conn.extend(&polys.connectivity);
-    let (points, point_data) = crate::interp::compact_points(points, pd, &mut all_conn);
+    let finished;
+    let (all_points, all_pd) = if ev.has_new_points() {
+        finished = ev.finish();
+        (&finished.0, &finished.1)
+    } else {
+        (points, pd)
+    };
+    let (points, point_data) = crate::interp::compact_points(all_points, all_pd, &mut all_conn);
     let (nv, nl) = (verts.connectivity.len(), lines.connectivity.len());
     verts.connectivity.copy_from_slice(&all_conn[..nv]);
     lines.connectivity.copy_from_slice(&all_conn[nv..nv + nl]);

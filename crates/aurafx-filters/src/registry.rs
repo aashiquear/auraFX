@@ -825,8 +825,27 @@ fn build() -> Vec<FilterDef> {
             ext: None,
             temporal: None,
             multi: None,
-            params: vec![],
-            apply: |input, _| Ok(DataSet::PolyData(crate::surface::extract_surface(input.unwrap())?)),
+            params: vec![i("nonlinear_subdivision_level", "Nonlinear subdivision level", 1, 0, 6)
+                .help("Curved (higher-order) cells: 0 uses only their corners, 1 goes through their nodes, each further level halves the pieces.")
+                .advanced()],
+            apply: |input, p| {
+                let level = p.i64("nonlinear_subdivision_level", 1).clamp(0, 6) as u32;
+                Ok(DataSet::PolyData(crate::surface::extract_surface_level(input.unwrap(), level)?))
+            },
+        },
+        FilterDef {
+            id: "tessellate",
+            label: "Tessellate",
+            category: "Geometry",
+            description: "Replace curved (higher-order Lagrange, Bezier and quadratic) cells by linear cells that follow their shape.",
+            keywords: &["higher order", "lagrange", "bezier", "quadratic", "curved", "linearize", "subdivide", "nonlinear"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("level", "Subdivision level", 2, 1, 6)
+                .help("1 places one linear cell between neighbouring nodes; each further level halves them (8x the cells in 3D).")],
+            apply: |input, p| crate::higher_order::tessellate(input.unwrap(), p.i64("level", 2).clamp(1, 6) as u32),
         },
         FilterDef {
             id: "outline",
@@ -1725,6 +1744,33 @@ fn build() -> Vec<FilterDef> {
                     p.i64("count", 1000) as usize,
                     p.i64("seed", 1) as u64,
                 )))
+            },
+        },
+        FilterDef {
+            id: "unstructured_cell_types",
+            label: "Unstructured Cell Types",
+            category: "Sources",
+            description: "A block of cells of one type, including quadratic, Lagrange and Bezier cells of any order, for trying filters on them.",
+            keywords: &["cell type", "higher order", "lagrange", "bezier", "quadratic", "tetrahedra", "wedge", "pyramid", "test data"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("cell_type", "Cell type", &crate::sources::CELL_TYPE_CHOICES.iter().map(|(n, _)| *n).collect::<Vec<_>>(), "Hex"),
+                v3("blocks", "Blocks", [5.0, 5.0, 5.0]).help("Number of unit blocks along x, y and z (2D cells use x and y, curves x)."),
+                i("order", "Cell order", 3, 1, 10).help("Order of Lagrange and Bezier cells."),
+            ],
+            apply: |_, p| {
+                let name = p.str("cell_type");
+                let ty = crate::sources::CELL_TYPE_CHOICES
+                    .iter()
+                    .find(|(n, _)| n.eq_ignore_ascii_case(&name))
+                    .map(|(_, t)| *t)
+                    .ok_or_else(|| anyhow!("unknown cell type {name}"))?;
+                let b = p.vec3("blocks", [5.0, 5.0, 5.0]);
+                let dims = b.map(|v| v.round().clamp(1.0, 200.0) as usize);
+                Ok(DataSet::UnstructuredGrid(crate::sources::unstructured_cell_types(ty, dims, p.i64("order", 3).clamp(1, 10) as usize)))
             },
         },
         FilterDef {

@@ -1,6 +1,7 @@
 //! Procedural sources: sphere, cone, cylinder, box, plane, line, point source, wavelet.
 
 use aurafx_data::*;
+use std::collections::HashMap;
 use std::f64::consts::{PI, TAU};
 
 pub fn sphere(center: [f64; 3], radius: f64, theta_res: usize, phi_res: usize) -> PolyData {
@@ -184,4 +185,160 @@ pub fn wavelet(extent: [i64; 6], maximum: f64, std_dev: f64) -> ImageData {
     }
     img.point_data.insert_active(AttributeKind::Scalars, Array::new("RTData", 1, ArrayData::F32(v)));
     img
+}
+
+/// Cell types offered by the Unstructured Cell Types source (ParaView names) and their VTK
+/// type, linear shape and whether the order parameter applies.
+pub const CELL_TYPE_CHOICES: &[(&str, CellType)] = &[
+    ("Line", CellType::Line),
+    ("Quadratic Line", CellType::QuadraticEdge),
+    ("Triangle", CellType::Triangle),
+    ("Quadratic Triangle", CellType::QuadraticTriangle),
+    ("Quad", CellType::Quad),
+    ("Bi-Quadratic Quad", CellType::BiquadraticQuad),
+    ("Tet", CellType::Tetra),
+    ("Quadratic Tet", CellType::QuadraticTetra),
+    ("Hex", CellType::Hexahedron),
+    ("Tri-Quadratic Hexahedron", CellType::TriquadraticHexahedron),
+    ("Wedge", CellType::Wedge),
+    ("Pyramid", CellType::Pyramid),
+    ("Lagrange Curve", CellType::LagrangeCurve),
+    ("Lagrange Triangle", CellType::LagrangeTriangle),
+    ("Lagrange Quadrilateral", CellType::LagrangeQuadrilateral),
+    ("Lagrange Tetrahedron", CellType::LagrangeTetrahedron),
+    ("Lagrange Hexahedron", CellType::LagrangeHexahedron),
+    ("Lagrange Wedge", CellType::LagrangeWedge),
+    ("Bezier Curve", CellType::BezierCurve),
+    ("Bezier Triangle", CellType::BezierTriangle),
+    ("Bezier Quadrilateral", CellType::BezierQuadrilateral),
+    ("Bezier Tetrahedron", CellType::BezierTetrahedron),
+    ("Bezier Hexahedron", CellType::BezierHexahedron),
+    ("Bezier Wedge", CellType::BezierWedge),
+];
+
+/// Unstructured Cell Types source: a block of `dims` unit hexahedra filling [0, dims] split
+/// into cells of one type, like ParaView's (12 tets or 6 pyramids around each block's center,
+/// 2 wedges per block, 2 triangles per square). Lagrange and Bezier cells get `order`;
+/// quadratic types are order 2. Point arrays: DistanceToCenter and Polynomial (1 + x + y + z).
+pub fn unstructured_cell_types(ty: CellType, dims: [usize; 3], order: usize) -> UnstructuredGrid {
+    use aurafx_data::higher_order::{HighOrderCell, Shape};
+    let shape_dim = ty.dimension() as usize;
+    let d = [dims[0].max(1), if shape_dim >= 2 { dims[1].max(1) } else { 0 }, if shape_dim >= 3 { dims[2].max(1) } else { 0 }];
+    let (shape, p) = match ty.high_order() {
+        Some((_, s)) => (s, if ty.is_arbitrary_order() { order.clamp(1, 10) } else { 2 }),
+        None => (
+            match ty {
+                CellType::Line => Shape::Curve,
+                CellType::Triangle => Shape::Triangle,
+                CellType::Quad => Shape::Quad,
+                CellType::Tetra => Shape::Tetra,
+                CellType::Wedge => Shape::Wedge,
+                _ => Shape::Hexahedron,
+            },
+            1,
+        ),
+    };
+    // Integer coordinates scaled by s = 2p so block centers and every node are integers.
+    let s = 2 * p as i64;
+    let mut keys: HashMap<[i64; 3], u32> = HashMap::new();
+    let mut coords: Vec<f64> = Vec::new();
+    let mut id = |k: [i64; 3]| -> u32 {
+        *keys.entry(k).or_insert_with(|| {
+            coords.extend(k.iter().map(|&v| v as f64 / s as f64));
+            (coords.len() / 3 - 1) as u32
+        })
+    };
+    let mut cells = Cells::new();
+    // Linear pieces of one block as integer corner coordinates.
+    let block = |i: i64, j: i64, k: i64| -> Vec<Vec<[i64; 3]>> {
+        let c = |a: i64, b: i64, e: i64| [(i + a) * s, (j + b) * s, (k + e) * s];
+        match shape_dim {
+            1 => vec![vec![c(0, 0, 0), c(1, 0, 0)]],
+            2 => {
+                let q = [c(0, 0, 0), c(1, 0, 0), c(1, 1, 0), c(0, 1, 0)];
+                if shape == Shape::Triangle {
+                    vec![vec![q[0], q[1], q[2]], vec![q[0], q[2], q[3]]]
+                } else {
+                    vec![q.to_vec()]
+                }
+            }
+            _ => {
+                let h = [c(0, 0, 0), c(1, 0, 0), c(1, 1, 0), c(0, 1, 0), c(0, 0, 1), c(1, 0, 1), c(1, 1, 1), c(0, 1, 1)];
+                let center = [i * s + s / 2, j * s + s / 2, k * s + s / 2];
+                match (shape, ty) {
+                    (Shape::Hexahedron, CellType::Pyramid) => {
+                        CellType::Hexahedron.faces().iter().map(|f| vec![h[f[3]], h[f[2]], h[f[1]], h[f[0]], center]).collect()
+                    }
+                    (Shape::Hexahedron, _) => vec![h.to_vec()],
+                    // Linear wedges have the base clockwise seen from the top; VTK's
+                    // higher-order wedges counter-clockwise.
+                    (Shape::Wedge, CellType::Wedge) => vec![vec![h[0], h[3], h[1], h[4], h[7], h[5]], vec![h[1], h[3], h[2], h[5], h[7], h[6]]],
+                    (Shape::Wedge, _) => vec![vec![h[0], h[1], h[3], h[4], h[5], h[7]], vec![h[1], h[2], h[3], h[5], h[6], h[7]]],
+                    // Tets: each face split in two, joined to the center.
+                    _ => CellType::Hexahedron
+                        .faces()
+                        .iter()
+                        .flat_map(|f| [vec![h[f[0]], h[f[2]], h[f[1]], center], vec![h[f[0]], h[f[3]], h[f[2]], center]])
+                        .collect(),
+                }
+            }
+        }
+    };
+    let ho = (p > 1 || ty.high_order().is_some()).then(|| {
+        HighOrderCell::with_order(
+            aurafx_data::higher_order::Basis::Lagrange,
+            shape,
+            aurafx_data::higher_order::cell_order(shape, aurafx_data::higher_order::node_count(shape, [p, p, p]), None).unwrap(),
+        )
+    });
+    for k in 0..d[2].max(1) as i64 {
+        for j in 0..d[1].max(1) as i64 {
+            for i in 0..d[0] as i64 {
+                for corners in block(i, j, k) {
+                    let ids: Vec<u32> = match (&ho, ty) {
+                        (_, CellType::Pyramid) | (None, _) => corners.iter().map(|&c| id(c)).collect(),
+                        (Some(cell), _) => {
+                            // Nodes: the corners' affine (or trilinear) map at each node's lattice position.
+                            let r = shape.corners();
+                            (0..cell.len())
+                                .map(|n| {
+                                    let pc = cell.node_pcoords(n);
+                                    let mut w = vec![0.0; r.len()];
+                                    match shape {
+                                        Shape::Curve => w.copy_from_slice(&[1.0 - pc[0], pc[0]]),
+                                        Shape::Triangle => w.copy_from_slice(&[1.0 - pc[0] - pc[1], pc[0], pc[1]]),
+                                        Shape::Tetra => w.copy_from_slice(&[1.0 - pc[0] - pc[1] - pc[2], pc[0], pc[1], pc[2]]),
+                                        Shape::Wedge => {
+                                            let t = [1.0 - pc[0] - pc[1], pc[0], pc[1]];
+                                            for a in 0..3 {
+                                                w[a] = t[a] * (1.0 - pc[2]);
+                                                w[a + 3] = t[a] * pc[2];
+                                            }
+                                        }
+                                        _ => {
+                                            for (a, rc) in r.iter().enumerate() {
+                                                w[a] = (0..3).map(|x| if rc[x] > 0.5 { pc[x] } else { 1.0 - pc[x] }).take(shape_dim).product();
+                                            }
+                                        }
+                                    }
+                                    let x: [i64; 3] =
+                                        std::array::from_fn(|a| corners.iter().zip(&w).map(|(c, wi)| c[a] as f64 * wi).sum::<f64>().round() as i64);
+                                    id(x)
+                                })
+                                .collect()
+                        }
+                    };
+                    cells.push(ty, &ids);
+                }
+            }
+        }
+    }
+    let n = coords.len() / 3;
+    let center = [d[0] as f64 / 2.0, d[1] as f64 / 2.0, d[2] as f64 / 2.0];
+    let dist: Vec<f32> = (0..n).map(|i| (0..3).map(|a| (coords[3 * i + a] - center[a]).powi(2)).sum::<f64>().sqrt() as f32).collect();
+    let poly: Vec<f64> = (0..n).map(|i| 1.0 + coords[3 * i] + coords[3 * i + 1] + coords[3 * i + 2]).collect();
+    let mut ug = UnstructuredGrid { points: Points::new_f64(coords), cells, ..Default::default() };
+    ug.point_data.insert(Array::scalars_f32("DistanceToCenter", dist));
+    ug.point_data.insert_active(AttributeKind::Scalars, Array::scalars_f64("Polynomial", poly));
+    ug
 }

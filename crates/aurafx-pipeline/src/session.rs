@@ -531,6 +531,7 @@ impl Session {
                 | "contour"
                 | "threshold"
                 | "extract_surface"
+                | "tessellate"
                 | "warp_by_vector"
                 | "warp_by_scalar"
                 | "transform"

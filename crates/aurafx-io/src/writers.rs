@@ -110,6 +110,12 @@ fn attributes(out: &mut String, app: &mut Appended, tag: &str, a: &Attributes) {
             act += &format!(" {attr}=\"{}\"", esc(n));
         }
     }
+    // Higher-order cell attributes VTK only uses when they are tagged.
+    for (name, need) in [("HigherOrderDegrees", 3), ("RationalWeights", 1)] {
+        if a.get(name).is_some_and(|x| x.ncomp == need) {
+            act += &format!(" {name}=\"{name}\"");
+        }
+    }
     out.push_str(&format!("      <{tag}{act}>\n"));
     for arr in a.iter() {
         data_array(out, app, &arr.name, arr.ncomp, &arr.data);
@@ -230,7 +236,7 @@ pub fn write_xml(ds: &DataSet, path: &Path) -> Result<()> {
         DataSet::MultiBlock(_) => return write_vtm(ds, path),
     };
     let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
-    write!(f, "<?xml version=\"1.0\"?>\n<VTKFile type=\"{ty}\" version=\"1.0\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n{body}  <AppendedData encoding=\"raw\">\n   _")?;
+    write!(f, "<?xml version=\"1.0\"?>\n<VTKFile type=\"{ty}\" version=\"2.2\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n{body}  <AppendedData encoding=\"raw\">\n   _")?;
     f.write_all(&app.blob)?;
     write!(f, "\n  </AppendedData>\n</VTKFile>\n")?;
     Ok(())

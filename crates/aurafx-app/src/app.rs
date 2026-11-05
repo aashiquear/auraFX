@@ -527,6 +527,7 @@ impl State {
     pub fn open_sample(&mut self, name: &str) {
         let bytes: &[u8] = match name {
             "disk_out_ref.ex2" => include_bytes!("../../../testdata/disk_out_ref.ex2"),
+            "lagrange_annulus.vtu" => include_bytes!("../../../testdata/lagrange_annulus.vtu"),
             _ => return,
         };
         let dir = crate::dialogs::documents_dir().join("samples");
@@ -727,6 +728,14 @@ impl State {
                     if ui.button("Heated disk in a flow (Exodus)").on_hover_text("ParaView's disk_out_ref: temperature, pressure, velocity").clicked() {
                         ui.close();
                         self.open_sample("disk_out_ref.ex2");
+                    }
+                    if ui
+                        .button("Curved quarter cylinder (Lagrange cells)")
+                        .on_hover_text("Four cubic Lagrange hexahedra; try Display › Curved cells and Tessellate")
+                        .clicked()
+                    {
+                        ui.close();
+                        self.open_sample("lagrange_annulus.vtu");
                     }
                     if ui.button("Wavelet volume (generated)").clicked() {
                         ui.close();

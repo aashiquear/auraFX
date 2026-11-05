@@ -15,6 +15,7 @@ pub mod contour;
 pub mod edges;
 pub mod geometry;
 pub mod glyph;
+pub mod higher_order;
 pub mod outline;
 pub mod probe;
 pub mod python;

@@ -9,6 +9,7 @@ pub mod attributes;
 pub mod bounds;
 pub mod cell;
 pub mod dataset;
+pub mod higher_order;
 pub mod info;
 
 pub use array::{Array, ArrayData, ScalarType};

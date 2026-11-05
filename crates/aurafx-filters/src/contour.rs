@@ -3,13 +3,13 @@
 use crate::attributes::cell_to_point;
 use crate::interp::ScalarFn;
 use crate::params::Association;
-use crate::simplex::{as_explicit, parts};
+use crate::simplex::parts;
 use crate::slice::cut_at_zero;
 use anyhow::{anyhow, Result};
 use aurafx_data::*;
 
 pub fn contour(ds: &DataSet, assoc: Association, array: &str, comp: Option<usize>, values: &[f64]) -> Result<PolyData> {
-    let ds = as_explicit(ds);
+    let ds = crate::higher_order::as_linear(ds);
     let ds: std::borrow::Cow<DataSet> = if assoc == Association::Cells { std::borrow::Cow::Owned(cell_to_point(&ds, &[array.to_string()])?) } else { ds };
     let (_, pd, ..) = parts(&ds).ok_or_else(|| anyhow!("contour: unsupported dataset"))?;
     let arr = pd.get(array).ok_or_else(|| anyhow!("contour: no point array named {array:?}"))?;

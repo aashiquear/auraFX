@@ -370,3 +370,227 @@ fn resample_with_dataset_matches_paraview() {
     assert!((sum - 12773.92).abs() < 0.05, "cell sum {sum}");
     assert!(multi("resample_with_dataset", &[&w], &[]).unwrap_err().contains("destination"));
 }
+
+fn integrals(ds: &DataSet) -> std::collections::BTreeMap<String, f64> {
+    let DataSet::Table(t) = run("integrate_variables", Some(ds), &[]) else { panic!() };
+    t.columns.iter().map(|c| (c.name.clone(), c.get(0, 0))).collect()
+}
+
+/// Curved Lagrange and Bezier cells (testdata/*.vtu from scripts/gen_higher_order.py) against
+/// ParaView 6.1.1: Integrate Variables, Extract Surface at nonlinear subdivision levels 0-3,
+/// Slice, Clip and Contour. ParaView triangulates surface quads, so only cell counts differ.
+#[test]
+fn higher_order_cells_match_paraview() {
+    let close = |a: f64, b: f64, what: &str| assert!((a - b).abs() <= 2e-7 * b.abs().max(1.0), "{what}: {a} vs ParaView {b}");
+    let plane = |z: f64| [("origin", serde_json::json!([0.0, 0.0, z])), ("normal", serde_json::json!([0.0, 0.0, 1.0]))];
+    struct Ref {
+        file: &'static str,
+        volume: f64,
+        field: (&'static str, f64),
+        surf_points: [usize; 4],
+        surf_area: [f64; 4],
+        surf_field1: f64,
+        slice_z: f64,
+        slice: (f64, f64),
+        clip: Option<f64>,
+        contour: Option<(f64, f64)>,
+    }
+    let refs = [
+        Ref {
+            file: "lagrange_annulus.vtu",
+            volume: 2.3494714599609368,
+            field: ("T", 7.0919231106228064),
+            surf_points: [20, 164, 650, 2594],
+            surf_area: [11.274368659602779, 11.407968090214894, 11.420610595142348, 11.423774354648994],
+            surf_field1: 36.36913782371417,
+            slice_z: 0.3,
+            slice: (2.3494714599609288, 6.6220288186306195),
+            clip: Some(1.6446300228478956),
+            contour: Some((2.5, 2.3408349845232475)),
+        },
+        Ref {
+            file: "bezier_annulus.vtu",
+            // ParaView integrates the control net here (3.0); auraFX the evaluated nodes,
+            // which is what ParaView's own slice of the same cell gives (2.1213 x height 1).
+            volume: 2.1213203435596424,
+            field: ("T", 3.299831645537222),
+            surf_points: [8, 26, 98, 386],
+            surf_area: [9.242640687119286, 10.834841763594575, 11.27365495542861, 11.386759403789142],
+            surf_field1: 17.253331804637813,
+            slice_z: 0.3,
+            slice: (2.1213203435596424, 3.299831645537222),
+            clip: Some(1.484924234169723),
+            contour: Some((1.5, 2.296100594190538)),
+        },
+        Ref {
+            file: "lagrange_shapes.vtu",
+            volume: 1.9979694745053096,
+            field: ("u", 1.842509495288105),
+            surf_points: [27, 127, 452, 1723],
+            surf_area: [15.463546377497881, 16.068182533131267, 16.131036707822073, 16.146779479547273],
+            surf_field1: 20.456019124324364,
+            slice_z: -0.4,
+            slice: (2.0075545843942626, 2.307321015617519),
+            clip: None,
+            contour: None,
+        },
+    ];
+    for r in refs {
+        let ds = td(r.file);
+        let f = r.file;
+        let it = integrals(&ds);
+        close(it["Volume"], r.volume, &format!("{f} volume"));
+        close(it[r.field.0], r.field.1, &format!("{f} integral of {}", r.field.0));
+        for lvl in 0..4u32 {
+            let s = DataSet::PolyData(surface::extract_surface_level(&ds, lvl).unwrap());
+            assert_eq!(s.n_points(), r.surf_points[lvl as usize], "{f} surface level {lvl} points");
+            let it = integrals(&s);
+            close(it["Area"], r.surf_area[lvl as usize], &format!("{f} surface level {lvl} area"));
+            if lvl == 1 {
+                close(it[r.field.0], r.surf_field1, &format!("{f} surface integral of {}", r.field.0));
+                assert!(s.point_data().unwrap().get("RationalWeights").is_none());
+            }
+        }
+        let s = run("slice", Some(&ds), &plane(r.slice_z));
+        let it = integrals(&s);
+        close(it["Area"], r.slice.0, &format!("{f} slice area"));
+        close(it[r.field.0], r.slice.1, &format!("{f} slice integral"));
+        if let Some(v) = r.clip {
+            close(integrals(&run("clip", Some(&ds), &plane(0.3)))["Volume"], v, &format!("{f} clip volume"));
+        }
+        if let Some((value, area)) = r.contour {
+            let c = run("contour", Some(&ds), &[("array", "T".into()), ("values", serde_json::json!([value]))]);
+            close(integrals(&c)["Area"], area, &format!("{f} contour area"));
+        }
+        // Tessellate: level 1 is the same linear cells; finer levels converge on the curved
+        // volume (3*pi/4 for the exact Bezier quarter cylinder).
+        let mut last = 0.0;
+        for lvl in [1u32, 2, 3, 4] {
+            let t = run("tessellate", Some(&ds), &[("level", lvl.into())]);
+            assert!(!aurafx_filters::higher_order::has_curved(&t));
+            let v = integrals(&t)["Volume"];
+            if lvl == 1 {
+                close(v, r.volume, &format!("{f} tessellate level 1"));
+            }
+            assert!(v > last, "{f}: tessellated volume grows with the level");
+            last = v;
+        }
+        if f.starts_with("bezier") {
+            assert!((last - 3.0 * std::f64::consts::PI / 4.0).abs() < 4e-3, "Bezier volume at level 4: {last}");
+        }
+    }
+}
+
+/// Volume enclosed by a closed surface (positive when its polygons face outward).
+fn signed_volume(pd: &PolyData) -> f64 {
+    let mut v = 0.0;
+    for i in 0..pd.polys.len() {
+        let c = pd.polys.cell(i);
+        let p0 = pd.points.get(c[0] as usize);
+        for k in 1..c.len() - 1 {
+            let (a, b) = (pd.points.get(c[k] as usize), pd.points.get(c[k + 1] as usize));
+            v += (p0[0] * (a[1] * b[2] - a[2] * b[1]) - p0[1] * (a[0] * b[2] - a[2] * b[0]) + p0[2] * (a[0] * b[1] - a[1] * b[0])) / 6.0;
+        }
+    }
+    v
+}
+
+#[test]
+fn curved_cells_face_outward_and_cell_type_source_matches_paraview() {
+    // Each 3D curved cell of the shapes file on its own: its surface encloses its volume.
+    let DataSet::UnstructuredGrid(shapes) = td("lagrange_shapes.vtu") else { panic!() };
+    let one = |cid: usize| {
+        let mut cells = Cells::new();
+        cells.push(shapes.cells.types[cid], shapes.cells.cell(cid));
+        let mut g = UnstructuredGrid { points: shapes.points.clone(), cells, point_data: shapes.point_data.clone(), ..Default::default() };
+        g.cell_data = shapes.cell_data.gather(&[cid]);
+        DataSet::UnstructuredGrid(g)
+    };
+    for cid in 0..shapes.cells.len() {
+        if shapes.cells.types[cid].dimension() < 3 {
+            continue;
+        }
+        let ds = one(cid);
+        for lvl in 1..=3 {
+            let v = integrals(&run("tessellate", Some(&ds), &[("level", lvl.into())]))["Volume"];
+            let s = signed_volume(&surface::extract_surface_level(&ds, lvl).unwrap());
+            assert!((s - v).abs() < 0.02 * v, "{:?} level {lvl}: surface encloses {s}, volume {v}", shapes.cells.types[cid]);
+            // The tessellated (linear) cells are valid VTK cells: their surface faces outward too.
+            let t = run("tessellate", Some(&ds), &[("level", lvl.into())]);
+            let st = signed_volume(&surface::extract_surface(&t).unwrap());
+            assert!((st - v).abs() < 0.02 * v, "{:?} tessellated level {lvl}: {st} vs {v}", shapes.cells.types[cid]);
+        }
+    }
+
+    // Unstructured Cell Types with 2x2x2 blocks: point and cell counts from ParaView 6.1.1.
+    for (name, order, points, cells) in [
+        ("Hex", 1, 27, 8),
+        ("Lagrange Hexahedron", 3, 343, 8),
+        ("Lagrange Tetrahedron", 2, 189, 96),
+        ("Lagrange Wedge", 2, 125, 16),
+        ("Lagrange Triangle", 3, 49, 8),
+        ("Lagrange Quadrilateral", 2, 25, 4),
+        ("Lagrange Curve", 3, 7, 2),
+        ("Tet", 1, 35, 96),
+        ("Wedge", 1, 27, 16),
+        ("Pyramid", 1, 35, 48),
+        ("Quadratic Tet", 1, 189, 96),
+        ("Bezier Hexahedron", 2, 125, 8),
+    ] {
+        let ds = run("unstructured_cell_types", None, &[("cell_type", name.into()), ("blocks", serde_json::json!([2, 2, 2])), ("order", order.into())]);
+        assert_eq!((ds.n_points(), ds.n_cells()), (points, cells), "{name}");
+        let dim = if name.contains("Curve") {
+            1
+        } else if name.contains("Triangle") || name.contains("Quadrilateral") {
+            2
+        } else {
+            3
+        };
+        let poly = ds.point_data().unwrap().get("Polynomial").unwrap().range(None);
+        assert_eq!(poly, (1.0, 1.0 + 2.0 * dim as f64), "{name} Polynomial range");
+        let it = integrals(&ds);
+        let measure = it.get("Volume").or(it.get("Area")).or(it.get("Length")).copied().unwrap();
+        assert!((measure - 2f64.powi(dim as i32)).abs() < 1e-9, "{name}: measure {measure}");
+        if dim == 3 {
+            let s = signed_volume(&surface::extract_surface(&ds).unwrap());
+            assert!((s - 8.0).abs() < 1e-9, "{name}: outward surface encloses {s}");
+        }
+    }
+}
+
+#[test]
+fn higher_order_files_round_trip() {
+    // Degrees and rational weights survive writing (VTK XML and legacy) and reading back.
+    let dir = std::env::temp_dir().join(format!("aurafx_ho_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["lagrange_shapes.vtu", "bezier_annulus.vtu"] {
+        let ds = td(name);
+        let want = integrals(&DataSet::PolyData(surface::extract_surface_level(&ds, 2).unwrap()))["Area"];
+        for ext in ["vtu", "vtk"] {
+            let path = dir.join(format!("{name}.{ext}"));
+            aurafx_io::writers::write_file(&ds, &path).unwrap();
+            let back = match aurafx_io::read_file(&path).unwrap() {
+                aurafx_io::Loaded::Static(d) => (*d).clone(),
+                _ => panic!(),
+            };
+            let got = integrals(&DataSet::PolyData(surface::extract_surface_level(&back, 2).unwrap()))["Area"];
+            assert!((got - want).abs() < 1e-9 * want, "{name} via .{ext}: {got} vs {want}");
+        }
+    }
+    // Files older than version 2.2 list the last two vertical hexahedron edges swapped.
+    let src = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/lagrange_annulus.vtu")).unwrap();
+    let old = dir.join("old.vtu");
+    std::fs::write(&old, src.replace("version=\"2.2\"", "version=\"1.0\"")).unwrap();
+    let (DataSet::UnstructuredGrid(a), aurafx_io::Loaded::Static(b)) = (td("lagrange_annulus.vtu"), aurafx_io::read_file(&old).unwrap()) else { panic!() };
+    let DataSet::UnstructuredGrid(b) = &*b else { panic!() };
+    let (ca, cb) = (a.cells.cell(0), b.cells.cell(0));
+    // Order 3: vertical edges start at 8 + 4*2 + 4*2 = 24, two nodes each.
+    assert_eq!(&ca[..28], &cb[..28]);
+    assert_eq!((&ca[28..30], &ca[30..32]), (&cb[30..32], &cb[28..30]));
+    assert_eq!(&ca[32..], &cb[32..]);
+    if std::env::var_os("AURAFX_KEEP_TEST_FILES").is_some() {
+        eprintln!("kept {}", dir.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

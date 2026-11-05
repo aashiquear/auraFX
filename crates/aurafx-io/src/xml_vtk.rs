@@ -638,9 +638,20 @@ fn read_multiblock(path: &Path, body: &Node) -> Result<DataSet> {
 }
 
 fn read_parallel(path: &Path, body: &Node) -> Result<DataSet> {
-    let sources: Vec<String> = body.children_named("Piece").filter_map(|p| p.attr("Source").map(|s| s.to_string())).collect();
+    let mut sources: Vec<String> = body.children_named("Piece").filter_map(|p| p.attr("Source").map(|s| s.to_string())).collect();
     if sources.is_empty() {
         bail!("parallel file has no pieces");
+    }
+    // A parallel server process reads only its share of the piece files.
+    if let Some((k, n)) = crate::current_piece() {
+        if sources.len() >= n {
+            let (lo, hi) = (k * sources.len() / n, (k + 1) * sources.len() / n);
+            sources = sources[lo..hi].to_vec();
+            crate::mark_pieced();
+            if sources.is_empty() {
+                return Ok(DataSet::UnstructuredGrid(Default::default()));
+            }
+        }
     }
     use rayon::prelude::*;
     let pieces: Vec<DataSet> = sources

@@ -31,7 +31,7 @@ pub fn cut_at_zero(ds: &DataSet, f: &ScalarFn, merge_points: bool) -> Result<Pol
     };
     let make = || Part { pb: PointBuilder::new(points, pd), polys: Cells::new(), lines: Cells::new(), verts: Cells::new(), pp: vec![], pl: vec![], pv: vec![] };
     let chunks = crate::interp::par_cell_chunks(&ds, make, |st, cid, ty, pts, faces| {
-        decompose(ty, pts, faces, |s| match s {
+        decompose(points, ty, pts, faces, |s| match s {
             Simplex::Tet(t) => {
                 let inside = t.map(|p| vals[p as usize] >= 0.0);
                 let n_in = inside.iter().filter(|&&b| b).count();

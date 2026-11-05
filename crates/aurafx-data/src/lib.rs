@@ -11,6 +11,7 @@ pub mod cell;
 pub mod dataset;
 pub mod higher_order;
 pub mod info;
+pub mod pieces;
 
 pub use array::{Array, ArrayData, ScalarType};
 pub use attributes::{AttributeKind, Attributes};

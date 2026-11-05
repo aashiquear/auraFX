@@ -150,7 +150,7 @@ pub fn integrate_variables(ds: &DataSet) -> Result<Table> {
                 if ty.dimension() != max_dim {
                     return;
                 }
-                decompose(ty, ids, faces, |s| {
+                decompose(pts, ty, ids, faces, |s| {
                     let mut vs = [0u32; 4];
                     let (m, k) = match s {
                         Simplex::Tet(t) => {
@@ -258,7 +258,7 @@ pub fn gradient(ds: &DataSet, name: &str) -> Result<DataSet> {
         e[3] += w;
     };
     let chunks = crate::interp::par_cell_chunks(&d, Part::default, |st, _, ty, ids, faces| {
-        decompose(ty, ids, faces, |s| match s {
+        decompose(pts, ty, ids, faces, |s| match s {
             Simplex::Tet(t) => {
                 let p = t.map(|i| pts.get(i as usize));
                 let v = t.map(|i| f.get(i as usize, 0));

@@ -75,7 +75,7 @@ impl Locator {
         let mut tets = Vec::new();
         let mut tris = Vec::new();
         for_each_cell(&ds, |cid, ty, ids, faces| {
-            decompose(ty, ids, faces, |s| match s {
+            decompose(points, ty, ids, faces, |s| match s {
                 Simplex::Tet(t) => tets.push((t, cid as u32, 4u8)),
                 Simplex::Tri(t) => tris.push(([t[0], t[1], t[2], 0], cid as u32, 3u8)),
                 _ => {}

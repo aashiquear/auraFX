@@ -16,7 +16,7 @@ use aurafx_data::{DataSet, DataSetInfo};
 use aurafx_filters::Params;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
@@ -190,6 +190,21 @@ pub struct ServerInfo {
     /// The GPU the server draws with, if it can draw.
     #[serde(default)]
     pub gpu: Option<String>,
+    /// Processes the data is spread over (1 for an ordinary server).
+    #[serde(default)]
+    pub processes: usize,
+}
+
+/// How a server process runs.
+#[derive(Default)]
+pub struct ServeOptions {
+    /// Draws on this machine's GPU.
+    pub hook: Option<Box<dyn RenderHook>>,
+    pub gpu: Option<String>,
+    /// A worker of a parallel server: the piece (k, n) of every file it reads.
+    pub piece: Option<(usize, usize)>,
+    /// A parallel server's coordinator: its workers.
+    pub workers: Vec<Arc<RemoteClient>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,9 +286,17 @@ pub fn serve(input: impl Read, output: impl Write) -> Result<()> {
 
 /// [`serve`] with a renderer for drawing on the server (`gpu` names it for the client).
 pub fn serve_with(input: impl Read, output: impl Write, hook: Option<Box<dyn RenderHook>>, gpu: Option<String>) -> Result<()> {
+    serve_opts(input, output, ServeOptions { hook, gpu, ..Default::default() })
+}
+
+/// [`serve`] as a renderer, a worker holding one piece, or a coordinator of workers.
+pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> Result<()> {
     let mut r = BufReader::new(input);
     let mut w = BufWriter::new(output);
-    let mut srv = Server { hook, gpu, ..Server::default() };
+    let piece = opts.piece;
+    let cluster = (!opts.workers.is_empty()).then(|| crate::cluster::Cluster::new(opts.workers));
+    let mut srv = Server { hook: opts.hook, gpu: opts.gpu, cluster, ..Server::default() };
+    srv.session.piece = piece;
     loop {
         let Ok((head, _)) = read_frame(&mut r) else { return Ok(()) }; // client went away
         let req: Request = match postcard::from_bytes(&head) {
@@ -294,7 +317,12 @@ pub fn serve_with(input: impl Read, output: impl Write, hook: Option<Box<dyn Ren
                     let msg =
                         p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "unknown".into());
                     // The session may be half-updated: start over (the next request resends everything).
-                    srv = Server { hook: srv.hook.take(), gpu: srv.gpu.clone(), ..Server::default() };
+                    srv = Server { hook: srv.hook.take(), gpu: srv.gpu.clone(), cluster: srv.cluster.take(), ..Server::default() };
+                    srv.session.piece = piece;
+                    if let Some(c) = srv.cluster.as_mut() {
+                        c.gathered.clear();
+                        c.infos.lock().clear();
+                    }
                     (Reply::Error { message: format!("the server failed: {msg}") }, vec![])
                 }
             },
@@ -309,13 +337,15 @@ struct Server {
     nodes: HashMap<NodeId, (NodeId, NodeSpec)>,
     hook: Option<Box<dyn RenderHook>>,
     gpu: Option<String>,
+    /// Set on the coordinator of a parallel server.
+    cluster: Option<crate::cluster::Cluster>,
 }
 
 impl Default for Server {
     fn default() -> Self {
         let mut session = Session::new();
         session.suspend_undo = 1;
-        Self { session, nodes: HashMap::new(), hook: None, gpu: None }
+        Self { session, nodes: HashMap::new(), hook: None, gpu: None, cluster: None }
     }
 }
 
@@ -328,11 +358,24 @@ impl Server {
                     version: env!("CARGO_PKG_VERSION").to_string(),
                     hostname: hostname(),
                     cpus: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
-                    gpu: self.gpu.clone(),
+                    gpu: match &self.cluster {
+                        Some(c) if c.can_draw() => c.workers[0].info.lock().as_ref().and_then(|i| i.gpu.clone()),
+                        Some(_) => None,
+                        None => self.gpu.clone(),
+                    },
+                    processes: self.cluster.as_ref().map(|c| c.workers.len()).unwrap_or(1),
                 }),
                 vec![],
             ),
             Request::Forget { ids } => {
+                if let Some(c) = &self.cluster {
+                    let _ = c.each(|w| w.request(&Request::Forget { ids: ids.clone() }).map(|_| ()));
+                    for id in &ids {
+                        if let Some(c) = self.cluster.as_mut() {
+                            c.gathered.remove(id);
+                        }
+                    }
+                }
                 for id in ids {
                     if let Some((sid, _)) = self.nodes.remove(&id) {
                         self.session.remove_node(sid);
@@ -399,6 +442,28 @@ impl Server {
 
     fn render(&mut self, specs: &[NodeSpec], time: Option<f64>, job: &RenderJob) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
+        if self.cluster.is_some() {
+            let local = crate::cluster::piece_local(specs);
+            let (mine, theirs): (Vec<_>, Vec<_>) = job.targets.iter().cloned().partition(|(id, _)| local.contains(id));
+            let mut image: Option<(Vec<u8>, Vec<f32>)> = None;
+            if !mine.is_empty() {
+                let sub: Vec<NodeSpec> = specs.iter().filter(|s| local.contains(&s.id)).cloned().collect();
+                let j = RenderJob { targets: mine, ..job.clone() };
+                image = Some(self.cluster.as_ref().unwrap().render_local(&sub, time, &j)?);
+            }
+            if !theirs.is_empty() {
+                // Drawn here from the gathered data.
+                self.prepare_gathered(specs, &local, time)?;
+                let j = RenderJob { targets: theirs, ..job.clone() };
+                let (c, d) = self.render_here(time, &j)?;
+                match image.as_mut() {
+                    Some((ic, id)) => crate::cluster::composite(ic, id, &c, &d),
+                    None => image = Some((c, d)),
+                }
+            }
+            let (color, depth) = image.unwrap_or_default();
+            return Ok(image_reply(job, color, depth, t0));
+        }
         if self.hook.is_none() {
             bail!("this server cannot draw (no GPU, or built without rendering)");
         }
@@ -416,11 +481,66 @@ impl Server {
             }
         }
         let (color, depth) = self.hook.as_mut().unwrap().render(&outputs, job)?;
-        let mut att = lz4_flex::compress_prepend_size(&color);
-        let color_bytes = att.len() as u64;
-        let raw: Vec<u8> = depth.iter().flat_map(|d| d.to_le_bytes()).collect();
-        att.extend(lz4_flex::compress_prepend_size(&raw));
-        Ok((Reply::Image { width: job.width, height: job.height, server_ms: t0.elapsed().as_secs_f64() * 1e3, color_bytes }, att))
+        Ok(image_reply(job, color, depth, t0))
+    }
+
+    /// Draw nodes already in this server's session.
+    fn render_here(&mut self, time: Option<f64>, job: &RenderJob) -> Result<(Vec<u8>, Vec<f32>)> {
+        let hook = self.hook.as_mut().ok_or_else(|| anyhow!("this server cannot draw (no GPU)"))?;
+        if let Some(t) = time {
+            self.session.set_time_value(t);
+        }
+        self.session.update_blocking();
+        let mut outputs = Vec::new();
+        for (id, display) in &job.targets {
+            let sid = self.nodes.get(id).ok_or_else(|| anyhow!("node {id} was not sent"))?.0;
+            if let Some(out) = self.session.nodes.get(&sid).and_then(|n| n.output.clone()) {
+                outputs.push((*id, out, display.clone()));
+            }
+        }
+        hook.render(&outputs, job)
+    }
+
+    /// On a coordinator: make the nodes that are not piece-local available in this server's
+    /// session, fed by the gathered outputs of the piece-local nodes they read.
+    fn prepare_gathered(&mut self, specs: &[NodeSpec], local: &HashSet<NodeId>, time: Option<f64>) -> Result<()> {
+        for s in specs.iter().filter(|s| !local.contains(&s.id)) {
+            if let SpecKind::Filter { id } = &s.kind {
+                if aurafx_filters::find(id).is_some_and(|d| d.temporal.is_some()) {
+                    bail!("{id} needs every time step and is not available on a parallel server yet; use one server process");
+                }
+            }
+        }
+        let sub: Vec<NodeSpec> = specs.iter().filter(|s| local.contains(&s.id)).cloned().collect();
+        let boundary: Vec<NodeId> =
+            sub.iter().map(|s| s.id).filter(|id| specs.iter().any(|s| !local.contains(&s.id) && (s.input == Some(*id) || s.extra.contains(id)))).collect();
+        let mut changed = false;
+        for b in boundary {
+            let fp = crate::cluster::fingerprint(&sub, time);
+            let cluster = self.cluster.as_mut().unwrap();
+            if cluster.gathered.get(&b) == Some(&fp) && self.nodes.contains_key(&b) {
+                continue;
+            }
+            let (data, _) = cluster.gather(&sub, b, time)?;
+            cluster.gathered.insert(b, fp);
+            if let Some((old, _)) = self.nodes.remove(&b) {
+                self.session.remove_node(old);
+            }
+            let sid = self.session.add_data("gathered", data);
+            let spec = sub.iter().find(|s| s.id == b).cloned().unwrap();
+            self.nodes.insert(b, (sid, spec));
+            changed = true;
+        }
+        let rest: Vec<NodeSpec> = specs.iter().filter(|s| !local.contains(&s.id)).cloned().collect();
+        if changed {
+            // Rebuild the nodes below the replaced inputs.
+            for s in &rest {
+                if let Some((sid, _)) = self.nodes.remove(&s.id) {
+                    self.session.remove_node(sid);
+                }
+            }
+        }
+        self.reconcile(&rest)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -435,7 +555,16 @@ impl Server {
         max_surface: u64,
     ) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
-        self.reconcile(specs)?;
+        if let Some(cluster) = &self.cluster {
+            let local = crate::cluster::piece_local(specs);
+            if local.contains(&target) {
+                let sub: Vec<NodeSpec> = specs.iter().filter(|s| local.contains(&s.id)).cloned().collect();
+                return cluster.compute_local(&sub, target, time, fetch, max_bytes, level, max_surface);
+            }
+            self.prepare_gathered(specs, &local, time)?;
+        } else {
+            self.reconcile(specs)?;
+        }
         if let Some(t) = time {
             self.session.set_time_value(t);
         }
@@ -481,6 +610,14 @@ impl Server {
         let info = n.info.clone().or_else(|| Some(DataSetInfo::of(&out)));
         Ok((Reply::Data { info, times, payload, server_ms: t0.elapsed().as_secs_f64() * 1e3, full_bytes }, att))
     }
+}
+
+fn image_reply(job: &RenderJob, color: Vec<u8>, depth: Vec<f32>, t0: std::time::Instant) -> (Reply, Vec<u8>) {
+    let mut att = lz4_flex::compress_prepend_size(&color);
+    let color_bytes = att.len() as u64;
+    let raw: Vec<u8> = depth.iter().flat_map(|d| d.to_le_bytes()).collect();
+    att.extend(lz4_flex::compress_prepend_size(&raw));
+    (Reply::Image { width: job.width, height: job.height, server_ms: t0.elapsed().as_secs_f64() * 1e3, color_bytes }, att)
 }
 
 fn expand_home(p: &str) -> String {
@@ -541,6 +678,16 @@ impl std::fmt::Debug for RemoteClient {
     }
 }
 
+/// Name under which a session keeps its connection to a host (a parallel server on the same
+/// host is a different connection).
+pub fn client_key(h: &aurafx_jobs::Host) -> String {
+    if h.server_processes > 1 {
+        format!("{} ×{}", h.name, h.server_processes)
+    } else {
+        h.name.clone()
+    }
+}
+
 /// Shell command that starts the server on a host: `$AURAFX_SERVER`, `aurafx-server` on the
 /// PATH, or `~/.local/bin/aurafx-server`.
 pub const SERVER_COMMAND: &str = r#"S="${AURAFX_SERVER:-$(command -v aurafx-server || echo "$HOME/.local/bin/aurafx-server")}"; exec "$S" --stdio"#;
@@ -550,7 +697,12 @@ impl RemoteClient {
     pub fn for_host(host: aurafx_jobs::Host) -> Arc<Self> {
         let name = host.name.clone();
         let spawn: Spawner = Box::new(move || {
-            let mut c = host.command(SERVER_COMMAND);
+            let cmd = if host.server_processes > 1 {
+                SERVER_COMMAND.replace("--stdio", &format!("--stdio --workers {}", host.server_processes))
+            } else {
+                SERVER_COMMAND.to_string()
+            };
+            let mut c = host.command(&cmd);
             // On this machine, use the server installed next to the app.
             if host.is_local() && std::env::var_os("AURAFX_SERVER").is_none() {
                 if let Some(p) = std::env::current_exe()
@@ -586,6 +738,48 @@ impl RemoteClient {
             Ok((Conn { child: Some(child), r: Box::new(r), w: Box::new(BufWriter::new(w)) }, err))
         });
         Arc::new(Self { name, conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+    }
+
+    /// A server process started by `make` (with stdin/stdout piped), restarted when needed.
+    pub fn from_command(name: &str, make: impl Fn() -> std::process::Command + Send + Sync + 'static) -> Arc<Self> {
+        let label = name.to_string();
+        let spawn: Spawner = Box::new(move || {
+            let mut c = make();
+            c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+            let mut child = c.spawn().with_context(|| format!("starting {label}"))?;
+            let r = child.stdout.take().unwrap();
+            let w = child.stdin.take().unwrap();
+            let err = Arc::new(Mutex::new(String::new()));
+            if let Some(mut e) = child.stderr.take() {
+                let err = err.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n) = e.read(&mut buf) {
+                        if n == 0 {
+                            break;
+                        }
+                        let mut s = err.lock();
+                        s.push_str(&String::from_utf8_lossy(&buf[..n]));
+                        if s.len() > 8192 {
+                            let cut = s.len() - 8192;
+                            s.drain(..cut);
+                        }
+                    }
+                });
+            }
+            Ok((Conn { child: Some(child), r: Box::new(r), w: Box::new(BufWriter::new(w)) }, err))
+        });
+        Arc::new(Self { name: name.to_string(), conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+    }
+
+    /// A server running on threads of this process with these options (tests).
+    pub fn in_process_opts(name: &str, opts: ServeOptions) -> Arc<Self> {
+        let (c2s_r, c2s_w) = pipe();
+        let (s2c_r, s2c_w) = pipe();
+        std::thread::spawn(move || {
+            let _ = serve_opts(c2s_r, s2c_w, opts);
+        });
+        Self::from_streams(name, s2c_r, c2s_w)
     }
 
     /// A client over existing streams (tests, or a server in the same process).

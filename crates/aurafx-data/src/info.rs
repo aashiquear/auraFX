@@ -101,6 +101,46 @@ impl DataSetInfo {
         }
     }
 
+    /// Summary of a dataset split into pieces, from the pieces' summaries.
+    pub fn merge(parts: &[DataSetInfo]) -> DataSetInfo {
+        let Some(first) = parts.iter().find(|p| p.n_cells > 0 || p.n_points > 0).or(parts.first()) else {
+            return DataSetInfo::of(&DataSet::PolyData(Default::default()));
+        };
+        let mut out = first.clone();
+        out.n_points = parts.iter().map(|p| p.n_points).sum();
+        out.n_cells = parts.iter().map(|p| p.n_cells).sum();
+        out.bytes = parts.iter().map(|p| p.bytes).sum();
+        out.bounds = parts.iter().fold(Bounds::EMPTY, |b, p| b.union(&p.bounds));
+        out.curved_cells = parts.iter().map(|p| p.curved_cells).sum();
+        let merge_arrays = |get: fn(&DataSetInfo) -> &Vec<ArrayInfo>| -> Vec<ArrayInfo> {
+            let mut v = get(first).clone();
+            for a in &mut v {
+                for p in parts {
+                    if let Some(b) = get(p).iter().find(|b| b.name == a.name) {
+                        if b.range.0 <= b.range.1 {
+                            a.range = if a.range.0 <= a.range.1 { (a.range.0.min(b.range.0), a.range.1.max(b.range.1)) } else { b.range };
+                        }
+                    }
+                }
+            }
+            v
+        };
+        out.point_arrays = merge_arrays(|p| &p.point_arrays);
+        out.cell_arrays = merge_arrays(|p| &p.cell_arrays);
+        let mut types: Vec<(String, usize)> = Vec::new();
+        for p in parts {
+            for (t, n) in &p.cell_types {
+                match types.iter_mut().find(|x| &x.0 == t) {
+                    Some(x) => x.1 += n,
+                    None => types.push((t.clone(), *n)),
+                }
+            }
+        }
+        types.sort_by(|a, b| b.1.cmp(&a.1));
+        out.cell_types = types;
+        out
+    }
+
     /// Compact text summary suitable for an LLM prompt or a tooltip.
     pub fn summary(&self) -> String {
         let mut s = format!("{}: {} points, {} cells, {:.1} MB", self.kind, self.n_points, self.n_cells, self.bytes as f64 / 1e6);

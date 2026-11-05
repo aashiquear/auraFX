@@ -31,7 +31,7 @@ enum Plan {
     /// Does not change with time.
     Fixed(Arc<DataSet>),
     /// A reader with time steps; `current` is the step it already holds.
-    Series { series: TimeSeries, current: Option<(usize, Arc<DataSet>)> },
+    Series { series: TimeSeries, current: Option<(usize, Arc<DataSet>)>, piece: Option<(usize, usize)> },
     /// An ordinary filter (the first input is the pipeline input).
     Run { def: Arc<FilterDef>, params: Params, inputs: Vec<Plan> },
     /// A temporal filter further upstream.
@@ -95,12 +95,12 @@ impl Plan {
         }
         let out = match self {
             Plan::Fixed(d) => return Ok(d.clone()),
-            Plan::Series { series, current } => {
+            Plan::Series { series, current, piece } => {
                 let eps = 1e-12 * (1.0 + t.abs());
                 let k = series.times.iter().rposition(|&x| x <= t + eps).unwrap_or(0);
                 match current {
                     Some((i, d)) if *i == k => d.clone(),
-                    _ => aurafx_io::load_step(series.steps.get(k).ok_or_else(|| anyhow!("time step {k} missing"))?)?,
+                    _ => aurafx_io::load_step_piece(series.steps.get(k).ok_or_else(|| anyhow!("time step {k} missing"))?, *piece)?,
                 }
             }
             Plan::Run { def, params, inputs } => {
@@ -322,6 +322,7 @@ pub struct WorkItem {
 
 enum WorkKind {
     LoadStep {
+        piece: Option<(usize, usize)>,
         step: aurafx_data::TimeStepRef,
         index: usize,
     },
@@ -356,7 +357,7 @@ impl WorkItem {
     pub fn execute(&self) -> Result<Arc<DataSet>> {
         match &self.kind {
             WorkKind::Static(ds) => Ok(ds.clone()),
-            WorkKind::LoadStep { step, .. } => aurafx_io::load_step(step),
+            WorkKind::LoadStep { step, piece, .. } => aurafx_io::load_step_piece(step, *piece),
             WorkKind::Run { def, params, input, extra } if def.multi.is_some() => {
                 let all: Vec<&DataSet> = input.iter().chain(extra.iter()).map(|d| &**d).collect();
                 def.run_multi(&all, params).map(Arc::new)
@@ -423,6 +424,8 @@ pub struct Session {
     pub remote_clients: std::collections::HashMap<String, Arc<crate::remote::RemoteClient>>,
     /// Outputs of server nodes larger than this come back as their surface (0 = default).
     pub remote_max_bytes: u64,
+    /// In a parallel server process: the piece (k, n) of every file this session reads.
+    pub piece: Option<(usize, usize)>,
 }
 
 /// Default limit above which server outputs are sent as their surface.
@@ -497,7 +500,7 @@ impl Session {
     pub fn open_file(&mut self, path: impl AsRef<Path>) -> Result<NodeId> {
         let path = path.as_ref().to_path_buf();
         self.checkpoint(format!("Open {}", path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
-        let loaded = aurafx_io::read_file(&path).map_err(|e| {
+        let loaded = aurafx_io::read_file_piece(&path, self.piece).map_err(|e| {
             self.log(LogLevel::Error, format!("Failed to open {}: {e:#}", path.display()));
             e
         })?;
@@ -786,7 +789,7 @@ impl Session {
         let mut forget: std::collections::HashMap<String, Vec<NodeId>> = Default::default();
         for r in &to_remove {
             if let Some(h) = self.remote_host(*r) {
-                forget.entry(h.name).or_default().push(*r);
+                forget.entry(crate::remote::client_key(&h)).or_default().push(*r);
             }
         }
         for (h, ids) in forget {
@@ -959,7 +962,7 @@ impl Session {
 
     /// The connection to a host's server (started on first use, on a worker thread).
     pub fn client_for(&mut self, host: &aurafx_jobs::Host) -> Arc<crate::remote::RemoteClient> {
-        self.remote_clients.entry(host.name.clone()).or_insert_with(|| crate::remote::RemoteClient::for_host(host.clone())).clone()
+        self.remote_clients.entry(crate::remote::client_key(host)).or_insert_with(|| crate::remote::RemoteClient::for_host(host.clone())).clone()
     }
 
     /// Bring the whole output of a server node over (for the spreadsheet or saving).
@@ -1106,7 +1109,9 @@ impl Session {
             return Ok(Plan::Fixed(data()?));
         }
         Ok(match &n.kind {
-            NodeKind::Reader { loaded: Loaded::Series(s), .. } => Plan::Series { series: s.clone(), current: n.output_time_index.zip(n.output.clone()) },
+            NodeKind::Reader { loaded: Loaded::Series(s), .. } => {
+                Plan::Series { series: s.clone(), current: n.output_time_index.zip(n.output.clone()), piece: self.piece }
+            }
             NodeKind::Reader { .. } | NodeKind::Source { .. } | NodeKind::Remote { .. } => Plan::Fixed(data()?),
             NodeKind::Filter { def } if def.temporal.is_some() => Plan::Temporal {
                 def: def.clone(),
@@ -1232,7 +1237,7 @@ impl Session {
                         self.touch();
                         continue;
                     }
-                    WorkKind::LoadStep { step: s.steps[index].clone(), index }
+                    WorkKind::LoadStep { step: s.steps[index].clone(), index, piece: self.piece }
                 }
                 NodeKind::Source { def } => WorkKind::Run { def: def.clone(), params: n.params.clone(), input: None, extra: Vec::new() },
                 NodeKind::Remote { .. } => continue,

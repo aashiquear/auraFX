@@ -256,7 +256,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 ## 9. Distributed and remote (parity with pvserver)
 
 - [~] Client/server split (data server and server-side rendering done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery, GPU-drawn color+depth images composited by depth; MPI todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
-- [~] Multi-process data parallel (all-core shared-memory execution of the heavy filters done, deterministic and identical to serial; multi-process/MPI todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
+- [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI launchers and ghost cells todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
 - [ ] Collaboration: shared sessions with multiple clients.
 - [ ] In-situ: Catalyst/Conduit endpoint, live visualization of running jobs.
 
@@ -426,8 +426,27 @@ Two existing bugs were fixed along the way:
   2.43 (re-versioned float math functions). The release packages are built on Ubuntu 22.04,
   and the installer now explains this.
 
-Known gaps worth doing next: MPI-parallel (multi-process) servers; translucent and volume
-objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
+Done in iteration 13: parallel (multi-process) servers. `aurafx-server --workers N` (or
+`host:N,...` over ssh) coordinates worker processes, each holding one piece of every file. From
+the app: Open on Server › Processes; from Python: `afx.load(..., processes=N)`.
+- **Reading:** partitioned VTK files are read piece by piece. Other data is read, then split
+  (`aurafx_data::pieces`: blocks, cell ranges or slabs of structured data, reassembled exactly).
+- **Filters:** those that work cell by cell run on every piece. Their automatic values (centers,
+  ranges, sizes) come from the whole data.
+- **Results:** data is appended, surfaces are merged without the faces between pieces,
+  summaries are added up, and pictures are composited by depth. Workers draw without
+  multisampling at double size, so pieces meet without seams.
+- **Other filters** run on the coordinator, on the gathered data.
+- **Tests:** results match one process with in-process workers and with real worker processes:
+  integrals to 1e-9, the same surface faces, and pictures agreeing away from outlines.
+
+Two side fixes came out of this:
+- **Tetrahedral splits:** cells are now split by the position of their corners rather than by
+  point id, so results no longer depend on how points are numbered.
+- **Test race:** a test no longer changes a process-wide variable while another test runs.
+
+Known gaps worth doing next: MPI launchers (srun) and ghost cells for parallel servers;
+temporal filters on parallel servers; translucent and volume objects drawn on the server; parallel Probe/Resample and readers; curved pyramids in cutting filters and distributed execution; native (Rust) plugins and plugin panels; Slurm runs not yet exercised on real
 infrastructure; the macOS, Windows and iOS packaging jobs have only been written, not yet run.
 
 ## Status (2026-11-03, iteration 1)

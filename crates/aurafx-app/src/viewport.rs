@@ -354,7 +354,7 @@ fn remote_layers(state: &mut State, ctx: &egui::Context, w: u32, h: u32) -> Vec<
             (Arc<aurafx_pipeline::remote::RemoteClient>, Vec<(NodeId, DisplayProps, usize)>, Vec<aurafx_pipeline::remote::NodeSpec>),
         > = HashMap::new();
         for (id, host) in s.drawn_on_server() {
-            let Some(client) = s.remote_clients.get(&host.name).cloned() else { continue };
+            let Some(client) = s.remote_clients.get(&aurafx_pipeline::remote::client_key(&host)).cloned() else { continue };
             let n = &s.nodes[&id];
             let ptr = n.output.as_ref().map(|o| Arc::as_ptr(o) as usize).unwrap_or(0);
             let g = groups.entry(host.name.clone()).or_insert_with(|| (client, Vec::new(), Vec::new()));

@@ -3,7 +3,9 @@ use aurafx_jobs::*;
 
 fn main() {
     let host = match std::env::args().nth(1) {
-        Some(t) => Host { name: t.clone(), kind: HostKind::Ssh { target: t, port: None, identity: None, jump: None }, setup: String::new() },
+        Some(t) => {
+            Host { name: t.clone(), kind: HostKind::Ssh { target: t, port: None, identity: None, jump: None }, setup: String::new(), server_processes: 0 }
+        }
         None => Host::local(),
     };
     match host.test() {

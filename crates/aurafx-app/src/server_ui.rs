@@ -18,11 +18,13 @@ pub struct ServerWindow {
     error: Option<String>,
     check_rx: Option<Receiver<anyhow::Result<String>>>,
     status: Option<Result<String, String>>,
+    /// Server processes to spread the data over (1: one process).
+    processes: u32,
 }
 
 impl Default for ServerWindow {
     fn default() -> Self {
-        Self { open: false, host: 0, path: "~".into(), entries: vec![], selected: None, list_rx: None, error: None, check_rx: None, status: None }
+        Self { open: false, host: 0, path: "~".into(), entries: vec![], selected: None, list_rx: None, error: None, check_rx: None, status: None, processes: 1 }
     }
 }
 
@@ -145,7 +147,8 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
         if w.host >= hosts.len() {
             w.host = 0;
         }
-        let host = hosts.get(w.host).cloned().unwrap_or_else(Host::local);
+        let mut host = hosts.get(w.host).cloned().unwrap_or_else(Host::local);
+        host.server_processes = w.processes.max(1);
         ui.horizontal(|ui| {
             ui.label("Host");
             let before = w.host;
@@ -178,11 +181,18 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
             }
             None => {}
         }
-        if let Some(c) = st.session.lock().remote_clients.get(&host.name) {
+        if let Some(c) = st.session.lock().remote_clients.get(&aurafx_pipeline::remote::client_key(&host)) {
             if let Some(i) = c.info.lock().as_ref() {
-                ui.label(RichText::new(format!("Connected: {} ({} CPUs), server {}", i.hostname, i.cpus, i.version)).small().weak());
+                let procs = if i.processes > 1 { format!(", {} processes", i.processes) } else { String::new() };
+                let gpu = i.gpu.as_ref().map(|g| format!(", draws with {g}")).unwrap_or_default();
+                ui.label(RichText::new(format!("Connected: {} ({} CPUs{procs}{gpu}), server {}", i.hostname, i.cpus, i.version)).small().weak());
             }
         }
+        ui.horizontal(|ui| {
+            ui.label("Processes");
+            ui.add(egui::DragValue::new(&mut st.server.processes).range(1..=1024))
+                .on_hover_text("Spread each file over this many server processes (a parallel server). Partitioned files (.pvtu, ...) are read piece by piece; other files are read, then split.");
+        });
         ui.separator();
         let w = &mut st.server;
         let mut go = false;

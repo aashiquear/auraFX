@@ -313,7 +313,7 @@ pub fn cell_size(ds: &DataSet) -> Result<DataSet> {
     let mut area = vec![0.0; ex.n_cells()];
     let mut len = vec![0.0; ex.n_cells()];
     for_each_cell(&ex, |cid, ty, ids, faces| {
-        decompose(ty, ids, faces, |s| match s {
+        decompose(points, ty, ids, faces, |s| match s {
             Simplex::Tet(t) => vol[cid] += tet_vol(t.map(|i| points.get(i as usize))),
             Simplex::Tri(t) => {
                 let p = t.map(|i| points.get(i as usize));
@@ -428,7 +428,7 @@ pub fn triangulate(ds: &DataSet) -> Result<PolyData> {
     for (ci, c) in [&pd.polys, &pd.strips].into_iter().enumerate() {
         let off = if ci == 0 { base } else { base + pd.polys.len() };
         for i in 0..c.len() {
-            decompose(c.types[i], c.cell(i), None, |s| {
+            decompose(&pd.points, c.types[i], c.cell(i), None, |s| {
                 if let Simplex::Tri(t) = s {
                     polys.push(CellType::Triangle, &t);
                     parents.push(off + i);
@@ -450,7 +450,7 @@ pub fn tetrahedralize(ds: &DataSet) -> Result<UnstructuredGrid> {
     let mut cells = Cells::new();
     let mut parents = Vec::new();
     for_each_cell(&ex, |cid, ty, ids, faces| {
-        decompose(ty, ids, faces, |s| {
+        decompose(points, ty, ids, faces, |s| {
             match s {
                 Simplex::Tet(t) => cells.push(CellType::Tetra, &t),
                 Simplex::Tri(t) => cells.push(CellType::Triangle, &t),

@@ -140,6 +140,53 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     Ok(loaded)
 }
 
+thread_local! {
+    /// Piece (k, n) being read on this thread, and whether a reader already restricted itself to it.
+    static PIECE: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+    static PIECED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The piece the current read is for (readers of partitioned formats read only theirs and
+/// call [`mark_pieced`]).
+pub(crate) fn current_piece() -> Option<(usize, usize)> {
+    PIECE.with(|p| p.get())
+}
+
+pub(crate) fn mark_pieced() {
+    PIECED.with(|p| p.set(true));
+}
+
+fn with_piece<T>(piece: Option<(usize, usize)>, f: impl FnOnce() -> Result<T>) -> Result<(T, bool)> {
+    let prev = PIECE.with(|p| p.replace(piece));
+    PIECED.with(|p| p.set(false));
+    let r = f();
+    let pieced = PIECED.with(|p| p.replace(false));
+    PIECE.with(|p| p.set(prev));
+    r.map(|v| (v, pieced))
+}
+
+/// Read piece `k` of `n` of a file (for parallel servers). Partitioned formats (`.pvtu` and
+/// the other parallel VTK files) read only the piece files of this piece; other data is read
+/// and then split with [`aurafx_data::pieces::split`].
+pub fn read_file_piece(path: impl AsRef<Path>, piece: Option<(usize, usize)>) -> Result<Loaded> {
+    let Some((k, n)) = piece.filter(|p| p.1 > 1) else { return read_file(path) };
+    let (loaded, pieced) = with_piece(Some((k, n)), || read_file(path.as_ref()))?;
+    Ok(match loaded {
+        Loaded::Static(ds) if !pieced => Loaded::Static(Arc::new(aurafx_data::pieces::split(&ds, k, n))),
+        other => other,
+    })
+}
+
+/// [`load_step`] for piece `k` of `n`.
+pub fn load_step_piece(step: &TimeStepRef, piece: Option<(usize, usize)>) -> Result<Arc<DataSet>> {
+    let Some((k, n)) = piece.filter(|p| p.1 > 1) else { return load_step(step) };
+    if let TimeStepRef::Loaded(ds) = step {
+        return Ok(ds.clone());
+    }
+    let (ds, pieced) = with_piece(Some((k, n)), || load_step(step))?;
+    Ok(if pieced { ds } else { Arc::new(aurafx_data::pieces::split(&ds, k, n)) })
+}
+
 /// Resolve one step of a time series.
 pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
     match step {

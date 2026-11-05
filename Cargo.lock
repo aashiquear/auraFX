@@ -344,10 +344,12 @@ name = "aurafx-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aurafx-data",
  "aurafx-filters",
  "aurafx-jobs",
  "aurafx-pipeline",
  "aurafx-render",
+ "serde_json",
 ]
 
 [[package]]

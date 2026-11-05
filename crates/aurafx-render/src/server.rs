@@ -1,6 +1,6 @@
 //! Drawing on a server: the render hook `aurafx-server` plugs into the remote protocol.
 
-use crate::{headless, tessellate::tessellate, Camera, MeshData, NodeDraw, RenderSettings, Renderer};
+use crate::{headless, headless_with_samples, tessellate::tessellate, Camera, MeshData, NodeDraw, RenderSettings, Renderer};
 use anyhow::Result;
 use aurafx_data::DataSet;
 use aurafx_pipeline::remote::{RenderHook, RenderJob};
@@ -20,6 +20,13 @@ impl ServerRenderer {
     /// A renderer on this machine's GPU, or None when there is none.
     pub fn new() -> Option<Self> {
         let renderer = headless(16, 16).ok()?;
+        Some(Self { renderer, meshes: HashMap::new() })
+    }
+
+    /// For a worker of a parallel server: no multisampling, so the pictures of neighbouring
+    /// pieces fit together without seams (the coordinator supersamples instead).
+    pub fn for_pieces() -> Option<Self> {
+        let renderer = headless_with_samples(16, 16, 1).ok()?;
         Some(Self { renderer, meshes: HashMap::new() })
     }
 

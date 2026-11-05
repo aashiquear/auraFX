@@ -111,6 +111,7 @@ pub struct Renderer {
     layer_bgl: wgpu::BindGroupLayout,
     /// Images drawn into the scene (server-drawn objects), with the image they came from.
     layers: Vec<(Arc<ImageLayer>, wgpu::BindGroup, wgpu::Buffer)>,
+    samples: u32,
 }
 
 /// A picture of some objects with its depth, drawn into the scene as if it were geometry
@@ -138,6 +139,15 @@ fn vertex_layout(step: wgpu::VertexStepMode) -> wgpu::VertexBufferLayout<'static
 
 impl Renderer {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue, adapter_info: String) -> Self {
+        Self::with_samples(device, queue, adapter_info, MSAA)
+    }
+
+    /// A renderer with `samples` samples per pixel (1 = no multisampling: edges are not blended
+    /// with the background, which pictures composited from pieces need).
+    pub fn with_samples(device: wgpu::Device, queue: wgpu::Queue, adapter_info: String, samples: u32) -> Self {
+        let samples = if samples > 1 { MSAA } else { 1 };
+        // Shaders reading the scene depth see a plain texture without multisampling.
+        let ms = |src: &str| if samples > 1 { src.to_string() } else { src.replace("texture_depth_multisampled_2d", "texture_depth_2d") };
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aurafx mesh shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh.wgsl").into()),
@@ -206,7 +216,7 @@ impl Renderer {
                         stencil: Default::default(),
                         bias: if bias { wgpu::DepthBiasState { constant: 2, slope_scale: 1.0, clamp: 0.0 } } else { Default::default() },
                     }),
-                    multisample: wgpu::MultisampleState { count: MSAA, ..Default::default() },
+                    multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
                     multiview_mask: None,
                     cache: None,
                 })
@@ -223,7 +233,7 @@ impl Renderer {
 
         let vol_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aurafx volume shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/volume.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(ms(include_str!("shaders/volume.wgsl")).into()),
         });
         let vol_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("volume bgl"),
@@ -260,7 +270,7 @@ impl Renderer {
                 ty: wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Depth,
                     view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: true,
+                    multisampled: samples > 1,
                 },
                 count: None,
             }],
@@ -292,7 +302,7 @@ impl Renderer {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: wgpu::MultisampleState { count: MSAA, ..Default::default() },
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
             multiview_mask: None,
             cache: None,
         });
@@ -345,7 +355,7 @@ impl Renderer {
 
         let layer_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aurafx layer shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/layer.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(ms(include_str!("shaders/layer.wgsl")).into()),
         });
         let resolve_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&scene_bgl)], immediate_size: 0 });
@@ -408,12 +418,12 @@ impl Renderer {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: wgpu::MultisampleState { count: MSAA, ..Default::default() },
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
             multiview_mask: None,
             cache: None,
         });
 
-        let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16);
+        let (color, color_view, display_view, msaa_view, depth_view) = Self::make_targets(&device, 16, 16, samples);
         let scene_bg = Self::make_scene_bg(&device, &scene_bgl, &depth_view);
         Self {
             device,
@@ -447,6 +457,7 @@ impl Renderer {
             pipe_layer,
             layer_bgl,
             layers: Vec::new(),
+            samples,
         }
     }
 
@@ -569,7 +580,12 @@ impl Renderer {
         Ok(out)
     }
 
-    fn make_targets(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::Texture, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
+    fn make_targets(
+        device: &wgpu::Device,
+        w: u32,
+        h: u32,
+        samples: u32,
+    ) -> (wgpu::Texture, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
         let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
         let color = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("viewport color"),
@@ -595,7 +611,7 @@ impl Renderer {
             label: Some("viewport depth"),
             size,
             mip_level_count: 1,
-            sample_count: MSAA,
+            sample_count: samples,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -603,7 +619,12 @@ impl Renderer {
         });
         let cv = color.create_view(&wgpu::TextureViewDescriptor { format: Some(COLOR_FORMAT), ..Default::default() });
         let disp = color.create_view(&wgpu::TextureViewDescriptor { format: Some(wgpu::TextureFormat::Rgba8Unorm), ..Default::default() });
-        let mv = msaa.create_view(&Default::default());
+        // Without multisampling, draw straight into the color target.
+        let mv = if samples > 1 {
+            msaa.create_view(&Default::default())
+        } else {
+            color.create_view(&wgpu::TextureViewDescriptor { format: Some(COLOR_FORMAT), ..Default::default() })
+        };
         let dv = depth.create_view(&Default::default());
         (color, cv, disp, mv, dv)
     }
@@ -622,7 +643,7 @@ impl Renderer {
         if w == self.width && h == self.height {
             return false;
         }
-        let (c, cv, disp, mv, dv) = Self::make_targets(&self.device, w, h);
+        let (c, cv, disp, mv, dv) = Self::make_targets(&self.device, w, h, self.samples);
         self.color = c;
         self.color_view = cv;
         self.display_view = disp;
@@ -808,10 +829,10 @@ impl Renderer {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_view,
                     depth_slice: None,
-                    resolve_target: if rest.is_empty() { Some(&self.color_view) } else { None },
+                    resolve_target: if rest.is_empty() && self.samples > 1 { Some(&self.color_view) } else { None },
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: srgb_to_linear(bg[0]), g: srgb_to_linear(bg[1]), b: srgb_to_linear(bg[2]), a: 1.0 }),
-                        store: if rest.is_empty() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
+                        store: if rest.is_empty() && self.samples > 1 { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -839,8 +860,8 @@ impl Renderer {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.msaa_view,
                     depth_slice: None,
-                    resolve_target: Some(&self.color_view),
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard },
+                    resolve_target: if self.samples > 1 { Some(&self.color_view) } else { None },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: if self.samples > 1 { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store } },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &self.depth_view, depth_ops: None, stencil_ops: None }),
                 ..Default::default()
@@ -1083,13 +1104,18 @@ fn srgb_to_linear(c: f32) -> f64 {
 
 /// Create a renderer on a headless device (no window), for batch rendering and tests.
 pub fn headless(width: u32, height: u32) -> Result<Renderer> {
+    headless_with_samples(width, height, MSAA)
+}
+
+/// [`headless`] with a sample count (1: no multisampling).
+pub fn headless_with_samples(width: u32, height: u32, samples: u32) -> Result<Renderer> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster_block(
         instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
     )?;
     let info = adapter.get_info();
     let (device, queue) = pollster_block(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
-    let mut r = Renderer::new(device, queue, format!("{} ({:?})", info.name, info.backend));
+    let mut r = Renderer::with_samples(device, queue, format!("{} ({:?})", info.name, info.backend), samples);
     r.resize(width, height);
     Ok(r)
 }

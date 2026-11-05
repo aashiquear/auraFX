@@ -21,9 +21,9 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
         pb.on_edge(a, b, (va / (va - vb)).clamp(0.0, 1.0))
     };
     // Prism pieces are split like cells (quad faces along the diagonal through their first
-    // point in a global order) so pieces of neighbouring cells meet on shared faces.
+    // point by position) so pieces of neighbouring cells meet on shared faces.
     let push_wedge = |pb: &PointBuilder, cells: &mut Cells, parents: &mut Vec<usize>, w: [u32; 6], cid: usize| {
-        for wt in crate::simplex::split_by(CellType::Wedge, |k| pb.rank(w[k])) {
+        for wt in crate::simplex::split_by(CellType::Wedge, |k| (crate::simplex::PointRank(pb.coords(w[k]), 0), pb.rank(w[k]))) {
             let mut t = [w[wt[0]], w[wt[1]], w[wt[2]], w[wt[3]]];
             let p = t.map(|i| pb.coords(i));
             let e = |k: usize| [p[k][0] - p[0][0], p[k][1] - p[0][1], p[k][2] - p[0][2]];
@@ -51,7 +51,7 @@ pub fn clip_with(ds: &DataSet, f: &ScalarFn, inside_out: bool) -> Result<Unstruc
             parents.push(cid);
             return;
         }
-        decompose(ty, pts, faces, |s| match s {
+        decompose(points, ty, pts, faces, |s| match s {
             Simplex::Tet(t) => {
                 let inside: Vec<bool> = t.iter().map(|&p| vals[p as usize] >= 0.0).collect();
                 let ins: Vec<u32> = (0..4).filter(|&k| inside[k]).map(|k| t[k]).collect();

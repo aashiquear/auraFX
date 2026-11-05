@@ -11,7 +11,7 @@ fn td(name: &str) -> String {
 }
 
 fn server_session() -> (Session, Host) {
-    let host = Host { name: "test-server".into(), kind: HostKind::Local, setup: String::new() };
+    let host = Host { name: "test-server".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0 };
     let mut s = Session::new();
     s.remote_clients.insert(host.name.clone(), RemoteClient::in_process("test-server"));
     (s, host)

@@ -331,6 +331,40 @@ fn per_leaf(ds: &DataSet, f: &dyn Fn(&DataSet) -> Result<DataSet>) -> Result<Dat
     }
 }
 
+/// Bounds of the whole data. On a parallel server each process holds a piece and the
+/// coordinator passes the whole data's bounds as `__bounds`, so automatic values (centers,
+/// sizes) agree between pieces.
+fn whole_bounds(ds: &DataSet, p: &Params) -> Bounds {
+    match p.0.get("__bounds") {
+        Some(ParamValue::Floats(v)) if v.len() == 6 => Bounds::new([v[0], v[1], v[2]], [v[3], v[4], v[5]]),
+        _ => ds.bounds(),
+    }
+}
+
+/// Range of an array over the whole data (`__ranges` from a parallel server's coordinator,
+/// keyed "P:name" / "C:name"), else over this data.
+fn whole_range(arr: &Array, comp: Option<usize>, assoc: Association, p: &Params) -> (f64, f64) {
+    if comp.is_none() {
+        if let Some(ParamValue::Str(json)) = p.0.get("__ranges") {
+            let key = format!("{}:{}", if assoc == Association::Points { "P" } else { "C" }, arr.name);
+            if let Some(r) = serde_json::from_str::<std::collections::HashMap<String, [f64; 2]>>(json).ok().and_then(|m| m.get(&key).copied()) {
+                return (r[0], r[1]);
+            }
+        }
+    }
+    arr.range(comp)
+}
+
+fn bounds_center_p(ds: &DataSet, p: &Params) -> [f64; 3] {
+    let b = whole_bounds(ds, p);
+    if b.is_empty() {
+        [0.0; 3]
+    } else {
+        b.center()
+    }
+}
+
+#[allow(dead_code)]
 fn bounds_center(ds: &DataSet) -> [f64; 3] {
     let b = ds.bounds();
     if b.is_empty() {
@@ -365,7 +399,7 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| {
                 let ds = input.unwrap();
                 let origin = p.vec3("origin", [f64::NAN; 3]);
-                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center(ds) } else { origin };
+                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center_p(ds, p) } else { origin };
                 let normal = crate::slice::normalize(p.vec3("normal", [1.0, 0.0, 0.0]));
                 let radius = p.f64("radius", 1.0);
                 let ty = p.str("type");
@@ -420,14 +454,14 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| {
                 let ds = input.unwrap();
                 let origin = p.vec3("origin", [f64::NAN; 3]);
-                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center(ds) } else { origin };
+                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center_p(ds, p) } else { origin };
                 let inv = p.bool("invert", false);
                 let ty = p.str("type");
                 per_leaf(ds, &|d| {
                     Ok(DataSet::UnstructuredGrid(match ty.as_str() {
                         "Sphere" => crate::clip::clip_sphere(d, origin, p.f64("radius", 1.0), inv)?,
                         "Box" => {
-                            let bb = d.bounds();
+                            let bb = whole_bounds(d, p);
                             let mut lo = p.vec3("box_min", [f64::NAN; 3]);
                             let mut hi = p.vec3("box_max", [f64::NAN; 3]);
                             if lo.iter().any(|v| v.is_nan()) || hi.iter().any(|v| v.is_nan()) {
@@ -471,7 +505,7 @@ fn build() -> Vec<FilterDef> {
                     if values.is_empty() {
                         let attrs = if a == Association::Points { d.point_data() } else { d.cell_data() };
                         let arr = attrs.and_then(|x| x.get(&n)).ok_or_else(|| anyhow!("no array {n}"))?;
-                        let (lo, hi) = arr.range(comp(p));
+                        let (lo, hi) = whole_range(arr, comp(p), a, p);
                         let k = p.i64("count", 1).max(1) as usize;
                         values = (1..=k).map(|j| lo + (hi - lo) * j as f64 / (k + 1) as f64).collect();
                     }
@@ -503,7 +537,7 @@ fn build() -> Vec<FilterDef> {
                     let (a, n) = array_or_default(d, p, "array", false)?;
                     let attrs = if a == Association::Points { d.point_data() } else { d.cell_data() };
                     let arr = attrs.and_then(|x| x.get(&n)).ok_or_else(|| anyhow!("no array {n}"))?;
-                    let (lo0, hi0) = arr.range(comp(p));
+                    let (lo0, hi0) = whole_range(arr, comp(p), a, p);
                     let mut lo = p.f64("lower", f64::NAN);
                     let mut hi = p.f64("upper", f64::NAN);
                     if lo.is_nan() {
@@ -613,9 +647,13 @@ fn build() -> Vec<FilterDef> {
                     let scale_array = p.array("scale_array").map(|(_, n)| n);
                     let mut sf = p.f64("scale", f64::NAN);
                     if sf.is_nan() {
-                        let diag = d.bounds().diagonal().max(1e-12);
-                        let maxmag =
-                            orient.as_ref().and_then(|n| d.point_data().and_then(|a| a.get(n))).map(|a| a.range(None).1).filter(|v| *v > 0.0).unwrap_or(1.0);
+                        let diag = whole_bounds(d, p).diagonal().max(1e-12);
+                        let maxmag = orient
+                            .as_ref()
+                            .and_then(|n| d.point_data().and_then(|a| a.get(n)))
+                            .map(|a| whole_range(a, None, Association::Points, p).1)
+                            .filter(|v| *v > 0.0)
+                            .unwrap_or(1.0);
                         sf = 0.05 * diag / if scale_array.is_some() || orient.is_some() { maxmag } else { 1.0 };
                     }
                     let opt = crate::glyph::GlyphOptions {
@@ -1438,7 +1476,7 @@ fn build() -> Vec<FilterDef> {
             params: vec![v3("low_point", "Low point", [f64::NAN; 3]), v3("high_point", "High point", [f64::NAN; 3])],
             apply: |input, p| {
                 per_leaf(input.unwrap(), &|d| {
-                    let b = d.bounds();
+                    let b = whole_bounds(d, p);
                     let lo = p.vec3("low_point", [f64::NAN; 3]);
                     let hi = p.vec3("high_point", [f64::NAN; 3]);
                     let lo = if lo.iter().any(|x| x.is_nan()) { [b.center()[0], b.center()[1], b.min[2]] } else { lo };

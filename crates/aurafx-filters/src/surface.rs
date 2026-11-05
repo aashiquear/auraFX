@@ -535,3 +535,63 @@ fn explicit_surface(ds: &DataSet, level: u32) -> Result<PolyData> {
     cell_data.insert(Array::new("vtkOriginalCellIds", 1, ArrayData::I64(parents.iter().map(|&i| i as i64).collect())));
     Ok(PolyData { points, verts, lines, polys, strips: Cells::new(), point_data, cell_data, field_data: fd.clone() })
 }
+
+/// Surfaces of the pieces of a dataset (in piece order, with each piece's first cell id) as
+/// one surface: faces where two pieces meet are dropped (they lie inside the whole) and
+/// `vtkOriginalCellIds` are shifted to ids of the whole.
+pub fn merge_piece_surfaces(pieces: Vec<(PolyData, usize)>) -> PolyData {
+    use std::collections::HashMap;
+    let mut parts = Vec::with_capacity(pieces.len());
+    let mut b = Bounds::EMPTY;
+    for (mut p, offset) in pieces {
+        if let Some(a) = p.cell_data.get_mut("vtkOriginalCellIds") {
+            let v: Vec<i64> = (0..a.len()).map(|i| a.get(i, 0) as i64 + offset as i64).collect();
+            a.data = ArrayData::I64(v);
+        }
+        b = b.union(&DataSet::PolyData(p.clone()).bounds());
+        parts.push(DataSet::PolyData(p));
+    }
+    let DataSet::PolyData(mut all) = aurafx_data::pieces::merge(parts) else { return PolyData::default() };
+    // Faces present twice (same corner positions) are piece interfaces.
+    let q = 1.0 / (b.diagonal().max(1e-30) * 1e-9);
+    let key = |c: &[u32]| -> Vec<[i64; 3]> {
+        let mut k: Vec<[i64; 3]> = c.iter().map(|&i| all.points.get(i as usize).map(|v| (v * q).round() as i64)).collect();
+        k.sort_unstable();
+        k
+    };
+    let mut count: HashMap<Vec<[i64; 3]>, u32> = HashMap::new();
+    for i in 0..all.polys.len() {
+        *count.entry(key(all.polys.cell(i))).or_default() += 1;
+    }
+    let keep: Vec<usize> = (0..all.polys.len()).filter(|&i| count[&key(all.polys.cell(i))] == 1).collect();
+    if keep.len() == all.polys.len() {
+        return all;
+    }
+    let mut polys = Cells::new();
+    for &i in &keep {
+        polys.push(all.polys.types[i], all.polys.cell(i));
+    }
+    // Cell data: verts, lines, then the kept polys (strips after).
+    let (nv, nl) = (all.verts.len(), all.lines.len());
+    let np = all.polys.len();
+    let mut cells: Vec<usize> = (0..nv + nl).collect();
+    cells.extend(keep.iter().map(|&i| nv + nl + i));
+    cells.extend((0..all.strips.len()).map(|i| nv + nl + np + i));
+    all.cell_data = all.cell_data.gather(&cells);
+    all.polys = polys;
+    // Drop points no cell uses any more.
+    let mut conn: Vec<u32> = Vec::new();
+    for c in [&all.verts, &all.lines, &all.polys, &all.strips] {
+        conn.extend_from_slice(&c.connectivity);
+    }
+    let (points, point_data) = crate::interp::compact_points(&all.points, &all.point_data, &mut conn);
+    let mut off = 0;
+    for c in [&mut all.verts, &mut all.lines, &mut all.polys, &mut all.strips] {
+        let m = c.connectivity.len();
+        c.connectivity.copy_from_slice(&conn[off..off + m]);
+        off += m;
+    }
+    all.points = points;
+    all.point_data = point_data;
+    all
+}

@@ -554,8 +554,8 @@ fn plugins<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
 /// or "local") or an `ssh://host/path` URL, the file is read on that machine by aurafx-server
 /// and filters added below it run there too.
 #[pyfunction]
-#[pyo3(signature = (path, host=None, **kwargs))]
-fn load(path: String, host: Option<String>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+#[pyo3(signature = (path, host=None, processes=None, **kwargs))]
+fn load(path: String, host: Option<String>, processes: Option<u32>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
     let (host, path) = match (host, path.strip_prefix("ssh://")) {
         (Some(h), _) => (Some(h), path),
         (None, Some(rest)) => {
@@ -567,7 +567,10 @@ fn load(path: String, host: Option<String>, kwargs: Option<&Bound<'_, PyDict>>) 
     };
     let id = match host {
         Some(h) => {
-            let host = aurafx_jobs::resolve_host(Some(&h));
+            let mut host = aurafx_jobs::resolve_host(Some(&h));
+            if let Some(n) = processes {
+                host.server_processes = n;
+            }
             let mut s = session().lock();
             let id = s.open_remote(host, &path);
             s.update_blocking();
@@ -592,6 +595,7 @@ fn servers(py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
         let d = PyDict::new(py);
         d.set_item("name", name)?;
         d.set_item("connected", c.is_connected())?;
+        d.set_item("processes", c.info.lock().as_ref().map(|i| i.processes.max(1)).unwrap_or(1))?;
         if let Some(i) = c.info.lock().as_ref() {
             d.set_item("hostname", &i.hostname)?;
             d.set_item("cpus", i.cpus)?;

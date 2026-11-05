@@ -1,6 +1,6 @@
 //! Decomposition of arbitrary linear cells into simplices (tets, triangles, lines, verts).
 
-use aurafx_data::{CellType, Cells, DataSet, PolyData, UnstructuredGrid};
+use aurafx_data::{CellType, Cells, DataSet, Points, PolyData, UnstructuredGrid};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Simplex {
@@ -11,7 +11,10 @@ pub enum Simplex {
 }
 
 /// Call `f` with every simplex of cell `pts` of type `ty`, along with the owning cell id.
-pub fn decompose(ty: CellType, pts: &[u32], faces: Option<&[Vec<u32>]>, mut f: impl FnMut(Simplex)) {
+/// `points` are the dataset's points: quadrilateral faces are cut through their corner that
+/// comes first by position (x, then y, then z), so neighbouring cells cut a shared face the same
+/// way and the result does not depend on how points are numbered.
+pub fn decompose(points: &Points, ty: CellType, pts: &[u32], faces: Option<&[Vec<u32>]>, mut f: impl FnMut(Simplex)) {
     use CellType::*;
     match ty {
         Empty => {}
@@ -50,23 +53,23 @@ pub fn decompose(ty: CellType, pts: &[u32], faces: Option<&[Vec<u32>]>, mut f: i
             }
         }
         Tetra => f(Simplex::Tet([pts[0], pts[1], pts[2], pts[3]])),
-        Hexahedron | Wedge | Pyramid => split_ids(ty, &pts[..ty.fixed_point_count().unwrap_or(pts.len()).min(pts.len())], &mut f),
+        Hexahedron | Wedge | Pyramid => split_ids(points, ty, &pts[..ty.fixed_point_count().unwrap_or(pts.len()).min(pts.len())], &mut f),
         Voxel => {
             let h = [pts[0], pts[1], pts[3], pts[2], pts[4], pts[5], pts[7], pts[6]];
-            split_ids(Hexahedron, &h, &mut f)
+            split_ids(points, Hexahedron, &h, &mut f)
         }
         QuadraticTetra | LagrangeTetrahedron | BezierTetrahedron => f(Simplex::Tet([pts[0], pts[1], pts[2], pts[3]])),
         QuadraticHexahedron | TriquadraticHexahedron | BiquadraticQuadraticHexahedron | LagrangeHexahedron | BezierHexahedron => {
-            split_ids(Hexahedron, &pts[..8], &mut f)
+            split_ids(points, Hexahedron, &pts[..8], &mut f)
         }
-        QuadraticWedge | QuadraticLinearWedge | BiquadraticQuadraticWedge | LagrangeWedge | BezierWedge => split_ids(Wedge, &pts[..6], &mut f),
-        QuadraticPyramid | LagrangePyramid | BezierPyramid => split_ids(Pyramid, &pts[..5], &mut f),
+        QuadraticWedge | QuadraticLinearWedge | BiquadraticQuadraticWedge | LagrangeWedge | BezierWedge => split_ids(points, Wedge, &pts[..6], &mut f),
+        QuadraticPyramid | LagrangePyramid | BezierPyramid => split_ids(points, Pyramid, &pts[..5], &mut f),
         PentagonalPrism | HexagonalPrism => {
             // Prism with n-gon base: fan from base vertex 0 into wedges.
             let n = pts.len() / 2;
             for k in 1..n - 1 {
                 let w = [pts[0], pts[k], pts[k + 1], pts[n], pts[n + k], pts[n + k + 1]];
-                split_ids(Wedge, &w, &mut f);
+                split_ids(points, Wedge, &w, &mut f);
             }
         }
         Polyhedron => {
@@ -90,9 +93,27 @@ pub fn decompose(ty: CellType, pts: &[u32], faces: Option<&[Vec<u32>]>, mut f: i
 /// that neighbouring cells agree on shared faces: every quadrilateral face is cut along the
 /// diagonal through its smallest point id. (A fixed split cuts a face shared by two cells along
 /// different diagonals, which leaves cracks in contours and inner faces after Tetrahedralize.)
-fn split_ids(ty: CellType, p: &[u32], f: &mut impl FnMut(Simplex)) {
-    for t in split_by(ty, |k| p[k]) {
+fn split_ids(points: &Points, ty: CellType, p: &[u32], f: &mut impl FnMut(Simplex)) {
+    for t in split_by(ty, |k| PointRank(points.get(p[k] as usize), p[k])) {
         f(Simplex::Tet([p[t[0]], p[t[1]], p[t[2]], p[t[3]]]));
+    }
+}
+
+/// Order of points by position (x, y, z), then id for coincident points.
+#[derive(PartialEq)]
+pub struct PointRank(pub [f64; 3], pub u32);
+
+impl Eq for PointRank {}
+
+impl PartialOrd for PointRank {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PointRank {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (0..3).map(|a| self.0[a].total_cmp(&other.0[a])).find(|o| o.is_ne()).unwrap_or(std::cmp::Ordering::Equal).then(self.1.cmp(&other.1))
     }
 }
 

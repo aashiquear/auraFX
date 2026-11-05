@@ -34,11 +34,14 @@ pub struct Host {
     /// Optional shell lines run before every command (e.g. `module load lammps`).
     #[serde(default)]
     pub setup: String,
+    /// Processes an aurafx-server on this host spreads data over (0 or 1: one process).
+    #[serde(default)]
+    pub server_processes: u32,
 }
 
 impl Host {
     pub fn local() -> Self {
-        Host { name: "This computer".into(), kind: HostKind::Local, setup: String::new() }
+        Host { name: "This computer".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0 }
     }
     pub fn is_local(&self) -> bool {
         matches!(self.kind, HostKind::Local)
@@ -733,6 +736,7 @@ pub fn resolve_host(name: Option<&str>) -> Host {
             name: n.to_string(),
             kind: HostKind::Ssh { target: n.to_string(), port: None, identity: None, jump: None },
             setup: String::new(),
+            server_processes: 0,
         }),
     }
 }

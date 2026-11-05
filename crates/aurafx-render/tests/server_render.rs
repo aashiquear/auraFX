@@ -14,7 +14,7 @@ fn server_drawn_objects_match_local_drawing() {
         return;
     };
     let gpu = hook.gpu();
-    let host = Host { name: "gpu-server".into(), kind: HostKind::Local, setup: String::new() };
+    let host = Host { name: "gpu-server".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0 };
     let mut s = Session::new();
     s.remote_clients.insert(host.name.clone(), RemoteClient::in_process_with("gpu-server", Some(Box::new(hook)), Some(gpu)));
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/disk_out_ref.ex2");
@@ -37,7 +37,7 @@ fn server_drawn_objects_match_local_drawing() {
     let mut cam = Camera::default();
     cam.set_view([1.0, -1.0, 0.5], [0.0, 0.0, 1.0], &bounds);
     cam.update_clip(&bounds);
-    let client = s.remote_clients[&host.name].clone();
+    let client = s.remote_clients[&aurafx_pipeline::remote::client_key(&host)].clone();
     assert!(client.info.lock().as_ref().unwrap().gpu.is_some());
     let job = RenderJob { targets: vec![(c, display.clone())], camera: render_camera(&cam), width: w, height: h };
     let (iw, ih, color, depth, ms) = client.render(s.remote_specs(c), None, job).unwrap();
@@ -82,4 +82,74 @@ fn server_drawn_objects_match_local_drawing() {
     s.set_display(c, |d| d.opacity = 1.0);
     s.update_blocking();
     assert_eq!(s.nodes[&c].remote.as_ref().unwrap().payload, Payload::Drawn);
+}
+
+/// A parallel server's workers each draw their piece; the coordinator composites the pictures
+/// by depth ("sort-last"), which looks like drawing the whole here.
+#[test]
+fn parallel_server_composites_pieces_by_depth() {
+    use aurafx_pipeline::remote::ServeOptions;
+    if ServerRenderer::new().is_none() {
+        eprintln!("no GPU adapter");
+        return;
+    }
+    let n = 3;
+    let workers = (0..n)
+        .map(|k| {
+            let hook = ServerRenderer::for_pieces().unwrap();
+            let gpu = Some(hook.gpu());
+            RemoteClient::in_process_opts(&format!("w{k}"), ServeOptions { hook: Some(Box::new(hook)), gpu, piece: Some((k, n)), workers: vec![] })
+        })
+        .collect();
+    let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32 };
+    let mut s = Session::new();
+    s.remote_clients
+        .insert(aurafx_pipeline::remote::client_key(&host), RemoteClient::in_process_opts("cluster", ServeOptions { workers, ..Default::default() }));
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/disk_out_ref.ex2");
+    let r = s.open_remote(host.clone(), &path.display().to_string());
+    let c = s.add_filter("clip", r).unwrap();
+    s.set_display(c, |d| d.draw_on = DrawOn::Server);
+    s.update_blocking();
+    assert_eq!(s.nodes[&c].remote.as_ref().unwrap().payload, Payload::Drawn, "{:?}", s.nodes[&c].error);
+    let bounds = s.visible_bounds();
+    let (w, h) = (320u32, 240u32);
+    let mut cam = Camera::default();
+    cam.set_view([1.0, -1.0, 0.5], [0.0, 0.0, 1.0], &bounds);
+    cam.update_clip(&bounds);
+    let display = s.nodes[&c].display.clone();
+    let job = RenderJob { targets: vec![(c, display.clone())], camera: render_camera(&cam), width: w, height: h };
+    let (_, _, color, depth, _) = s.remote_clients[&aurafx_pipeline::remote::client_key(&host)].render(s.remote_specs(c), None, job).unwrap();
+
+    let mut local = Session::new();
+    let lr = local.open_file(&path).unwrap();
+    let lc = local.add_filter("clip", lr).unwrap();
+    local.update_blocking();
+    let mut here = headless(w, h).unwrap();
+    let mesh = Arc::new(tessellate::tessellate(local.nodes[&lc].output.as_ref().unwrap(), &display));
+    here.render(&cam, &[NodeDraw { id: 1, mesh, display, overlay: false }], &RenderSettings::default());
+    let (_, _, want) = here.read_pixels().unwrap();
+    // Away from the outline (where 2x2 supersampling and MSAA smooth edges a little
+    // differently) the pictures agree; in particular there are no seams between pieces.
+    let want_depth = here.read_depth().unwrap();
+    let inside = |i: usize| {
+        let (x, y) = ((i % w as usize) as i64, (i / w as usize) as i64);
+        (-1..=1).all(|dy| {
+            (-1..=1).all(|dx| {
+                let (xx, yy) = (x + dx, y + dy);
+                xx >= 0 && yy >= 0 && xx < w as i64 && yy < h as i64 && {
+                    let j = (yy * w as i64 + xx) as usize;
+                    depth[j] < 1.0 && want_depth[j] < 1.0
+                }
+            })
+        })
+    };
+    let covered = (0..(w * h) as usize).filter(|&i| inside(i)).count();
+    let differ = (0..(w * h) as usize).filter(|&i| inside(i) && (0..3).any(|c| (color[4 * i + c] as i32 - want[4 * i + c] as i32).abs() > 3)).count();
+    eprintln!("{n} pieces composited: {differ} of {covered} pixels differ from drawing the whole");
+    if let Ok(dir) = std::env::var("AURAFX_DUMP") {
+        let _ = image::save_buffer(format!("{dir}/composite.png"), &color, w, h, image::ColorType::Rgba8);
+        let _ = image::save_buffer(format!("{dir}/whole.png"), &want, w, h, image::ColorType::Rgba8);
+    }
+    assert!(covered > 5000);
+    assert!(differ * 100 < covered, "{differ} pixels differ");
 }

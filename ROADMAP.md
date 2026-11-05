@@ -76,7 +76,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); GeoTIFF and Esri ASCII grid rasters (iteration 26); CAM/POP, other GDAL rasters, GDAL vectors, SEG-Y todo.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); other GDAL rasters, GDAL vectors, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
@@ -684,7 +684,19 @@ settings: level 2 ranges, map point/cell counts and bounds (both centers), multi
 ParaView 6.1.1's multilayer point values are uninitialised memory and it never drops land
 layers (unsigned comparison); both noted in the guide. Options are not sent to remote servers yet.
 
-Known gaps worth doing next (P5): Tecplot SZL (no reference reader), CAM/POP, reader options on remote servers, GDAL vectors,
+Done in iteration 28: **CAM-SE** (data file plus connectivity file, found beside it or named in
+a reader option): ParaView's CAM reader layout on a lon/lat map, seam quads moved to their
+shorter side on copied points (ParaView's inverted-cell test and anchor rule), surface /
+midpoint / interface variables, all levels as hexahedra with a level array or one level, and a
+sphere layout ParaView lacks. **POP** and other curvilinear CF files: 2-D longitude/latitude
+from the `coordinates` attribute put the grid on the sphere, a vertical axis as radius with
+ParaView's rule (positive="down" negated, shifted to non-negative; now also for 1-D lon/lat
+grids), the auxiliary coordinates kept out of the data, and a "Variables on" reader option to
+pick the grid (ParaView's Dimensions). ParaView's own POP reader reads only 3-D variables, so
+POP history files are compared with its NetCDF reader. CAM checked in all four of ParaView's
+modes (counts, bounds, first cell, array sums); POP on both grids (bounds, ranges).
+
+Known gaps worth doing next (P5): Tecplot SZL (no reference reader), reader options on remote servers, GDAL vectors,
 remaining filter catalog (texture mapping, AMR, hyper tree grids,
 molecules); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.

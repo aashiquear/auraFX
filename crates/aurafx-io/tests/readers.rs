@@ -1115,6 +1115,62 @@ fn rasters_match_paraview() {
     }
 }
 
+/// CAM-SE output and its connectivity file (scripts/gen_cam.py), compared with ParaView 6.1.1's
+/// CAM reader in each of its modes: counts, bounds, the first cell, and sums of every array (the
+/// quads crossing the 0/360 seam on copied points). A POP-style file (scripts/gen_pop.py) reads
+/// through the CF reader on its 2-D TLONG/TLAT, as ParaView's NetCDF reader places it.
+#[test]
+fn cam_and_pop_match_paraview() {
+    use aurafx_data::DataSet;
+    let Loaded::Series(s) = read_file(td("netcdf/cam_se.nc")).unwrap() else { panic!("expected 2 steps") };
+    assert_eq!(s.times, vec![0.0, 0.25]);
+    let read = |opts: &[(&str, &str)]| {
+        let o: aurafx_io::ReaderOptions = opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        aurafx_io::with_options(&o, || load_step(&s.steps[1]).unwrap())
+    };
+    let sum = |d: &DataSet, a: &str| d.point_data().unwrap().get(a).unwrap().data.to_f64_vec().iter().sum::<f64>();
+    let check = |d: &DataSet, pts: usize, cells: usize, zmax: f64, first: &[u32], arrays: &[(&str, f64)]| {
+        let DataSet::UnstructuredGrid(g) = d else { panic!() };
+        assert_eq!((d.n_points(), d.n_cells()), (pts, cells));
+        let b = d.bounds();
+        assert_eq!((b.min[0], b.max[0], b.min[1], b.max[1], b.max[2]), (-5.0, 370.0, -90.0, 90.0, zmax));
+        assert_eq!(g.cells.cell(0), first);
+        for (a, want) in arrays {
+            // ParaView's sums are rounded to 4 decimals.
+            assert!((sum(d, a) - want).abs() < 1e-4 + 1e-9 * want.abs(), "{a}: {} vs {want}", sum(d, a));
+        }
+    };
+    // Default (ParaView's too): all midpoint levels as hexahedra.
+    check(&read(&[]), 1160, 864, 4.0, &[1, 8, 7, 0, 233, 240, 239, 232], &[("T", 304448.3949), ("lev", 580000.0)]);
+    let one = read(&[("all_levels", "false"), ("level", "2")]);
+    check(&one, 232, 216, 0.0, &[1, 8, 7, 0], &[("T", 60889.6789), ("lev", 116000.0)]);
+    check(&read(&[("variables", "Interface layers [time, ilev, ncol]")]), 1392, 1080, 5.0, &[1, 8, 7, 0, 233, 240, 239, 232], &[("OMEGA", 13.8989), ("ilev", 696000.0)]);
+    check(&read(&[("variables", "Surface [time, ncol]")]), 232, 216, 0.0, &[1, 8, 7, 0], &[("PS", 23206707.3984)]);
+    // The sphere needs no seam copies.
+    assert_eq!(read(&[("layout", "Sphere"), ("variables", "Surface [time, ncol]")]).n_points(), 218);
+    // A connectivity file that does not exist is reported.
+    let o: aurafx_io::ReaderOptions = [("connectivity".to_string(), "missing.nc".to_string())].into();
+    assert!(aurafx_io::with_options(&o, || load_step(&s.steps[0])).is_err());
+
+    // POP: TEMP on (z_t, nlat, nlon) on the sphere by TLONG/TLAT, depth as radius (negated as
+    // positive="down", then shifted); the (nlat, nlon) grid through the "variables" option.
+    let Loaded::Series(p) = read_file(td("netcdf/pop_ocean.nc")).unwrap() else { panic!() };
+    let d3 = load_step(&p.steps[1]).unwrap();
+    assert!(matches!(&*d3, DataSet::StructuredGrid(_)));
+    assert_eq!((d3.n_points(), d3.n_cells()), (4320, 3220));
+    let b = d3.bounds();
+    for (got, want) in [(b.min[0], -11491.42659), (b.max[0], 7399.73609), (b.min[1], -11483.54217), (b.max[1], 11327.60494), (b.min[2], -10153.17442), (b.max[2], 8202.26019)] {
+        assert!((got - want).abs() < 1e-4, "{got} vs {want}");
+    }
+    close(range_all(&d3, true, "TEMP"), (-2.73508, 26.96611), "TEMP");
+    let o: aurafx_io::ReaderOptions = [("variables".to_string(), "(nlat, nlon)".to_string())].into();
+    let d2 = aurafx_io::with_options(&o, || load_step(&p.steps[1]).unwrap());
+    assert_eq!((d2.n_points(), d2.n_cells()), (864, 805));
+    close(range_all(&d2, true, "SSH"), (-49.95041, 49.94688), "SSH");
+    close(range_all(&d2, true, "KMT"), (0.0, 5.0), "KMT");
+    assert!(d2.point_data().unwrap().get("TLONG").is_none(), "2-D coordinates are not data");
+}
+
 /// MPAS ocean output (scripts/gen_mpas.py): the dual grid as ParaView 6.1.1's MPAS reader makes
 /// it, without its extra point at the origin and without the 331 triangles it collapses there
 /// (land cells under maxLevelCell); values checked against ParaView on the cells both keep.

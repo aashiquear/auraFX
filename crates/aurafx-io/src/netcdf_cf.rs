@@ -54,11 +54,13 @@ struct Grid {
     vars: Vec<String>,
 }
 
-/// The grid most variables share (more spatial dimensions first).
-fn choose_grid(f: &NcFile) -> Result<Grid> {
+/// Every grid variables are on, best first (more spatial dimensions, then more variables).
+fn grids(f: &NcFile) -> Result<Vec<Grid>> {
     let vars = f.variables().map_err(|e| anyhow!("{e}"))?;
     let coord = |name: &str| vars.iter().find(|v| v.name() == name && v.dimensions().len() == 1);
-    let bounds: Vec<String> = vars.iter().filter_map(|v| text(v, "bounds")).collect();
+    let mut bounds: Vec<String> = vars.iter().filter_map(|v| text(v, "bounds")).collect();
+    // Auxiliary coordinates (2-D longitude/latitude named in `coordinates`) are not data.
+    bounds.extend(vars.iter().filter_map(|v| text(v, "coordinates")).flat_map(|c| c.split_whitespace().map(String::from).collect::<Vec<_>>()));
     let mut groups: Vec<(Vec<(String, usize, Axis)>, Option<String>, Vec<String>)> = Vec::new();
     for v in vars {
         if v.is_coordinate_variable() || bounds.contains(&v.name().to_string()) || v.dimensions().is_empty() {
@@ -89,8 +91,38 @@ fn choose_grid(f: &NcFile) -> Result<Grid> {
         }
     }
     groups.sort_by_key(|g| (std::cmp::Reverse(g.0.len()), std::cmp::Reverse(g.2.len())));
-    let (dims, time_dim, vars) = groups.into_iter().next().ok_or_else(|| anyhow!("no gridded variables"))?;
-    Ok(Grid { dims, time_dim, vars })
+    Ok(groups.into_iter().map(|(dims, time_dim, vars)| Grid { dims, time_dim, vars }).collect())
+}
+
+/// How a grid is named in the "Variables" option: its dimensions, as ParaView lists them.
+fn grid_label(g: &Grid) -> String {
+    format!("({})", g.dims.iter().map(|d| d.0.as_str()).collect::<Vec<_>>().join(", "))
+}
+
+/// The grid the "variables" reader option asks for, else the one most variables share.
+fn choose_grid(f: &NcFile) -> Result<Grid> {
+    let all = grids(f)?;
+    let want = crate::option("variables");
+    let k = want.and_then(|w| all.iter().position(|g| grid_label(g) == w)).unwrap_or(0);
+    all.into_iter().nth(k).ok_or_else(|| anyhow!("no gridded variables"))
+}
+
+/// Reader options of a CF file: which grid's variables to read when there are several.
+pub fn options(path: &Path) -> Vec<crate::ReaderOption> {
+    let Ok(f) = NcFile::open(path) else { return Vec::new() };
+    let Ok(all) = grids(&f) else { return Vec::new() };
+    if all.len() < 2 {
+        return Vec::new();
+    }
+    let labels: Vec<String> = all.iter().map(grid_label).collect();
+    let help = all.iter().map(|g| format!("{}: {}", grid_label(g), g.vars.join(", "))).collect::<Vec<_>>().join("\n");
+    vec![crate::ReaderOption::new(
+        "variables",
+        "Variables on",
+        crate::ReaderOptionKind::Choice(labels.clone()),
+        &labels[0],
+        &format!("The variables of one grid are read at a time:\n{help}"),
+    )]
 }
 
 fn read_all(f: &NcFile, name: &str) -> Result<Vec<f64>> {
@@ -129,6 +161,46 @@ fn values(f: &NcFile, v: &NcVariable, time_dim: Option<&str>, step: usize) -> Re
         .collect())
 }
 
+/// 2-D longitude and latitude for the grid's last two dimensions, named in the variables'
+/// `coordinates` attribute (POP's TLONG/TLAT, CICE, ROMS...): values in grid order.
+fn lon_lat_2d(f: &NcFile, g: &Grid) -> Option<(Vec<f64>, Vec<f64>)> {
+    if g.dims.len() < 2 {
+        return None;
+    }
+    let want: Vec<&str> = g.dims[g.dims.len() - 2..].iter().map(|d| d.0.as_str()).collect();
+    let vars = f.variables().ok()?;
+    let names: Vec<String> = g.vars.iter().filter_map(|n| vars.iter().find(|v| v.name() == n)).filter_map(|v| text(v, "coordinates")).flat_map(|c| c.split_whitespace().map(String::from).collect::<Vec<_>>()).collect();
+    let pick = |axis: Axis| {
+        names.iter().filter_map(|n| vars.iter().find(|v| v.name() == n)).find(|v| v.dimensions().iter().map(|d| d.name.as_str()).eq(want.iter().copied()) && axis_of(Some(v), "") == axis)
+    };
+    let (lo, la) = (pick(Axis::Lon)?, pick(Axis::Lat)?);
+    Some((read_all(f, lo.name()).ok()?, read_all(f, la.name()).ok()?))
+}
+
+/// Radius of each level of a 3-D grid's first (vertical) dimension, as ParaView computes it:
+/// the coordinate values (negated when `positive` is "down"), shifted so none is negative.
+fn vertical_radius(f: &NcFile, g: &Grid, ndims: usize) -> Option<Vec<f64>> {
+    if ndims != 3 {
+        return None;
+    }
+    let (name, n, _) = &g.dims[0];
+    let mut z = match f.variable(name) {
+        Ok(v) if v.dimensions().len() == 1 => {
+            let down = text(v, "positive").is_some_and(|p| p.to_ascii_lowercase().contains("down"));
+            let vals = read_all(f, name).ok()?;
+            if down { vals.into_iter().map(|x| -x).collect() } else { vals }
+        }
+        _ => (0..*n).map(|i| i as f64).collect::<Vec<_>>(),
+    };
+    let min = z.iter().copied().fold(f64::INFINITY, f64::min);
+    if min < 0.0 {
+        for x in &mut z {
+            *x -= min;
+        }
+    }
+    Some(z)
+}
+
 fn read_grid(path: &Path, step: usize) -> Result<DataSet> {
     let f = NcFile::open(path).map_err(|e| anyhow!("NetCDF file {}: {e}", path.display()))?;
     let g = choose_grid(&f)?;
@@ -150,8 +222,9 @@ fn read_grid(path: &Path, step: usize) -> Result<DataSet> {
             }
         }
     }
+    let dependent = if rev.iter().any(|d| d.2 == Axis::Lon || d.2 == Axis::Lat) { None } else { lon_lat_2d(&f, &g) };
     // Cell data between the bounds when every axis has them.
-    let cells = cell_edges.iter().all(|e| e.is_some());
+    let cells = dependent.is_none() && cell_edges.iter().all(|e| e.is_some());
     let axes: Vec<Vec<f64>> = if cells { cell_edges.into_iter().map(|e| e.unwrap()).collect() } else { centers };
     let mut n = [1usize; 3];
     for (k, a) in axes.iter().enumerate() {
@@ -173,9 +246,42 @@ fn read_grid(path: &Path, step: usize) -> Result<DataSet> {
         }
     }
     let ds = match (lon, lat) {
+        _ if dependent.is_some() => {
+            // 2-D longitude/latitude (a curvilinear grid): on the unit sphere, a third axis as
+            // the radius, as ParaView's CF reader does.
+            let (lo, la) = dependent.unwrap();
+            let radius = vertical_radius(&f, &g, rev.len());
+            let (nx, ny) = (n[0], n[1]);
+            let nz = if rev.len() == 3 { n[2] } else { 1 };
+            let mut pts = Vec::with_capacity(3 * nx * ny * nz);
+            for k in 0..nz {
+                let r = radius.as_ref().map(|r| r[k]).unwrap_or(1.0);
+                for j in 0..ny {
+                    for i in 0..nx {
+                        let (o, a) = (lo[j * nx + i].to_radians(), la[j * nx + i].to_radians());
+                        pts.extend_from_slice(&[r * a.cos() * o.cos(), r * a.cos() * o.sin(), r * a.sin()]);
+                    }
+                }
+            }
+            let extent = [0, nx as i64 - 1, 0, ny as i64 - 1, 0, nz as i64 - 1];
+            DataSet::StructuredGrid(StructuredGrid { extent, points: Points::new_f64(pts), point_data, cell_data, field_data: Attributes::new() })
+        }
         (Some(il), Some(ia)) => {
             // On a unit sphere; a vertical axis is the radius (scale 1, bias 0, as ParaView).
             let iv = (0..axes.len()).find(|&k| k != il && k != ia);
+            // As ParaView: depths with positive="down" are negated, then all shifted so none
+            // is below zero (the deepest level lies closest to the center).
+            let mut axes = axes.clone();
+            if let Some(v) = iv {
+                let down = vars.iter().find(|x| x.name() == rev[v].0).and_then(|x| text(x, "positive")).is_some_and(|p| p.to_ascii_lowercase().contains("down"));
+                if down {
+                    axes[v].iter_mut().for_each(|x| *x = -*x);
+                }
+                let min = axes[v].iter().copied().fold(f64::INFINITY, f64::min);
+                if min < 0.0 {
+                    axes[v].iter_mut().for_each(|x| *x -= min);
+                }
+            }
             let mut pts = Vec::with_capacity(3 * n[0] * n[1] * n[2]);
             for k in 0..n[2] {
                 for j in 0..n[1] {

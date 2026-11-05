@@ -15,7 +15,8 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | EnSight Gold | `.case .encas` | ASCII and C binary, all element types, structured blocks, time sets, wildcard file names |
 | CGNS | `.cgns` | HDF5 and ADF storage; structured and unstructured zones, MIXED and NGON/NFACE sections, solutions, time steps |
 | Xdmf 2/3 | `.xmf .xdmf` | inline, HDF5 and raw binary data; collections; `xi:include` and XPath references (FEniCS/Dolfinx); HyperSlab and JOIN items |
-| NetCDF (CF) | `.nc .nc4 .cdf` | classic and NetCDF-4; lon/lat grids on a sphere with cell bounds, rectilinear otherwise; time steps; packing; fill values become NaN (grey) |
+| NetCDF (CF) | `.nc .nc4 .cdf` | classic and NetCDF-4; lon/lat grids on a sphere with cell bounds, curvilinear grids with 2-D longitude/latitude (POP, CICE, ROMS), rectilinear otherwise; time steps; packing; fill values become NaN (grey); see below |
+| CAM-SE | `.nc` + connectivity file (found from the contents) | CESM atmosphere on its cubed sphere: lon/lat map or sphere, surface, midpoint or interface variables, one level or all; see below |
 | MPAS | `.nc` (found from the file's contents) | MPAS ocean, atmosphere and land-ice output: cell centers joined into triangles, any vertical level or all of them, sphere or lon/lat map, time steps; see below |
 | Tecplot | `.dat .plt .tec .tp` | ASCII (ordered and FE zones, BLOCK/POINT, cell-centered variables) and binary `.plt`; `.szplt` is not read |
 | PLOT3D | `.xyz .x .p3d .bin` + `.q` | layout detected from the file (Fortran/C binary, byte order, precision, multi-grid, 2-D/3-D, IBLANK), ASCII |
@@ -39,6 +40,47 @@ inside the file and links to other ADF files are followed. A link to an HDF5 fil
 file is not.
 
 ![A CGNS file in ADF storage, clipped and colored by RTData](images/cgns_adf.png)
+
+### NetCDF climate and ocean files
+
+Files that follow the CF conventions are placed by their coordinates:
+
+- Longitude and latitude axes put the grid on a sphere of radius 1. A third (vertical)
+  axis becomes the radius, as in ParaView. Depths marked `positive="down"` are turned around,
+  and all levels are shifted so that none is below zero, so deeper levels lie further in
+  (the deepest at the center).
+- Ocean and sea-ice models such as POP (CESM's ocean), CICE and ROMS use index dimensions
+  (`nlat`, `nlon`) and give each point's longitude and latitude in 2-D variables (`TLONG`,
+  `TLAT`) named in the `coordinates` attribute. These become curvilinear grids on the
+  sphere. The coordinate variables themselves are not shown as data.
+- When the variables live on different grids (say `TEMP` on depth, latitude and longitude,
+  and `SSH` on the surface only), **Reader options › Variables on** picks the grid. Python:
+  `ds.set(variables="(nlat, nlon)")`. The grid with the most dimensions is read first.
+
+![A POP-style ocean file: sea surface height on its curvilinear TLONG/TLAT grid; the island has no data (grey)](images/pop_ocean.png)
+
+ParaView's dedicated POP reader only reads variables with exactly three dimensions, so it
+skips POP history output (time, depth, latitude, longitude). Its general NetCDF reader places
+those files as auraFX does.
+
+CAM-SE output (the spectral-element core of CESM's atmosphere model) comes as two files:
+the data, with columns `ncol` at `lat`/`lon`, and a connectivity file whose
+`element_corners` joins the columns into quads. Open the data file. auraFX finds the
+connectivity file in the same folder, or you can name it under **Reader options ›
+Connectivity file** (Python: `ds.set(connectivity="ne30np4_connectivity.nc")`). Like
+ParaView's CAM reader, it draws the grid on a flat lon/lat map:
+
+- Quads that cross the 0/360° seam are moved to the side where they stick out least, on
+  copies of their points, so the map runs a little past 0 and 360.
+- **Variables** picks the surface variables `[time, ncol]`, or those on midpoint
+  (`lev`) or interface (`ilev`) levels. With **All levels** on, the default, each quad
+  becomes a column of hexahedra, the top level highest, and the `lev` (or `ilev`) array
+  holds each point's level. With it off, **Level** chooses one level.
+- **Layout › Sphere** puts the columns on a sphere instead. This is not in ParaView; there is
+  no seam on a sphere.
+- A single level lies at height 0 (ParaView puts it at 1 or at the number of levels).
+
+![CAM-SE surface pressure on the lon/lat map; quads crossing the 0/360 seam stick out at both edges](images/cam_se_map.png)
 
 MPAS output (from the ocean, atmosphere or land-ice models of the Model for Prediction
 Across Scales) is NetCDF too. When a `.nc` file has MPAS's mesh variables (`xCell`,

@@ -1839,6 +1839,7 @@ pub fn reader_param_specs(path: &Path) -> Vec<aurafx_filters::ParamSpec> {
                 aurafx_io::ReaderOptionKind::Float { min, max } => (K::Float { min: *min, max: *max, log: false }, V::Float(o.default.parse().unwrap_or(0.0))),
                 aurafx_io::ReaderOptionKind::Bool => (K::Bool, V::Bool(o.default == "true")),
                 aurafx_io::ReaderOptionKind::Choice(c) => (K::Choice(c.clone()), V::Str(o.default.clone())),
+                aurafx_io::ReaderOptionKind::Text => (K::Str, V::Str(o.default.clone())),
             };
             ParamSpec::new(&o.key, &o.label, kind, default).help(&o.help)
         })

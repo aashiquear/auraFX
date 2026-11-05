@@ -14,5 +14,7 @@ Small files are committed. Larger ones are ignored by git and can be recreated:
 | `cgns/mixed_adf_old.cgns` | `python3 scripts/gen_adf_old.py testdata/cgns/mixed_adf.cgns testdata/cgns/mixed_adf_old.cgns`: the old ADF layout (hex-text pointers), big-endian data, arrays split into two data chunks; the CGNS library reads it back to the same values, committed |
 | `netcdf/mpas_ocean.nc` | `python3 scripts/gen_mpas.py`: MPAS-style ocean output on an icosahedral sphere (642 cells, 3 time steps, land in `maxLevelCell`); ParaView reference values in `mpas_matches_paraview`, committed |
 | `rasters/*.tif`, `rasters/dem.asc` | `pvpython scripts/gen_rasters.py`: GeoTIFFs written by the GDAL library inside ParaView (elevation with no-data, RGB, 4 planar tiled bands, pixel-is-point) and an Esri ASCII grid of the same elevations; ParaView reference values in `rasters_match_paraview`, committed |
+| `netcdf/pop_ocean.nc` | `python3 scripts/gen_pop.py`: POP-style ocean history (2-D TLONG/TLAT, depth in cm positive down, an island as fill values), committed |
+| `netcdf/cam_se.nc`, `netcdf/cam_se_connectivity.nc` | `python3 scripts/gen_cam.py`: CAM-SE-style output on a cubed sphere (turned 10 degrees so no column sits on the seam) and its connectivity file; ParaView reference values for both in `cam_and_pop_match_paraview`, committed |
 
 Tests that need a missing file skip themselves.

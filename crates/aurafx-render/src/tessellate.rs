@@ -32,6 +32,8 @@ pub struct MeshData {
     pub lic: Vec<[f32; 4]>,
     /// The vertices carry texture coordinates (packed in `scalar`) for the display's image.
     pub textured: bool,
+    /// The vertices carry their own RGB colors, packed in `scalar` as r * 65536 + g * 256 + b.
+    pub direct_rgb: bool,
     /// Polygon edges of Surface With Edges (drawn in the edge color).
     pub edges: Vec<Vertex>,
 }
@@ -159,6 +161,16 @@ fn packed_tcoords(a: &aurafx_data::Array) -> Vec<f32> {
 }
 
 /// Per-point scalar values (component or magnitude) for coloring, or None.
+/// An array drawn as colors: 8-bit unsigned with 3 or 4 components.
+fn is_rgb(a: &aurafx_data::Array) -> bool {
+    a.scalar_type() == ScalarType::U8 && (a.ncomp == 3 || a.ncomp == 4)
+}
+
+/// Each tuple's RGB packed into an integer-valued float (exact in f32): r * 65536 + g * 256 + b.
+fn packed_rgb(a: &aurafx_data::Array) -> Vec<f32> {
+    (0..a.len()).map(|i| (a.get(i, 0) as u32 * 65536 + a.get(i, 1) as u32 * 256 + a.get(i, 2) as u32) as f32).collect()
+}
+
 fn point_scalars(attrs: &Attributes, name: &str, comp: Option<usize>) -> Option<Vec<f32>> {
     attrs.get(name).filter(|a| a.scalar_type() != ScalarType::String).map(|a| a.component_f32(comp.filter(|&c| c < a.ncomp)))
 }
@@ -459,8 +471,25 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
             d => has(d),
         };
     }
+    // 8-bit RGB(A) arrays drawn as their own colors.
+    if let Some(cb) = display.color_by.as_ref().filter(|cb| display.direct_colors && !mesh.textured && cb.component.is_none()) {
+        let rgb = |d: &DataSet| {
+            let attrs = match cb.assoc {
+                Association::Points => d.point_data(),
+                Association::Cells => d.cell_data(),
+            };
+            attrs.and_then(|x| x.get(&cb.name)).is_some_and(is_rgb)
+        };
+        mesh.direct_rgb = match ds {
+            DataSet::MultiBlock(mb) => {
+                let leaves = mb.leaves();
+                !leaves.is_empty() && leaves.into_iter().all(|(_, d)| rgb(d))
+            }
+            d => rgb(d),
+        };
+    }
     // Global scalar range for consistent coloring across leaves.
-    if let Some(cb) = display.color_by.as_ref().filter(|_| !mesh.textured) {
+    if let Some(cb) = display.color_by.as_ref().filter(|_| !mesh.textured && !mesh.direct_rgb) {
         let mut lo = f64::INFINITY;
         let mut hi = f64::NEG_INFINITY;
         let mut visit = |d: &DataSet| {
@@ -497,6 +526,10 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         let pd = &leaf.pd;
         let (pscal, cscal) = match &display.color_by {
             _ if mesh.textured => (tcoords(&pd.point_data).map(packed_tcoords), None),
+            Some(cb) if mesh.direct_rgb => match cb.assoc {
+                Association::Points => (pd.point_data.get(&cb.name).map(packed_rgb), None),
+                Association::Cells => (None, pd.cell_data.get(&cb.name).map(packed_rgb)),
+            },
             Some(cb) if mesh.has_scalars => match cb.assoc {
                 Association::Points => (point_scalars(&pd.point_data, &cb.name, cb.component), None),
                 Association::Cells => (None, point_scalars(&pd.cell_data, &cb.name, cb.component)),

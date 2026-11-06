@@ -2112,7 +2112,13 @@ impl Renderer {
                     if self.env.env.is_some() { 1.0 } else { 0.0 },
                     self.env_intensity,
                     self.env.mips.saturating_sub(1) as f32,
-                    if d.mesh.textured && !g.tex_key.is_empty() { 1.0 } else { 0.0 },
+                    if d.mesh.textured && !g.tex_key.is_empty() {
+                        1.0
+                    } else if d.mesh.direct_rgb {
+                        2.0
+                    } else {
+                        0.0
+                    },
                 ],
                 sh,
             };

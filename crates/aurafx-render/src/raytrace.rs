@@ -25,6 +25,8 @@ pub(crate) struct Material {
     pub(crate) range: (f32, f32),
     pub(crate) log: bool,
     pub(crate) scalars: bool,
+    /// Colors packed in the scalar (see `MeshData::direct_rgb`).
+    pub(crate) direct: bool,
     pub(crate) solid: Vec3,
     pub(crate) lit: bool,
     pub(crate) metallic: f32,
@@ -47,6 +49,7 @@ impl Material {
             range: (lo as f32, hi as f32),
             log: d.display.log_scale,
             scalars: d.mesh.has_scalars,
+            direct: d.mesh.direct_rgb,
             solid: Vec3::from_array(d.display.solid_color),
             lit: d.display.lighting,
             metallic: d.display.metallic.clamp(0.0, 1.0),
@@ -58,6 +61,11 @@ impl Material {
 
     /// Linear color for a scalar value (as the shader maps it).
     pub(crate) fn color(&self, s: f32) -> Vec3 {
+        if self.direct {
+            let v = s.round().clamp(0.0, 16_777_215.0) as u32;
+            let c = |x: u32| srgb_to_linear(x as f32 / 255.0);
+            return Vec3::new(c(v >> 16 & 255), c(v >> 8 & 255), c(v & 255));
+        }
         if !self.scalars {
             return self.solid;
         }

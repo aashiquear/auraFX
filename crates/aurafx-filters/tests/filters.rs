@@ -1820,3 +1820,86 @@ fn hyper_tree_grid_interfaces_match_paraview() {
     }
     assert!(checked > 3000, "{checked}");
 }
+
+/// Orientation colors, conversions and frame rotations on the EBSD test maps
+/// (testdata/ebsd from scripts/gen_ebsd.py).
+#[test]
+fn grains_orientation_filters() {
+    use aurafx_crystal::{self as cx, Laue};
+    let exp: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ebsd/ebsd_expected.json")).unwrap()).unwrap();
+    // Nickel: one color per grain (each grain turns by at most 2 degrees across the map).
+    let ni = td("ebsd/ni_map.ang");
+    let c = run("orientation_colors", Some(&ni), &[]);
+    let rgb = c.cell_data().unwrap().get("IPFColor").unwrap();
+    assert_eq!((rgb.ncomp, rgb.scalar_type()), (3, ScalarType::U8));
+    let grain: Vec<usize> = exp["ni_map.ang"]["grain"].as_array().unwrap().iter().map(|g| g.as_u64().unwrap() as usize).collect();
+    let eul = ni.cell_data().unwrap().get("EulerAngles").unwrap();
+    let mut first: HashMap<usize, usize> = HashMap::new();
+    for (k, g) in grain.iter().enumerate() {
+        let f = *first.entry(*g).or_insert(k);
+        let q = |i: usize| cx::euler_to_quat([eul.get(i, 0), eul.get(i, 1), eul.get(i, 2)]);
+        assert!(cx::disorientation_angle(q(f), q(k), Laue::CubicHigh).to_degrees() < 2.01);
+        let want = cx::ipf_color(q(k), Laue::CubicHigh, [0.0, 0.0, 1.0]);
+        assert_eq!([rgb.get(k, 0) as u8, rgb.get(k, 1) as u8, rgb.get(k, 2) as u8], want);
+    }
+    // Two phases: points not indexed are black, the titanium grains use the hexagonal key.
+    let two = td("ebsd/two_phase.ang");
+    let c = run("orientation_colors", Some(&two), &[("direction", serde_json::json!([1, 0, 0]))]);
+    let rgb = c.cell_data().unwrap().get("IPFColor").unwrap();
+    let ph = two.cell_data().unwrap().get("Phases").unwrap();
+    let eul = two.cell_data().unwrap().get("EulerAngles").unwrap();
+    let (mut black, mut hex) = (0, 0);
+    for k in 0..ph.len() {
+        let got = [rgb.get(k, 0) as u8, rgb.get(k, 1) as u8, rgb.get(k, 2) as u8];
+        match ph.get(k, 0) as i32 {
+            0 => {
+                assert_eq!(got, [0, 0, 0]);
+                black += 1;
+            }
+            p => {
+                let l = if p == 2 { Laue::HexagonalHigh } else { Laue::CubicHigh };
+                hex += (p == 2) as usize;
+                assert_eq!(got, cx::ipf_color(cx::euler_to_quat([eul.get(k, 0), eul.get(k, 1), eul.get(k, 2)]), l, [1.0, 0.0, 0.0]));
+            }
+        }
+    }
+    assert!(black > 20 && hex > 100, "{black} {hex}");
+    // Euler -> quaternions (fundamental zone) -> Euler describes the same orientations.
+    let q = run("convert_orientations", Some(&ni), &[("output_type", "Quaternions".into()), ("reduce", true.into())]);
+    let back = run("convert_orientations", Some(&q), &[("orientations", "Quats".into()), ("input_type", "Quaternions".into()), ("output_type", "Euler angles".into()), ("name", "E2".into())]);
+    let (e1, e2) = (back.cell_data().unwrap().get("EulerAngles").unwrap(), back.cell_data().unwrap().get("E2").unwrap());
+    let qa = back.cell_data().unwrap().get("Quats").unwrap();
+    for k in (0..e1.len()).step_by(37) {
+        let a = cx::euler_to_quat([e1.get(k, 0), e1.get(k, 1), e1.get(k, 2)]);
+        let b = cx::euler_to_quat([e2.get(k, 0), e2.get(k, 1), e2.get(k, 2)]);
+        assert!(cx::disorientation_angle(a, b, Laue::CubicHigh) < 1e-5);
+        // Reduced: no larger than the largest cubic fundamental-zone rotation (62.8 degrees).
+        assert!(2.0 * qa.get(k, 3).acos().to_degrees() <= 62.81);
+    }
+    // Rotating the sample frame by 90 degrees about z and back restores the orientations; a
+    // 90-degree turn of the crystal frame about a cube axis changes nothing for a cubic crystal.
+    let r = run("rotate_orientations", Some(&ni), &[("angle", 90.0.into())]);
+    let r2 = run("rotate_orientations", Some(&r), &[("angle", (-90.0).into())]);
+    let rc = run("rotate_orientations", Some(&ni), &[("frame", "Crystal".into()), ("axis", serde_json::json!([1, 0, 0]))]);
+    let (a0, a1, a2, a3) = (eul_of(&ni), eul_of(&r), eul_of(&r2), eul_of(&rc));
+    for k in (0..a0.len()).step_by(53) {
+        assert!(cx::disorientation_angle(a0[k], a2[k], Laue::Triclinic) < 1e-5);
+        assert!((cx::disorientation_angle(a0[k], a1[k], Laue::Triclinic).to_degrees() - 90.0).abs() < 1e-3);
+        assert!(cx::disorientation_angle(a0[k], a3[k], Laue::CubicHigh) < 1e-5);
+        // The sample direction x of the rotated frame is the old y: the old y color is the new x color.
+        let old_y = cx::ipf_color(a0[k], Laue::CubicHigh, [0.0, 1.0, 0.0]);
+        assert_eq!(cx::ipf_color(a1[k], Laue::CubicHigh, [1.0, 0.0, 0.0]), old_y);
+    }
+    // The color key: red, green and blue corners.
+    let key = run("ipf_color_key", None, &[("resolution", 10.into())]);
+    let kc = key.point_data().unwrap().get("IPFColor").unwrap();
+    let px = |i: usize| [kc.get(i, 0) as u8, kc.get(i, 1) as u8, kc.get(i, 2) as u8];
+    assert_eq!(px(0), [255, 0, 0]);
+    assert_eq!(px(11 * 10), [0, 255, 0]);
+    assert_eq!(px(11 * 11 - 1), [0, 0, 255]);
+}
+
+fn eul_of(d: &DataSet) -> Vec<aurafx_crystal::Quat> {
+    let e = d.cell_data().unwrap().get("EulerAngles").unwrap();
+    (0..e.len()).map(|k| aurafx_crystal::euler_to_quat([e.get(k, 0), e.get(k, 1), e.get(k, 2)])).collect()
+}

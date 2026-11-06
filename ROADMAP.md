@@ -275,7 +275,9 @@ with cancel), everything searchable, every action scriptable, every panel option
 EBSD and synthetic microstructures, grain segmentation and statistics, texture, boundaries
 and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and HCP crystals. Design and stage details: `docs/design/grains-and-meshing.md`.
 
-- [ ] G1 `aurafx-crystal` (orientation conversions, the 11 Laue groups, disorientation, fundamental zones, IPF/Rodrigues/Euler colours); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d`; Generate IPF Colors, Convert Orientations, Rotate Reference Frame, Crop, Change Resolution, Align Sections.
+- [ ] G1 `aurafx-crystal` (orientation conversions, the 11 Laue groups, disorientation, fundamental zones, IPF/Rodrigues/Euler colours); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d`; Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations, Crop, Change Resolution, Align Sections.
+  - [x] G1a: `aurafx-crystal`, `.ang` (square grids) and `.ctf` readers, Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations; 8-bit RGB arrays drawn as their own colors (iteration 53).
+  - [ ] G1b: `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` readers; Crop, Change Resolution, Align Sections.
 - [ ] G2 Features: Segment Features (misorientation, scalar, C-axis), Find Sizes/Neighbors/Shapes/Centroids/Boundary Cells/Surface Features/Average Orientations/Misorientations/Kernel Average Misorientation/Reference Misorientations/Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; Features and Ensembles tables.
 - [ ] G3 Texture: pole figures, inverse pole figures, ODF sections and texture index, MDF, texture fractions, chord lengths (charts, pictures, CSV).
 - [ ] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
@@ -326,6 +328,19 @@ entry. The wordmark logo lost its black background (`assets/branding/logo-wordma
 `logo-wordmark-light.png` for light backgrounds). Sections 11 and 12 (phases P8 and P9)
 were added from `docs/design/grains-and-meshing.md`, the design for the grain workbench and
 the geometry/mesh generator.
+
+Done in iteration 53 (G1a, the first stage of P8): the `aurafx-crystal` crate (rotations
+between Euler angles, quaternions, matrices, axis-angle, Rodrigues and homochoric vectors;
+the 11 Laue classes built by closure from their generators; disorientation angle and axis;
+fundamental-zone reduction; inverse pole figure and Euler colors), EBSD readers for TSL/EDAX
+`.ang` (square grids) and Oxford `.ctf` (hexagonal phases moved to a1 along x by default),
+the Grains filters Orientation Colors, Convert Orientations and Rotate Orientations, and the
+IPF Color Key source. 8-bit arrays with 3 or 4 components are drawn as their own colors
+(rasterizer, points and the path tracer), with a Display switch to use the color map.
+Checked against `testdata/crystal/reference.json` (SciPy rotations, brute-force
+disorientations over SciPy's groups, IPF colors reduced independently; the toolkit's cubic
+disorientation agrees with the brute force) and the synthetic maps of
+`scripts/gen_ebsd.py`. Guide chapter: Grains and crystals.
 
 ## Status (2026-11-05)
 

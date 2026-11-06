@@ -18,6 +18,11 @@ d.set(color_by="V", component=0)        # x component of a vector
 d.set(color_by=None, solid_color=(0.8, 0.2, 0.1))
 ```
 
+An array of 8-bit values with 3 or 4 components (red, green, blue and maybe opacity, such as
+the `IPFColor` array of [Orientation Colors](grains.md#orientation-colors)) is drawn with
+its own colors, without a legend. Clear **Colors: the array's own colors** under Color by, or
+use `d.set(direct_colors=False)`, to map it through the color map instead.
+
 To show an image on a surface instead of colors (a map on a globe), see
 [Textures](filters.md#showing-an-image-on-a-surface).
 

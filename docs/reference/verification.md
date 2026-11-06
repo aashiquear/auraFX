@@ -244,6 +244,23 @@ Where auraFX differs from ParaView:
 Not available in auraFX: the cell grid filters ParaView 6.1.1 does not offer either (range,
 copy).
 
+## Grains and crystals
+
+No reference program reads the EBSD maps here, so the checks use independent
+implementations (`testdata/crystal/reference.json`, `scripts/crystal_reference.py`):
+- Bunge angles to quaternions and orientation matrices agree with SciPy 1.17's Rotation
+  ('ZXZ' intrinsic, transposed for the passive sample-to-crystal matrix) to 1e-12.
+- Disorientation angles for all 11 Laue classes agree to 1e-9 rad with a brute force over
+  both sides of SciPy's symmetry groups (C1, C2 about y, D2, C4, D4, C3, D3, C6, D6, T, O),
+  whose axes match the generators auraFX uses. The AM orientation toolkit's cubic
+  disorientation (`am_validation_metrics.disorientation_deg`) agrees with that brute force to
+  2e-15 rad.
+- Cubic m-3m and hexagonal 6/mmm IPF colors agree within one level of 255 with a separate
+  implementation that reduces the direction by sorting its components (cubic) or folding its
+  azimuth (hexagonal) instead of searching the group.
+- The `.ang` and `.ctf` readers are checked against the angles, phases and quality values
+  `scripts/gen_ebsd.py` wrote, including the +30° on φ2 of hexagonal Oxford phases.
+
 ## Writers
 
 The `.htg` writer produces XML version 2, as ParaView 5.10 and later write it. Files written

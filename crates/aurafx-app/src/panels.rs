@@ -905,6 +905,17 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         }
                     });
                     ui.end_row();
+                    let rgb_array = cb.component.is_none()
+                        && info.as_ref().is_some_and(|i| {
+                            let arrs = if cb.assoc == Association::Points { &i.point_arrays } else { &i.cell_arrays };
+                            arrs.iter().any(|a| a.name == cb.name && a.dtype == "UInt8" && (a.ncomp == 3 || a.ncomp == 4))
+                        });
+                    if rgb_array {
+                        ui.label("Colors");
+                        ui.checkbox(&mut d.direct_colors, "the array's own colors")
+                            .on_hover_text("An 8-bit array with 3 or 4 components (RGB, RGBA) is drawn as its colors; untick to map it through the color map");
+                        ui.end_row();
+                    }
                     ui.label("Range");
                     ui.horizontal(|ui| {
                         let data_range = info

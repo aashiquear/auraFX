@@ -109,6 +109,14 @@ feature arrays takes the multi-block; one that only needs cell arrays also accep
 alone. Every existing filter, the Spreadsheet and Color by work unchanged on these datasets,
 and the `.dream3d` writer maps them to that format's groups.
 
+As built in G1, the per-phase (ensemble) arrays travel as **field data** of the grid:
+`CrystalStructures` (Laue code per phase, entry 0 = not indexed, 999 unknown), `MaterialName`
+and `LatticeConstants` (6 per phase). Field data already passes through every filter, the
+state file and the server protocol, so no new table or protocol change was needed for
+ensembles; the Features table (G2) still comes as a `Table` beside the grid. EBSD readers keep
+the Euler angles as stored (no reference-frame change), apart from the optional +30° on φ2 of
+hexagonal `.ctf` phases; Rotate Orientations re-expresses them in another frame.
+
 **Mesh data.** A generated mesh is an `UnstructuredGrid` with element blocks (an `ElementBlock`
 cell array plus block names in field data, as the Exodus reader and writer already use),
 side sets and node sets (as the Exodus writer takes them), element variables (`grain_id`,
@@ -151,7 +159,7 @@ because no reference program for either side is installed here.
 
 | Stage | Deliverable | Reference for the tests |
 |---|---|---|
-| **G1 Crystal core and EBSD** | `aurafx-crystal` (conversions, Laue operators, disorientation, FZ, IPF/Rodrigues/Euler colours, cubic and hexagonal keys); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` (cell arrays and geometry); Generate IPF Colors, Convert Orientations, Rotate Reference Frame, Change Resolution, Crop, Align Sections | the toolkit's NumPy functions run with `python3` on the same inputs (FCC); hand-built cases for HCP and the other groups (every operator applied to a known orientation); public sample `.dream3d` and `.ang` files |
+| **G1 Crystal core and EBSD** | `aurafx-crystal` (conversions, Laue operators, disorientation, FZ, IPF/Rodrigues/Euler colours, cubic and hexagonal keys); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` (cell arrays and geometry); Orientation Colors (IPF and Euler keys), IPF Color Key source, Convert Orientations, Rotate Orientations, Change Resolution, Crop, Align Sections | the toolkit's NumPy functions run with `python3` on the same inputs (FCC); hand-built cases for HCP and the other groups (every operator applied to a known orientation); public sample `.dream3d` and `.ang` files |
 | **G2 Features** | Segment Features (misorientation, scalar, C-axis), Find Sizes / Neighbors / Shapes / Centroids / Boundary Cells / Surface Features / Average Orientations / Misorientations / Kernel Average Misorientation / Reference Misorientations / Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; the Features and Ensembles tables; feature-coloured and boundary pictures | the toolkit's `segment`, `analyse`, `neighbour_misorientation` on its EBSD volumes; the published formulas (moment invariants, Omega3) on synthetic ellipsoids of known axes |
 | **G3 Texture** | pole figures (kernel density, MRD, stereographic and equal-area), inverse pole figures, ODF sections and texture index, MDF, texture fractions, chord lengths; shown in the Charts panel and saved as pictures and CSV | `am_texture.pole_figure`, `odf_values`, `texture_index`, `fractions`, `chords_from_map` |
 | **G4 Synthetic builder** | Ensemble Statistics (size, shape, neighbour, ODF, MDF, axis ODF, as a Properties form with lognormal/beta fits), Initialize Volume, Pack Primary Phases (ellipsoid, superellipsoid, cube-octahedron, cylinder; periodic), Insert Precipitates, Matrix Phase, Match Crystallography, Add Orientation Noise, Jumble Orientations; plus Voronoi / Laguerre tessellation and the toolkit's columnar AM grains as sources; Generate Ensemble Statistics from measured data | the goal statistics are recovered from the generated volume within tolerance (the builder is its own oracle); the toolkit's `generate_columns` |

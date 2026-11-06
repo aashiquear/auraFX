@@ -33,6 +33,7 @@ and value ranges on the same files. The comparisons are listed in the verificati
 | Images | `.png .jpg .bmp .tif` | as image data; multi-page TIFFs and `img_*.png` wildcards as volumes |
 | GIS rasters | GeoTIFF `.tif`, Esri ASCII grid `.asc` | at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below |
 | GIS vectors | Shapefile `.shp`, GeoJSON `.geojson .json`, KML `.kml`, KMZ `.kmz`, GeoPackage `.gpkg`, FlatGeobuf `.fgb`, GML `.gml` | points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below |
+| EBSD maps | TSL/EDAX `.ang`, Oxford `.ctf` | crystal orientations on a square grid with phases and quality columns; see [Grains and crystals](grains.md) |
 | Surfaces | `.stl .ply .obj` | |
 | CSV / TSV | `.csv .tsv .txt` | delimiter and header detection; tables with x, y, z columns become points |
 

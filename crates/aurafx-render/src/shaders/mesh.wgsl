@@ -55,7 +55,22 @@ struct VertexOut {
     @location(3) shadow: vec4<f32>,
     // Texture coordinates (textured surfaces: packed as two halves in the scalar).
     @location(4) uv: vec2<f32>,
+    // The vertex's own color (direct colors: packed in the scalar as r * 65536 + g * 256 + b).
+    @location(5) rgb: vec3<f32>,
 };
+
+fn unpack_rgb(s: f32) -> vec3<f32> {
+    let v = u32(clamp(round(s), 0.0, 16777215.0));
+    return vec3<f32>(f32((v >> 16u) & 255u), f32((v >> 8u) & 255u), f32(v & 255u)) / 255.0;
+}
+
+fn textured() -> bool {
+    return node.env.w > 0.5 && node.env.w < 1.5;
+}
+
+fn direct_rgb() -> bool {
+    return node.env.w > 1.5;
+}
 
 /// Fraction of light reaching a point (3x3 percentage-closer filtering of the shadow map).
 fn lit(shadow: vec4<f32>) -> f32 {
@@ -98,12 +113,19 @@ fn scalar_color(s: f32) -> vec3<f32> {
 
 /// The image on a textured surface (t = 0 is the image's bottom row, as in VTK), else the
 /// scalar or solid color.
-fn surface_color(s: f32, uv: vec2<f32>) -> vec3<f32> {
+fn surface_color(s: f32, uv: vec2<f32>, rgb: vec3<f32>) -> vec3<f32> {
     let c = textureSample(surface_tex, surface_sampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb;
-    if (node.env.w > 0.5) {
+    if (textured()) {
         return c;
     }
+    if (direct_rgb()) {
+        return srgb_to_linear3(rgb);
+    }
     return base_color(s);
+}
+
+fn srgb_to_linear3(c: vec3<f32>) -> vec3<f32> {
+    return select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
 }
 
 fn base_color(s: f32) -> vec3<f32> {
@@ -179,8 +201,12 @@ fn vs_mesh(in: VertexIn) -> VertexOut {
     out.scalar = in.scalar;
     out.shadow = node.shadow_vp * vec4<f32>(in.pos, 1.0);
     out.uv = vec2<f32>(0.0);
-    if (node.env.w > 0.5) {
+    out.rgb = vec3<f32>(0.0);
+    if (textured()) {
         out.uv = unpack2x16float(bitcast<u32>(in.scalar));
+    }
+    if (direct_rgb()) {
+        out.rgb = unpack_rgb(in.scalar);
     }
     return out;
 }
@@ -193,23 +219,23 @@ fn vs_shadow(in: VertexIn) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs_mesh(in: VertexOut) -> @location(0) vec4<f32> {
-    let c = shade(surface_color(in.scalar, in.uv), in.normal, in.world, in.shadow);
+    let c = shade(surface_color(in.scalar, in.uv, in.rgb), in.normal, in.world, in.shadow);
     return vec4<f32>(c, node.color.a);
 }
 
 @fragment
 fn fs_line(in: VertexOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(surface_color(in.scalar, in.uv), node.color.a);
+    return vec4<f32>(surface_color(in.scalar, in.uv, in.rgb), node.color.a);
 }
 
 @fragment
 fn fs_mesh_oit(in: VertexOut) -> OitOut {
-    return oit(shade(surface_color(in.scalar, in.uv), in.normal, in.world, in.shadow), node.color.a, in.clip.z);
+    return oit(shade(surface_color(in.scalar, in.uv, in.rgb), in.normal, in.world, in.shadow), node.color.a, in.clip.z);
 }
 
 @fragment
 fn fs_line_oit(in: VertexOut) -> OitOut {
-    return oit(surface_color(in.scalar, in.uv), node.color.a, in.clip.z);
+    return oit(surface_color(in.scalar, in.uv, in.rgb), node.color.a, in.clip.z);
 }
 
 // ---- wide lines: one instance per segment (its two vertices), drawn as a screen-space quad
@@ -269,8 +295,12 @@ fn vs_wide_line(@builtin(vertex_index) vi: u32, in: SegmentIn) -> VertexOut {
     out.scalar = select(in.scalar0, in.scalar1, t > 0.5);
     out.shadow = node.shadow_vp * vec4<f32>(pos, 1.0);
     out.uv = vec2<f32>(0.0);
-    if (node.env.w > 0.5) {
+    out.rgb = vec3<f32>(0.0);
+    if (textured()) {
         out.uv = unpack2x16float(bitcast<u32>(out.scalar));
+    }
+    if (direct_rgb()) {
+        out.rgb = unpack_rgb(out.scalar);
     }
     return out;
 }
@@ -304,6 +334,9 @@ fn vs_point(@builtin(vertex_index) vi: u32, in: VertexIn) -> PointOut {
 fn point_color(in: PointOut) -> vec3<f32> {
     let r2 = dot(in.uv, in.uv);
     var c = base_color(in.scalar);
+    if (direct_rgb()) {
+        c = srgb_to_linear3(unpack_rgb(in.scalar));
+    }
     if (node.flags.z > 0.5 && node.flags.x > 0.5) {
         let z = sqrt(max(0.0, 1.0 - r2));
         let n = vec3<f32>(in.uv.x, in.uv.y, z);

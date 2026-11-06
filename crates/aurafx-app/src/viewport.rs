@@ -869,7 +869,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         painter.text(
             c + Vec2::new(0.0, 30.0),
             egui::Align2::CENTER_CENTER,
-            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), Xdmf, NetCDF (CF, POP, CAM-SE, MPAS), CGNS, EnSight, OpenFOAM, Tecplot, PLOT3D, LAMMPS, VASP, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images, GeoTIFF, Esri ASCII grids, ERDAS Imagine (.img), shapefiles, GeoJSON, KML/KMZ, GeoPackage, FlatGeobuf, GML, MapInfo (.tab .mif), file geodatabases (.gdb), AMR (AMReX plotfiles, .vthb, FLASH, Enzo, Chombo), hyper tree grids (.htg), cell grids (.dg), CML molecules",
+            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), Xdmf, NetCDF (CF, POP, CAM-SE, MPAS), CGNS, EnSight, OpenFOAM, Tecplot, PLOT3D, LAMMPS, VASP, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images, GeoTIFF, Esri ASCII grids, ERDAS Imagine (.img), shapefiles, GeoJSON, KML/KMZ, GeoPackage, FlatGeobuf, GML, MapInfo (.tab .mif), file geodatabases (.gdb), AMR (AMReX plotfiles, .vthb, FLASH, Enzo, Chombo), hyper tree grids (.htg), cell grids (.dg), CML molecules, EBSD maps (.ang .ctf)",
             egui::FontId::proportional(12.0),
             fg_weak,
         );

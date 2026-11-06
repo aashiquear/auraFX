@@ -223,6 +223,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "aurafx-crystal"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "aurafx-data"
 version = "0.1.0"
 dependencies = [
@@ -240,6 +247,7 @@ name = "aurafx-filters"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aurafx-crystal",
  "aurafx-data",
  "aurafx-io",
  "indexmap",
@@ -255,6 +263,7 @@ name = "aurafx-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aurafx-crystal",
  "aurafx-data",
  "base64 0.22.1",
  "flate2",

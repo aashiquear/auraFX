@@ -10,6 +10,7 @@ pub mod simplex;
 pub mod amr;
 pub mod analysis;
 pub mod append;
+pub mod crystal;
 pub mod attributes;
 pub mod calculator;
 pub mod cellgrid;

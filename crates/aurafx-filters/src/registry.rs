@@ -191,6 +191,14 @@ fn arr_param(key: &str, label: &str) -> ParamSpec {
         ParamValue::Array { assoc: Association::Points, name: String::new() },
     )
 }
+fn cell_arr(key: &str, label: &str) -> ParamSpec {
+    ParamSpec::new(
+        key,
+        label,
+        ParamKind::Array { scalar_only: false, vector_only: false },
+        ParamValue::Array { assoc: Association::Cells, name: String::new() },
+    )
+}
 fn vec_param(key: &str, label: &str) -> ParamSpec {
     ParamSpec::new(
         key,
@@ -2542,6 +2550,100 @@ fn build() -> Vec<FilterDef> {
                 let h = p.i64("half_size", 10);
                 Ok(DataSet::ImageData(crate::sources::wavelet([-h, h, -h, h, -h, h], p.f64("maximum", 255.0), p.f64("std_dev", 0.5))))
             },
+        },
+        FilterDef {
+            id: "orientation_colors",
+            label: "Orientation Colors",
+            category: "Grains",
+            description: "Color crystal orientations by the inverse pole figure key or by their Euler angles (an 8-bit RGB array drawn as its own colors).",
+            keywords: &["ipf", "inverse pole figure", "ebsd", "orientation map", "grain", "crystal", "euler colors", "texture"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                cell_arr("orientations", "Orientations").help("Euler angles (3 components, radians), quaternions (4, stored x y z w) or orientation matrices (9). Empty: EulerAngles, Quats or OrientationMatrix."),
+                choice("key", "Color key", &[crate::crystal::KEY_IPF, crate::crystal::KEY_EULER], crate::crystal::KEY_IPF),
+                v3("direction", "Reference direction", [0.0, 0.0, 1.0]).help("The sample direction whose crystal direction is colored (z: the map normal)."),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES)
+                    .help("From the phases: each point's class comes from its phase and the CrystalStructures field array, as EBSD files give them."),
+                cell_arr("phases", "Phases").help("The phase of each point (0: not indexed). Empty: Phases.").advanced(),
+                cell_arr("mask", "Mask").help("Points where this array is 0 are black.").advanced(),
+                s("name", "Output name", "IPFColor").advanced(),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let phases = p.array("phases").map(|x| x.1);
+                    let mask = p.array("mask").map(|x| x.1);
+                    let name = p.str("name");
+                    crate::crystal::orientation_colors(d, p.array("orientations"), &p.str("key"), p.vec3("direction", [0.0, 0.0, 1.0]), &p.str("structure"), phases.as_deref(), mask.as_deref(), if name.is_empty() { "IPFColor" } else { &name })
+                })
+            },
+        },
+        FilterDef {
+            id: "convert_orientations",
+            label: "Convert Orientations",
+            category: "Grains",
+            description: "Convert orientations between Euler angles, quaternions, orientation matrices, axis-angle, Rodrigues and homochoric vectors, optionally reduced to the fundamental zone.",
+            keywords: &["euler", "quaternion", "rodrigues", "homochoric", "axis angle", "orientation matrix", "fundamental zone", "crystal"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                cell_arr("orientations", "Orientations"),
+                choice("input_type", "Input", &crate::crystal::Repr::LABELS, "Euler angles"),
+                choice("output_type", "Output", &crate::crystal::Repr::LABELS, "Quaternions"),
+                b("reduce", "Reduce to the fundamental zone", false).help("Replace each orientation by its symmetry equivalent with the smallest rotation angle."),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES),
+                cell_arr("phases", "Phases").advanced(),
+                s("name", "Output name", "").help("Empty: EulerAngles, Quats, OrientationMatrix, AxisAngles, Rodrigues or Homochoric.").advanced(),
+            ],
+            apply: |input, p| {
+                use crate::crystal::Repr;
+                let from = Repr::from_label(&p.str("input_type")).ok_or_else(|| anyhow!("unknown input type"))?;
+                let to = Repr::from_label(&p.str("output_type")).ok_or_else(|| anyhow!("unknown output type"))?;
+                per_leaf(input.unwrap(), &|d| {
+                    let phases = p.array("phases").map(|x| x.1);
+                    crate::crystal::convert_orientations(d, p.array("orientations"), from, to, &p.str("name"), p.bool("reduce", false), &p.str("structure"), phases.as_deref())
+                })
+            },
+        },
+        FilterDef {
+            id: "rotate_orientations",
+            label: "Rotate Orientations",
+            category: "Grains",
+            description: "Re-express orientations after turning the sample or crystal reference frame by an angle about an axis (the data does not move).",
+            keywords: &["reference frame", "sample frame", "crystal frame", "euler", "rotate", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                cell_arr("orientations", "Orientations"),
+                choice("frame", "Frame", &[crate::crystal::FRAME_SAMPLE, crate::crystal::FRAME_CRYSTAL], crate::crystal::FRAME_SAMPLE),
+                v3("axis", "Axis", [0.0, 0.0, 1.0]),
+                f("angle", "Angle (degrees)", 90.0, -360.0, 360.0),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| crate::crystal::rotate_orientations(d, p.array("orientations"), &p.str("frame"), p.vec3("axis", [0.0, 0.0, 1.0]), p.f64("angle", 90.0)))
+            },
+        },
+        FilterDef {
+            id: "ipf_color_key",
+            label: "IPF Color Key",
+            category: "Sources",
+            description: "The inverse pole figure color key of a crystal class: its standard triangle in stereographic projection, colored.",
+            keywords: &["ipf", "legend", "color key", "standard triangle", "stereographic", "crystal", "ebsd"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
+                i("resolution", "Resolution", 60, 4, 400),
+            ],
+            apply: |_, p| Ok(DataSet::PolyData(crate::crystal::ipf_key(&p.str("structure"), p.i64("resolution", 60).max(4) as usize)?)),
         },
     ]
 }

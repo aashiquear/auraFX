@@ -28,6 +28,7 @@
 - [Exporting pictures, scenes and animations](exporting.md)
 - [Running simulations](simulations.md)
 - [Data on another machine](client-server.md)
+- [Grains and crystals](grains.md)
 
 # Reference
 

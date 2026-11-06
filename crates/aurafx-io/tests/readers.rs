@@ -1925,3 +1925,50 @@ fn chombo_4d_reads_velocity_space() {
         }
     }
 }
+
+/// EBSD maps (testdata/ebsd from scripts/gen_ebsd.py; ebsd_expected.json holds the angles as
+/// written and the expected values after reading).
+#[test]
+fn ebsd_maps() {
+    use aurafx_data::DataSet;
+    let exp: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(td("ebsd/ebsd_expected.json")).unwrap()).unwrap();
+    for (file, nphase, laue) in [("ni_map.ang", 1, vec![1u32]), ("two_phase.ang", 2, vec![1, 0]), ("ti_map.ctf", 1, vec![0])] {
+        let ds = static_ds(&format!("ebsd/{file}"));
+        let e = &exp[file];
+        let (nx, ny, step) = (e["nx"].as_u64().unwrap() as usize, e["ny"].as_u64().unwrap() as usize, e["step"].as_f64().unwrap());
+        let DataSet::ImageData(img) = &*ds else { panic!("{file}: not image data") };
+        assert_eq!(img.extent, [0, nx as i64, 0, ny as i64, 0, 0], "{file}");
+        assert!((img.spacing[0] - step).abs() < 1e-9 && (img.origin[0] + 0.5 * step).abs() < 1e-9, "{file}");
+        let cs = img.field_data.get("CrystalStructures").unwrap();
+        assert_eq!(cs.len(), nphase + 1);
+        assert_eq!(cs.get(0, 0), 999.0);
+        for (k, c) in laue.iter().enumerate() {
+            assert_eq!(cs.get(k + 1, 0) as u32, *c, "{file} phase {}", k + 1);
+        }
+        let eul = img.cell_data.get("EulerAngles").unwrap();
+        let ph = img.cell_data.get("Phases").unwrap();
+        for p in e["points"].as_array().unwrap() {
+            let (i, j) = (p["i"].as_u64().unwrap() as usize, p["j"].as_u64().unwrap() as usize);
+            let c = j * nx + i;
+            assert_eq!(ph.get(c, 0) as i64, p["phase"].as_i64().unwrap(), "{file} ({i}, {j})");
+            for k in 0..3 {
+                let w = p["euler"][k].as_f64().unwrap();
+                assert!((eul.get(c, k) - w).abs() < 2e-5, "{file} ({i}, {j}) angle {k}: {} vs {w}", eul.get(c, k));
+            }
+            if let Some(ci) = p.get("ci") {
+                assert!((img.cell_data.get("Confidence Index").unwrap().get(c, 0) - ci.as_f64().unwrap()).abs() < 1e-6);
+            }
+        }
+    }
+    // The hexagonal axes as stored: phi2 without the 30 degrees.
+    let o: aurafx_io::ReaderOptions = [("hexagonal_axes".to_string(), aurafx_io::ebsd::HEX_AS_STORED.to_string())].into();
+    let raw = match aurafx_io::with_options(&o, || read_file(td("ebsd/ti_map.ctf"))).unwrap() {
+        Loaded::Static(d) => d,
+        _ => panic!(),
+    };
+    let p = exp["ti_map.ctf"]["points"].as_array().unwrap().iter().find(|p| p["phase"] == 1).unwrap();
+    let c = p["j"].as_u64().unwrap() as usize * 70 + p["i"].as_u64().unwrap() as usize;
+    let want = (p["euler"][2].as_f64().unwrap() - 30f64.to_radians()).rem_euclid(std::f64::consts::TAU);
+    assert!((raw.cell_data().unwrap().get("EulerAngles").unwrap().get(c, 2) - want).abs() < 2e-5);
+    assert!(read_file(td("ebsd/ni_map.ang")).is_ok());
+}

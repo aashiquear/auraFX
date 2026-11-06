@@ -108,13 +108,14 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_f64().ok_or_else(|| PyValueError::new_err("line_width takes a number"))? as f32;
                 s.set_display(id, |d| d.line_width = v.max(0.1));
             }
-            "points_as_spheres" | "log_scale" | "lighting" | "scalar_bar" | "show_scalar_bar" if !is_param => {
+            "points_as_spheres" | "log_scale" | "lighting" | "scalar_bar" | "show_scalar_bar" | "direct_colors" if !is_param => {
                 let v = val.as_bool().ok_or_else(|| PyValueError::new_err(format!("{key} takes True or False")))?;
                 let k = key.clone();
                 s.set_display(id, |d| match k.as_str() {
                     "points_as_spheres" => d.points_as_spheres = v,
                     "log_scale" => d.log_scale = v,
                     "lighting" => d.lighting = v,
+                    "direct_colors" => d.direct_colors = v,
                     _ => d.show_scalar_bar = v,
                 });
             }

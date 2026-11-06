@@ -94,6 +94,9 @@ pub struct DisplayProps {
     /// `None` = automatic from data.
     pub range: Option<(f64, f64)>,
     pub log_scale: bool,
+    /// Arrays of 8-bit unsigned values with 3 or 4 components (RGB, RGBA) are drawn as their own
+    /// colors instead of through the color map (when coloring by the whole array).
+    pub direct_colors: bool,
     pub solid_color: [f32; 3],
     pub opacity: f32,
     pub point_size: f32,
@@ -169,6 +172,7 @@ impl Default for DisplayProps {
             colormap: "Viridis".into(),
             range: None,
             log_scale: false,
+            direct_colors: true,
             solid_color: [0.85, 0.85, 0.85],
             opacity: 1.0,
             point_size: 4.0,

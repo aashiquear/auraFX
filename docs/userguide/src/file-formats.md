@@ -432,9 +432,13 @@ What you get:
 | **Hyper Tree Grid Depth Limiter** | cuts every tree at a depth: cells at that depth become leaves (Depth 0 keeps only the root cells) |
 | **Hyper Tree Grid Generate Fields** | `CellSize` (volume, area or length of every cell), `ValidCell` (1 on visible leaves), `CellCenter`, and `TotalVisibleVolume` in the field data |
 | **Hyper Tree Grid To Dual Grid** | a point at the center of every visible leaf, with the leaf's values as point data, and a cell (voxel, pixel or line) joining the leaves around every corner. Use it for smooth contours and for filters that need point data. Points on the grid's boundary sit on the boundary; next to masked leaves they move as ParaView moves them |
+| **Hyper Tree Grid Geometry** | the outside of the visible leaves as polygons with their values: in 3-D the faces on the grid's boundary and the walls next to masked cells (a face of a masked cell next to a coarser visible leaf carries that leaf's values); in 2-D a quad per visible leaf, in 1-D a line |
+| **Hyper Tree Grid Feature Edges** | the edges of the visible region as lines with their leaves' values: the outline in 2-D, the outer corners and folds in 3-D |
 | **Hyper Tree Grid Evaluate Coarse** | fills the values of refined cells from their children: Min, Max, Sum, Average, Unmasked Average, Elder Child (the first child) or Splatting Average |
 
 ![A random 2-D hyper tree grid (a quadtree) drawn with its cell edges, colored by depth](images/hyper_tree_grid.png)
+
+![A random 3-D hyper tree grid with 40 % masked: its Geometry (see-through, colored by depth) shows the walls next to the masked cells, and its Feature Edges are the dark lines](images/htg_surface.png)
 
 ![A random 2-D hyper tree grid's leaves (gray lines) with its dual grid on top, colored by depth: large cells joining coarse leaves, small ones where the grid is refined](images/htg_dual.png)
 
@@ -447,6 +451,8 @@ top = h.hyper_tree_grid_depth_limiter(depth=2)
 leaves = afx.load("tree.htg").hyper_tree_grid_to_unstructured_grid()
 dual = h.hyper_tree_grid_to_dual_grid()
 holes = afx.random_hyper_tree_grid(seed=3, masked_fraction=0.25)
+walls = holes.hyper_tree_grid_geometry()
+edges = holes.hyper_tree_grid_feature_edges()
 h.save("tree.htg")
 ```
 
@@ -461,7 +467,9 @@ masked):
   without masks): every cell in ParaView's order, its type, where its points are and their
   values;
 - `.htg` files auraFX writes open in ParaView with the same cells, leaves and values, and read
-  back into auraFX unchanged.
+  back into auraFX unchanged;
+- Geometry and Feature Edges on eight grids (1-D, 2-D and 3-D, files and sources, masked and
+  not): every polygon and line in ParaView's order, its points and its values.
 
 ParaView's To Unstructured Grid leaves the `OriginalIds` of masked files partly unfilled (zeros
 at the end); auraFX gives every leaf its index. ParaView's To Dual Grid also keeps a point for
@@ -469,8 +477,8 @@ every coarse and masked cell, left at the origin and used by no cell; auraFX lea
 Axis Reflection filters in 6.0: Cell Centers works on hyper tree grids directly, and Axis
 Reflection is not provided.
 
-Not available yet: version 1 `.htg` files, HTG Geometry (drawing gives the same picture),
-Ghost Cells and Feature Edges.
+Not available yet: version 1 `.htg` files and material interfaces (interface normals and
+intercepts in Geometry). Ghost Cells only matters for data split across processes.
 
 ### Cell grids
 

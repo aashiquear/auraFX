@@ -1805,6 +1805,42 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "hyper_tree_grid_geometry",
+            label: "Hyper Tree Grid Geometry",
+            category: "Data",
+            description: "The outer surface of a hyper tree grid's visible leaves (and the walls next to masked cells), as polygons with the leaves' values.",
+            keywords: &["hyper tree grid", "htg", "surface", "geometry", "boundary"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| {
+                per_leaf(input.unwrap(), &|d| match d {
+                    DataSet::HyperTreeGrid(h) => Ok(DataSet::PolyData(crate::htg::geometry(h)?)),
+                    other => Err(anyhow::anyhow!("this filter needs a hyper tree grid, not {}", other.type_name())),
+                })
+            },
+        },
+        FilterDef {
+            id: "hyper_tree_grid_feature_edges",
+            label: "Hyper Tree Grid Feature Edges",
+            category: "Data",
+            description: "The edges of a hyper tree grid's visible region: its outline in 2-D, its corners and folds in 3-D, as lines with the leaves' values.",
+            keywords: &["hyper tree grid", "htg", "edges", "outline", "feature edges"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| {
+                per_leaf(input.unwrap(), &|d| match d {
+                    DataSet::HyperTreeGrid(h) => Ok(DataSet::PolyData(crate::htg::feature_edges(h)?)),
+                    other => Err(anyhow::anyhow!("this filter needs a hyper tree grid, not {}", other.type_name())),
+                })
+            },
+        },
+        FilterDef {
             id: "hyper_tree_grid_depth_limiter",
             label: "Hyper Tree Grid Depth Limiter",
             category: "Data",

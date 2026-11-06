@@ -1446,3 +1446,57 @@ fn resample_amr_matches_paraview() {
         }
     }
 }
+
+/// Hyper Tree Grid Geometry and Feature Edges against ParaView 6.1.1
+/// (testdata/htg/surface_reference.json from scripts/htg_surface_reference.py): every output
+/// cell in ParaView's order, its points and the Depth it carries, on ParaView's files and on
+/// 1-D, 2-D and 3-D sources with and without masks.
+#[test]
+fn hyper_tree_grid_surfaces_match_paraview() {
+    use serde_json::{json, Value};
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/surface_reference.json")).unwrap()).unwrap();
+    let source = |dims: [i64; 3], depth: i64, desc: &str, mask: Option<&str>| {
+        let mut p = vec![("dimensions", json!(dims)), ("max_depth", json!(depth)), ("descriptor", json!(desc))];
+        if let Some(m) = mask {
+            p.push(("use_mask", json!(true)));
+            p.push(("mask", json!(m)));
+        }
+        run("hyper_tree_grid", None, &p)
+    };
+    let random = |dims: [i64; 3], seed: i64, depth: i64, split: f64, frac: f64| {
+        run("random_hyper_tree_grid", None, &[("dimensions", json!(dims)), ("seed", json!(seed)), ("max_depth", json!(depth)), ("split_fraction", json!(split)), ("masked_fraction", json!(frac))])
+    };
+    let inputs: Vec<(&str, DataSet)> = vec![
+        ("tree3d.htg", td("htg/tree3d.htg")),
+        ("tree2d.htg", td("htg/tree2d.htg")),
+        ("tree3d_mask.htg", td("htg/tree3d_mask.htg")),
+        ("line", source([6, 1, 1], 3, "R.R.R | .R.... | ..", None)),
+        ("plane_mask", source([3, 3, 1], 3, "R.R. | .R...... | ....", Some("1111 | 01111111 | 1101"))),
+        ("box_mask2", source([3, 3, 3], 3, "R......R | .......R ........ | ........", Some("11101111 | 11111111 11011111 | 11111110"))),
+        ("random_mask3d", random([3, 3, 3], 5, 3, 0.5, 0.4)),
+        ("random_mask2d", random([5, 5, 1], 3, 3, 0.5, 0.4)),
+    ];
+    for (name, g) in inputs {
+        for (filter, id) in [("geometry", "hyper_tree_grid_geometry"), ("edges", "hyper_tree_grid_feature_edges")] {
+            let key = format!("{name}#{filter}");
+            let want = &reference[&key];
+            let DataSet::PolyData(p) = run(id, Some(&g), &[]) else { panic!("{key}") };
+            let cells = if p.polys.is_empty() { &p.lines } else { &p.polys };
+            let wc = want["cells"].as_array().unwrap();
+            assert_eq!(cells.len(), wc.len(), "{key}: cells");
+            assert_eq!(p.points.len() as u64, want["points"].as_u64().unwrap(), "{key}: points");
+            let depth = p.cell_data.get("Depth").unwrap_or_else(|| panic!("{key}: no Depth"));
+            for (c, w) in wc.iter().enumerate() {
+                let ids = cells.cell(c);
+                let wp = w[0].as_array().unwrap();
+                assert_eq!(ids.len(), wp.len(), "{key} cell {c}");
+                for (k, (&id, q)) in ids.iter().zip(wp).enumerate() {
+                    let q: Vec<f64> = q.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
+                    let g = p.points.get(id as usize);
+                    assert!((0..3).all(|a| (g[a] - q[a]).abs() < 1e-6 * (1.0 + q[a].abs())), "{key} cell {c} point {k}: {g:?} vs ParaView {q:?}");
+                }
+                assert_eq!(depth.get(c, 0), w[1].as_f64().unwrap(), "{key} cell {c} Depth");
+            }
+        }
+    }
+}

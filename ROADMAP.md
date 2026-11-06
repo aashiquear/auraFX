@@ -127,7 +127,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR (iteration 41), Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
 - [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
-- [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
+- [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source; iteration 44: Geometry, Feature Edges): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source): Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
@@ -865,8 +865,17 @@ with the reader option Data = Particles. Checked against ParaView 6.1.1's VisIt 
 the node-centered boxes and point sums, and every particle and property (its positions are
 single precision).
 
+Done in iteration 44: **Hyper Tree Grid Geometry and Feature Edges**. The neighbor lookup of the
+dual grid became a shared cursor (Moore and von Neumann neighborhoods as VTK's super cursors
+find them). Geometry: a line/quad per visible leaf in 1-D/2-D; in 3-D the faces of visible
+leaves next to the grid's boundary or masked cells and the faces of masked cells next to a
+coarser visible leaf, corners in VTK's edge-walk order, points shared within a cell. Feature
+Edges: VTK's rules (2-D outline; 3-D corner and fold tests on the three neighbors of each
+edge, masked-cell cases). Checked against ParaView 6.1.1 on eight grids: every cell in order,
+its points and values, point counts. Material interfaces and ghost cells not done.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

@@ -446,6 +446,7 @@ struct Neighbor {
     leaf: bool,
     /// The cell's size along x, y, z.
     size: [f64; 3],
+    masked: bool,
 }
 
 /// Leaves around each corner of a 3-D leaf, as indices into the 3x3x3 neighborhood (VTK's
@@ -461,6 +462,143 @@ const CORNER_NEIGHBORS_3D: [[usize; 8]; 8] = [
     [13, 14, 16, 17, 22, 23, 25, 26],
 ];
 
+/// A cell of a tree: tree, breadth-first vertex, level, lower corner on the lattice.
+#[derive(Clone, Copy)]
+struct Entry {
+    ti: usize,
+    v: usize,
+    level: usize,
+    lo: [i64; 3],
+}
+
+/// The neighbors of cells as VTK's hyper tree grid super cursors (Moore, von Neumann) see them.
+struct Cursors<'a> {
+    h: &'a HyperTreeGrid,
+    axes: Vec<usize>,
+    bf: i64,
+    nc: usize,
+    scale: i64,
+    cd: [usize; 3],
+    /// First child (breadth-first index) of each vertex, per tree.
+    first: Vec<Vec<usize>>,
+}
+
+impl<'a> Cursors<'a> {
+    fn new(h: &'a HyperTreeGrid) -> Self {
+        let bf = h.branch_factor.max(2) as i64;
+        let nc = h.children_per_vertex();
+        let first = h
+            .trees
+            .iter()
+            .map(|t| {
+                let Some(t) = t else { return Vec::new() };
+                let mut next = 1;
+                t.refined
+                    .iter()
+                    .map(|&r| {
+                        let f = next;
+                        if r {
+                            next += nc;
+                        }
+                        f
+                    })
+                    .collect()
+            })
+            .collect();
+        Cursors { h, axes: h.axes(), bf, nc, scale: bf.pow(h.max_depth() as u32), cd: h.cell_dims(), first }
+    }
+    fn refined_of(&self, e: &Entry) -> bool {
+        let t = self.h.trees[e.ti].as_ref().unwrap();
+        t.refined[e.v] && self.first[e.ti][e.v] + self.nc <= t.refined.len()
+    }
+    fn global_of(&self, e: &Entry) -> usize {
+        self.h.trees[e.ti].as_ref().unwrap().global[e.v]
+    }
+    fn root_entry(&self, x: [i64; 3]) -> Option<Entry> {
+        let mut ijk = [0usize; 3];
+        for &k in &self.axes {
+            if x[k] < 0 || (x[k] / self.scale) as usize >= self.cd[k] {
+                return None;
+            }
+            ijk[k] = (x[k] / self.scale) as usize;
+        }
+        let cd = self.cd;
+        let ti = if self.h.transposed { ijk[2] + cd[2] * (ijk[1] + cd[1] * ijk[0]) } else { ijk[0] + cd[0] * (ijk[1] + cd[1] * ijk[2]) };
+        self.h.trees.get(ti)?.as_ref().filter(|t| !t.refined.is_empty())?;
+        Some(Entry { ti, v: 0, level: 0, lo: std::array::from_fn(|k| ijk[k] as i64 * self.scale) })
+    }
+    fn child_containing(&self, e: &Entry, x: [i64; 3]) -> Entry {
+        let step = self.scale / self.bf.pow(e.level as u32 + 1);
+        let (mut c, mut mult) = (0usize, 1usize);
+        let mut lo = e.lo;
+        for &k in &self.axes {
+            let i = (x[k] - e.lo[k]) / step;
+            c += i as usize * mult;
+            mult *= self.bf as usize;
+            lo[k] += i * step;
+        }
+        Entry { ti: e.ti, v: self.first[e.ti][e.v] + c, level: e.level + 1, lo }
+    }
+    fn neighbor_of(&self, e: &Entry) -> Neighbor {
+        let ijk: [usize; 3] = std::array::from_fn(|k| (e.lo[k] / self.scale) as usize);
+        let f = (self.bf as f64).powi(e.level as i32);
+        let h = self.h;
+        let size = std::array::from_fn(|k| if self.axes.contains(&k) { (h.coords[k][ijk[k] + 1] - h.coords[k][ijk[k]]) / f } else { 0.0 });
+        let global = self.global_of(e);
+        Neighbor { global, level: e.level, leaf: !self.refined_of(e), size, masked: h.is_masked(global) }
+    }
+    /// The ancestors of the cell at `lattice` on `level`, from its root down.
+    fn chain(&self, lattice: [i64; 3], level: usize) -> Vec<Entry> {
+        let mut chain = vec![self.root_entry(lattice).expect("cell in a tree")];
+        while chain.len() <= level {
+            let last = *chain.last().unwrap();
+            chain.push(self.child_containing(&last, lattice));
+        }
+        chain
+    }
+    /// The cell at `x` next to the cell whose ancestors are `chain`, as VTK's super cursors find
+    /// it going down with the cell: a neighbor in the same parent comes from the parent (unless
+    /// the parent is masked); others come from the neighbor one level up, going down only
+    /// through refined, unmasked cells.
+    fn locate(&self, chain: &[Entry], x: [i64; 3]) -> Option<Neighbor> {
+        let (h, bf, scale) = (self.h, self.bf, self.scale);
+        let offset_zero = |k: usize| {
+            let s = scale / bf.pow(k as u32);
+            self.axes.iter().all(|&a| x[a].div_euclid(s) == chain[k].lo[a] / s)
+        };
+        let mut e: Option<Entry> = if offset_zero(0) { Some(chain[0]) } else { self.root_entry(x) };
+        for k in 1..chain.len() {
+            if offset_zero(k) {
+                e = Some(chain[k]);
+                continue;
+            }
+            e = if offset_zero(k - 1) {
+                let p = chain[k - 1];
+                Some(if self.refined_of(&p) && !h.is_masked(self.global_of(&p)) { self.child_containing(&p, x) } else { p })
+            } else {
+                e.map(|p| if p.level == k - 1 && self.refined_of(&p) && !h.is_masked(self.global_of(&p)) { self.child_containing(&p, x) } else { p })
+            };
+        }
+        e.map(|e| self.neighbor_of(&e))
+    }
+    /// The 3^d cells around a visited cell (the cell itself in the middle), x fastest over the
+    /// grid's axes, as VTK's Moore super cursor numbers them.
+    fn neighborhood(&self, v: &aurafx_data::htg::Visit) -> Vec<Option<Neighbor>> {
+        let chain = self.chain(v.lattice, v.depth);
+        let s = self.scale / self.bf.pow(v.depth as u32);
+        let n3 = 3usize.pow(self.axes.len() as u32);
+        (0..n3)
+            .map(|n| {
+                let mut lat = v.lattice;
+                for (a, &k) in self.axes.iter().enumerate() {
+                    lat[k] += ((n / 3usize.pow(a as u32)) % 3) as i64 * s - s;
+                }
+                self.locate(&chain, lat)
+            })
+            .collect()
+    }
+}
+
 /// Hyper Tree Grid To Dual Grid, as VTK's vtkHyperTreeGridToDualGrid: a point at the center of
 /// every visible leaf (moved onto the grid's boundary, and next to masked leaves, as VTK moves
 /// them) with the leaf's cell data, and a voxel (pixel, line) joining the leaves around every
@@ -473,96 +611,9 @@ pub fn dual_grid(h: &HyperTreeGrid) -> Result<UnstructuredGrid> {
     if dim == 0 {
         bail!("the hyper tree grid has no cells");
     }
-    let bf = h.branch_factor.max(2) as i64;
-    let nc = h.children_per_vertex();
-    let scale = bf.pow(h.max_depth() as u32);
-    let cd = h.cell_dims();
+    let cur = Cursors::new(h);
+
     let has_mask = h.mask.is_some();
-    let first: Vec<Vec<usize>> = h
-        .trees
-        .iter()
-        .map(|t| {
-            let Some(t) = t else { return Vec::new() };
-            let mut next = 1;
-            t.refined
-                .iter()
-                .map(|&r| {
-                    let f = next;
-                    if r {
-                        next += nc;
-                    }
-                    f
-                })
-                .collect()
-        })
-        .collect();
-    // A cell of a tree: tree, breadth-first vertex, level, lower corner on the lattice.
-    #[derive(Clone, Copy)]
-    struct Entry {
-        ti: usize,
-        v: usize,
-        level: usize,
-        lo: [i64; 3],
-    }
-    let refined_of = |e: &Entry| {
-        let t = h.trees[e.ti].as_ref().unwrap();
-        t.refined[e.v] && first[e.ti][e.v] + nc <= t.refined.len()
-    };
-    let global_of = |e: &Entry| h.trees[e.ti].as_ref().unwrap().global[e.v];
-    let root_entry = |x: [i64; 3]| -> Option<Entry> {
-        let mut ijk = [0usize; 3];
-        for &k in &axes {
-            if x[k] < 0 || (x[k] / scale) as usize >= cd[k] {
-                return None;
-            }
-            ijk[k] = (x[k] / scale) as usize;
-        }
-        let ti = if h.transposed { ijk[2] + cd[2] * (ijk[1] + cd[1] * ijk[0]) } else { ijk[0] + cd[0] * (ijk[1] + cd[1] * ijk[2]) };
-        h.trees.get(ti)?.as_ref().filter(|t| !t.refined.is_empty())?;
-        Some(Entry { ti, v: 0, level: 0, lo: std::array::from_fn(|k| ijk[k] as i64 * scale) })
-    };
-    let child_containing = |e: &Entry, x: [i64; 3]| -> Entry {
-        let step = scale / bf.pow(e.level as u32 + 1);
-        let (mut c, mut mult) = (0usize, 1usize);
-        let mut lo = e.lo;
-        for &k in &axes {
-            let i = (x[k] - e.lo[k]) / step;
-            c += i as usize * mult;
-            mult *= bf as usize;
-            lo[k] += i * step;
-        }
-        Entry { ti: e.ti, v: first[e.ti][e.v] + c, level: e.level + 1, lo }
-    };
-    let neighbor_of = |e: &Entry| -> Neighbor {
-        let ijk: [usize; 3] = std::array::from_fn(|k| (e.lo[k] / scale) as usize);
-        let f = (bf as f64).powi(e.level as i32);
-        let size = std::array::from_fn(|k| if axes.contains(&k) { (h.coords[k][ijk[k] + 1] - h.coords[k][ijk[k]]) / f } else { 0.0 });
-        Neighbor { global: global_of(e), level: e.level, leaf: !refined_of(e), size }
-    };
-    // The cell at `x` next to the leaf whose ancestors are `chain`, as VTK's Moore super cursor
-    // finds it going down with the leaf: a neighbor in the same parent comes from the parent
-    // (unless the parent is masked); others come from the neighbor one level up, going down
-    // only through refined, unmasked cells.
-    let locate = |chain: &[Entry], x: [i64; 3]| -> Option<Neighbor> {
-        let offset_zero = |k: usize| {
-            let s = scale / bf.pow(k as u32);
-            axes.iter().all(|&a| x[a].div_euclid(s) == chain[k].lo[a] / s)
-        };
-        let mut e: Option<Entry> = if offset_zero(0) { Some(chain[0]) } else { root_entry(x) };
-        for k in 1..chain.len() {
-            if offset_zero(k) {
-                e = Some(chain[k]);
-                continue;
-            }
-            e = if offset_zero(k - 1) {
-                let p = chain[k - 1];
-                Some(if refined_of(&p) && !h.is_masked(global_of(&p)) { child_containing(&p, x) } else { p })
-            } else {
-                e.map(|p| if p.level == k - 1 && refined_of(&p) && !h.is_masked(global_of(&p)) { child_containing(&p, x) } else { p })
-            };
-        }
-        e.map(|e| neighbor_of(&e))
-    };
     let n3 = 3usize.pow(dim as u32);
     let center = (n3 - 1) / 2;
     let mut points: HashMap<usize, [f64; 3]> = HashMap::new();
@@ -575,22 +626,7 @@ pub fn dual_grid(h: &HyperTreeGrid) -> Result<UnstructuredGrid> {
             return true;
         }
         let level = v.depth;
-        let s = scale / bf.pow(level as u32);
-        // The leaf's ancestors, from its root down.
-        let mut chain = vec![root_entry(v.lattice).expect("leaf in a tree")];
-        while chain.len() <= level {
-            let last = *chain.last().unwrap();
-            chain.push(child_containing(&last, v.lattice));
-        }
-        let nb: Vec<Option<Neighbor>> = (0..n3)
-            .map(|n| {
-                let mut lat = v.lattice;
-                for (a, &k) in axes.iter().enumerate() {
-                    lat[k] += ((n / 3usize.pow(a as u32)) % 3) as i64 * s - s;
-                }
-                locate(&chain, lat)
-            })
-            .collect();
+        let nb = cur.neighborhood(v);
         let has = |n: usize| nb[n].is_some();
         let leaf = |n: usize| nb[n].is_some_and(|x| x.leaf);
         let lev = |n: usize| nb[n].map(|x| x.level).unwrap_or(usize::MAX);
@@ -810,4 +846,175 @@ pub fn dual_grid(h: &HyperTreeGrid) -> Result<UnstructuredGrid> {
     let n_cells = h.cell_data.iter().map(|a| a.len()).min().unwrap_or(0);
     let point_data = if globals.last().is_none_or(|&g| g < n_cells) { h.cell_data.gather(&globals) } else { Attributes::new() };
     Ok(UnstructuredGrid { points: Points::new_f64(pts), cells: out, point_data, cell_data: Attributes::new(), field_data: h.field_data.clone() })
+}
+
+/// Polygonal output with cell data gathered from the grid's cells.
+fn surface_output(h: &HyperTreeGrid, pts: Vec<f64>, cells: Vec<Vec<u32>>, sources: Vec<usize>, lines: bool) -> PolyData {
+    let mut c = Cells::new();
+    for cell in &cells {
+        let ty = match (lines, cell.len()) {
+            (true, _) => CellType::Line,
+            (false, 4) => CellType::Quad,
+            _ => CellType::Polygon,
+        };
+        c.push(ty, cell);
+    }
+    let mut pd = PolyData { points: Points::new_f64(pts), ..Default::default() };
+    if lines {
+        pd.lines = c;
+    } else {
+        pd.polys = c;
+    }
+    let n = h.cell_data.iter().map(|a| a.len()).min().unwrap_or(0);
+    if sources.iter().all(|&g| g < n) {
+        pd.cell_data = h.cell_data.gather(&sources);
+    }
+    pd
+}
+
+/// The corners of a visited cell: bit 0 of the index steps along the first axis, bit 1 the
+/// second, bit 2 the third.
+fn corners(v: &aurafx_data::htg::Visit, axes: &[usize]) -> Vec<[f64; 3]> {
+    let n = 1usize << axes.len();
+    (0..n)
+        .map(|c| {
+            let mut p = v.origin;
+            for (b, &k) in axes.iter().enumerate() {
+                if c >> b & 1 == 1 {
+                    p[k] += v.size[k];
+                }
+            }
+            p
+        })
+        .collect()
+}
+
+/// Hyper Tree Grid Geometry, as VTK's vtkHyperTreeGridGeometry (without material interfaces):
+/// a line (1-D) or quad (2-D) per visible leaf; in 3-D the faces of visible leaves on the grid's
+/// boundary or next to masked cells, and the faces of masked cells next to a coarser visible
+/// leaf (carrying that leaf's values). Points are shared only within a cell, as in VTK.
+pub fn geometry(h: &HyperTreeGrid) -> Result<PolyData> {
+    let axes = h.axes();
+    let dim = axes.len();
+    if dim == 0 {
+        bail!("the hyper tree grid has no cells");
+    }
+    let (mut pts, mut cells, mut sources) = (Vec::new(), Vec::new(), Vec::new());
+    if dim < 3 {
+        h.walk(|v| {
+            if v.leaf && !v.masked {
+                let c = corners(v, &axes);
+                let order: &[usize] = if dim == 1 { &[0, 1] } else { &[0, 1, 3, 2] };
+                let base = (pts.len() / 3) as u32;
+                for &k in order {
+                    pts.extend_from_slice(&c[k]);
+                }
+                cells.push((0..order.len() as u32).map(|k| base + k).collect());
+                sources.push(v.global);
+            }
+            true
+        });
+        return Ok(surface_output(h, pts, cells, sources, dim == 1));
+    }
+    // Each face's corners in VTK's output order (it walks the face's edges).
+    const FACE_PTS: [[usize; 4]; 6] = [[0, 2, 3, 1], [0, 1, 5, 4], [0, 4, 6, 2], [1, 3, 7, 5], [2, 6, 7, 3], [4, 5, 7, 6]];
+    // Face neighbors (-z, -y, -x, +x, +y, +z) in the 3x3x3 neighborhood.
+    const FACE_NEIGHBOR: [usize; 6] = [4, 10, 12, 14, 16, 22];
+    let cur = Cursors::new(h);
+    h.walk(|v| {
+        if !v.leaf && !v.masked {
+            return true;
+        }
+        let nb = cur.neighborhood(v);
+        let c = corners(v, &axes);
+        let mut ids: [Option<u32>; 8] = [None; 8];
+        for (f, &n) in FACE_NEIGHBOR.iter().enumerate() {
+            let x = nb[n];
+            let emit = if !v.masked { x.is_none_or(|x| x.masked) } else { x.is_some_and(|x| x.leaf && x.level < v.depth && !x.masked) };
+            if !emit {
+                continue;
+            }
+            let face: Vec<u32> = FACE_PTS[f]
+                .iter()
+                .map(|&k| {
+                    *ids[k].get_or_insert_with(|| {
+                        pts.extend_from_slice(&c[k]);
+                        (pts.len() / 3 - 1) as u32
+                    })
+                })
+                .collect();
+            cells.push(face);
+            sources.push(if v.masked { x.unwrap().global } else { v.global });
+        }
+        true
+    });
+    Ok(surface_output(h, pts, cells, sources, false))
+}
+
+/// Hyper Tree Grid Feature Edges, as VTK's vtkHyperTreeGridFeatureEdges: the edges of the
+/// visible region (in 2-D the leaf edges where it ends; in 3-D the leaf edges on its outer
+/// corners and folds), each a line with its leaf's values, points not merged.
+pub fn feature_edges(h: &HyperTreeGrid) -> Result<PolyData> {
+    let axes = h.axes();
+    let dim = axes.len();
+    if dim == 0 {
+        bail!("the hyper tree grid has no cells");
+    }
+    let (mut pts, mut cells, mut sources) = (Vec::new(), Vec::new(), Vec::new());
+    let mut add = |a: [f64; 3], b: [f64; 3], src: usize, pts: &mut Vec<f64>| {
+        let base = (pts.len() / 3) as u32;
+        pts.extend_from_slice(&a);
+        pts.extend_from_slice(&b);
+        cells.push(vec![base, base + 1]);
+        sources.push(src);
+    };
+    if dim == 1 {
+        h.walk(|v| {
+            if v.leaf && !v.masked {
+                let c = corners(v, &axes);
+                add(c[0], c[1], v.global, &mut pts);
+            }
+            true
+        });
+        return Ok(surface_output(h, pts, cells, sources, true));
+    }
+    let cur = Cursors::new(h);
+    // 2-D: (-y, -x, +x, +y) neighbors and the edges facing them; corners 0 1 2 3 counter-clockwise.
+    const N2: [usize; 4] = [1, 3, 5, 7];
+    const E2: [[usize; 2]; 4] = [[0, 1], [0, 3], [1, 2], [2, 3]];
+    const E3: [[usize; 2]; 12] = [[0, 1], [2, 3], [0, 2], [1, 3], [4, 5], [6, 7], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const M3: [[usize; 3]; 12] = [[4, 1, 10], [4, 7, 16], [4, 3, 12], [4, 5, 14], [22, 19, 10], [22, 25, 16], [22, 21, 12], [22, 23, 14], [12, 9, 10], [14, 11, 10], [12, 15, 16], [14, 17, 16]];
+    h.walk(|v| {
+        if !v.leaf {
+            return true;
+        }
+        let nb = cur.neighborhood(v);
+        let visible = |n: usize| nb[n].is_some_and(|x| !x.masked);
+        let inf = |n: usize| visible(n) && nb[n].is_some_and(|x| x.level < v.depth);
+        let vleaf = |n: usize| visible(n) && nb[n].is_some_and(|x| x.leaf);
+        let c = corners(v, &axes);
+        if dim == 2 {
+            let quad = [c[0], c[1], c[3], c[2]];
+            for (e, &n) in N2.iter().enumerate() {
+                if (!v.masked && !visible(n)) || (v.masked && inf(n)) {
+                    add(quad[E2[e][0]], quad[E2[e][1]], v.global, &mut pts);
+                }
+            }
+        } else {
+            for (e, m) in M3.iter().enumerate() {
+                let [a, d, b] = *m;
+                let none = !visible(a) && !visible(d) && !visible(b);
+                let only_diag = !visible(a) && vleaf(d) && !visible(b);
+                let only_two = (!visible(a) && vleaf(d) && vleaf(b)) || (vleaf(a) && !visible(d) && vleaf(b)) || (vleaf(a) && vleaf(d) && !visible(b));
+                let only_one = (inf(a) && !visible(d) && !visible(b)) || (!visible(a) && inf(d) && !visible(b)) || (!visible(a) && !visible(d) && inf(b));
+                let two_except_diag = inf(a) && !visible(d) && inf(b);
+                let all = inf(a) && inf(d) && inf(b);
+                if (!v.masked && (none || only_diag || only_two)) || (v.masked && (only_one || two_except_diag || all)) {
+                    add(c[E3[e][0]], c[E3[e][1]], v.global, &mut pts);
+                }
+            }
+        }
+        true
+    });
+    Ok(surface_output(h, pts, cells, sources, true))
 }

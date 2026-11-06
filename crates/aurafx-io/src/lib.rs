@@ -11,8 +11,10 @@ pub mod cgns;
 pub mod cgns_writer;
 pub mod csv;
 pub mod ensight;
+pub mod enzo;
 pub mod ensight_writer;
 pub mod exodus;
+pub mod flash;
 pub mod exodus_writer;
 pub mod hdf5w;
 pub mod images;
@@ -59,6 +61,8 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vtm", "vtmb"], "VTK multi-block"),
         (&["vthb", "vth"], "VTK AMR (overlapping, hierarchical box)"),
         (&["htg"], "VTK hyper tree grid"),
+        (&["hierarchy", "boundary"], "Enzo AMR (open the .hierarchy file)"),
+        (&["hdf5", "h5"], "FLASH AMR (HDF5 plot and checkpoint files; also without an extension, e.g. run_hdf5_plt_cnt_0007)"),
         (&["dg"], "VTK cell grid (DG fields)"),
         (&["Header"], "AMReX / BoxLib plotfile (its Header file, or the folder)"),
         (&["pvd"], "ParaView data collection"),
@@ -147,6 +151,14 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     // AMReX plotfiles are directories (or their Header file).
     if amrex::plotfile_dir(path).is_some() {
         return Ok(Loaded::Static(Arc::new(amrex::read(path)?)));
+    }
+    // Enzo outputs by their hierarchy (or boundary) file; FLASH files by content (their names
+    // rarely have an extension).
+    if enzo::is_enzo(path) {
+        return Ok(Loaded::Static(Arc::new(enzo::read(path)?)));
+    }
+    if flash::is_flash(path) {
+        return Ok(Loaded::Static(Arc::new(flash::read(path)?)));
     }
     // VASP files are known by name (POSCAR, CHGCAR, ...).
     if molecular::is_vasp_name(path) {
@@ -267,6 +279,7 @@ pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
         "nc" | "nc4" | "cdf" | "netcdf" if cam::is_cam_file(path) => cam::options(path),
         "nc" | "nc4" | "cdf" | "netcdf" if !netcdf_cf::is_exodus(path) => netcdf_cf::options(path),
         "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" => vectors::options(path),
+        "hierarchy" | "boundary" => enzo::options(path),
         "json" if vectors::is_geojson(path) => vectors::options(path),
         _ => Vec::new(),
     }

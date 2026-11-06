@@ -1625,3 +1625,90 @@ fn amr_files_match_paraview() {
         }
     }
 }
+
+/// FLASH (FLASH 3 and FLASH 2 layouts) and Enzo AMR files against ParaView 6.1.1
+/// (testdata/amr/flash_enzo_reference.json from scripts/amr_files_reference.py; files from
+/// scripts/gen_amr_files.py): every level and block, its origin, spacing and dimensions, each
+/// cell array's type and sum, and the cells marked covered. The 2-D FLASH file, which ParaView
+/// cannot read, is checked against the values it was written with.
+#[test]
+fn flash_and_enzo_match_paraview() {
+    use aurafx_data::DataSet;
+    let reference: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(td("amr/flash_enzo_reference.json")).unwrap()).unwrap();
+    let read = |f: &str, opts: &[(&str, &str)]| -> DataSet {
+        let o: aurafx_io::ReaderOptions = opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        match aurafx_io::with_options(&o, || read_file(td(&format!("amr/{f}")))).unwrap_or_else(|e| panic!("{f}: {e:#}")) {
+            Loaded::Static(d) => (*d).clone(),
+            _ => panic!(),
+        }
+    };
+    for (key, want) in reference.as_object().unwrap() {
+        let (file, cgs) = match key.split_once('#') {
+            Some((f, _)) => (f, "true"),
+            None => (key.as_str(), "false"),
+        };
+        let d = read(file, &[("cgs", cgs)]);
+        let DataSet::MultiBlock(mb) = &d else { panic!("{key}: not AMR") };
+        let levels = want["levels"].as_array().unwrap();
+        assert_eq!(mb.blocks.len(), levels.len(), "{key}: levels");
+        for (l, (wl, (_, lev))) in levels.iter().zip(&mb.blocks).enumerate() {
+            let Some(DataSet::MultiBlock(lev)) = lev else { panic!("{key}: level {l}") };
+            let wl = wl.as_array().unwrap();
+            assert_eq!(lev.blocks.len(), wl.len(), "{key}: level {l} blocks");
+            for (b, (w, (_, img))) in wl.iter().zip(&lev.blocks).enumerate() {
+                let Some(DataSet::ImageData(img)) = img else { panic!("{key}: block {l}/{b}") };
+                let tag = format!("{key} level {l} block {b}");
+                let f3 = |v: &serde_json::Value| -> [f64; 3] { std::array::from_fn(|k| v[k].as_f64().unwrap()) };
+                assert_eq!(img.origin, f3(&w["origin"]), "{tag} origin");
+                assert_eq!(img.spacing, f3(&w["spacing"]), "{tag} spacing");
+                assert_eq!(img.dims().map(|x| x as f64), f3(&w["dims"]), "{tag} dims");
+                for (name, v) in w["arrays"].as_object().unwrap() {
+                    let a = img.cell_data.get(name).unwrap_or_else(|| panic!("{tag}: no {name}"));
+                    let (class, sum) = (v[0].as_str().unwrap(), v[1].as_f64().unwrap());
+                    if name == "vtkGhostType" {
+                        let covered = (0..a.len()).filter(|&i| a.get(i, 0) as u8 & 8 != 0).count();
+                        assert_eq!(covered as u64, w["covered"].as_u64().unwrap(), "{tag} covered cells");
+                        continue;
+                    }
+                    let want_ty = match class {
+                        "vtkDoubleArray" => aurafx_data::ScalarType::F64,
+                        "vtkFloatArray" => aurafx_data::ScalarType::F32,
+                        c => panic!("{c}"),
+                    };
+                    assert_eq!(a.scalar_type(), want_ty, "{tag} {name} type");
+                    let got: f64 = (0..a.len()).map(|i| a.get(i, 0)).sum();
+                    assert!((got - sum).abs() <= 1e-6 * (1.0 + sum.abs()), "{tag} {name}: {got} vs ParaView {sum}");
+                }
+            }
+        }
+    }
+    // FLASH 2-D (FLASH 2 layout, three levels): dens = 1 + x + 2y and temp = 100 + 10x - 5y at
+    // the cell centers, coarse cells under finer blocks covered.
+    let d = read("flash2d_hdf5_chk_0003", &[]);
+    let DataSet::MultiBlock(mb) = &d else { panic!() };
+    let mut covered = 0;
+    let mut n_blocks = vec![];
+    for (_, lev) in &mb.blocks {
+        let Some(DataSet::MultiBlock(lev)) = lev else { panic!() };
+        n_blocks.push(lev.blocks.len());
+        for (_, img) in &lev.blocks {
+            let Some(DataSet::ImageData(img)) = img else { panic!() };
+            assert_eq!(img.dims()[2], 1);
+            let (dens, temp) = (img.cell_data.get("dens").unwrap(), img.cell_data.get("temp").unwrap());
+            let nx = img.dims()[0] - 1;
+            for c in 0..dens.len() {
+                let (i, j) = (c % nx, c / nx);
+                let x = img.origin[0] + (i as f64 + 0.5) * img.spacing[0];
+                let y = img.origin[1] + (j as f64 + 0.5) * img.spacing[1];
+                assert!((dens.get(c, 0) - (1.0 + x + 2.0 * y)).abs() < 1e-12);
+                assert!((temp.get(c, 0) - (100.0 + 10.0 * x - 5.0 * y)).abs() < 1e-12);
+            }
+            let g = img.cell_data.get("vtkGhostType").unwrap();
+            covered += (0..g.len()).filter(|&i| g.get(i, 0) as u8 & 8 != 0).count();
+        }
+    }
+    assert_eq!(n_blocks, vec![1, 4, 4]);
+    // The root block is fully covered (64 cells); one level-1 block too (64 cells).
+    assert_eq!(covered, 128);
+    assert_eq!(d.field_data().get("TimeValue").unwrap().get(0, 0), 1.5);
+}

@@ -1,0 +1,1014 @@
+{
+ "flash3d_hdf5_plt_cnt_0007": {
+  "levels": [
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       160.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       49.6469466338923
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -12.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       512.0
+      ]
+     },
+     "covered": 64
+    },
+    {
+     "origin": [
+      0.5,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       192.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       54.40712833298045
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -4.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       112.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       30.000254352930433
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -7.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       128.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       62.19493679779447
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -5.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.0,
+      0.25,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       144.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       24.613824801638593
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -5.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       160.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       48.926126155196144
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       1.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       160.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       46.00025435293043
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -23.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.0,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       176.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       78.19493679779447
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -21.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.0,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       192.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       40.61382480163859
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -21.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       208.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       64.92612615519613
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -15.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ]
+  ]
+ },
+ "flash3d_ffv7_hdf5_chk_0007": {
+  "levels": [
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       160.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       49.6469466338923
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -12.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       512.0
+      ]
+     },
+     "covered": 64
+    },
+    {
+     "origin": [
+      0.5,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       192.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       54.40712833298045
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -4.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       112.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       30.000254352930433
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -7.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       128.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       62.19493679779447
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -5.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.0,
+      0.25,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       144.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       24.613824801638593
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -5.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       160.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       48.926126155196144
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       1.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       160.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       46.00025435293043
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -23.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.0,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       176.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       78.19493679779447
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -21.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.0,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       192.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       40.61382480163859
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -21.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "dens": [
+       "vtkDoubleArray",
+       208.0
+      ],
+      "pres": [
+       "vtkDoubleArray",
+       64.92612615519613
+      ],
+      "velx": [
+       "vtkDoubleArray",
+       -15.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ]
+  ]
+ },
+ "enzo/DD0003/data0003.hierarchy": {
+  "levels": [
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      9,
+      9,
+      9
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       1194.0
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       640.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       224.0
+      ]
+     },
+     "covered": 28
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      9,
+      5,
+      5
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       290.625
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       146.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       128.0
+      ]
+     },
+     "covered": 16
+    },
+    {
+     "origin": [
+      0.5,
+      0.625,
+      0.5
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      7,
+      5,
+      5
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       250.46875
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       159.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.375,
+      0.3125,
+      0.3125
+     ],
+     "spacing": [
+      0.03125,
+      0.03125,
+      0.03125
+     ],
+     "dims": [
+      9,
+      5,
+      5
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       288.65625
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       146.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ]
+  ]
+ },
+ "enzo/DD0003/data0003.hierarchy#cgs": {
+  "levels": [
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      9,
+      9,
+      9
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       2985.0
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       640.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       224.0
+      ]
+     },
+     "covered": 28
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      9,
+      5,
+      5
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       726.5625
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       146.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       128.0
+      ]
+     },
+     "covered": 16
+    },
+    {
+     "origin": [
+      0.5,
+      0.625,
+      0.5
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      7,
+      5,
+      5
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       626.171875
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       159.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.375,
+      0.3125,
+      0.3125
+     ],
+     "spacing": [
+      0.03125,
+      0.03125,
+      0.03125
+     ],
+     "dims": [
+      9,
+      5,
+      5
+     ],
+     "arrays": {
+      "Density": [
+       "vtkFloatArray",
+       721.640625
+      ],
+      "TotalEnergy": [
+       "vtkFloatArray",
+       146.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ]
+  ]
+ }
+}

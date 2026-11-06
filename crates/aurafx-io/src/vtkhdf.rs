@@ -31,7 +31,7 @@ fn attr_f64s(g: &Group, name: &str) -> Option<Vec<f64>> {
 }
 
 /// A dataset's values in their stored type, and its shape.
-fn read(ds: &Dataset) -> Result<(ArrayData, Vec<usize>)> {
+pub(crate) fn read(ds: &Dataset) -> Result<(ArrayData, Vec<usize>)> {
     let shape: Vec<usize> = ds.shape().iter().map(|&s| s as usize).collect();
     macro_rules! get {
         ($t:ty, $v:ident) => {

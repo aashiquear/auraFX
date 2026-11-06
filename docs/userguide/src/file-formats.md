@@ -10,7 +10,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | Exodus II | `.e .exo .ex2 .g .gen` | NetCDF-3 and NetCDF-4; blocks, side and node sets, nodal/element/global variables, time steps, displacements |
 | VTK legacy | `.vtk` | ASCII and binary, all dataset types |
 | VTK XML | `.vtu .vtp .vti .vtr .vts .vtt`, parallel `.pvtu …`, `.vtm`, `.pvd` | inline, appended, base64; zlib and LZ4; curved (Lagrange/Bezier) cells |
-| AMR (adaptive mesh refinement) | VTK `.vthb .vth`, AMReX/BoxLib plotfiles (the folder, or its `Header`) | levels of boxes with cell data; coarse cells under finer boxes are left out; see below |
+| AMR (adaptive mesh refinement) | VTK `.vthb .vth`, AMReX/BoxLib plotfiles (the folder, or its `Header`), FLASH HDF5 files, Enzo (`.hierarchy`) | levels of boxes with cell data; coarse cells under finer boxes are left out; see below |
 | Hyper tree grids | VTK `.htg` (XML version 2) | trees of refined cells; drawn as their leaves; see below |
 | Cell grids (discontinuous Galerkin fields) | VTK `.dg` | cells whose fields are polynomials; drawn with the fields at the corners; see below |
 | VTKHDF | `.vtkhdf .hdf` | image data, unstructured grids, poly data, partitioned collections with their assembly, time steps; chunked and gzip storage; no HDF5 library needed |
@@ -248,13 +248,24 @@ Not read yet: MapInfo, file geodatabases, and curved geometry (arcs). Shapefile 
 
 ### AMR data (adaptive mesh refinement)
 
-AMR simulations (AMReX, BoxLib, Castro, MAESTRO, Nyx, WarpX…) store their domain as levels of
-boxes: a coarse level everywhere and finer boxes where more detail was needed. auraFX reads:
+AMR simulations (AMReX, BoxLib, Castro, MAESTRO, Nyx, WarpX, FLASH, Enzo…) store their domain
+as levels of boxes: a coarse level everywhere and finer boxes where more detail was needed.
+auraFX reads:
 
 - **AMReX / BoxLib plotfiles**: a folder like `plt00100` with a `Header` file. Open the
   `Header` file in **File › Open** (choose "All files"), drop the folder on the window, or
   `afx.load("plt00100")`.
 - **VTK AMR files** (`.vthb`, `.vth`), as ParaView writes them.
+- **FLASH** plot and checkpoint files (`name_hdf5_plt_cnt_0007`, `name_hdf5_chk_0003`; HDF5,
+  FLASH 2 to 4). They usually have no extension: open them in **File › Open** with "All
+  files"; auraFX recognizes them by their contents. Every block of the PARAMESH tree becomes
+  a box on its refinement level (FLASH's level 1 is auraFX's Level 0), with every variable in
+  `unknown names` as cell data in double precision. 1-D, 2-D and 3-D files are read.
+- **Enzo** output: open the `.hierarchy` file of a data dump (`DD0010/data0010.hierarchy`). The
+  parameter file (`data0010`) and the grid files (`data0010.cpu0000`...) must be beside it.
+  Each grid is a box on its level; fields keep their stored type (usually single precision).
+  Reader option **Convert to CGS** multiplies each field by its `#DataCGSConversionFactor`
+  from the parameter file. It is off by default, as in ParaView. Particles are not read yet.
 
 What you get:
 - One block per level (**Level 0**, **Level 1**, ...), each holding that level's boxes as image
@@ -265,8 +276,8 @@ What you get:
 - AMReX vector variables written as `amrexvec_<name>_x`, `_y`, `_z` become one vector
   `<name>`. In 2-D files the missing z is 0. ParaView puts the file's first variable there
   instead.
-- The plotfile's time is in the field data (`TimeValue`). Single- and double-precision
-  plotfiles are read.
+- The time of the plotfile or dump is in the field data (`TimeValue`). Single- and
+  double-precision files are read.
 - **Outline** draws the outline of every box, which shows where the refinement is.
 - Contours of cell data are stitched across levels (see below).
 
@@ -278,7 +289,12 @@ amr.set(representation="Outline")          # where the refinement is
 s = amr.slice(normal=(0, 0, 1))            # finest data on the cut
 s.set(color_by="density")
 lev = amr.overlapping_amr_level_ids()      # LevelIdScalars: each cell's level
+flash = afx.load("sedov_hdf5_plt_cnt_0010")  # FLASH
+enzo = afx.load("DD0010/data0010.hierarchy")  # Enzo
+enzo.set(cgs=True)                         # fields in CGS units
 ```
+
+![A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way](images/flash_enzo.png)
 
 **Sources › AMR Gaussian Pulse** makes ParaView's small AMR test dataset: a coarse box and
 two finer boxes holding a Gaussian pulse, in 2-D or 3-D. **Filters › Overlapping AMR Level
@@ -286,9 +302,14 @@ Ids** adds the cell array `LevelIdScalars` with each cell's level.
 
 Checked against ParaView 6.1.1: the AMR Gaussian Pulse source (cells, values, covered cells),
 the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
-(`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), and on the AMR data
+(`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), the FLASH reader
+(FLASH 3 and FLASH 2 layouts) and the Enzo reader (with and without Convert to CGS) on test
+files (`scripts/gen_amr_files.py`; every block's origin, spacing, size, array types and sums
+and covered cells), and on the AMR data
 Integrate Variables (the volume counts each place once), slices, Threshold, Extract Surface,
-Cell Data to Point Data and Resample To Image.
+Cell Data to Point Data and Resample To Image. ParaView 6.1.1 cannot read 2-D FLASH files
+(it reports "Inconsistent types of vtkCartesianGrid", and crashes with several levels); auraFX
+reads them, checked against the values the test file was written with.
 
 #### Contours of AMR data
 

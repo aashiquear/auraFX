@@ -78,7 +78,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38); other GDAL rasters, MapInfo, file geodatabases, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
-- [ ] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR, AMReX plotfiles.
+- [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), AMReX plotfiles (iteration 32); Chombo, particles todo.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
 - [ ] Point clouds: LAS/LAZ (PDAL), PTS, H5Part.
 - [ ] CAD: STEP, IGES (via OpenCASCADE feature), VRML, Alembic, USD, OpenVDB.
@@ -819,8 +819,21 @@ reader, deflate via flate2, then the KML reader). Checked against ParaView 6.1.1
 files written by GDAL (including 300 features with a three-level index); GML (3.2 and 2) and
 KMZ, which ParaView's GDAL cannot read (no XML parser), against the same data as GeoJSON.
 
+Done in iteration 39: **FLASH and Enzo AMR readers**. FLASH HDF5 plot/checkpoint files (FLASH 2
+and FLASH 3/4 layouts: file format version from the dataset or "sim info", nxb/nyb/nzb from
+"simulation parameters" or "integer scalars", blocks from gid, bounding box and refine level,
+every variable in "unknown names" as doubles; recognized by content since the names have no
+extension) and Enzo dumps (parameter file, `.hierarchy` parsed token by token as VTK does,
+`GridNNNNNNNN` groups in the HDF5 grid files, the field names of the grid with the fewest cells,
+stored types kept, reader option Convert to CGS from `#DataCGSConversionFactor`). Both become
+overlapping AMR with covered cells hidden. Checked against ParaView 6.1.1 on files written by
+scripts/gen_amr_files.py (FLASH 3 and FLASH 2 layouts of a 3-D grid; Enzo with three levels,
+with and without CGS): every block's origin, spacing, size, array types and sums, covered
+cells. ParaView 6.1.1 cannot read 2-D FLASH files ("Inconsistent types of vtkCartesianGrid",
+segfault with several levels); the 2-D file is checked against its analytic values.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters and Resample AMR; Chombo reader, FLASH/Enzo particles; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

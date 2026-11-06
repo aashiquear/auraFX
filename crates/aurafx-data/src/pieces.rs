@@ -14,6 +14,8 @@ pub fn split(ds: &DataSet, k: usize, n: usize) -> DataSet {
         return ds.clone();
     }
     match ds {
+        // Cell grids are not split.
+        DataSet::CellGrid(_) => ds.clone(),
         // A hyper tree grid splits by trees (cell data stays indexed globally).
         DataSet::HyperTreeGrid(h) => {
             let t = h.trees.len();

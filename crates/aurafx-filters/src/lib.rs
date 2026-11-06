@@ -12,6 +12,7 @@ pub mod analysis;
 pub mod append;
 pub mod attributes;
 pub mod calculator;
+pub mod cellgrid;
 pub mod clip;
 pub mod contour;
 pub mod edges;

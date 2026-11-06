@@ -6,6 +6,7 @@
 pub(crate) mod adf;
 pub mod amrex;
 pub mod cam;
+pub mod cellgrid;
 pub mod cgns;
 pub mod cgns_writer;
 pub mod csv;
@@ -58,6 +59,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vtm", "vtmb"], "VTK multi-block"),
         (&["vthb", "vth"], "VTK AMR (overlapping, hierarchical box)"),
         (&["htg"], "VTK hyper tree grid"),
+        (&["dg"], "VTK cell grid (DG fields)"),
         (&["Header"], "AMReX / BoxLib plotfile (its Header file, or the folder)"),
         (&["pvd"], "ParaView data collection"),
         (&["dump", "lammpstrj", "dump.gz", "lammpstrj.gz"], "LAMMPS dump"),
@@ -200,6 +202,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "nc" | "nc4" | "cdf" | "netcdf" => netcdf_cf::open(path)?,
         "cube" => Loaded::Static(Arc::new(molecular::read_cube(path)?)),
         "cml" => Loaded::Static(Arc::new(molecular::read_cml(path)?)),
+        "dg" => Loaded::Static(Arc::new(cellgrid::read(path)?)),
         "dat" | "plt" | "szplt" if tecplot::is_binary(path) => Loaded::Static(Arc::new(tecplot::read_binary(path)?)),
         "dat" | "plt" if tecplot::sniff(path) => Loaded::Static(Arc::new(tecplot::read(path)?)),
         "szplt" => bail!("{}: Tecplot SZL (.szplt) files are not supported; save as .plt or ASCII", path.display()),

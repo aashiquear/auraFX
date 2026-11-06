@@ -449,6 +449,7 @@ pub fn read_bytes(bytes: &[u8], path: &Path) -> Result<DataSet> {
             DataSet::Table(d) => d.field_data = fd,
             DataSet::MultiBlock(d) => d.field_data = fd,
             DataSet::HyperTreeGrid(d) => d.field_data = fd,
+            DataSet::CellGrid(d) => d.field_data = fd,
         }
     }
     Ok(ds)

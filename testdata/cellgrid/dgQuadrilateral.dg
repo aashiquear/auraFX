@@ -1,0 +1,177 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 6,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0,  0,  0,
+          1,  0,  0,
+          0,  1,  0,
+          1,  1,  0,
+          1,  1,  1,
+          1,  0,  1
+        ]
+      }
+    ],
+    "point-data": [
+      {
+        "name": "scalar3",
+        "tuples": 6,
+        "components": 1,
+        "type": "double",
+        "data": [
+          0, 1, 0, 1, 2, 2
+        ]
+      }
+    ],
+    "vtkDGQuad": [
+      {
+        "name": "conn",
+        "tuples": 2,
+        "components": 4,
+        "default_scalars": true,
+        "type": "vtktypeint64",
+        "data": [
+          0,  1,  3,  2,
+          1,  5,  4,  3
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0,
+          1, 1, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 3, 2, 1,
+          0, 0, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 0, 0, 1,
+          2, 2, 2, 1
+        ]
+      }
+    ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "cell-info": {
+        "vtkDGQuad": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar0",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGQuad": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGQuad", "scalar0" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGQuad": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGQuad", "scalar1" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar2",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGQuad": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGQuad", "scalar2" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar3",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGQuad": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGQuad",
+      "cell-spec": { "connectivity": [ "vtkDGQuad", "conn" ], "shape": "quadrilateral" }
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 3,     "//d.": "A version number for the file's content (key/value data)."
+}

@@ -1153,3 +1153,79 @@ fn molecule_bonds_match_paraview() {
     assert_eq!(bonds(&b), with_extra);
     assert_eq!(b.cell_data().unwrap().get("bond_order").unwrap().len(), 20 + 19);
 }
+
+/// Cell grids against ParaView 6.1.1 (testdata/cellgrid: VTK's DG test files; reference in
+/// paraview_reference.json from scripts/cellgrid_reference.py): To Unstructured Grid (every
+/// corner point and value, HGRAD/HCURL/HDIV), Centers, Elevation and the Cell Grid source.
+#[test]
+fn cell_grids_match_paraview() {
+    use serde_json::{json, Value};
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/paraview_reference.json")).unwrap()).unwrap();
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-9 * (1.0 + b.abs());
+    for (file, want) in reference.as_object().unwrap() {
+        let g = td(&format!("cellgrid/{file}"));
+        assert!(matches!(g, DataSet::CellGrid(_)), "{file}");
+        let ug = run("cell_grid_to_unstructured_grid", Some(&g), &[]);
+        assert_eq!(ug.n_cells() as u64, want["ug"]["cells"].as_u64().unwrap(), "{file} cells");
+        let pts = ug.points().unwrap();
+        let wpts = want["ug"]["points"].as_array().unwrap();
+        // ParaView also lists the higher-order nodes of quadratic cells; compare at the corners.
+        let mut matched = 0;
+        for (wi, wp) in wpts.iter().enumerate() {
+            let wp: Vec<f64> = wp.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
+            let Some(i) = (0..pts.len()).find(|&i| (0..3).all(|k| close(pts.get(i)[k], wp[k]))) else { continue };
+            matched += 1;
+            for (name, vals) in want["ug"]["arrays"].as_object().unwrap() {
+                let a = ug.point_data().unwrap().get(name).unwrap_or_else(|| panic!("{file}: no {name}"));
+                let wv: Vec<f64> = vals[wi].as_array().unwrap().iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect();
+                for (c, &w) in wv.iter().enumerate() {
+                    // ParaView keeps some files' values in single precision.
+                    if w.is_finite() {
+                        assert!((a.get(i, c) - w).abs() <= 1e-6 * (1.0 + w.abs()), "{file} {name} at {wp:?}: {} vs ParaView {w}", a.get(i, c));
+                    }
+                }
+            }
+        }
+        assert_eq!(matched, pts.len(), "{file}: every corner point is one of ParaView's");
+        // Centers (ParaView's are garbage on the mixed-type file).
+        if file != "dgMixed.dg" {
+            let c = run("cell_grid_centers", Some(&g), &[]);
+            let cp = c.points().unwrap();
+            let wc = want["centers"]["points"].as_array().unwrap();
+            assert_eq!(cp.len(), wc.len(), "{file} centers");
+            for (i, w) in wc.iter().enumerate() {
+                let w: Vec<f64> = w.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
+                assert!((0..3).all(|k| (cp.get(i)[k] - w[k]).abs() < 1e-9), "{file} center {i}: {:?} vs {w:?}", cp.get(i));
+                for (name, vals) in want["centers"]["arrays"].as_object().unwrap() {
+                    let a = c.point_data().unwrap().get(name).unwrap();
+                    for (k, w) in vals[i].as_array().unwrap().iter().enumerate() {
+                        let w = w.as_f64().unwrap();
+                        assert!((a.get(i, k) - w).abs() < 1e-6 * (1.0 + w.abs()), "{file} center {i} {name}: {} vs {w}", a.get(i, k));
+                    }
+                }
+            }
+        }
+        // Elevation along z: the z coordinate at every corner.
+        let e = run("cell_grid_elevation", Some(&g), &[]);
+        let eu = run("cell_grid_to_unstructured_grid", Some(&e), &[]);
+        let ea = eu.point_data().unwrap().get("Elevation").unwrap();
+        let ep = eu.points().unwrap();
+        for i in 0..ep.len() {
+            assert!((ea.get(i, 0) - ep.get(i)[2]).abs() < 1e-12, "{file} elevation");
+        }
+    }
+    // The source's 3-D cells (ParaView: sums of the corner values).
+    for (ty, hcurl, hdiv) in [("Hexahedron", [2.0, 0.0, 0.0], [0.0, -4.0, 0.0]), ("Tetrahedron", [4.0, 2.0, 2.0], [1.0, -3.0, 1.0])] {
+        let s = run("cell_grid", None, &[("cell_type", json!(ty))]);
+        let u = run("cell_grid_to_unstructured_grid", Some(&s), &[]);
+        let sum = |name: &str, c: usize| -> f64 {
+            let a = u.point_data().unwrap().get(name).unwrap();
+            (0..a.len()).map(|i| a.get(i, c)).sum()
+        };
+        for c in 0..3 {
+            assert!(close(sum("hcurl", c), hcurl[c]), "{ty} hcurl {c}: {}", sum("hcurl", c));
+            assert!(close(sum("hdiv", c), hdiv[c]), "{ty} hdiv {c}: {}", sum("hdiv", c));
+        }
+        assert!(close(sum("hgrad", 0), 1.0));
+    }
+}

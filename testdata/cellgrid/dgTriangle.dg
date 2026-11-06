@@ -1,0 +1,175 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 4,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0,  0,  0,
+          1,  0,  0,
+          0,  1,  0,
+          0.5, 0.5, 0.5
+        ]
+      }
+    ],
+    "point-data": [
+      {
+        "name": "scalar3",
+        "tuples": 4,
+        "components": 1,
+        "type": "double",
+        "data": [
+          0, 1, 1, 2
+        ]
+      }
+    ],
+    "vtkDGTri": [
+      {
+        "name": "conn",
+        "tuples": 2,
+        "components": 3,
+        "type": "vtktypeint64",
+        "data": [
+          0,  1,  2,
+          1,  2,  3
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 2,
+        "components": 3,
+        "type": "double",
+        "data": [
+          0, 0, 0,
+          1, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 2,
+        "components": 3,
+        "type": "double",
+        "data": [
+          0, 3, 2,
+          0, 0, 1
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 2,
+        "components": 3,
+        "type": "double",
+        "data": [
+          0, 0, 1,
+          1, 2, 2
+        ]
+      }
+    ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "cell-info": {
+        "vtkDGTri": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGTri", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar0",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTri": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTri", "scalar0" ],
+            "connectivity": [ "vtkDGTri", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar1",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTri": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTri", "scalar1" ],
+            "connectivity": [ "vtkDGTri", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar2",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTri": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTri", "scalar2" ],
+            "connectivity": [ "vtkDGTri", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar3",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTri": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGTri", "conn" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGTri",
+      "cell-spec": { "connectivity": [ "vtkDGTri", "conn" ], "offset": 0, "blanked": false, "shape": "triangle" },
+      "side-specs": []
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 3,     "//d.": "A version number for the file's content (key/value data)."
+}

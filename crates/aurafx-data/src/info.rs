@@ -57,6 +57,15 @@ fn arrays(a: &Attributes) -> Vec<ArrayInfo> {
 
 impl DataSetInfo {
     pub fn of(ds: &DataSet) -> Self {
+        // A cell grid is described by its cells with the fields at their corners (what is drawn
+        // and colored), under its own name.
+        if let DataSet::CellGrid(g) = ds {
+            let mut info = Self::of(&DataSet::UnstructuredGrid(g.to_unstructured()));
+            let types: Vec<&str> = g.cell_types.keys().map(|k| k.trim_start_matches("vtkDG")).collect();
+            info.kind = format!("Cell Grid ({}; {} fields)", types.join(", "), g.attributes.iter().filter(|a| !a.shape).count());
+            info.n_cells = g.n_cells();
+            return info;
+        }
         let (pa, ca) = match ds {
             DataSet::MultiBlock(m) => {
                 // Arrays present in the first leaf, with ranges merged over every leaf that has them.

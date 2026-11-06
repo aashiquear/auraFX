@@ -82,6 +82,11 @@ impl FilterDef {
                 leaves = DataSet::UnstructuredGrid(h.leaves_mesh().0);
                 Some(&leaves)
             }
+            // Cell grids too, as their cells with the values at the corners.
+            Some(DataSet::CellGrid(g)) if !self.id.starts_with("cell_grid") => {
+                leaves = DataSet::UnstructuredGrid(g.to_unstructured());
+                Some(&leaves)
+            }
             other => other,
         };
         if let Some(e) = &self.ext {
@@ -106,11 +111,12 @@ impl FilterDef {
     pub fn run_multi(&self, inputs: &[&DataSet], params: &Params) -> Result<DataSet> {
         let converted: Vec<DataSet>;
         let refs: Vec<&DataSet>;
-        let inputs: &[&DataSet] = if !self.id.starts_with("hyper_tree_grid") && inputs.iter().any(|d| matches!(d, DataSet::HyperTreeGrid(_))) {
+        let inputs: &[&DataSet] = if inputs.iter().any(|d| matches!(d, DataSet::HyperTreeGrid(_) | DataSet::CellGrid(_))) {
             converted = inputs
                 .iter()
                 .map(|d| match d {
                     DataSet::HyperTreeGrid(h) => DataSet::UnstructuredGrid(h.leaves_mesh().0),
+                    DataSet::CellGrid(g) => DataSet::UnstructuredGrid(g.to_unstructured()),
                     d => (*d).clone(),
                 })
                 .collect();
@@ -248,6 +254,9 @@ fn comp(p: &Params) -> Option<usize> {
 
 /// Pick a sensible default array when the user did not choose one.
 pub fn default_array(ds: &DataSet, want_vector: bool) -> Option<(Association, String)> {
+    if let DataSet::CellGrid(g) = ds {
+        return default_array(&DataSet::UnstructuredGrid(g.to_unstructured()), want_vector);
+    }
     let pick = |a: &Attributes| -> Option<String> {
         if want_vector {
             return a.vectors().map(|x| x.name.clone());
@@ -1817,6 +1826,54 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "cell_grid_to_unstructured_grid",
+            label: "Cell Grid To Unstructured Grid",
+            category: "Data",
+            description: "A cell grid as ordinary cells, its fields evaluated at the corners (averaged where cells meet).",
+            keywords: &["cell grid", "dg", "convert", "unstructured"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::cellgrid::to_unstructured(d)?))),
+        },
+        FilterDef {
+            id: "cell_grid_centers",
+            label: "Cell Grid Centers",
+            category: "Data",
+            description: "A point at the center of every cell of a cell grid, with its fields evaluated there.",
+            keywords: &["cell grid", "dg", "centers", "centroids"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::cellgrid::centers(d)?))),
+        },
+        FilterDef {
+            id: "cell_grid_elevation",
+            label: "Cell Grid Elevation",
+            category: "Data",
+            description: "A field on a cell grid: the distance along an axis from an origin (or from the origin).",
+            keywords: &["cell grid", "dg", "elevation", "height"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("name", "Name", "Elevation"),
+                v3("origin", "Origin", [0.0; 3]),
+                v3("axis", "Axis", [0.0, 0.0, 1.0]),
+                choice("distance", "Distance", &["Planar distance", "Spherical distance"], "Planar distance"),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    crate::cellgrid::elevation(d, &p.str("name"), p.vec3("origin", [0.0; 3]), p.vec3("axis", [0.0, 0.0, 1.0]), p.str("distance") == "Spherical distance")
+                })
+            },
+        },
+        FilterDef {
             id: "overlapping_amr_level_ids",
             label: "Overlapping AMR Level Ids",
             category: "Data",
@@ -2267,6 +2324,19 @@ fn build() -> Vec<FilterDef> {
                 let b: [f64; 6] = if b.len() == 6 { std::array::from_fn(|k| b[k]) } else { [-10.0, 10.0, -10.0, 10.0, -10.0, 10.0] };
                 Ok(DataSet::HyperTreeGrid(crate::htg::random(d, b, p.i64("seed", 0) as i32, p.i64("max_depth", 5).max(0) as usize, p.f64("split_fraction", 0.5))?))
             },
+        },
+        FilterDef {
+            id: "cell_grid",
+            label: "Cell Grid",
+            category: "Sources",
+            description: "One cell of a discontinuous-Galerkin cell grid with test fields (ParaView's Cell Grid Source).",
+            keywords: &["cell grid", "dg", "discontinuous galerkin", "hcurl", "hdiv", "hgrad", "test data"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![choice("cell_type", "Cell type", &crate::cellgrid::CELL_TYPES, "Hexahedron")],
+            apply: |_, p| crate::cellgrid::source(&p.str("cell_type")),
         },
         FilterDef {
             id: "wavelet",

@@ -1,0 +1,180 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 7,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0,    0,    0,
+          1,    0,    0,
+          1,    1,    0,
+          0,    1,    0,
+          0.5,  0.5,  1,
+          1,    0,    1,
+          1,    1,    1
+        ]
+      }
+    ],
+    "point-data": [
+      {
+        "name": "scalar3",
+        "tuples": 7,
+        "components": 1,
+        "type": "double",
+        "data": [
+          0, 1, 1, 0,
+          1,
+          2, 2
+        ]
+      }
+    ],
+    "vtkDGPyr": [
+      {
+        "name": "conn",
+        "tuples": 2,
+        "components": 5,
+        "default_scalars": true,
+        "type": "vtktypeint64",
+        "data": [
+          0,  1,  2,  3,  4,
+          1,  5,  6,  2,  4
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 2,
+        "components": 5,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0, 0,
+          1, 1, 1, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 2,
+        "components": 5,
+        "type": "double",
+        "data": [
+          0, 3, 2, 1, 0,
+          0, 0, 1, 1, 3
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 2,
+        "components": 5,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0, 1,
+          2, 2, 2, 2, 1
+        ]
+      }
+    ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "cell-info": {
+        "vtkDGPyr": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGPyr", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar0",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGPyr": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGPyr", "scalar0" ],
+            "connectivity": [ "vtkDGPyr", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGPyr": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGPyr", "scalar1" ],
+            "connectivity": [ "vtkDGPyr", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar2",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGPyr": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGPyr", "scalar2" ],
+            "connectivity": [ "vtkDGPyr", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar3",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGPyr": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGPyr", "conn" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGPyr",
+      "cell-spec": { "connectivity": [ "vtkDGPyr", "conn" ], "shape": "pyramid" }
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 1,     "//d.": "A version number for the file's content (key/value data)."
+}

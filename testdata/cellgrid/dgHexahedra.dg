@@ -1,0 +1,264 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 12,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0.25, 0.25, 0,
+          1,    0,    0,
+          1,    1,    0,
+          0,    1,    0.25,
+          0,    0,    1,
+          1,    0,    1,
+          1.25, 1,    1,
+          0,    1,    1,
+          2,    0,    1,
+          2,    0,    0,
+          2,    1,    0,
+          2,    1.25, 1
+        ]
+      }
+    ],
+    "point-data": [
+      {
+        "name": "scalar3",
+        "tuples": 12,
+        "components": 1,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0,
+          2, 2, 2, 2,
+          1, 1, 1, 1
+        ]
+      }
+    ],
+    "vtkDGHex": [
+      {
+        "name": "conn",
+        "tuples": 2,
+        "components": 8,
+        "default_scalars": true,
+        "type": "vtktypeint64",
+        "data": [
+          0,  1,  2,  3,  4,  5,  6,  7,
+          1,  9, 10,  2,  5,  8, 11,  6
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 2,
+        "components": 8,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0, 0, 0, 0, 0,
+          1, 1, 1, 1, 1, 1, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 2,
+        "components": 8,
+        "type": "double",
+        "data": [
+          0, 3, 2, 1, 3, 0, 1, 2,
+          0, 0, 1, 1, 3, 3, 2, 2
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 2,
+        "components": 8,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0, 1, 1, 1, 1,
+          2, 2, 2, 2, 3, 3, 3, 3
+        ]
+      },
+
+      {
+        "name": "quadratic",
+        "tuples": 2,
+        "components": 20,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0, 2, 2, 2, 2, 1, 1, 1, 1, 3, 3, 3, 3, 1, 1, 1, 1,
+          4, 4, 4, 4, 6, 6, 6, 6, 5, 5, 5, 5, 3, 3, 3, 3, 5, 5, 5, 5
+        ]
+      },
+
+      {
+        "name": "curl1",
+        "tuples": 2,
+        "components": 12,
+        "type": "double",
+        "data": [
+          1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ]
+      },
+
+      {
+        "name": "div1",
+        "tuples": 2,
+        "components": 6,
+        "type": "double",
+        "data": [
+          1, 0, 0, 0, 0, 0,
+          0, 1, 0, 0, 0, 0
+        ]
+      }
+    ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "cell-info": {
+        "vtkDGHex": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGHex", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar0",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGHex": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGHex", "scalar0" ],
+            "connectivity": [ "vtkDGHex", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar1",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGHex": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGHex", "scalar1" ],
+            "connectivity": [ "vtkDGHex", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar2",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGHex": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGHex", "scalar2" ],
+            "connectivity": [ "vtkDGHex", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar3",
+      "space": "ℝ",
+      "components": 1,
+      "cell-info": {
+        "vtkDGHex": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGHex", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "quadratic",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGHex": {
+          "function-space": "HGRAD",
+          "basis": "I",
+          "order": 2,
+          "arrays": {
+            "values": [ "vtkDGHex", "quadratic" ],
+            "connectivity": [ "vtkDGHex", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "curl1",
+      "space": "ℝ³",
+      "components": 3,
+      "cell-info": {
+        "vtkDGHex": {
+          "function-space": "HCURL",
+          "basis": "I",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGHex", "curl1" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "div1",
+      "space": "ℝ³",
+      "components": 3,
+      "cell-info": {
+        "vtkDGHex": {
+          "function-space": "HDIV",
+          "basis": "I",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGHex", "div1" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGHex",
+      "cell-spec": { "connectivity": [ "vtkDGHex", "conn" ], "shape": "hexahedron" }
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 3,     "//d.": "A version number for the file's content (key/value data)."
+}

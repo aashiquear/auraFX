@@ -405,6 +405,10 @@ fn emit_points(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal: Op
 
 /// Build renderable geometry for a dataset.
 pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
+    // Cell grids are drawn as their cells with the fields at the corners.
+    if let DataSet::CellGrid(g) = ds {
+        return tessellate(&DataSet::UnstructuredGrid(g.to_unstructured()), display);
+    }
     let bounds = ds.bounds();
     let origin = if bounds.is_empty() { [0.0; 3] } else { bounds.center() };
     let mut mesh = MeshData { bounds, origin, ..Default::default() };

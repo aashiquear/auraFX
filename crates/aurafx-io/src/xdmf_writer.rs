@@ -99,6 +99,9 @@ impl Writer {
         if let DataSet::HyperTreeGrid(h) = ds {
             return self.grid(&DataSet::UnstructuredGrid(h.leaves_mesh().0), name, h5, time, indent, skipped);
         }
+        if let DataSet::CellGrid(g) = ds {
+            return self.grid(&DataSet::UnstructuredGrid(g.to_unstructured()), name, h5, time, indent, skipped);
+        }
         if let DataSet::MultiBlock(mb) = ds {
             self.line(indent, &format!("<Grid Name=\"{}\" GridType=\"Collection\" CollectionType=\"Spatial\">", esc(name)));
             if let Some(t) = time {
@@ -188,7 +191,7 @@ impl Writer {
                 return Ok(());
             }
             DataSet::Table(_) | DataSet::MultiBlock(_) => bail!("tables cannot be written as Xdmf"),
-            DataSet::HyperTreeGrid(_) => unreachable!("converted above"),
+            DataSet::HyperTreeGrid(_) | DataSet::CellGrid(_) => unreachable!("converted above"),
         };
         self.attributes(i2, h5, pd, cd, None);
         self.line(indent, "</Grid>");

@@ -22,6 +22,7 @@ Small files are committed. Larger ones are ignored by git and can be recreated:
 | `amr/pulse.vthb`, `amr/pulse2d.vthb` (+ folders) | ParaView 6.1.1's AMR Gaussian Pulse source (3-D and 2-D) saved with its XMLUniformGridAMRWriter, committed |
 | `amr/plt_3d`, `amr/plt_2d`, `amr/plt_3d_f32` | `python3 scripts/gen_amrex.py`: AMReX plotfiles with two levels (two coarse boxes, one finer), scalar and `amrexvec_` vector variables, double and single precision; ParaView reference values in `amr_files_match_paraview`, committed |
 | `htg/tree3d.htg`, `htg/tree2d.htg`, `htg/tree3d_mask.htg` | ParaView 6.1.1's Hyper Tree Grid source (3-D branch factor 2; 2-D branch factor 3; 3-D with a mask) saved with its HyperTreeGridWriter (XML version 2); the descriptors are in `hyper_tree_grids_match_paraview`, committed |
+| `cellgrid/*.dg` | VTK's DG test files (VTK ExternalData, Testing/Data/dg*.dg; BSD): edges, hexahedra, mixed types, 19-node pyramid, pyramids, quadratic quadrilaterals, quadrilaterals, tetrahedra, triangles, wedges; `cellgrid/paraview_reference.json` from `pvpython scripts/cellgrid_reference.py` holds ParaView 6.1.1's To Unstructured Grid and Cell Grid Centers output, committed |
 | `molecules/test.cml` | `python3 scripts/gen_cml.py`: a 20-atom test molecule (benzene ring with Cl, NH2, SH; water with a sodium ion; a lone bromine) with bonds and orders; ParaView reference bonds in `molecule_bonds_match_paraview`, committed |
 
 Tests that need a missing file skip themselves.

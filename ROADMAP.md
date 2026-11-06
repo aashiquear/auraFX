@@ -36,7 +36,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Typed arrays: i8..i64, u8..u64, f32, f64, with N components; string arrays.
 - [x] Attribute sets: point data, cell data, field data; active scalars/vectors/normals/tcoords/tensors; global IDs; ghost arrays.
 - [x] Datasets: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`, `UnstructuredGrid`, `Table`, `PointCloud`/particles.
-- [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid`.
+- [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid` (DG cells: HGRAD/HCURL/HDIV/constant fields on eight shapes; read from `.dg`, drawn at the corners; Centers, Elevation, source).
 - [x] Cell types: all VTK linear types (vertex, line, polyline, tri, quad, polygon, tet, hex, wedge, pyramid, pentagonal/hexagonal prism, polyhedron).
 - [x] Higher-order: Lagrange and Bezier cells of any order (curve, triangle, quad, tet, hex, wedge; per-cell `HigherOrderDegrees`, rational Bezier weights) and quadratic cells (complete, serendipity 8/20/15-node, quadratic-linear, cubic line), drawn curved and cut/integrated through their nodes like VTK (checked against ParaView 6.1.1). Pyramids (quadratic, Lagrange, Bezier) are still cut through their corners only.
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
@@ -781,8 +781,24 @@ orders) and the bond sets for absolute and relative tolerances. Protocol 9 (disp
 and hyper tree grids changed the wire format). Cell grids were moved after molecules: the
 .dg format needs VTK's DG cell framework (HGRAD/HCURL/HDIV bases on eight shapes).
 
+Done in iteration 36: **cell grids**. A new dataset type (`aurafx_data::cellgrid::CellGrid`:
+array groups, DG cell types, cell attributes with function space, basis, order and DOF
+sharing) read from VTK `.dg` files (also the ones VTK's writer saves with empty role names).
+The 52 basis and gradient functions (HGRAD C1/C2/I2/F2, HCURL I1, HDIV I1, constant on eight
+shapes) are translated from VTK's generated headers by `scripts/gen_dg_basis.py`
+(`aurafx_data::dg_basis`); edge fields are mapped by the inverse transposed Jacobian, face
+fields by J/det J. The grid is drawn, listed and filtered as its linear cells with every field
+evaluated at the corners and averaged where cells meet (cached in the grid). Filters: Cell
+Grid To Unstructured Grid, Cell Grid Centers, Cell Grid Elevation; the Cell Grid source.
+Checked against ParaView 6.1.1 on VTK's ten DG test files: every corner point and value
+(HGRAD, HCURL, HDIV), the centers and their values, elevation, the source's fields.
+Differences: quadratic cells become linear cells through the corners (ParaView keeps the extra
+nodes but evaluates them at parametric (0,0,0)); flat cells' Jacobians are completed with the
+unit normal (ParaView: NaN/undefined for face/edge fields); Centers on mixed types gives every
+cell (ParaView one point). Protocol 10.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG To Dual Grid / Geometry / writer / masking random source, cell grids (.dg, DG bases)
+(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG To Dual Grid / Geometry / writer / masking random source, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

@@ -1,0 +1,97 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 19,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0   ,  0   ,  0,
+         12   ,  0   ,  0,
+         12   , 12   ,  0,
+          0   , 12   ,  0,
+          6   ,  6   , 12,
+
+          6   ,  0.25,  0,
+          12  ,  6.25,  0,
+          6   , 12.75,  0,
+          0   ,  6   ,  0,
+          3.25,  3.25,  6,
+          9   ,  3.25,  6,
+          9   ,  9.25,  6,
+          3   ,  9.25,  6,
+
+          6   ,  3   ,  6,
+          9.25,  6.25,  6.25,
+          6   ,  9   ,  6,
+          3   ,  6   ,  6,
+          6   ,  6   ,  0,
+
+          6   ,  6   ,  6
+        ]
+      }
+    ],
+
+    "point-data": [
+      { "name": "scalar3", "tuples": 19, "components": 1, "type": "double",
+        "data": [ 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 1 ] } ],
+
+    "vtkDGPyr": [
+      { "name": "conn", "tuples": 1, "components": 19, "type": "vtktypeint64",
+        "data": [ 2, 3, 0, 1, 4,    7, 8, 5, 6,  11, 12, 9, 10,    17, 15, 16, 13, 14,   18 ] } ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "cell-info": {
+        "vtkDGPyr": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 2,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGPyr", "conn" ]
+          }
+        }
+      }
+    },
+
+    {
+      "name": "scalar3",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGPyr": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 2,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGPyr", "conn" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGPyr",
+      "cell-spec": { "connectivity": [ "vtkDGPyr", "conn" ], "shape": "pyramid" }
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 3,     "//d.": "A version number for the file's content (key/value data)."
+}

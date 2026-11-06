@@ -450,6 +450,9 @@ fn dataset_node(ds: &DataSet) -> Result<Node> {
     if let DataSet::HyperTreeGrid(h) = ds {
         return dataset_node(&DataSet::UnstructuredGrid(h.leaves_mesh().0));
     }
+    if let DataSet::CellGrid(g) = ds {
+        return dataset_node(&DataSet::UnstructuredGrid(g.to_unstructured()));
+    }
     match ds {
         DataSet::ImageData(im) => {
             g.attr("Type", AttrValue::Str("ImageData".into()));
@@ -505,7 +508,7 @@ fn dataset_node(ds: &DataSet) -> Result<Node> {
         }
         DataSet::MultiBlock(_) => bail!("internal: collections are written by write_vtkhdf"),
         DataSet::Table(_) => bail!("tables can't be written to VTKHDF"),
-        DataSet::HyperTreeGrid(_) => unreachable!("converted above"),
+        DataSet::HyperTreeGrid(_) | DataSet::CellGrid(_) => unreachable!("converted above"),
     }
     Ok(g)
 }

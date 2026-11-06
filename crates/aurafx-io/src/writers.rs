@@ -17,6 +17,7 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
         DataSet::MultiBlock(_) => vec![("vtm", "VTK multiblock (folder of pieces)")],
         DataSet::Table(_) => vec![],
         DataSet::HyperTreeGrid(_) => vec![("vtu", "VTK unstructured grid (the leaves)")],
+        DataSet::CellGrid(_) => vec![("vtu", "VTK unstructured grid (values at the corners)")],
     };
     if !matches!(ds, DataSet::MultiBlock(_) | DataSet::Table(_)) {
         v.push(("vtk", "Legacy VTK"));
@@ -36,6 +37,9 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
     // Hyper tree grids are written as their visible leaves (an unstructured grid).
     if let DataSet::HyperTreeGrid(h) = ds {
         return write_file(&DataSet::UnstructuredGrid(h.leaves_mesh().0), path);
+    }
+    if let DataSet::CellGrid(g) = ds {
+        return write_file(&DataSet::UnstructuredGrid(g.to_unstructured()), path);
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let r = match ext.as_str() {
@@ -174,6 +178,7 @@ pub fn write_xml(ds: &DataSet, path: &Path) -> Result<()> {
     let mut body = String::new();
     let ty = match ds {
         DataSet::HyperTreeGrid(h) => return write_xml(&DataSet::UnstructuredGrid(h.leaves_mesh().0), path),
+        DataSet::CellGrid(g) => return write_xml(&DataSet::UnstructuredGrid(g.to_unstructured()), path),
         DataSet::UnstructuredGrid(u) => {
             body += &format!("  <UnstructuredGrid>\n    <Piece NumberOfPoints=\"{}\" NumberOfCells=\"{}\">\n", u.points.len(), u.cells.len());
             attributes(&mut body, &mut app, "PointData", &u.point_data);

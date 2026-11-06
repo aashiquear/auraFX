@@ -72,6 +72,7 @@ impl PyData {
                 DataSet::PolyData(d) => Some(&mut d.field_data),
                 DataSet::MultiBlock(d) => Some(&mut d.field_data),
                 DataSet::HyperTreeGrid(d) => Some(&mut d.field_data),
+                DataSet::CellGrid(d) => Some(&mut d.field_data),
                 DataSet::Table(_) => None,
             },
         }

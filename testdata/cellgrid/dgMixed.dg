@@ -1,0 +1,276 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 7,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0,  0,  0,
+          1,  0,  0,
+          0,  1,  0,
+          0.5, 0.5, 0.5,
+          1,  1,  0,
+          -1, 0,  0,
+          -1, 1,  0
+        ]
+      }
+    ],
+    "point-data": [
+      {
+        "name": "scalar3",
+        "tuples": 7,
+        "components": 1,
+        "type": "double",
+        "data": [
+          0, 1, 1, 2, 1, 0, 1
+        ]
+      }
+    ],
+
+    "vtkDGQuad": [
+      {
+        "name": "conn",
+        "tuples": 1,
+        "components": 4,
+        "default_scalars": true,
+        "type": "vtktypeint64",
+        "data": [
+          0,  2, 6, 5
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 1,
+        "components": 4,
+        "type": "double",
+        "data": [
+          2, 2, 2, 2
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 1,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 3, 2, 1
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 1,
+        "components": 4,
+        "type": "double",
+        "data": [
+          2, 2, 2, 1
+        ]
+      }
+    ],
+
+    "vtkDGTet": [
+      {
+        "name": "conn",
+        "tuples": 2,
+        "components": 4,
+        "type": "vtktypeint64",
+        "data": [
+          0,  1,  2,  3,
+          1,  4,  2,  3
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0,
+          1, 1, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 3, 2, 1,
+          0, 0, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 0, 0, 1,
+          2, 2, 2, 1
+        ]
+      }
+    ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "cell-info": {
+        "vtkDGTet": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        },
+        "vtkDGQuad": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar0",
+      "type": "DG HGRAD C1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTet", "scalar0" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        },
+        "vtkDGQuad": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGQuad", "scalar0" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar1",
+      "type": "DG HGRAD C1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTet", "scalar1" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        },
+        "vtkDGQuad": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGQuad", "scalar1" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar2",
+      "type": "DG HGRAD C1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTet", "scalar2" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        },
+        "vtkDGQuad": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGQuad", "scalar2" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar3",
+      "type": "CG HGRAD C1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        },
+        "vtkDGQuad": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGQuad", "conn" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGTet",
+      "cell-spec": { "connectivity": [ "vtkDGTet", "conn" ], "shape": "tetrahedral", "offset": 0 }
+    },
+    {
+      "type": "vtkDGQuad",
+      "cell-spec": { "connectivity": [ "vtkDGQuad", "conn" ], "shape": "quadrilateral" }
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 1,     "//d.": "A version number for the file's content (key/value data)."
+}

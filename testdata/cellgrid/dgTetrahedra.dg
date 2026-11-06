@@ -1,0 +1,237 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 5,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0,  0,  0,
+          1,  0,  0,
+          0,  1,  0,
+          0.5, 0.5, 0.5,
+          1,  1,  0
+        ]
+      }
+    ],
+    "point-data": [
+      {
+        "name": "scalar3",
+        "tuples": 5,
+        "components": 1,
+        "type": "double",
+        "data": [
+          0, 1, 1, 2, 1
+        ]
+      }
+    ],
+    "vtkDGTet": [
+      {
+        "name": "conn",
+        "tuples": 2,
+        "components": 4,
+        "default_scalars": true,
+        "type": "vtktypeint64",
+        "data": [
+          0,  1,  2,  3,
+          1,  4,  2,  3
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0,
+          1, 1, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 3, 2, 1,
+          0, 0, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 0, 0, 1,
+          2, 2, 2, 1
+        ]
+      }
+    ],
+    "triangle sides of vtkDGTet": [
+     {
+        "name": "div1",
+        "tuples": 2,
+        "components": 4,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0,
+          1, 1, 1, 1
+        ]
+     }
+    ],
+    "edge sides of vtkDGTet": [
+     {
+        "name": "curl1",
+        "tuples": 2,
+        "components": 6,
+        "type": "double",
+        "data": [
+          1, 1, 1, 0, 0, 0,
+          1, 1, 1, 1, 1, 1
+        ]
+     }
+    ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "range": {
+        "L₂": { "max": 1.4142135623730951, "min": 0.0 },
+        "L₁": { "max": 1.0, "min": 0.0 },
+        "0": { "max": 1.0, "min": 0.0 },
+        "1": { "max": 1.0, "min": 0.0 },
+        "2": { "max": 0.5, "min": 0.0 }
+      },
+      "cell-info": {
+        "vtkDGTet": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "div1",
+      "space": "ℝ³",
+      "components": 3,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HDIV",
+          "basis": "I",
+          "order": 1,
+          "arrays": {
+            "values": [ "triangle sides of vtkDGTet", "div1" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "curl1",
+      "space": "ℝ³",
+      "components": 3,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HCURL",
+          "basis": "I",
+          "order": 1,
+          "arrays": {
+            "values": [ "edge sides of vtkDGTet", "curl1" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar0",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTet", "scalar0" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTet", "scalar1" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar2",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGTet", "scalar2" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar3",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGTet": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGTet", "conn" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGTet",
+      "cell-spec": { "connectivity": [ "vtkDGTet", "conn" ], "shape": "tetrahedron" }
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 3,     "//d.": "A version number for the file's content (key/value data)."
+}

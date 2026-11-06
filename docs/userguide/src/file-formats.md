@@ -12,6 +12,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | VTK XML | `.vtu .vtp .vti .vtr .vts .vtt`, parallel `.pvtu …`, `.vtm`, `.pvd` | inline, appended, base64; zlib and LZ4; curved (Lagrange/Bezier) cells |
 | AMR (adaptive mesh refinement) | VTK `.vthb .vth`, AMReX/BoxLib plotfiles (the folder, or its `Header`) | levels of boxes with cell data; coarse cells under finer boxes are left out; see below |
 | Hyper tree grids | VTK `.htg` (XML version 2) | trees of refined cells; drawn as their leaves; see below |
+| Cell grids (discontinuous Galerkin fields) | VTK `.dg` | cells whose fields are polynomials; drawn with the fields at the corners; see below |
 | VTKHDF | `.vtkhdf .hdf` | image data, unstructured grids, poly data, partitioned collections with their assembly, time steps; chunked and gzip storage; no HDF5 library needed |
 | OpenFOAM | `.foam` | ASCII/binary/gzip, decomposed and reconstructed cases, time directories, boundary patches |
 | EnSight Gold | `.case .encas` | ASCII and C binary, all element types, structured blocks, time sets, wildcard file names |
@@ -372,6 +373,82 @@ Reflection is not provided.
 
 Not available yet: writing `.htg`, version 1 `.htg` files, HTG To Dual Grid, HTG Geometry
 (drawing gives the same picture), Ghost Cells and Feature Edges.
+
+### Cell grids
+
+A *cell grid* holds cells whose fields are polynomials rather than one value per point or
+cell. Simulation codes using finite elements of the discontinuous Galerkin (DG) kind write
+fields this way. On each cell a field is a sum of basis functions, each times a coefficient
+stored in the file. A field can jump from one cell to the next. It is VTK's newest data type
+(ParaView 5.13 and later). auraFX reads VTK's `.dg` files (JSON).
+
+Cells can be hexahedra, tetrahedra, wedges, pyramids, quadrilaterals, triangles, edges and
+vertices. Fields can be:
+- **nodal** (values at the corners, linear or quadratic; quadratic cells also have nodes on
+  their edges, faces and middle), either shared between cells or kept per cell;
+- **edge** fields (the H(curl) kind, for electric fields: their tangential part is continuous
+  across faces);
+- **face** fields (the H(div) kind, for fluxes: their normal part is continuous across faces);
+- **constant** fields, one value per cell.
+
+Edge and face fields are turned from the cell's own coordinates into space with the cell's
+shape (its Jacobian), as in VTK. The cells' shape can itself be quadratic (curved).
+
+What you get:
+- The grid is drawn as its cells with every field evaluated at the corners. Where cells meet,
+  a field that jumps between them is averaged. Color by, the Spreadsheet, picking and every
+  other filter see that mesh.
+- **Information** names the cell types and the number of fields.
+- Saving writes that mesh as an unstructured grid (`.vtu` and the other formats). `.dg` files
+  cannot be written yet.
+
+**Source** (Sources › Cell Grid): one cell of a chosen **Cell type** with test fields, as
+ParaView's source makes it: `hgrad` (1, 0, 0 at the first corner, 0 elsewhere), and on
+hexahedra, tetrahedra, wedges, quadrilaterals and triangles `hcurl` and `hdiv` (an edge and a
+face field whose first coefficient is 1). A vertex gets a `constant` field.
+
+**Filters** (Filters › Data):
+
+| Filter | What it does |
+|---|---|
+| **Cell Grid To Unstructured Grid** | the cells with the fields at their corners (what is drawn); corners at the same place become one point |
+| **Cell Grid Centers** | a point at the center of every cell with every field evaluated there (exact, not averaged) |
+| **Cell Grid Elevation** | adds a field: the distance from **Origin** along **Axis** (or, with Spherical distance, from Origin) |
+
+![VTK's two-hexahedron cell grid, see-through and colored by a field, with its cell centers as spheres colored by an edge field](images/cell_grid.png)
+
+```python
+g = afx.load("dgHexahedra.dg")
+g.set(color_by="scalar2", representation="Surface With Edges")
+centers = g.cell_grid_centers()
+centers.set(color_by="curl1", points_as_spheres=True)
+height = g.cell_grid_elevation(axis=(0, 0, 1))
+cell = afx.cell_grid(cell_type="Tetrahedron")
+mesh = g.cell_grid_to_unstructured_grid()
+```
+
+Checked against ParaView 6.1.1 on VTK's ten DG test files (hexahedra, tetrahedra, wedges,
+pyramids including 19-node ones, quadrilaterals, quadratic quadrilaterals, triangles, edges,
+mixed types):
+- every corner point and every field there after To Unstructured Grid, edge and face fields
+  included;
+- Cell Grid Centers (positions and values);
+- Elevation, and the source's edge and face fields.
+
+Where auraFX differs from ParaView:
+- ParaView keeps the extra nodes of quadratic cells as points, but evaluates the fields there
+  at one fixed point of the cell (the center of a hexahedron, a corner of a tetrahedron)
+  instead of at the node, and draws the cell as if it were linear.
+  auraFX makes linear cells through the corners only.
+- On quadrilaterals and triangles, ParaView's edge fields read undefined memory and its face
+  fields come out NaN, because the flat cell's Jacobian is singular. auraFX completes it with
+  the cell's unit normal, so both are in the cell's plane.
+- ParaView's Cell Grid Centers gives one point for a file with several cell types; auraFX
+  gives one per cell.
+
+Not available yet: writing `.dg`, and the other cell grid filters (Compute Cell Grid Sides,
+Cell Grid Transform, Cell Grid Range, the Cell Grid Copy and Point Probe filters). Slicing or
+clipping works on the corner mesh, so curved cells come out straight.
 
 ## Writers
 

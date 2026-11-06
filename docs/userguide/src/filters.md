@@ -46,7 +46,8 @@ Rename Array, Pass Arrays, and OpenFOAM Boundary Patches.
 Cloud, Wavelet (a test volume), Spatio Temporal Harmonics (a test volume of waves with its own
 time steps), AMR Gaussian Pulse (a small [AMR](file-formats.md#amr-data-adaptive-mesh-refinement)
 dataset), Hyper Tree Grid and Random Hyper Tree Grid
-([hyper tree grids](file-formats.md#hyper-tree-grids)) and Unstructured Cell Types (one of every
+([hyper tree grids](file-formats.md#hyper-tree-grids)), Cell Grid (one
+[DG cell](file-formats.md#cell-grids) with test fields) and Unstructured Cell Types (one of every
 cell type, for tests).
 
 ## Textures and made-up data

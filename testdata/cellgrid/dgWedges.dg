@@ -1,0 +1,181 @@
+{
+  "data-type": "cell-grid",
+  "arrays": {
+    "coordinates": [
+      {
+        "name": "dg points",
+        "tuples": 8,
+        "components": 3,
+        "default_vectors": true,
+        "type": "double",
+        "data": [
+          0,    0,    0,
+          1,    0,    0,
+          0,    1,    0,
+          0,    0,    1,
+          1,    0,    1,
+          0,    1,    1,
+          1,    1,    0,
+          1,    1,    1
+        ]
+      }
+    ],
+    "point-data": [
+      {
+        "name": "scalar3",
+        "tuples": 8,
+        "components": 1,
+        "type": "double",
+        "data": [
+          0, 1, 2,
+          0, 1, 2,
+          3, 3
+        ]
+      }
+    ],
+    "vtkDGWdg": [
+      {
+        "name": "conn",
+        "tuples": 2,
+        "components": 6,
+        "default_scalars": true,
+        "type": "vtktypeint64",
+        "data": [
+          0,  1,  2,  3,  4,  5,
+          1,  6,  2,  4,  7,  5
+        ]
+      },
+
+      {
+        "name": "scalar0",
+        "tuples": 2,
+        "components": 6,
+        "type": "double",
+        "data": [
+          0, 0, 0, 0, 0, 0,
+          1, 1, 1, 1, 1, 1
+        ]
+      },
+
+      {
+        "name": "scalar1",
+        "tuples": 2,
+        "components": 6,
+        "type": "double",
+        "data": [
+          0, 2, 1, 0, 2, 1,
+          0, 0, 0, 2, 2, 2
+        ]
+      },
+
+      {
+        "name": "scalar2",
+        "tuples": 2,
+        "components": 6,
+        "type": "double",
+        "data": [
+          0, 1, 1, 0, 1, 1,
+          1, 2, 1, 1, 2, 1
+        ]
+      }
+    ]
+  },
+
+  "attributes": [
+    {
+      "name": "shape",
+      "space": "ℝ³",
+      "shape": true,
+      "components": 3,
+      "cell-info": {
+        "vtkDGWdg": {
+          "dof-sharing": "coordinates",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "coordinates", "dg points" ],
+            "connectivity": [ "vtkDGWdg", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar0",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGWdg": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGWdg", "scalar0" ],
+            "connectivity": [ "vtkDGWdg", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar1",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGWdg": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGWdg", "scalar1" ],
+            "connectivity": [ "vtkDGWdg", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar2",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGWdg": {
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "vtkDGWdg", "scalar2" ],
+            "connectivity": [ "vtkDGWdg", "conn" ]
+          }
+        }
+      }
+    },
+    {
+      "name": "scalar3",
+      "space": "ℝ¹",
+      "components": 1,
+      "cell-info": {
+        "vtkDGWdg": {
+          "dof-sharing": "point-data",
+          "function-space": "HGRAD",
+          "basis": "C",
+          "order": 1,
+          "arrays": {
+            "values": [ "point-data", "scalar3" ],
+            "connectivity": [ "vtkDGWdg", "conn" ]
+          }
+        }
+      }
+    }
+  ],
+
+  "cell-types": [
+    {
+      "type": "vtkDGWdg",
+      "cell-spec": { "connectivity": [ "vtkDGWdg", "conn" ], "shape": "wedge" }
+    }
+  ],
+
+  "format-version": 1,      "//a.": "A version number for the file format (i.e.., JSON).",
+  "schema-name": "dg leaf", "//b.": "A name for the schema (key/value structure) of this file's content.",
+  "schema-version": 1,      "//c.": "A version number for the file's schema.",
+  "content-version": 1,     "//d.": "A version number for the file's content (key/value data)."
+}

@@ -1,7 +1,7 @@
 //! VTK cell grid files (`.dg`, JSON): array groups, DG cell types and cell attributes.
 
 use anyhow::{anyhow, bail, Context, Result};
-use aurafx_data::cellgrid::{ArrayRef, CellGrid, DgAttrInfo, DgAttribute, DgCells, Shape};
+use aurafx_data::cellgrid::{ArrayRef, CellGrid, DgAttrInfo, DgAttribute, DgCells, DgSideSpec, Shape};
 use aurafx_data::*;
 use serde_json::Value;
 use std::path::Path;
@@ -43,7 +43,27 @@ pub fn read(path: &Path) -> Result<DataSet> {
         let ty = ct.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let Some(shape) = Shape::from_type(ty) else { continue };
         let conn = ct.pointer("/cell-spec/connectivity").and_then(array_ref).unwrap_or_else(|| (ty.to_string(), "connectivity".into()));
-        g.cell_types.insert(ty.to_string(), DgCells { shape, connectivity: conn });
+        let mut cells = DgCells::new(shape, conn);
+        let spec = ct.get("cell-spec");
+        let int = |v: Option<&Value>, k: &str, d: i64| v.and_then(|v| v.get(k)).and_then(|x| x.as_i64()).unwrap_or(d);
+        let flag = |v: Option<&Value>, k: &str| v.and_then(|v| v.get(k)).and_then(|x| x.as_bool()).unwrap_or(false);
+        cells.blanked = flag(spec, "blanked");
+        cells.offset = int(spec, "offset", 0);
+        // Side lists (as Compute Sides writes them): (cell, side) pairs of one side shape.
+        for sp in ct.get("side-specs").and_then(|v| v.as_array()).into_iter().flatten() {
+            let Some(conn) = sp.get("connectivity").and_then(array_ref) else { continue };
+            let Some(sh) = sp.get("shape").and_then(|v| v.as_str()).and_then(Shape::from_name) else { continue };
+            let side_type = int(Some(sp), "side-type", shape.side_type_for(sh).map(|k| k as i64).unwrap_or(-1));
+            cells.sides.push(DgSideSpec {
+                connectivity: conn,
+                shape: sh,
+                side_type,
+                offset: int(Some(sp), "offset", 0),
+                blanked: flag(Some(sp), "blanked"),
+                selection_type: int(Some(sp), "selection-type", -1),
+            });
+        }
+        g.cell_types.insert(ty.to_string(), cells);
     }
     for a in j.get("attributes").and_then(|c| c.as_array()).into_iter().flatten() {
         let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -133,7 +153,7 @@ fn shape_name(s: Shape) -> &'static str {
 /// Write a cell grid as a VTK `.dg` file (the JSON layout vtkCellGridWriter writes).
 pub fn write(g: &CellGrid, path: &Path) -> Result<()> {
     use serde_json::{json, Map};
-    let conn_refs: Vec<&ArrayRef> = g.cell_types.values().map(|c| &c.connectivity).collect();
+    let conn_refs: Vec<&ArrayRef> = g.cell_types.values().flat_map(|c| std::iter::once(&c.connectivity).chain(c.sides.iter().map(|s| &s.connectivity))).collect();
     let mut arrays = Map::new();
     for (group, list) in &g.groups {
         let items: Vec<Value> = list
@@ -180,7 +200,40 @@ pub fn write(g: &CellGrid, path: &Path) -> Result<()> {
     let cell_types: Vec<Value> = g
         .cell_types
         .iter()
-        .map(|(t, c)| json!({"type": t, "cell-spec": {"connectivity": [c.connectivity.0, c.connectivity.1], "shape": shape_name(c.shape)}}))
+        .map(|(t, c)| {
+            let mut spec = json!({"connectivity": [c.connectivity.0, c.connectivity.1], "shape": shape_name(c.shape)});
+            if c.offset != 0 {
+                spec["offset"] = json!(c.offset);
+            }
+            if c.blanked {
+                spec["blanked"] = json!(true);
+            }
+            let mut o = json!({"type": t, "cell-spec": spec});
+            if !c.sides.is_empty() {
+                let sides: Vec<Value> = c
+                    .sides
+                    .iter()
+                    .map(|s| {
+                        let mut e = json!({"connectivity": [s.connectivity.0, s.connectivity.1], "shape": shape_name(s.shape)});
+                        if s.offset != 0 {
+                            e["offset"] = json!(s.offset);
+                        }
+                        if s.blanked {
+                            e["blanked"] = json!(true);
+                        }
+                        if s.side_type >= 0 {
+                            e["side-type"] = json!(s.side_type);
+                        }
+                        if s.selection_type != -1 {
+                            e["selection-type"] = json!(s.selection_type);
+                        }
+                        e
+                    })
+                    .collect();
+                o["side-specs"] = Value::Array(sides);
+            }
+            o
+        })
         .collect();
     let doc = json!({
         "data-type": "cell-grid",

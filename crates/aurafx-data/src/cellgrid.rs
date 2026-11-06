@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Shape {
     Vertex,
     Edge,
@@ -105,6 +105,75 @@ impl Shape {
             Shape::Pyramid => &[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         }
     }
+    /// VTK's side tables (vtkDG*::Sides, SidesOfSides, SideOffsets, SideShapes): side `s` has
+    /// corners `table().sides[s + 1]` and sides `table().sides_of_sides[s + 1]` (index 0 is the
+    /// cell itself); side type `k` covers sides `offsets[k + 1] - 1 .. offsets[k + 2] - 1`, all of
+    /// shape `shapes[k + 1]`.
+    pub fn side_table(self) -> &'static SideTable {
+        match self {
+            Shape::Vertex => &VERT_SIDES,
+            Shape::Edge => &EDGE_SIDES,
+            Shape::Triangle => &TRI_SIDES,
+            Shape::Quadrilateral => &QUAD_SIDES,
+            Shape::Tetrahedron => &TET_SIDES,
+            Shape::Hexahedron => &HEX_SIDES,
+            Shape::Wedge => &WDG_SIDES,
+            Shape::Pyramid => &PYR_SIDES,
+        }
+    }
+    /// Number of side types (faces, edges, vertices; a wedge's quads and triangles are two).
+    pub fn side_type_count(self) -> usize {
+        self.side_table().offsets.len() - 2
+    }
+    /// The side ids of side type `k`.
+    pub fn side_range(self, k: usize) -> std::ops::Range<usize> {
+        let o = self.side_table().offsets;
+        o[k + 1] - 1..o[k + 2] - 1
+    }
+    /// The corners of side `s` (-1: the cell).
+    pub fn side_corners(self, s: isize) -> &'static [usize] {
+        self.side_table().sides.get((s + 1) as usize).copied().unwrap_or(&[])
+    }
+    /// The sides of side `s` (-1: the cell's sides).
+    pub fn sides_of_side(self, s: isize) -> &'static [usize] {
+        self.side_table().sides_of_sides.get((s + 1) as usize).copied().unwrap_or(&[])
+    }
+    /// The shape of side `s`.
+    pub fn side_shape(self, s: usize) -> Shape {
+        let t = self.side_table();
+        (0..t.shapes.len()).find(|&k| s + 1 < t.offsets[k + 1]).map(|k| t.shapes[k]).unwrap_or(Shape::Vertex)
+    }
+    /// The side type whose sides have shape `s`.
+    pub fn side_type_for(self, s: Shape) -> Option<usize> {
+        (0..self.side_type_count()).find(|&k| self.side_table().shapes[k + 1] == s)
+    }
+    /// VTK's shape name (vertex, edge, triangle...).
+    pub fn name(self) -> &'static str {
+        match self {
+            Shape::Vertex => "vertex",
+            Shape::Edge => "edge",
+            Shape::Triangle => "triangle",
+            Shape::Quadrilateral => "quadrilateral",
+            Shape::Tetrahedron => "tetrahedron",
+            Shape::Hexahedron => "hexahedron",
+            Shape::Wedge => "wedge",
+            Shape::Pyramid => "pyramid",
+        }
+    }
+    /// From VTK's shape names (and their aliases).
+    pub fn from_name(n: &str) -> Option<Shape> {
+        Some(match n {
+            "vert" | "vertex" | "sphere" => Shape::Vertex,
+            "edge" | "line" | "spring" => Shape::Edge,
+            "tri" | "triangle" => Shape::Triangle,
+            "quad" | "quadrilateral" => Shape::Quadrilateral,
+            "tet" | "tetrahedron" => Shape::Tetrahedron,
+            "hex" | "hexahedron" => Shape::Hexahedron,
+            "wdg" | "wedge" => Shape::Wedge,
+            "pyr" | "pyramid" => Shape::Pyramid,
+            _ => return None,
+        })
+    }
     /// The sides one dimension down that bound the cell, as corner indices in VTK's order
     /// (vtkDG*::Sides, the first side types), used to tell whether a point is inside.
     pub fn bounding_sides(self) -> &'static [&'static [usize]] {
@@ -154,8 +223,97 @@ impl Shape {
     }
 }
 
+/// A shape's sides (see `Shape::side_table`).
+#[derive(Debug)]
+pub struct SideTable {
+    pub offsets: &'static [usize],
+    pub shapes: &'static [Shape],
+    pub sides: &'static [&'static [usize]],
+    pub sides_of_sides: &'static [&'static [usize]],
+}
+
+static HEX_SIDES: SideTable = SideTable {
+    offsets: &[0, 1, 7, 19, 27],
+    shapes: &[Shape::Hexahedron, Shape::Quadrilateral, Shape::Edge, Shape::Vertex],
+    sides: &[
+        &[0, 1, 2, 3, 4, 5, 6, 7], &[0, 1, 5, 4], &[1, 2, 6, 5], &[3, 7, 6, 2], &[0, 4, 7, 3], &[0, 3, 2, 1], &[4, 5, 6, 7],
+        &[0, 1], &[1, 2], &[3, 2], &[0, 3], &[0, 4], &[1, 5], &[3, 7], &[2, 6], &[4, 5], &[5, 6], &[7, 6], &[4, 7],
+        &[0], &[1], &[2], &[3], &[4], &[5], &[6], &[7],
+    ],
+    sides_of_sides: &[
+        &[0, 1, 2, 3, 4, 5], &[6, 11, 14, 10], &[7, 13, 15, 11], &[12, 16, 13, 8], &[10, 17, 12, 9], &[9, 8, 7, 6], &[14, 15, 16, 17],
+        &[18, 19], &[19, 20], &[21, 20], &[18, 21], &[18, 22], &[19, 23], &[21, 25], &[20, 24], &[22, 23], &[23, 24], &[25, 24], &[22, 25],
+        &[], &[], &[], &[], &[], &[], &[], &[],
+    ],
+};
+static TET_SIDES: SideTable = SideTable {
+    offsets: &[0, 1, 5, 11, 15],
+    shapes: &[Shape::Tetrahedron, Shape::Triangle, Shape::Edge, Shape::Vertex],
+    sides: &[&[0, 1, 2, 3], &[0, 1, 3], &[1, 2, 3], &[2, 0, 3], &[0, 2, 1], &[0, 1], &[1, 2], &[2, 0], &[0, 3], &[1, 3], &[2, 3], &[0], &[1], &[2], &[3]],
+    sides_of_sides: &[&[0, 1, 2, 3], &[4, 8, 7], &[5, 9, 8], &[6, 7, 9], &[6, 5, 4], &[10, 11], &[11, 12], &[12, 10], &[10, 13], &[11, 13], &[12, 13], &[], &[], &[], &[]],
+};
+static WDG_SIDES: SideTable = SideTable {
+    offsets: &[0, 1, 4, 6, 15, 21],
+    shapes: &[Shape::Wedge, Shape::Quadrilateral, Shape::Triangle, Shape::Edge, Shape::Vertex],
+    sides: &[
+        &[0, 1, 2, 3, 4, 5], &[0, 1, 4, 3], &[1, 2, 5, 4], &[0, 3, 5, 2], &[0, 2, 1], &[3, 4, 5],
+        &[0, 1], &[1, 2], &[0, 2], &[0, 3], &[1, 4], &[2, 5], &[3, 4], &[4, 5], &[5, 3],
+        &[0], &[1], &[2], &[3], &[4], &[5],
+    ],
+    sides_of_sides: &[
+        &[0, 1, 2, 3, 4], &[5, 9, 11, 8], &[6, 10, 12, 9], &[8, 13, 10, 7], &[7, 6, 5], &[11, 12, 13],
+        &[14, 15], &[15, 16], &[14, 16], &[14, 17], &[15, 18], &[16, 19], &[17, 18], &[18, 19], &[19, 17],
+        &[], &[], &[], &[], &[], &[],
+    ],
+};
+static PYR_SIDES: SideTable = SideTable {
+    offsets: &[0, 1, 5, 6, 14, 19],
+    shapes: &[Shape::Pyramid, Shape::Triangle, Shape::Quadrilateral, Shape::Edge, Shape::Vertex],
+    sides: &[
+        &[0, 1, 2, 3, 4], &[0, 1, 4], &[1, 2, 4], &[2, 3, 4], &[3, 0, 4], &[0, 3, 2, 1],
+        &[0, 1], &[1, 2], &[3, 2], &[0, 3], &[0, 4], &[1, 4], &[2, 4], &[3, 4],
+        &[0], &[1], &[2], &[3], &[4],
+    ],
+    sides_of_sides: &[
+        &[0, 1, 2, 3, 4], &[5, 10, 9], &[6, 11, 10], &[7, 12, 11], &[8, 9, 12], &[8, 7, 6, 5],
+        &[13, 14], &[14, 15], &[16, 15], &[13, 16], &[13, 17], &[14, 17], &[15, 17], &[16, 17],
+        &[], &[], &[], &[], &[],
+    ],
+};
+static QUAD_SIDES: SideTable = SideTable {
+    offsets: &[0, 1, 5, 9],
+    shapes: &[Shape::Quadrilateral, Shape::Edge, Shape::Vertex],
+    sides: &[&[0, 1, 2, 3], &[0, 1], &[1, 2], &[3, 2], &[0, 3], &[0], &[1], &[2], &[3]],
+    sides_of_sides: &[&[0, 1, 2, 3], &[4, 5], &[5, 6], &[7, 6], &[4, 7], &[], &[], &[], &[]],
+};
+static TRI_SIDES: SideTable = SideTable {
+    offsets: &[0, 1, 4, 7],
+    shapes: &[Shape::Triangle, Shape::Edge, Shape::Vertex],
+    sides: &[&[0, 1, 2], &[0, 1], &[1, 2], &[2, 0], &[0], &[1], &[2]],
+    sides_of_sides: &[&[0, 1, 2], &[3, 4], &[4, 5], &[5, 3], &[], &[], &[]],
+};
+static EDGE_SIDES: SideTable = SideTable { offsets: &[0, 1, 3], shapes: &[Shape::Edge, Shape::Vertex], sides: &[&[0, 1], &[0], &[1]], sides_of_sides: &[&[0, 1], &[], &[]] };
+static VERT_SIDES: SideTable = SideTable { offsets: &[0, 1], shapes: &[Shape::Vertex], sides: &[&[0]], sides_of_sides: &[&[]] };
+
 /// A group name and an array name within it.
 pub type ArrayRef = (String, String);
+
+/// A list of sides of one cell type to draw (VTK's side spec, as Compute Sides makes them):
+/// (cell, side) pairs, all of one side shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DgSideSpec {
+    /// Two components per side: the cell and the side id within it.
+    pub connectivity: ArrayRef,
+    pub shape: Shape,
+    /// The side type of the parent cell shape (see `Shape::side_type_for`).
+    pub side_type: i64,
+    /// Position of the first side in VTK's numbering for picking (kept for the file).
+    pub offset: i64,
+    /// Not drawn.
+    pub blanked: bool,
+    /// What picking selects (-1: the input cells), kept for the file.
+    pub selection_type: i64,
+}
 
 /// One cell type of the grid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -163,6 +321,20 @@ pub struct DgCells {
     pub shape: Shape,
     /// Point ids of each cell (corners, then higher-order nodes).
     pub connectivity: ArrayRef,
+    /// The cells themselves are not drawn (Compute Sides hides 3-D cells behind their sides).
+    #[serde(default)]
+    pub blanked: bool,
+    #[serde(default)]
+    pub offset: i64,
+    /// Lists of sides drawn instead of or besides the cells.
+    #[serde(default)]
+    pub sides: Vec<DgSideSpec>,
+}
+
+impl DgCells {
+    pub fn new(shape: Shape, connectivity: ArrayRef) -> DgCells {
+        DgCells { shape, connectivity, blanked: false, offset: 0, sides: Vec::new() }
+    }
 }
 
 /// How a cell attribute is stored on one cell type.
@@ -258,6 +430,10 @@ impl CellGrid {
     }
     pub fn n_cells(&self) -> usize {
         self.cell_types.values().map(|c| self.array(&c.connectivity).map(|a| a.len()).unwrap_or(0)).sum()
+    }
+    /// Sides drawn from side lists (as Compute Sides makes them).
+    pub fn n_sides_shown(&self) -> usize {
+        self.cell_types.values().flat_map(|t| &t.sides).filter(|s| !s.blanked).map(|s| self.array(&s.connectivity).map(|a| a.len()).unwrap_or(0)).sum()
     }
     /// Cells of one type: (number, nodes per cell).
     fn cell_count(&self, t: &DgCells) -> (usize, usize) {
@@ -452,9 +628,24 @@ impl CellGrid {
         let mut corners_of: Vec<(String, usize, usize, u32)> = Vec::new();
         for (tname, t) in &self.cell_types {
             let (n, _) = self.cell_count(t);
-            for c in 0..n {
+            // What is drawn, as ParaView's To Unstructured Grid: the cells unless hidden, then
+            // each side list's sides (cell, side id) not hidden.
+            let mut drawn: Vec<(usize, Shape, &[usize])> = Vec::new();
+            if !t.blanked {
+                drawn.extend((0..n).map(|c| (c, t.shape, t.shape.side_corners(-1))));
+            }
+            for spec in t.sides.iter().filter(|s| !s.blanked) {
+                let Some(a) = self.array(&spec.connectivity) else { continue };
+                for i in 0..a.len() {
+                    let (c, side) = (a.get(i, 0), a.get(i, 1));
+                    if c >= 0.0 && (c as usize) < n && side >= 0.0 && (side as usize) < t.shape.side_table().sides.len() - 1 {
+                        drawn.push((c as usize, t.shape.side_shape(side as usize), t.shape.side_corners(side as isize)));
+                    }
+                }
+            }
+            for (c, shape, corners) in drawn {
                 let mut conn = Vec::new();
-                for k in 0..t.shape.corners().len() {
+                for &k in corners {
                     let Some(x) = self.corner_position(tname, c, k) else { continue };
                     let key = x.map(|v| (v + 0.0).to_bits());
                     let id = *ids.entry(key).or_insert_with(|| {
@@ -464,8 +655,8 @@ impl CellGrid {
                     conn.push(id);
                     corners_of.push((tname.clone(), c, k, id));
                 }
-                if conn.len() == t.shape.corners().len() {
-                    cells.push(t.shape.vtk_type(), &conn);
+                if conn.len() == corners.len() {
+                    cells.push(shape.vtk_type(), &conn);
                 }
             }
         }

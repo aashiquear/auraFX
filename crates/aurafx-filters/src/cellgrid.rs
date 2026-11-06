@@ -1,7 +1,7 @@
 //! Cell grid filters and ParaView's Cell Grid source.
 
 use anyhow::{anyhow, bail, Result};
-use aurafx_data::cellgrid::{CellGrid, DgAttrInfo, DgAttribute, DgCells, Shape};
+use aurafx_data::cellgrid::{CellGrid, DgAttrInfo, DgAttribute, DgCells, DgSideSpec, Shape};
 use aurafx_data::*;
 
 fn grid_of(ds: &DataSet) -> Result<&CellGrid> {
@@ -106,7 +106,7 @@ pub fn source(cell_type: &str) -> Result<DataSet> {
         }
     }
     g.groups.insert(tn.clone(), cell_arrays);
-    g.cell_types.insert(tn, DgCells { shape, connectivity: conn });
+    g.cell_types.insert(tn, DgCells::new(shape, conn));
     g.attributes = atts;
     if g.n_cells() != 1 {
         bail!("internal: source cell");
@@ -284,7 +284,7 @@ pub fn convert(ds: &DataSet) -> Result<DataSet> {
             cell_atts[k].info.insert(t.clone(), DgAttrInfo { function_space: "constant".into(), basis: "C".into(), order: 0, sharing: None, values: (t.clone(), out), connectivity: None });
         }
         g.groups.insert(t.clone(), arrays);
-        g.cell_types.insert(t.clone(), DgCells { shape: *s, connectivity: conn_ref });
+        g.cell_types.insert(t.clone(), DgCells::new(*s, conn_ref));
     }
     g.attributes.push(shape);
     g.attributes.extend(point_atts);
@@ -329,4 +329,201 @@ pub fn probe(ds: &DataSet, probe: &DataSet, attribute: &str) -> Result<PolyData>
         pd.point_data.insert(Array::new(a.name.clone(), a.components, ArrayData::F64(values)));
     }
     Ok(pd)
+}
+
+/// Which sides Compute Sides keeps (VTK's vtkCellGridSidesQuery::SummaryStrategy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidesStrategy {
+    /// Sides of 3-D cells one dimension down (and edges of 2-D cells, vertices of edges) found
+    /// an odd number of times; lower sides always (ParaView's).
+    Boundary,
+    /// Every side found an odd number of times.
+    Winding,
+    /// Every side, once.
+    AnyOccurrence,
+}
+
+/// The side flags of ParaView's "Sides to include" (vtkCellGridSidesQuery::SideFlags).
+pub mod side_flags {
+    pub const VERTICES_OF_EDGES: u32 = 0x01;
+    pub const VERTICES_OF_SURFACES: u32 = 0x02;
+    pub const EDGES_OF_SURFACES: u32 = 0x04;
+    pub const VERTICES_OF_VOLUMES: u32 = 0x08;
+    pub const EDGES_OF_VOLUMES: u32 = 0x10;
+    pub const SURFACES_OF_VOLUMES: u32 = 0x20;
+    pub const SURFACES_OF_INPUTS: u32 = 0x20;
+    pub const EDGES_OF_INPUTS: u32 = 0x14;
+    pub const VERTICES_OF_INPUTS: u32 = 0x0b;
+    pub const ALL_SIDES: u32 = 0x3f;
+    pub const NEXT_LOWEST_DIMENSION: u32 = 0x25;
+}
+
+/// Whether sides of shape `side` of an input of shape `input` are wanted (VTK's
+/// vtkDGSidesResponder::ProcessSidesOfInput).
+fn process_sides_of(flags: u32, omit_renderable: bool, side: Shape, input: Shape) -> bool {
+    use side_flags::*;
+    let (din, ds) = (input.dimension(), side.dimension());
+    if omit_renderable && din <= 2 {
+        return false;
+    }
+    let bit = match (din, ds) {
+        (1, 0) => VERTICES_OF_EDGES,
+        (2, 0) => VERTICES_OF_SURFACES,
+        (2, 1) => EDGES_OF_SURFACES,
+        (3, 0) => VERTICES_OF_VOLUMES,
+        (3, 1) => EDGES_OF_VOLUMES,
+        (3, 2) => SURFACES_OF_VOLUMES,
+        _ => 0,
+    };
+    flags & bit != 0
+}
+
+/// A side's point ids in VTK's canonical order (vtkCellGridSidesCache::HashSide): from the
+/// smallest id, toward its larger neighbor, so a side matches itself however it is wound.
+fn canonical_side(ids: &[i64]) -> Vec<i64> {
+    let n = ids.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let ss = (0..n).fold(0, |m, j| if ids[j] < ids[m] { j } else { m });
+    let forward = ids[(ss + 1) % n] > ids[(ss + n - 1) % n];
+    (0..n).map(|i| if forward { ids[(ss + i) % n] } else { ids[(ss + n - i) % n] }).collect()
+}
+
+/// Cell Grid Compute Sides (ParaView's Compute Sides, vtkCellGridComputeSides): finds the sides
+/// of the cells chosen by `flags` (see `side_flags`) and keeps those `strategy` picks (by
+/// default the faces of 3-D cells not shared by two cells, i.e. the boundary). The sides are
+/// added as side lists of each cell type ("quadrilateral sides of vtkDGHex": (cell, side)
+/// pairs); 3-D cells (and 2-D ones unless `preserve_renderable`) are then hidden. With
+/// `omit_renderable`, cells and side lists of 2 or fewer dimensions give no sides.
+pub fn compute_sides(ds: &DataSet, flags: u32, omit_renderable: bool, preserve_renderable: bool, strategy: SidesStrategy) -> Result<DataSet> {
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+    let mut g = grid_of(ds)?.clone();
+    // Pass 1 (VTK's HashSides): every side, by its shape and canonical point ids, with the
+    // (cell type, cell, side id) that have it, ordered as VTK's (type name, cell, side).
+    let mut hashes: HashMap<(Shape, Vec<i64>), BTreeSet<(String, i64, usize)>> = HashMap::new();
+    for (tname, t) in &g.cell_types {
+        let conn = g.array(&t.connectivity).ok_or_else(|| anyhow!("{tname}: no connectivity"))?;
+        let entry = |c: usize| -> Vec<i64> { (0..conn.ncomp).map(|k| conn.get(c, k) as i64).collect() };
+        let mut add = |shape: Shape, ids: Vec<i64>, c: usize, side: usize| {
+            hashes.entry((shape, canonical_side(&ids))).or_default().insert((tname.clone(), c as i64, side));
+        };
+        if !t.blanked {
+            for c in 0..conn.len() {
+                let e = entry(c);
+                for k in 0..t.shape.side_type_count() {
+                    let r = t.shape.side_range(k);
+                    let shape = t.shape.side_shape(r.start);
+                    if !process_sides_of(flags, omit_renderable, shape, t.shape) {
+                        continue;
+                    }
+                    for side in r {
+                        let ids = t.shape.side_corners(side as isize).iter().map(|&k| e[k]).collect();
+                        add(shape, ids, c, side);
+                    }
+                }
+            }
+        }
+        // Sides of the input's side lists (VTK's HashSidesOfSide), walking down through the
+        // sides of sides.
+        for spec in &t.sides {
+            if spec.blanked || (omit_renderable && spec.shape.dimension() <= 2) {
+                continue;
+            }
+            let Some(sides) = g.array(&spec.connectivity) else { continue };
+            for i in 0..sides.len() {
+                let (c, side) = (sides.get(i, 0) as usize, sides.get(i, 1) as isize);
+                if c >= conn.len() {
+                    continue;
+                }
+                let e = entry(c);
+                let mut visited = BTreeSet::new();
+                // Depth first in VTK's order: each side, then its own sides.
+                fn walk(shape: Shape, list: &[usize], source: Shape, visited: &mut BTreeSet<usize>, out: &mut Vec<(usize, Shape, Shape)>) {
+                    for &s in list {
+                        if !visited.insert(s) {
+                            continue;
+                        }
+                        let ss = shape.side_shape(s);
+                        out.push((s, ss, source));
+                        walk(shape, shape.sides_of_side(s as isize), ss, visited, out);
+                    }
+                }
+                let mut found = Vec::new();
+                walk(t.shape, t.shape.sides_of_side(side), spec.shape, &mut visited, &mut found);
+                for (s, ss, src) in found {
+                    if process_sides_of(flags, omit_renderable, ss, src) {
+                        let ids = t.shape.side_corners(s as isize).iter().map(|&k| e[k]).collect();
+                        add(ss, ids, c, s);
+                    }
+                }
+            }
+        }
+    }
+    // Pass 2 (Summarize): each side once, claimed by the first cell having it, if the strategy
+    // keeps it.
+    let mut kept: HashMap<String, BTreeMap<Shape, BTreeMap<i64, BTreeSet<usize>>>> = HashMap::new();
+    for ((shape, _), owners) in &hashes {
+        let Some((tname, c, side)) = owners.first() else { continue };
+        let odd = owners.len() % 2 == 1;
+        let dim = g.cell_types[tname].shape.dimension();
+        let keep = match strategy {
+            SidesStrategy::Winding => odd,
+            SidesStrategy::AnyOccurrence => true,
+            SidesStrategy::Boundary => match dim {
+                3 => matches!(shape, Shape::Edge | Shape::Vertex) || odd,
+                2 => *shape != Shape::Edge || odd,
+                1 => odd,
+                _ => true,
+            },
+        };
+        if keep {
+            kept.entry(tname.clone()).or_default().entry(*shape).or_default().entry(*c).or_default().insert(*side);
+        }
+    }
+    // Pass 3 (GenerateSideSets): hide the cells, renumber the side lists and add the new ones
+    // (by descending shape: quadrilaterals before triangles).
+    let names: Vec<String> = g.cell_types.keys().cloned().collect();
+    for tname in names {
+        let count = |g: &CellGrid, r: &(String, String)| g.array(r).map(|a| a.len() as i64).unwrap_or(0);
+        let mut t = g.cell_types[&tname].clone();
+        let mut offset = 0i64;
+        if t.shape.dimension() > 2 || !preserve_renderable || t.blanked {
+            t.blanked = true;
+            t.offset = offset;
+        }
+        // (VTK does not count the cells it keeps here, so side lists number from 0 as well.)
+        for spec in &mut t.sides {
+            if !preserve_renderable {
+                spec.blanked = true;
+                spec.offset = offset;
+            } else if !spec.blanked {
+                spec.offset = offset;
+                offset += count(&g, &spec.connectivity);
+            }
+        }
+        if let Some(last) = t.sides.last().filter(|s| !s.blanked) {
+            offset = last.offset + count(&g, &last.connectivity);
+        }
+        for (shape, cells) in kept.remove(&tname).unwrap_or_default().into_iter().rev() {
+            let group = format!("{} sides of {tname}", shape.name());
+            let pairs: Vec<i64> = cells.iter().flat_map(|(c, sides)| sides.iter().flat_map(move |&s| [*c, s as i64])).collect();
+            let n = (pairs.len() / 2) as i64;
+            let list = g.groups.entry(group.clone()).or_default();
+            list.retain(|a| a.name != "conn");
+            list.push(Array::new("conn", 2, ArrayData::I64(pairs)));
+            t.sides.push(DgSideSpec {
+                connectivity: (group, "conn".into()),
+                shape,
+                side_type: t.shape.side_type_for(shape).map(|k| k as i64).unwrap_or(-1),
+                offset,
+                blanked: false,
+                selection_type: -1,
+            });
+            offset += n;
+        }
+        g.cell_types.insert(tname, t);
+    }
+    g.invalidate();
+    Ok(DataSet::CellGrid(g))
 }

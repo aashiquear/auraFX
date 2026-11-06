@@ -1985,6 +1985,43 @@ fn build() -> Vec<FilterDef> {
             apply: |_, _| Err(anyhow!("Cell Grid Probe needs probe points; choose them in Properties")),
         },
         FilterDef {
+            id: "cell_grid_compute_sides",
+            label: "Cell Grid Compute Sides",
+            category: "Data",
+            description: "Find the sides of a cell grid's cells (by default the outer faces of its 3-D cells) and draw them instead of the cells, as ParaView's Compute Sides.",
+            keywords: &["cell grid", "dg", "sides", "faces", "edges", "boundary", "surface", "compute sides"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("include", "Sides to include", &["Next lowest dimension", "Surfaces of inputs", "Edges of inputs", "Vertices of inputs", "All sides"], "Next lowest dimension")
+                    .help("Next lowest dimension: faces of 3-D cells, edges of 2-D cells and end points of edges. The others: faces, edges or corners of every cell of higher dimension, or all of them."),
+                b("omit_renderable", "Omit sides of surfaces and lines", true).help("Cells (and side lists) of 2 or fewer dimensions give no sides."),
+                b("preserve_renderable", "Keep surfaces and lines", true).help("Keep drawing the 2-D and 1-D cells and the side lists already there; 3-D cells are always hidden."),
+                choice("strategy", "Keep", &["Boundary", "Odd count", "Every side"], "Boundary")
+                    .help("Boundary: faces found once (not shared by two cells) and every lower side; Odd count: sides found an odd number of times; Every side: each side once.")
+                    .advanced(),
+            ],
+            apply: |input, p| {
+                use crate::cellgrid::{side_flags::*, SidesStrategy};
+                let flags = match p.str("include").as_str() {
+                    "Surfaces of inputs" => SURFACES_OF_INPUTS,
+                    "Edges of inputs" => EDGES_OF_INPUTS,
+                    "Vertices of inputs" => VERTICES_OF_INPUTS,
+                    "All sides" => ALL_SIDES,
+                    _ => NEXT_LOWEST_DIMENSION,
+                };
+                let strategy = match p.str("strategy").as_str() {
+                    "Odd count" => SidesStrategy::Winding,
+                    "Every side" => SidesStrategy::AnyOccurrence,
+                    _ => SidesStrategy::Boundary,
+                };
+                let (omit, keep) = (p.bool("omit_renderable", true), p.bool("preserve_renderable", true));
+                per_leaf(input.unwrap(), &|d| crate::cellgrid::compute_sides(d, flags, omit, keep, strategy))
+            },
+        },
+        FilterDef {
             id: "convert_to_cell_grid",
             label: "Convert To Cell Grid",
             category: "Data",

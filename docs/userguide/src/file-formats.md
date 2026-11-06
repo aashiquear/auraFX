@@ -504,7 +504,8 @@ What you get:
 - The grid is drawn as its cells with every field evaluated at the corners. Where cells meet,
   a field that jumps between them is averaged. Color by, the Spreadsheet, picking and every
   other filter see that mesh.
-- **Information** names the cell types and the number of fields.
+- **Information** names the cell types and the number of fields (and, after Compute Sides,
+  the number of sides shown).
 - Saving as `.dg` keeps the cell grid (every array, attribute and cell type, in the layout
   VTK writes; ParaView opens these files). Saving as any other format writes the corner mesh
   as an unstructured grid.
@@ -524,6 +525,7 @@ face field whose first coefficient is 1). A vertex gets a `constant` field.
 | **Cell Grid Transform** | moves, rotates (degrees) and scales the cells, as **Transform** does, or another 3-D attribute shared at points or stored per cell. Edge and face fields follow the new shape |
 | **Cell Grid Warp** | moves the cells' points by **Scale** times a vector attribute shared at the points (the same basis and order as the shape) |
 | **Cell Grid Probe** | finds the cells holding the points of a second dataset (the **Probe points**): a point for every cell each one is in, with `ContainingCellID` (the cell's number within its type), `CellType` (the VTK cell type number), `ParametricCoordinates` (where in the cell, in the cell's own coordinates) and, when **Attribute** names a field, the field's exact value there. Points in no cell are left out. A point on a face shared by two cells is listed twice |
+| **Cell Grid Compute Sides** | finds the sides of the cells and draws them instead of the 3-D cells: by default the faces on the outside (those not shared by two cells). **Sides to include** picks faces, edges or corners; see below |
 | **Convert To Cell Grid** | makes a cell grid from a mesh of vertices, lines, triangles, quads, tetrahedra, hexahedra, wedges and pyramids (other cells are skipped): point data becomes fields shared at the points, cell data constant fields (renamed "(cell)" when point data has the same name; ParaView drops one of the two) |
 
 ![VTK's two-hexahedron cell grid, see-through and colored by a field, with its cell centers as spheres colored by an edge field](images/cell_grid.png)
@@ -541,6 +543,8 @@ grid = afx.load("mesh.vtu").convert_to_cell_grid()
 grid.save("mesh.dg")
 cloud = afx.point_source(center=(1, 0.6, 0.5), radius=0.75, count=4000)
 found = g.cell_grid_probe(cloud, attribute="quadratic")
+outside = g.cell_grid_compute_sides()
+edges = g.cell_grid_compute_sides(include="Edges of inputs", omit_renderable=False)
 ```
 
 ![VTK's two-hexahedron cell grid (left) and a copy turned, stretched and moved with Cell Grid Transform (right), both colored by the same field](images/cell_grid_transform.png)
@@ -557,6 +561,36 @@ next to the curved face the two cells share.
 
 ![VTK's two-hexahedron cell grid as a wireframe, probed with a cloud of random points: the points found in the cells as spheres colored by the quadratic field, grey ones near the shared curved face](images/cell_grid_probe.png)
 
+**Cell Grid Compute Sides** works like ParaView's Compute Sides. Every side of every cell is
+listed, and a side is matched with the same side of a neighbor cell whichever way round its
+corners go. A side is kept once, for the first cell that has it. Properties:
+- **Sides to include**:
+  - *Next lowest dimension* (the default): the faces of 3-D cells, the edges of 2-D cells and
+    the end points of edges;
+  - *Surfaces of inputs*: the faces of 3-D cells;
+  - *Edges of inputs*: the edges of 3-D and 2-D cells;
+  - *Vertices of inputs*: the corners of every cell;
+  - *All sides*: all of these.
+- **Omit sides of surfaces and lines** (on by default): 2-D and 1-D cells give no sides, since
+  they can be drawn as they are.
+- **Keep surfaces and lines** (on by default): keep drawing the 2-D and 1-D cells and the
+  sides already listed. 3-D cells are always hidden behind their sides.
+- **Keep** (advanced):
+  - *Boundary* (the default): faces of 3-D cells (or edges of 2-D cells, end points of edges)
+    found once, so not shared by two cells, and every lower side (edges and corners of 3-D
+    cells) once;
+  - *Odd count*: every side found an odd number of times;
+  - *Every side*: each side once.
+
+The sides are stored in the grid as lists of (cell, side number) pairs, one per side shape
+("quadrilateral sides of vtkDGHex"), as VTK stores them. The fields on a side are the fields of
+its cell, so a field that jumps between cells shows the value from the cell the side belongs
+to. Running Compute Sides on its result adds the sides of those sides, for example the edges of
+the outer faces. Saving as `.dg` keeps the lists, and ParaView draws them. Any filter other than
+the cell grid ones works on what is drawn: the sides.
+
+![A wavelet clipped by a slanted plane, made a cell grid and reduced with Cell Grid Compute Sides to the faces on its outside, drawn with their edges and colored by RTData](images/cell_grid_sides.png)
+
 Checked against ParaView 6.1.1 on VTK's ten DG test files (hexahedra, tetrahedra, wedges,
 pyramids including 19-node ones, quadrilaterals, quadratic quadrilaterals, triangles, edges,
 mixed types):
@@ -569,7 +603,11 @@ mixed types):
 - `.dg` files auraFX writes open in ParaView with the same values, and read back unchanged;
 - Cell Grid Probe on a lattice of points around each file and the cell centers: the same
   cells for every point, and the coordinates and every field's value (edge and face fields
-  too) wherever ParaView gives them.
+  too) wherever ParaView gives them;
+- Cell Grid Compute Sides with eight settings (each choice of sides, omitting and keeping
+  surfaces, the three Keep rules) and run twice: the same sides of every cell, the same cells
+  hidden, the same lists (shape, side type, numbering, the `.dg` entries ParaView writes), and
+  the same cells and corners after To Unstructured Grid.
 
 Where auraFX differs from ParaView:
 - ParaView keeps the extra nodes of quadratic cells as points, but evaluates the fields there
@@ -598,9 +636,16 @@ Where auraFX differs from ParaView:
   - Points come out in single precision, as in ParaView.
   - With several cell types, ParaView lists them in an order of its own; auraFX lists them
     in the file's order.
+- Compute Sides:
+  - ParaView lists the sides in the order of a hash table, so some lists come out shuffled.
+    auraFX lists them by cell, then side.
+  - ParaView's To Unstructured Grid evaluates a side's fields on the wrong cell: the one
+    numbered like the side's place in its list, not the side's own cell. It also crashes on
+    the end points of edges. auraFX uses the side's cell, so a field that is continuous
+    between cells has the same values on the sides as on the cells.
+  - VTK's markings of ghost and hidden points (which skip sides) are not read.
 
-Not available yet: Compute Sides (ParaView's ComputeCellGridSides) and the cell grid filters
-ParaView 6.1.1 does not offer either (range, copy). Slicing or clipping works on the corner mesh, so curved cells come
+Not available yet: the cell grid filters ParaView 6.1.1 does not offer either (range, copy). Slicing or clipping works on the corner mesh, so curved cells come
 out straight.
 
 ## Writers

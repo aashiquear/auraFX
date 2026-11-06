@@ -129,7 +129,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source; iteration 44: Geometry, Feature Edges): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
-- [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer; iteration 46: Probe): Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp; Compute Sides not done
+- [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer; iteration 46: Probe; iteration 47: Compute Sides): Centers, Compute Sides, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
 - [ ] Parallel/distributed: D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
@@ -898,8 +898,22 @@ reads undefined memory for edges and crashes on quadratic shapes; auraFX solves 
 by the cell centers of the quadratic files). Edge Jacobians are now completed like 2-D ones.
 Compute Sides not done.
 
+Done in iteration 47: **Cell Grid Compute Sides**. VTK's side tables for the eight shapes (sides,
+sides of sides, side types); cell types now carry VTK's side specs (blanked, offset, (cell,
+side) lists by side shape), read and written in .dg files and drawn by the corner mesh (fields
+from the side's own cell). The filter is vtkCellGridComputeSides' three passes: hash every
+requested side (ParaView's SideFlags, omitting sides of renderable inputs; sides of input side
+specs walked down through sides of sides) by shape and canonical point order; keep the first
+(type name, cell, side) per hash under the Boundary, Winding or AnyOccurrence rule; blank the
+cells and append side specs by descending shape with VTK's offsets. Checked against ParaView
+6.1.1 on the ten DG files for eight settings and a second pass: the cell-type entries ParaView
+writes, every (cell, side) pair (ParaView's lists are in hash-table order; compared as sets) and
+the cells of To Unstructured Grid. ParaView's To Unstructured Grid evaluates side fields on
+the wrong cell (the side's list index) and crashes on vertex sides of edges; auraFX's continuous
+fields on sides match the input's. Ghost-node marks are not read.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces, Cell Grid Compute Sides); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)

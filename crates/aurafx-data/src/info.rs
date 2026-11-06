@@ -62,7 +62,9 @@ impl DataSetInfo {
         if let DataSet::CellGrid(g) = ds {
             let mut info = Self::of(&DataSet::UnstructuredGrid(g.to_unstructured()));
             let types: Vec<&str> = g.cell_types.keys().map(|k| k.trim_start_matches("vtkDG")).collect();
-            info.kind = format!("Cell Grid ({}; {} fields)", types.join(", "), g.attributes.iter().filter(|a| !a.shape).count());
+            let sides = g.n_sides_shown();
+            let sides = if sides > 0 { format!("; {sides} sides shown") } else { String::new() };
+            info.kind = format!("Cell Grid ({}; {} fields{sides})", types.join(", "), g.attributes.iter().filter(|a| !a.shape).count());
             info.n_cells = g.n_cells();
             return info;
         }

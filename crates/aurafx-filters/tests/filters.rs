@@ -1648,3 +1648,118 @@ fn cell_grid_probe_matches_paraview() {
         }
     }
 }
+
+/// Cell Grid Compute Sides against ParaView 6.1.1 (testdata/cellgrid/sides_reference.json from
+/// scripts/cellgrid_sides_reference.py): on the ten DG files, for eight settings and the default
+/// run twice, the cell-type entries (hidden cells, side lists, side types, offsets), the (cell,
+/// side) pairs of every side list (ParaView lists them in hash-table order; compared as sets)
+/// and the cells of To Unstructured Grid (type and corner points; ParaView also lists the other
+/// nodes of quadratic cells). The continuous fields drawn
+/// on the sides equal the input's at the same points (ParaView's are taken from the wrong
+/// cells), and the result survives the .dg writer.
+#[test]
+fn cell_grid_compute_sides_matches_paraview() {
+    use serde_json::{json, Value};
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/sides_reference.json")).unwrap()).unwrap();
+    let include = |f: u64| match f {
+        37 => "Next lowest dimension",
+        32 => "Surfaces of inputs",
+        20 => "Edges of inputs",
+        11 => "Vertices of inputs",
+        63 => "All sides",
+        _ => panic!("{f}"),
+    };
+    let strategy = |s: u64| ["Odd count", "Every side", "Boundary"][s as usize];
+    let sides = |g: &DataSet, case: &str| {
+        let c = reference["cases"][case].as_array().unwrap();
+        run(
+            "cell_grid_compute_sides",
+            Some(g),
+            &[
+                ("include", json!(include(c[0].as_u64().unwrap()))),
+                ("omit_renderable", json!(c[1].as_u64().unwrap() == 1)),
+                ("preserve_renderable", json!(c[2].as_u64().unwrap() == 1)),
+                ("strategy", json!(strategy(c[3].as_u64().unwrap()))),
+            ],
+        )
+    };
+    let mut checked = 0;
+    for (file, cases) in reference["files"].as_object().unwrap() {
+        let input = td(&format!("cellgrid/{file}.dg"));
+        for (case, want) in cases.as_object().unwrap() {
+            let out = if case == "twice" { sides(&sides(&input, "default"), "edges_keep") } else { sides(&input, case) };
+            let DataSet::CellGrid(g) = &out else { panic!() };
+            let key = format!("{file} {case}");
+            // The cell-type entries.
+            let types = want["cell-types"].as_array().unwrap();
+            assert_eq!(types.len(), g.cell_types.len(), "{key} cell types");
+            for ct in types {
+                let t = &g.cell_types[ct["type"].as_str().unwrap()];
+                let spec = &ct["cell-spec"];
+                assert_eq!(t.blanked, spec["blanked"].as_bool().unwrap_or(false), "{key} blanked");
+                assert_eq!(t.offset, spec["offset"].as_i64().unwrap_or(0), "{key} offset");
+                let specs = ct["side-specs"].as_array().cloned().unwrap_or_default();
+                assert_eq!(specs.len(), t.sides.len(), "{key} side lists");
+                for (s, w) in t.sides.iter().zip(&specs) {
+                    assert_eq!(json!([s.connectivity.0, s.connectivity.1]), w["connectivity"], "{key}");
+                    assert_eq!(s.shape.name(), w["shape"].as_str().unwrap(), "{key}");
+                    assert_eq!(s.side_type, w["side-type"].as_i64().unwrap_or(-1), "{key} side type");
+                    assert_eq!(s.offset, w["offset"].as_i64().unwrap_or(0), "{key} {} offset", s.connectivity.0);
+                    assert_eq!(s.blanked, w["blanked"].as_bool().unwrap_or(false), "{key} {} blanked", s.connectivity.0);
+                    assert_eq!(s.selection_type, w["selection-type"].as_i64().unwrap_or(-1), "{key}");
+                }
+            }
+            // The (cell, side) pairs.
+            for (group, pairs) in want["lists"].as_object().unwrap() {
+                let a = g.groups[group].iter().find(|a| a.name == "conn").unwrap();
+                let mut ours: Vec<(i64, i64)> = (0..a.len()).map(|i| (a.get(i, 0) as i64, a.get(i, 1) as i64)).collect();
+                let mut theirs: Vec<(i64, i64)> = pairs.as_array().unwrap().iter().map(|p| (p[0].as_i64().unwrap(), p[1].as_i64().unwrap())).collect();
+                ours.sort();
+                theirs.sort();
+                assert_eq!(ours, theirs, "{key} {group}");
+                checked += ours.len();
+            }
+            // To Unstructured Grid: each cell's type and corners (in any order of cells).
+            if let Some(cells) = want["cells"].as_array() {
+                let ug = g.to_unstructured();
+                assert_eq!(ug.cells.len(), cells.len(), "{key} cells");
+                let pts = &ug.points;
+                let mut ours: Vec<(u8, Vec<[f64; 3]>)> = (0..ug.cells.len()).map(|i| (ug.cells.cell_type(i) as u8, ug.cells.cell(i).iter().map(|&p| pts.get(p as usize)).collect())).collect();
+                for c in cells {
+                    let ty = c[0].as_u64().unwrap() as u8;
+                    let corners: Vec<[f64; 3]> = c[1].as_array().unwrap().iter().map(|p| std::array::from_fn(|k| p[k].as_f64().unwrap())).collect();
+                    // ParaView lists quadratic cells' other nodes after the corners.
+                    let same = |o: &(u8, Vec<[f64; 3]>)| o.0 == ty && o.1.len() <= corners.len() && o.1.iter().zip(&corners).all(|(a, b)| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-9));
+                    let i = ours.iter().position(same).unwrap_or_else(|| panic!("{key}: no cell {ty} {corners:?}"));
+                    ours.swap_remove(i);
+                }
+            }
+        }
+        // The continuous fields on the default sides equal the input's at the same points.
+        let DataSet::CellGrid(gi) = &input else { panic!() };
+        let DataSet::CellGrid(go) = &sides(&input, "default") else { panic!() };
+        let (a, b) = (gi.to_unstructured(), go.to_unstructured());
+        for att in gi.attributes.iter().filter(|a| !a.shape && a.info.values().all(|i| i.sharing.is_some() && i.function_space == "HGRAD")) {
+            let (va, vb) = (a.point_data.get(&att.name).unwrap(), b.point_data.get(&att.name).unwrap());
+            for j in 0..b.points.len() {
+                let x = b.points.get(j);
+                let i = (0..a.points.len()).find(|&i| a.points.get(i) == x).unwrap();
+                for c in 0..va.ncomp {
+                    assert!((va.get(i, c) - vb.get(j, c)).abs() < 1e-12, "{file} {} at {x:?}", att.name);
+                }
+            }
+        }
+        // The writer keeps the side lists.
+        let p = std::env::temp_dir().join(format!("aurafx_sides_{}_{file}.dg", std::process::id()));
+        aurafx_io::writers::write_file(&DataSet::CellGrid(go.clone()), &p).unwrap();
+        let back = match aurafx_io::read_file(&p).unwrap() {
+            aurafx_io::Loaded::Static(d) => (*d).clone(),
+            _ => panic!(),
+        };
+        std::fs::remove_file(&p).ok();
+        let DataSet::CellGrid(back) = back else { panic!() };
+        assert_eq!(back.cell_types, go.cell_types, "{file} written");
+        assert_eq!(back.to_unstructured().cells, go.to_unstructured().cells, "{file} written cells");
+    }
+    assert!(checked > 1000, "{checked} sides checked");
+}

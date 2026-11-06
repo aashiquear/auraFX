@@ -97,7 +97,93 @@ pub fn is_flash(path: &Path) -> bool {
     ["gid", "unknown names", "bounding box", "refine level"].iter().all(|n| f.dataset(n).is_ok())
 }
 
+/// The particle dataset of a FLASH file, if it has particles.
+fn particle_dataset(f: &Hdf5File) -> Option<hdf5_reader::Dataset> {
+    ["particle tracers", "tracer particles"].iter().find_map(|n| f.dataset(n).ok()).filter(|d| d.shape().first().copied().unwrap_or(0) > 0)
+}
+
+pub const GRID: &str = "Grid";
+pub const PARTICLES: &str = "Particles";
+
+pub fn options(path: &Path) -> Vec<crate::ReaderOption> {
+    let has = Hdf5File::open(path).ok().is_some_and(|f| particle_dataset(&f).is_some());
+    if !has {
+        return Vec::new();
+    }
+    vec![crate::ReaderOption::new(
+        "data",
+        "Data",
+        crate::ReaderOptionKind::Choice(vec![GRID.into(), PARTICLES.into()]),
+        GRID,
+        "The AMR grid, or the file's tracer particles as points with their properties.",
+    )]
+}
+
+/// The tracer particles: a point each, with every property as a double (as VTK reads them).
+/// FLASH 3 and later keep them in a table whose columns "particle names" lists; FLASH 2 in a
+/// compound dataset with a field per property.
+pub fn read_particles(path: &Path) -> Result<PolyData> {
+    let f = Hdf5File::open(path).with_context(|| format!("opening {} as HDF5", path.display()))?;
+    let ds = particle_dataset(&f).ok_or_else(|| anyhow!("{}: no particles", path.display()))?;
+    let n = ds.shape()[0] as usize;
+    let mut cols: Vec<(String, Vec<f64>)> = Vec::new();
+    let (px, py, pz);
+    if let Datatype::Compound { size, fields } = ds.dtype().clone() {
+        let raw = ds.read_raw_bytes()?;
+        for fl in &fields {
+            let o = fl.byte_offset as usize;
+            let get = |rec: &[u8]| -> f64 {
+                match &fl.datatype {
+                    Datatype::FloatingPoint { size: 8, .. } => f64::from_le_bytes(rec[o..o + 8].try_into().unwrap()),
+                    Datatype::FloatingPoint { size: 4, .. } => f32::from_le_bytes(rec[o..o + 4].try_into().unwrap()) as f64,
+                    Datatype::FixedPoint { size: 4, signed, .. } => {
+                        let b: [u8; 4] = rec[o..o + 4].try_into().unwrap();
+                        if *signed { i32::from_le_bytes(b) as f64 } else { u32::from_le_bytes(b) as f64 }
+                    }
+                    Datatype::FixedPoint { size: 8, .. } => i64::from_le_bytes(rec[o..o + 8].try_into().unwrap()) as f64,
+                    _ => f64::NAN,
+                }
+            };
+            cols.push((fl.name.clone(), raw.chunks_exact(size as usize).take(n).map(get).collect()));
+        }
+        let take = |name: &str| cols.iter().find(|c| c.0 == name).map(|c| c.1.clone()).unwrap_or_else(|| vec![0.0; n]);
+        px = take("particle_x");
+        py = take("particle_y");
+        pz = take("particle_z");
+        cols.retain(|c| !matches!(c.0.as_str(), "particle_x" | "particle_y" | "particle_z"));
+    } else {
+        let names: Vec<String> = f
+            .dataset("particle names")
+            .context("FLASH particles without particle names")?
+            .read_strings()?
+            .into_iter()
+            .map(|s| s.trim_end_matches(['\0', ' ']).split(' ').next().unwrap_or("").to_string())
+            .collect();
+        let (v, shape) = values(&f, ds.name().trim_start_matches('/'))?;
+        let np = shape.get(1).copied().unwrap_or(1);
+        for (k, name) in names.iter().enumerate() {
+            if name == "particle_x" || name == "particle_y" || name == "particle_z" {
+                continue;
+            }
+            cols.push((name.clone(), (0..n).map(|i| v.get(i * np + k).copied().unwrap_or(f64::NAN)).collect()));
+        }
+        let take = |name: &str| cols.iter().find(|c| c.0 == name).map(|c| c.1.clone()).unwrap_or_else(|| vec![0.0; n]);
+        px = take("posx");
+        py = take("posy");
+        pz = take("posz");
+    }
+    let pts: Vec<f64> = (0..n).flat_map(|i| [px[i], py[i], pz[i]]).collect();
+    let mut pd = PolyData::from_points(Points::new_f64(pts));
+    for (name, v) in cols {
+        pd.point_data.insert(Array::scalars_f64(name, v));
+    }
+    Ok(pd)
+}
+
 pub fn read(path: &Path) -> Result<DataSet> {
+    if crate::option("data").as_deref() == Some(PARTICLES) {
+        return Ok(DataSet::PolyData(read_particles(path)?));
+    }
     let f = Hdf5File::open(path).with_context(|| format!("opening {} as HDF5", path.display()))?;
     // File format version: 7 and older are FLASH 2, 8 and 9 FLASH 3 (as VTK decides it).
     let ffv: i64 = if let Ok((v, _)) = values(&f, "file format version") {

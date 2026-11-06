@@ -17,14 +17,31 @@ pub fn is_enzo(path: &Path) -> bool {
     matches!(path.extension().and_then(|e| e.to_str()), Some("hierarchy" | "boundary"))
 }
 
-pub fn options(_path: &Path) -> Vec<ReaderOption> {
-    vec![ReaderOption::new(
+pub fn options(path: &Path) -> Vec<ReaderOption> {
+    let mut v = Vec::new();
+    // A "Data" choice when some grid holds particles.
+    if std::fs::read_to_string(hierarchy_path(path)).is_ok_and(|t| t.lines().any(|l| l.trim_start().starts_with("ParticleFileName"))) {
+        v.push(ReaderOption::new(
+            "data",
+            "Data",
+            ReaderOptionKind::Choice(vec!["Grid".into(), "Particles".into()]),
+            "Grid",
+            "The AMR grid, or the particles of every grid as points with their properties.",
+        ));
+    }
+    v.push(ReaderOption::new(
         "cgs",
         "Convert to CGS",
         ReaderOptionKind::Bool,
         false,
         "Multiply each field by its #DataCGSConversionFactor from the parameter file (ParaView's Convert To CGS; off by default, as in ParaView).",
-    )]
+    ));
+    v
+}
+
+fn hierarchy_path(path: &Path) -> PathBuf {
+    let major = path.with_extension("");
+    PathBuf::from(format!("{}.hierarchy", major.display()))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -227,6 +244,9 @@ pub fn read(path: &Path) -> Result<DataSet> {
     if grids.is_empty() {
         bail!("{}: no grids in the hierarchy", hier.display());
     }
+    if crate::option("data").as_deref() == Some("Particles") {
+        return particles(&grids);
+    }
     let cgs = option_bool("cgs", false);
     let mut files: HashMap<PathBuf, Hdf5File> = HashMap::new();
     fn open(files: &mut HashMap<PathBuf, Hdf5File>, p: &Path) -> Result<()> {
@@ -290,4 +310,54 @@ pub fn read(path: &Path) -> Result<DataSet> {
         mb.field_data.insert(Array::scalars_f64("TimeValue", vec![htime.unwrap_or(ptime)]));
     }
     Ok(ds)
+}
+
+/// The particles of every grid (in grid order) as one point set: positions from
+/// particle_position_x/y/z, every other particle_* dataset of the grid with the fewest cells
+/// as a point array in its stored type.
+fn particles(grids: &[Grid]) -> Result<DataSet> {
+    let with: Vec<&Grid> = grids.iter().filter(|g| g.particles > 0).collect();
+    let reference = with.iter().min_by_key(|g| g.cells.iter().product::<usize>()).ok_or_else(|| anyhow!("no grid holds particles"))?;
+    let mut files: HashMap<PathBuf, Hdf5File> = HashMap::new();
+    let mut group_of = |g: &Grid| -> Result<hdf5_reader::group::Group> {
+        if !files.contains_key(&g.file) {
+            files.insert(g.file.clone(), Hdf5File::open(&g.file).with_context(|| format!("opening {}", g.file.display()))?);
+        }
+        let root = files[&g.file].root_group()?;
+        root.groups()?
+            .into_iter()
+            .find(|x| x.name().trim_start_matches('/').strip_prefix("Grid").and_then(|i| i.parse::<usize>().ok()) == Some(g.index))
+            .ok_or_else(|| anyhow!("no group for grid {}", g.index))
+    };
+    let names: Vec<String> = group_of(reference)?
+        .datasets()?
+        .iter()
+        .map(|d| d.name().rsplit('/').next().unwrap_or("").to_string())
+        .filter(|n| n.starts_with("particle") && !n.starts_with("particle_position_"))
+        .collect();
+    let mut pts: Vec<f64> = Vec::new();
+    let mut cols: Vec<Option<ArrayData>> = vec![None; names.len()];
+    for g in with {
+        let grp = group_of(g)?;
+        let read = |n: &str| -> Option<ArrayData> { grp.dataset(n).ok().and_then(|d| crate::vtkhdf::read(&d).ok()).map(|x| x.0) };
+        let pos: Vec<Vec<f64>> = ["x", "y", "z"].iter().map(|a| read(&format!("particle_position_{a}")).map(|d| d.to_f64_vec()).unwrap_or_default()).collect();
+        let n = pos[0].len();
+        for i in 0..n {
+            pts.extend([pos[0][i], pos[1].get(i).copied().unwrap_or(0.0), pos[2].get(i).copied().unwrap_or(0.0)]);
+        }
+        for (k, name) in names.iter().enumerate() {
+            let d = read(name).filter(|d| d.len() == n).unwrap_or_else(|| ArrayData::F64(vec![0.0; n]));
+            match &mut cols[k] {
+                Some(c) => c.append(&d)?,
+                None => cols[k] = Some(d),
+            }
+        }
+    }
+    let mut pd = PolyData::from_points(Points::new_f64(pts));
+    for (name, c) in names.into_iter().zip(cols) {
+        if let Some(c) = c {
+            pd.point_data.insert(Array::new(name, 1, c));
+        }
+    }
+    Ok(DataSet::PolyData(pd))
 }

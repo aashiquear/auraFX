@@ -78,7 +78,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38); other GDAL rasters, MapInfo, file geodatabases, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
-- [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32); AMR particles, node-centered Chombo todo.
+- [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32), FLASH and Enzo particles (iteration 42); Chombo particles, node-centered Chombo todo.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
 - [ ] Point clouds: LAS/LAZ (PDAL), PTS, H5Part.
 - [ ] CAD: STEP, IGES (via OpenCASCADE feature), VRML, Alembic, USD, OpenVDB.
@@ -850,8 +850,16 @@ data; unheld points hidden. Checked against ParaView 6.1.1 (demand-driven mode o
 every value on the 3-D and 2-D Gaussian pulse, a region past the data, and a FLASH file.
 ParaView's cell-center mode copies wrong cells' values; ours is checked geometrically.
 
+Done in iteration 42: **FLASH and Enzo particles**. Reader option Data (Grid / Particles) on
+files with particles. FLASH 3 particle tables (columns named by "particle names") and FLASH 2
+compound particle datasets, every property as doubles; Enzo particle_position_x/y/z and the
+other particle_* datasets of every grid (names from the smallest grid with particles), stored
+types kept, all grids in one point set. Checked against VTK's particle readers as ParaView
+6.1.1 runs them (driven directly; its proxies list no arrays): positions and properties.
+ParaView repeats FLASH particles in every block and reads every FLASH 3 property from column 0.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; AMR particles (FLASH/Enzo/Chombo), node-centered Chombo; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; Chombo particles, node-centered Chombo; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

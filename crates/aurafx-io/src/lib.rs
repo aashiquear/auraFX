@@ -285,6 +285,7 @@ pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
         "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" => vectors::options(path),
         "hierarchy" | "boundary" => enzo::options(path),
         "json" if vectors::is_geojson(path) => vectors::options(path),
+        _ if flash::is_flash(path) => flash::options(path),
         _ => Vec::new(),
     }
 }

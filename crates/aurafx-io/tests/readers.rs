@@ -1739,3 +1739,75 @@ fn flash_and_enzo_match_paraview() {
     }
     assert_eq!(d.field_data().get("TimeValue").unwrap().get(0, 0), 0.75);
 }
+
+/// FLASH and Enzo particles (reader option data = Particles) against VTK's particle readers as
+/// ParaView 6.1.1 runs them (testdata/amr/particles_reference.json from
+/// scripts/amr_particles_reference.py): every particle's position and property, types kept for
+/// Enzo. ParaView repeats FLASH's particles in each of its blocks and reads every FLASH 3
+/// property from the first column; auraFX gives each particle once with its own columns, checked
+/// against the same particles in FLASH 2's layout.
+#[test]
+fn amr_particles_match_paraview() {
+    use aurafx_data::{DataSet, ScalarType};
+    let reference: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(td("amr/particles_reference.json")).unwrap()).unwrap();
+    let read = |f: &str, opts: &[(&str, &str)]| -> DataSet {
+        let o: aurafx_io::ReaderOptions = opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        match aurafx_io::with_options(&o, || read_file(td(&format!("amr/{f}")))).unwrap_or_else(|e| panic!("{f}: {e:#}")) {
+            Loaded::Static(d) => (*d).clone(),
+            _ => panic!(),
+        }
+    };
+    let floats = |v: &serde_json::Value| -> Vec<f64> { v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect() };
+    let pts = |p: &aurafx_data::PolyData| -> Vec<f64> { (0..p.points.len()).flat_map(|i| p.points.get(i)).collect() };
+    // serde_json reads floats to within an ulp.
+    let same = |a: &[f64], b: &[f64], tag: &str| {
+        assert_eq!(a.len(), b.len(), "{tag} size");
+        for (x, y) in a.iter().zip(b) {
+            assert!((x - y).abs() <= 1e-14 * (1.0 + y.abs()), "{tag}: {x} vs ParaView {y}");
+        }
+    };
+    let col = |p: &aurafx_data::PolyData, n: &str| -> Vec<f64> {
+        let a = p.point_data.get(n).unwrap_or_else(|| panic!("no {n}"));
+        (0..a.len()).map(|i| a.get(i, 0)).collect()
+    };
+    // FLASH 2 layout: block 0 of ParaView's output (every block holds the same particles).
+    let f2 = &reference["flash3d_ffv7_hdf5_part_0007"]["data"]["0"];
+    let DataSet::PolyData(p2) = read("flash3d_ffv7_hdf5_part_0007", &[("data", "Particles")]) else { panic!() };
+    same(&pts(&p2), &floats(&f2["points"]), "FLASH 2 points");
+    assert_eq!(p2.verts.len(), 40);
+    for (name, v) in f2["arrays"].as_object().unwrap() {
+        assert_eq!(p2.point_data.get(name).unwrap().scalar_type(), ScalarType::F64, "{name}");
+        same(&col(&p2, name), &floats(&v[1]), name);
+    }
+    // FLASH 3 layout: the same particles, each column its own.
+    let f3 = &reference["flash3d_hdf5_part_0007"]["data"]["0"];
+    let DataSet::PolyData(p3) = read("flash3d_hdf5_part_0007", &[("data", "Particles")]) else { panic!() };
+    same(&pts(&p3), &floats(&f3["points"]), "FLASH 3 points");
+    assert_eq!(col(&p3, "tag"), col(&p2, "tag"));
+    assert_eq!(col(&p3, "velx"), col(&p2, "particle_velx"));
+    assert_eq!(col(&p3, "mass"), col(&p2, "mass"));
+    for (k, axis) in ["posx", "posy", "posz"].iter().enumerate() {
+        assert_eq!(col(&p3, axis), (0..40).map(|i| p3.points.get(i)[k]).collect::<Vec<_>>());
+    }
+    // ParaView's FLASH 3 arrays are all the first column.
+    same(&col(&p3, "tag"), &floats(&f3["arrays"]["mass"][1]), "ParaView FLASH 3 mass");
+    // Enzo: ParaView's blocks (one per grid with particles) one after the other, types kept.
+    let e = &reference["enzo/DD0004/data0004.hierarchy"]["data"];
+    let DataSet::PolyData(pe) = read("enzo/DD0004/data0004.hierarchy", &[("data", "Particles")]) else { panic!() };
+    let blocks: Vec<&serde_json::Value> = ["0", "3"].iter().map(|b| &e[*b]).collect();
+    same(&pts(&pe), &blocks.iter().flat_map(|b| floats(&b["points"])).collect::<Vec<_>>(), "Enzo points");
+    for (name, v) in blocks[0]["arrays"].as_object().unwrap() {
+        let want_ty = match v[0].as_str().unwrap() {
+            "vtkLongArray" | "vtkLongLongArray" => ScalarType::I64,
+            "vtkIntArray" => ScalarType::I32,
+            "vtkFloatArray" => ScalarType::F32,
+            _ => ScalarType::F64,
+        };
+        assert_eq!(pe.point_data.get(name).unwrap().scalar_type(), want_ty, "Enzo {name}");
+        let want: Vec<f64> = blocks.iter().flat_map(|b| floats(&b["arrays"][name][1])).collect();
+        same(&col(&pe, name), &want, name);
+    }
+    // The grid is still the default.
+    assert!(matches!(read("flash3d_hdf5_part_0007", &[]), DataSet::MultiBlock(_)));
+    assert!(matches!(read("enzo/DD0004/data0004.hierarchy", &[]), DataSet::MultiBlock(_)));
+}

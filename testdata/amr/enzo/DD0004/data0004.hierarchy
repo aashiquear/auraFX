@@ -1,0 +1,82 @@
+Grid = 1
+Task              = 0
+GridRank          = 3
+GridDimension     = 14 14 14
+GridStartIndex    = 3 3 3
+GridEndIndex      = 10 10 10
+GridLeftEdge      = 0.0 0.0 0.0
+GridRightEdge     = 1.0 1.0 1.0
+Time              = 1.5
+SubgridsAreStatic = 0
+NumberOfBaryonFields = 2
+FieldType = 0 1
+BaryonFileName = ./DD0004/data0004.cpu0000
+CourantSafetyNumber    = 0.300000
+NumberOfParticles   = 25
+ParticleFileName = ./DD0004/data0004.cpu0000
+GravityBoundaryType = 0
+Pointer: Grid[1]->NextGridThisLevel = 0
+
+Pointer: Grid[1]->NextGridNextLevel = 2
+
+Grid = 2
+Task              = 0
+GridRank          = 3
+GridDimension     = 14 10 10
+GridStartIndex    = 3 3 3
+GridEndIndex      = 10 6 6
+GridLeftEdge      = 0.25 0.25 0.25
+GridRightEdge     = 0.75 0.5 0.5
+Time              = 1.5
+SubgridsAreStatic = 0
+NumberOfBaryonFields = 2
+FieldType = 0 1
+BaryonFileName = ./DD0004/data0004.cpu0000
+CourantSafetyNumber    = 0.300000
+NumberOfParticles   = 0
+GravityBoundaryType = 0
+Pointer: Grid[2]->NextGridThisLevel = 3
+
+Grid = 3
+Task              = 0
+GridRank          = 3
+GridDimension     = 12 10 10
+GridStartIndex    = 3 3 3
+GridEndIndex      = 8 6 6
+GridLeftEdge      = 0.5 0.625 0.5
+GridRightEdge     = 0.875 0.875 0.75
+Time              = 1.5
+SubgridsAreStatic = 0
+NumberOfBaryonFields = 2
+FieldType = 0 1
+BaryonFileName = ./DD0004/data0004.cpu0000
+CourantSafetyNumber    = 0.300000
+NumberOfParticles   = 0
+GravityBoundaryType = 0
+Pointer: Grid[3]->NextGridThisLevel = 0
+
+Pointer: Grid[3]->NextGridNextLevel = 0
+
+Pointer: Grid[2]->NextGridNextLevel = 4
+
+Grid = 4
+Task              = 0
+GridRank          = 3
+GridDimension     = 14 10 10
+GridStartIndex    = 3 3 3
+GridEndIndex      = 10 6 6
+GridLeftEdge      = 0.375 0.3125 0.3125
+GridRightEdge     = 0.625 0.4375 0.4375
+Time              = 1.5
+SubgridsAreStatic = 0
+NumberOfBaryonFields = 2
+FieldType = 0 1
+BaryonFileName = ./DD0004/data0004.cpu0000
+CourantSafetyNumber    = 0.300000
+NumberOfParticles   = 6
+ParticleFileName = ./DD0004/data0004.cpu0000
+GravityBoundaryType = 0
+Pointer: Grid[4]->NextGridThisLevel = 0
+
+Pointer: Grid[4]->NextGridNextLevel = 0
+

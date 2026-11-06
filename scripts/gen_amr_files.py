@@ -16,6 +16,11 @@ enzo/DD0003/data0003       Enzo: parameter file (TopGridRank 3, InitialTime, Dat
     CGS conversion factor for Density), .hierarchy (a 8^3 root grid, two level-1 grids, one
     level-2 grid inside the first), .boundary, and data0003.cpu0000 (Grid0000000N groups with
     float32 Density and TotalEnergy over the active cells, z slowest).
+flash3d_hdf5_part_0007, flash3d_ffv7_hdf5_part_0007   the 3-D FLASH grid with 40 tracer
+    particles (FLASH 3: "particle names" + "tracer particles" table; FLASH 2: a compound
+    "particle tracers" dataset).
+enzo/DD0004                 the Enzo dump with particles in grids 1 and 4 (positions, velocity,
+    mass, index, type).
 chombo3d.hdf5               Chombo (cell-centered): two levels, three boxes, components density
     and energy (functions of x, y, z).
 chombo2d.hdf5               Chombo 2-D: three levels, one ghost cell around every box
@@ -221,6 +226,58 @@ def chombo(path, dim, levels, ghost, prob_lo=None, vec_dx=False):
 chombo(os.path.join(out, "chombo3d.hdf5"), 3, [(0.125, [((0, 0, 0), (7, 7, 7))]), (0.0625, [((4, 4, 4), (11, 9, 7)), ((10, 10, 8), (13, 13, 11))])], 0)
 chombo(os.path.join(out, "chombo2d.hdf5"), 2,
        [(0.125, [((0, 0), (7, 7))]), (0.0625, [((2, 2), (9, 7)), ((8, 10), (13, 15))]), (0.03125, [((6, 6), (13, 11))])], 1, prob_lo=[-0.5, 0.25], vec_dx=True)
+
+# ------------------------------------------------------------------ particles
+rng = np.random.default_rng(7)
+npart = 40
+pos = rng.random((npart, 3)) * [1.0, 0.5, 0.5]
+vel = rng.random(npart) - 0.5
+mass = 1.0 + rng.random(npart)
+# FLASH 3: "particle names" (24-character names) and "tracer particles" (a column per name).
+with h5py.File(os.path.join(out, "flash3d_hdf5_plt_cnt_0007"), "r") as a, h5py.File(os.path.join(out, "flash3d_hdf5_part_0007"), "w") as b:
+    for k in a.keys():
+        b[k] = a[k][()]
+    names = ["tag", "posx", "posy", "posz", "velx", "mass"]
+    # As FLASH writes them: 24-character space-padded names in a 24-byte C string type (no NUL),
+    # which VTK reads without conversion.
+    tid = h5py.h5t.C_S1.copy()
+    tid.set_size(24)
+    tid.set_strpad(h5py.h5t.STR_NULLTERM)
+    ds = b.create_dataset("particle names", (len(names), 1), dtype=h5py.Datatype(tid))
+    ds.id.write(h5py.h5s.ALL, h5py.h5s.ALL, np.array([[n.ljust(24).encode()] for n in names], dtype="S24"), mtype=tid)
+    b["tracer particles"] = np.column_stack([np.arange(1, npart + 1), pos[:, 0], pos[:, 1], pos[:, 2], vel, mass]).astype("<f8")
+# FLASH 2: a compound "particle tracers" dataset.
+with h5py.File(os.path.join(out, "flash3d_ffv7_hdf5_chk_0007"), "r") as a, h5py.File(os.path.join(out, "flash3d_ffv7_hdf5_part_0007"), "w") as b:
+    for k in a.keys():
+        b[k] = a[k][()]
+    pt = np.dtype([("particle_x", "<f8"), ("particle_y", "<f8"), ("particle_z", "<f8"), ("particle_velx", "<f8"), ("mass", "<f8"), ("tag", "<i4")])
+    b["particle tracers"] = np.array([(pos[i, 0], pos[i, 1], pos[i, 2], vel[i], mass[i], i + 1) for i in range(npart)], dtype=pt)
+# Enzo with particles: the DD0003 grids, particles in grids 1 and 4.
+d4 = os.path.join(out, "enzo", "DD0004")
+os.makedirs(d4, exist_ok=True)
+for src, dst in (("data0003", "data0004"), ("data0003.boundary", "data0004.boundary")):
+    open(os.path.join(d4, dst), "w").write(open(os.path.join(d, src)).read())
+h = open(os.path.join(d, "data0003.hierarchy")).read().replace("DD0003/data0003", "DD0004/data0004")
+counts = {1: 25, 4: 6}
+parts = h.split("Grid = ")
+for i in counts:
+    for k, p in enumerate(parts):
+        if p.startswith(f"{i}\n"):
+            parts[k] = p.replace("NumberOfParticles   = 0", f"NumberOfParticles   = {counts[i]}\nParticleFileName = ./DD0004/data0004.cpu0000")
+open(os.path.join(d4, "data0004.hierarchy"), "w").write("Grid = ".join(parts))
+with h5py.File(os.path.join(d, "data0003.cpu0000"), "r") as a, h5py.File(os.path.join(d4, "data0004.cpu0000"), "w") as b:
+    for g in a.keys():
+        a.copy(g, b)
+    for i, n in counts.items():
+        l, r = grids[i - 1][0], grids[i - 1][1]
+        p = np.array(l) + rng.random((n, 3)) * (np.array(r) - np.array(l))
+        g = b[f"Grid{i:08d}"]
+        for k, ax in enumerate("xyz"):
+            g[f"particle_position_{ax}"] = p[:, k].astype("<f8")
+        g["particle_velocity_x"] = (rng.random(n) - 0.5).astype("<f4")
+        g["particle_mass"] = (1 + rng.random(n)).astype("<f8")
+        g["particle_index"] = (np.arange(n) + 100 * i).astype("<i8")
+        g["particle_type"] = np.array([1 + (k % 2) for k in range(n)], dtype="<i4")
 
 for root, _, files in os.walk(out):
     for fn in sorted(files):

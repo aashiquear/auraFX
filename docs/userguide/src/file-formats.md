@@ -265,7 +265,11 @@ auraFX reads:
   parameter file (`data0010`) and the grid files (`data0010.cpu0000`...) must be beside it.
   Each grid is a box on its level; fields keep their stored type (usually single precision).
   Reader option **Convert to CGS** multiplies each field by its `#DataCGSConversionFactor`
-  from the parameter file. It is off by default, as in ParaView. Particles are not read yet.
+  from the parameter file. It is off by default, as in ParaView.
+- **Particles** in FLASH and Enzo files: when a file has them, the reader option **Data**
+  switches between **Grid** (the AMR data) and **Particles**, a point for every particle with
+  its properties as point data (FLASH's as doubles, Enzo's in their stored types). Open the
+  file twice to see both, as in the picture below. Chombo particles are not read yet.
 - **Chombo** files (`.hdf5`, `.h5`; cell-centered, 1-D to 3-D), as Chombo-based codes write them
   (`level_0`, `level_1`... groups with boxes). The component names become cell arrays. Ghost
   cells stored around each box are dropped, and the boxes are placed from `prob_lo` and the
@@ -297,7 +301,11 @@ flash = afx.load("sedov_hdf5_plt_cnt_0010")  # FLASH
 enzo = afx.load("DD0010/data0010.hierarchy")  # Enzo
 enzo.set(cgs=True)                         # fields in CGS units
 chombo = afx.load("plot.0010.2d.hdf5")      # Chombo
+stars = afx.load("DD0010/data0010.hierarchy")
+stars.set(data="Particles")                # the particles instead of the grid
 ```
+
+![An Enzo dump read twice: its grid as box outlines and its particles as spheres colored by mass](images/amr_particles.png)
 
 ![A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells](images/chombo.png)
 
@@ -328,7 +336,7 @@ on a source. auraFX always uses every level, which is ParaView's result with tha
 Checked against ParaView 6.1.1: the AMR Gaussian Pulse source (cells, values, covered cells),
 the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
 (`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), the FLASH reader
-(FLASH 3 and FLASH 2 layouts) and the Enzo reader (with and without Convert to CGS) on test
+(FLASH 3 and FLASH 2 layouts, grid and particles) and the Enzo reader (grid and particles; the grid with and without Convert to CGS) on test
 files (`scripts/gen_amr_files.py`; every block's origin, spacing, size, array types and sums
 and covered cells), the Chombo reader against ParaView's VisIt Chombo reader (3-D and a 2-D
 file with ghost cells and three levels), Resample AMR (every value at the points, on the 2-D
@@ -339,7 +347,11 @@ Cell Data to Point Data and Resample To Image. ParaView 6.1.1 cannot read 2-D FL
 reads them, checked against the values the test file was written with. ParaView's Chombo
 reader keeps the ghost cells of level 0 as ordinary cells, so its level 0 reaches one ghost
 layer past the problem domain, while it drops them on the finer levels; auraFX drops them on
-every level. ParaView's Resample AMR with Transfer to nodes off copies values from the wrong
+every level. ParaView gives FLASH particles once per grid block (the same particles in every
+block) and reads every FLASH 3 particle property from the first column; auraFX gives each
+particle once with its own properties, checked against the same particles in FLASH 2's layout.
+ParaView's particle readers list no arrays to load in its Python interface, so they were driven
+directly. ParaView's Resample AMR with Transfer to nodes off copies values from the wrong
 cells (in the pulse, cells inside a level-1 box get another cell's values); auraFX takes each
 cell center's own cell, which the tests check against the cell positions.
 

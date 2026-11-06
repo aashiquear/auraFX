@@ -1,0 +1,8 @@
+InitialCycleNumber  = 3
+InitialTime         = 1.5
+TopGridRank         = 3
+TopGridDimensions   = 8 8 8
+DataLabel[0]              = Density
+DataLabel[1]              = TotalEnergy
+#DataCGSConversionFactor[0] = 2.500000e+00
+#DataCGSConversionFactor[1] = 1.000000e+00

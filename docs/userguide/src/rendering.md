@@ -9,7 +9,7 @@ error, so typos are caught.
 ## Lights
 
 - **Light kit** (on by default): a key light from the upper right, a fill light from the lower
-  left and a head light, like ParaView's. Untick it for a single head light.
+  left and a head light. Untick it for a single head light.
 - **Custom lights**: tick it to edit the lights yourself. Each light has a color, an
   intensity, an azimuth and an elevation, follows the camera or stays fixed in the scene, and
   can cast shadows. **Add light** adds one; **ambient** sets the light from everywhere.

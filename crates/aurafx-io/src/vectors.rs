@@ -99,8 +99,8 @@ fn layer_names(path: &Path) -> Vec<String> {
 }
 
 pub const PER_LAYER: &str = "One per layer";
-pub const PER_FEATURE: &str = "One per feature (ParaView)";
-pub const OUTLINES: &str = "Outlines (ParaView)";
+pub const PER_FEATURE: &str = "One per feature";
+pub const OUTLINES: &str = "Outlines";
 pub const FILLED: &str = "Filled";
 pub const ALL_LAYERS: &str = "All";
 
@@ -111,14 +111,14 @@ pub fn options(path: &Path) -> Vec<ReaderOption> {
             "Blocks",
             ReaderOptionKind::Choice(vec![PER_LAYER.into(), PER_FEATURE.into()]),
             PER_LAYER,
-            "One block per layer with a row of attributes per feature, or one block per feature as ParaView does.",
+            "One block per layer with a row of attributes per feature, or one block per feature.",
         ),
         ReaderOption::new(
             "polygons",
             "Polygons",
             ReaderOptionKind::Choice(vec![OUTLINES.into(), FILLED.into()]),
             OUTLINES,
-            "Polygon outlines as lines (as ParaView), or filled areas (triangles, holes left open) to color by an attribute.",
+            "Polygon outlines as lines, or filled areas (triangles, holes left open) to color by an attribute.",
         ),
         ReaderOption::new("feature_ids", "Feature ids", ReaderOptionKind::Bool, false, "Add each feature's id as the cell array _vtkPedigreeIds."),
     ];

@@ -31,7 +31,7 @@ Filters receive an `afx.Data`, a copy of the input:
 | `data.blocks()` | pieces of a multi-block dataset |
 | `data.copy()` | |
 
-ParaView spellings work too: `data.PointData.append(array, "name")`.
+The spellings `data.PointData.append(array, "name")` and `data.CellData` work too.
 
 Build new data with `afx.make_points(xyz)`, `afx.make_polydata(points, polys=[[0, 1, 2]],
 lines=..., verts=...)`, `afx.make_image(dims, spacing, origin)`,

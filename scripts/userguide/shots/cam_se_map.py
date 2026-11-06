@@ -1,6 +1,6 @@
 # CAM-SE output (a CAM-SE-style test file and its connectivity file, found automatically):
 # surface pressure on the lon/lat map, the cubed-sphere quads drawn; quads crossing the 0/360
-# seam stick out on the left and right as in ParaView.
+# seam stick out on the left and right.
 import aurafx as afx
 d = afx.load(ROOT + "/testdata/netcdf/cam_se.nc")
 d.set(variables="Surface [time, ncol]")

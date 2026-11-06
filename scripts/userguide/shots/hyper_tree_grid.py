@@ -1,4 +1,4 @@
-# Hyper tree grids: ParaView's Random Hyper Tree Grid source in 2-D (a quadtree), drawn with
+# Hyper tree grids: the Random Hyper Tree Grid source in 2-D (a quadtree), drawn with
 # its cell edges and colored by depth; Properties shows the source's settings.
 import aurafx as afx
 h = afx.random_hyper_tree_grid(dimensions=(7, 5, 1), max_depth=5, split_fraction=0.45, seed=3)

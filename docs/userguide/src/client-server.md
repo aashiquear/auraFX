@@ -1,8 +1,7 @@
 # Data on another machine
 
 When the data lives on a cluster or a GPU box, auraFX can read and filter it **there** and
-bring back only what you look at, like ParaView's `pvserver`, with nothing to set up beyond
-SSH.
+bring back only what you look at, with nothing to set up beyond SSH.
 
 ## How it works
 

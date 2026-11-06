@@ -1,8 +1,7 @@
 # Opening data on another machine
 
 When the data lives on a cluster or a GPU box, auraFX can read and filter it **there** and
-bring back only what you look at, like ParaView's `pvserver`, but with nothing to set up
-beyond SSH.
+bring back only what you look at, with nothing to set up beyond SSH.
 
 ## How it works
 
@@ -52,7 +51,7 @@ without a GPU (or started with `--no-gpu`) sends surfaces instead. `aurafx-serve
 ## Parallel servers (several processes)
 
 Data too big for one process (or one machine's memory) can be spread over several server
-processes, each holding one piece, like ParaView's `mpirun pvserver`:
+processes, each holding one piece:
 
 - **Open on Server › Processes**, or `afx.load(path, host="cluster", processes=8)`, starts
   `aurafx-server --workers 8`, which starts eight worker processes

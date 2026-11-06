@@ -1,7 +1,8 @@
 # File formats
 
-Every reader was checked against ParaView 6.1.1: the same points, cells, bounds and value
-ranges on the same files. Where auraFX differs on purpose, the table says so.
+Every reader was checked against a reference implementation: the same points, cells, bounds
+and value ranges on the same files. The comparisons are listed in the verification notes
+(`docs/reference/verification.md` in the source tree).
 
 ## Readers
 
@@ -27,7 +28,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | XYZ / extended XYZ | `.xyz .extxyz` | multi-frame; properties and lattice from the comment line |
 | PDB | `.pdb .ent` | all atoms (hydrogens kept), MODELs as time steps, CONECT and distance bonds, residues and chains |
 | Gaussian cube | `.cube` | the density as a volume in Å, plus the atoms with bonds |
-| Chemical Markup Language | `.cml` | the atoms and the file's bonds with their orders (`bond_order`), as ParaView's CML reader |
+| Chemical Markup Language | `.cml` | the atoms and the file's bonds with their orders (`bond_order`) |
 | VASP | `POSCAR`, `CONTCAR`, `CHGCAR`, `LOCPOT`, `ELFCAR`, `PARCHG` (by name), `.vasp` | atoms with bonds and the lattice; volumes on the cell's axes (charge per Å³) |
 | Images | `.png .jpg .bmp .tif` | as image data; multi-page TIFFs and `img_*.png` wildcards as volumes |
 | GIS rasters | GeoTIFF `.tif`, Esri ASCII grid `.asc` | at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below |
@@ -51,7 +52,7 @@ file is not.
 Files that follow the CF conventions are placed by their coordinates:
 
 - Longitude and latitude axes put the grid on a sphere of radius 1. A third (vertical)
-  axis becomes the radius, as in ParaView. Depths marked `positive="down"` are turned around,
+  axis becomes the radius. Depths marked `positive="down"` are turned around,
   and all levels are shifted so that none is below zero, so deeper levels lie further in
   (the deepest at the center).
 - Ocean and sea-ice models such as POP (CESM's ocean), CICE and ROMS use index dimensions
@@ -64,16 +65,12 @@ Files that follow the CF conventions are placed by their coordinates:
 
 ![A POP-style ocean file: sea surface height on its curvilinear TLONG/TLAT grid; the island has no data (grey)](images/pop_ocean.png)
 
-ParaView's dedicated POP reader only reads variables with exactly three dimensions, so it
-skips POP history output (time, depth, latitude, longitude). Its general NetCDF reader places
-those files as auraFX does.
-
 CAM-SE output (the spectral-element core of CESM's atmosphere model) comes as two files:
 the data, with columns `ncol` at `lat`/`lon`, and a connectivity file whose
 `element_corners` joins the columns into quads. Open the data file. auraFX finds the
 connectivity file in the same folder, or you can name it under **Reader options ›
-Connectivity file** (Python: `ds.set(connectivity="ne30np4_connectivity.nc")`). Like
-ParaView's CAM reader, it draws the grid on a flat lon/lat map:
+Connectivity file** (Python: `ds.set(connectivity="ne30np4_connectivity.nc")`). It draws
+the grid on a flat lon/lat map:
 
 - Quads that cross the 0/360° seam are moved to the side where they stick out least, on
   copies of their points, so the map runs a little past 0 and 360.
@@ -81,16 +78,14 @@ ParaView's CAM reader, it draws the grid on a flat lon/lat map:
   (`lev`) or interface (`ilev`) levels. With **All levels** on, the default, each quad
   becomes a column of hexahedra, the top level highest, and the `lev` (or `ilev`) array
   holds each point's level. With it off, **Level** chooses one level.
-- **Layout › Sphere** puts the columns on a sphere instead. This is not in ParaView; there is
-  no seam on a sphere.
-- A single level lies at height 0 (ParaView puts it at 1 or at the number of levels).
+- **Layout › Sphere** puts the columns on a sphere instead. There is no seam on a sphere.
+- A single level lies at height 0.
 
 ![CAM-SE surface pressure on the lon/lat map; quads crossing the 0/360 seam stick out at both edges](images/cam_se_map.png)
 
 MPAS output (from the ocean, atmosphere or land-ice models of the Model for Prediction
 Across Scales) is NetCDF too. When a `.nc` file has MPAS's mesh variables (`xCell`,
-`cellsOnVertex`), auraFX reads it as MPAS instead of as a CF grid, the way ParaView's MPAS
-reader does:
+`cellsOnVertex`), auraFX reads it as MPAS instead of as a CF grid:
 
 - Each MPAS cell center becomes a point, and the cells around each MPAS vertex are joined
   into a triangle (or a quad, on quad meshes). On a sphere, the points lie at the planet's
@@ -126,18 +121,15 @@ ocean.set(layout="Lat/Lon map", multilayer=True)     # all levels, as a flat 3-D
 ```
 
 On the map, cells that cross its left or right edge are drawn on both sides, so the map
-reaches a little beyond 360°, as in ParaView.
+reaches a little beyond 360°.
 
-Some things differ from ParaView:
-
-- ParaView adds a point at the planet's center. It collapses onto that point the triangles at
-  a mesh boundary and, when the file has `maxLevelCell`, the triangles that touch land. auraFX
-  leaves those triangles out, so land shows as holes. In the multilayer view, the levels
-  below the sea floor are left out too.
-- The default layer thickness of 0 picks a visible spacing; ParaView uses 10000 everywhere.
-- ParaView 6.1.1 fills point values in the multilayer view with garbage numbers (around
-  10<sup>35</sup>); auraFX gives each point its level's value.
+- The triangles at a mesh boundary and, when the file has `maxLevelCell`, the triangles that
+  touch land are left out, so land shows as holes. In the multilayer view, the levels below
+  the sea floor are left out too, and each point carries its level's value.
 - Reader options do not reach files opened on another machine through a server yet.
+
+Verified against a reference implementation; the comparisons are listed in the
+verification notes (`docs/reference/verification.md` in the source tree).
 
 ![MPAS ocean output: temperature at the top level on the sphere, with land left out](images/mpas_ocean.png)
 
@@ -153,15 +145,14 @@ are read the same way. Open them with **File › Open** or
 
 - The raster becomes image data with one cell per pixel, placed at its map coordinates
   (meters for UTM, degrees for longitude/latitude), with north up.
-- Values are cell data. A single band, such as an elevation model, is named `Elevation`, as
-  in ParaView. In a file with several bands, the first is `Elevation` and the others are
+- Values are cell data. A single band, such as an elevation model, is named `Elevation`.
+  In a file with several bands, the first is `Elevation` and the others are
   `Band 2`, `Band 3`… An RGB(A) image becomes one `Elevation` array with 3 or 4 components.
 - Pixels equal to the file's no-data value become NaN and are drawn grey (after Warp By
-  Scalar they leave a hole, since a NaN height has no place). ParaView hides
-  those cells instead.
+  Scalar they leave a hole, since a NaN height has no place).
 - The field data holds `NO_DATA_VALUE` per band and `MAP_PROJECTION`. For a GeoTIFF that is
-  the EPSG code (`EPSG:32633`); ParaView writes a PROJ string instead. For an ASCII grid it is
-  the text of the `.prj` file beside it.
+  the EPSG code (`EPSG:32633`). For an ASCII grid it is the text of the `.prj` file beside
+  it.
 - 8- to 64-bit integer and floating-point bands are read, compressed or not, in strips or
   tiles, with the bands stored together or one after another. A pixel-is-point GeoTIFF is
   moved half a pixel to its corner, as GDAL does.
@@ -182,12 +173,8 @@ terrain = dem.cell_data_to_point_data().warp_by_scalar(array="Elevation", scale=
 terrain.set(color_by="Elevation")
 ```
 
-Checked against ParaView 6.1.1's GDAL raster reader and against the GeoTIFFs the `.img`
-files were copied from: a compressed float elevation model with no-data, RGB and four-band
-images, and run-length compressed byte, 1-bit and 4-bit layers give the same values in every
-cell, the same placement and the same coordinate system. ParaView itself places `.img` files
-at the origin with zero spacing (it mistakes GDAL's empty list of control points for corner
-points). It also leaves its `Elevation` array empty and lists every layer as `Band 1`, `Band 2`…
+Verified against a reference implementation; the comparisons are listed in the
+verification notes (`docs/reference/verification.md` in the source tree).
 
 Other GDAL raster formats (NetCDF through GDAL, JPEG 2000…) are not read yet.
 
@@ -218,19 +205,18 @@ What you get:
   files, or meters for projected shapefiles. Heights (the third coordinate) are kept, so a
   file with heights in meters on a map in degrees looks very tall. Flatten it with
   **Transform** (scale z by 0) if that gets in the way.
-- Points become vertices, lines become polylines, and polygon rings become closed lines, as
-  in ParaView.
+- Points become vertices, lines become polylines, and polygon rings become closed lines.
 - Each feature's attributes become cell data on its cells: whole numbers as integers,
   decimals as doubles, and anything else (names, dates) as text. 64-bit integers stay
-  numbers; ParaView turns them into text.
+  numbers.
 - `MAP_PROJECTION` in the field data holds the coordinate system: the `.prj` text, the EPSG
   code of a GeoPackage, FlatGeobuf or GML layer, the coordinate system text of a file
   geodatabase layer, or `EPSG:4326` (longitude/latitude) for GeoJSON and KML.
 - File geodatabases store coordinates on a fine grid and add `Shape_Length` and `Shape_Area`
-  attributes to lines and areas; both come through as stored, as in ParaView.
+  attributes to lines and areas; both come through as stored.
 - MapInfo tables store coordinates as whole numbers on a grid set by the file (a millionth of
   a degree for longitude and latitude). auraFX converts them as GDAL does, rounding to that
-  grid, so the values are those ParaView shows. A MapInfo region's rings are grouped into
+  grid. A MapInfo region's rings are grouped into
   areas with holes: a `.tab` file says which rings are holes. In a `.mif` file, a ring inside
   a larger one is a hole, as GDAL decides it.
 - GML in a geographic coordinate system named the long way (`urn:ogc:def:crs:EPSG::4326`)
@@ -242,8 +228,8 @@ What you get:
 | Option | Choices |
 |---|---|
 | **Layer** (files with several layers) | **All** or one layer by name |
-| **Blocks** | **One per layer** (default: one block per layer, a row of attributes per feature), or **One per feature (ParaView)**, which is ParaView's layout and slow for thousands of features |
-| **Polygons** | **Outlines (ParaView)**, or **Filled**: triangles covering each area, with holes left open, to color areas by an attribute |
+| **Blocks** | **One per layer** (default: one block per layer, a row of attributes per feature), or **One per feature**: one block per feature, slow for thousands of features |
+| **Polygons** | **Outlines**, or **Filled**: triangles covering each area, with holes left open, to color areas by an attribute |
 | **Feature ids** | adds the feature number as `_vtkPedigreeIds` |
 
 ![Countries from a shapefile, filled and colored by population (log scale), rivers from GeoJSON and cities as points](images/gis_vectors.png)
@@ -268,25 +254,16 @@ lots.set(layer="lots", polygons="Filled")
 
 ![Three layers of one file geodatabase: lots filled and colored by size, roads as wide lines and wells as points](images/filegdb.png)
 
-Checked against ParaView 6.1.1's GDAL vector reader on shapefiles, GeoJSON, GeoPackage,
-FlatGeobuf, MapInfo files and a file geodatabase written by GDAL (FlatGeobuf also with 300 features, whose index
-has three levels; MapInfo `.tab` and `.mif` versions of the three layers and of a 63-feature
-layer of lots with holes, 300-point roads spread over several blocks of the file, a two-point
-line, multi-lines, points and a feature without geometry): with one block per feature, every
-point, cell and attribute is the same. A feature without geometry gives an empty block there,
-as in ParaView. The file geodatabase holds six layers (the three above, with heights on the
-cities, and the detail layer's lots, roads and wells); each was checked alone and all six
-together. ParaView cannot pick a file's last layer on its own (choosing it reads every layer);
-auraFX can. ParaView
-reads only the first layer of a file unless told otherwise; auraFX reads all of them.
-ParaView's GDAL cannot read KML, KMZ or GML (it is built without an XML parser), so those were
-checked against the same data saved as GeoJSON: GML 3.2 and GML 2 files written by GDAL, and
-the KML file zipped as KMZ.
+A feature without geometry gives an empty block. Any layer of a file can be picked on its
+own, and by default all layers are read.
+
+Verified against a reference implementation; the comparisons are listed in the
+verification notes (`docs/reference/verification.md` in the source tree).
 
 Not read yet: curved geometry (arcs; a file geodatabase's curves are read as straight lines
 between their vertices) and file geodatabase rasters and multipatches. In MapInfo files, text,
 arcs, rectangles, ellipses and collections are read without their geometry (their attributes
-are kept). Shapefile multipatches (3-D surfaces) are skipped, as ParaView does.
+are kept). Shapefile multipatches (3-D surfaces) are skipped.
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
 
@@ -299,7 +276,7 @@ auraFX reads:
 - **AMReX / BoxLib plotfiles**: a folder like `plt00100` with a `Header` file. Open the
   `Header` file in **File › Open** (choose "All files"), drop the folder on the window, or
   `afx.load("plt00100")`.
-- **VTK AMR files** (`.vthb`, `.vth`), as ParaView writes them.
+- **VTK AMR files** (`.vthb`, `.vth`).
 - **FLASH** plot and checkpoint files (`name_hdf5_plt_cnt_0007`, `name_hdf5_chk_0003`; HDF5,
   FLASH 2 to 4). They usually have no extension: open them in **File › Open** with "All
   files"; auraFX recognizes them by their contents. Every block of the PARAMESH tree becomes
@@ -309,34 +286,32 @@ auraFX reads:
   parameter file (`data0010`) and the grid files (`data0010.cpu0000`...) must be beside it.
   Each grid is a box on its level; fields keep their stored type (usually single precision).
   Reader option **Convert to CGS** multiplies each field by its `#DataCGSConversionFactor`
-  from the parameter file. It is off by default, as in ParaView.
+  from the parameter file. It is off by default.
 - **Particles** in FLASH and Enzo files: when a file has them, the reader option **Data**
   switches between **Grid** (the AMR data) and **Particles**, a point for every particle with
   its properties as point data (FLASH's as doubles, Enzo's in their stored types). Open the
   file twice to see both, as in the picture below. Chombo files with a `particles` group get
-  the same option (properties as doubles, as in ParaView).
+  the same option (properties as doubles).
 - **Chombo** files (`.hdf5`, `.h5`; 1-D to 3-D), as Chombo-based codes write them (`level_0`,
   `level_1`... groups with boxes). The component names become cell arrays, or point arrays in
   node-centered files. Ghost cells stored around each box are dropped, and the boxes are
   placed from `prob_lo` and the level's `dx` (or `vec_dx`).
 - **4-D Chombo** files (two space axes and two velocity axes, as gyrokinetic codes such as
-  COGENT write them, single level), as VisIt shows them: a 2-D grid over the space axes,
+  COGENT write them, single level): a 2-D grid over the space axes,
   whose every cell holds each component as an array with one value per velocity cell
   (parallel velocity major, magnetic moment minor). `_vpar` and `_mu` hold those cells'
-  velocity coordinates, and `<component>_sum` the sum over the velocity cells (VisIt's
-  `array_sum`, but leaving out velocity cells no box covers, which are NaN in the arrays).
-  Color by a component of the array to see one velocity cell, or by the sum. ParaView's
-  VisIt reader builds the same 2-D boxes but drops the data.
+  velocity coordinates, and `<component>_sum` the sum over the velocity cells (leaving out
+  velocity cells no box covers, which are NaN in the arrays).
+  Color by a component of the array to see one velocity cell, or by the sum.
 
 What you get:
 - One block per level (**Level 0**, **Level 1**, ...), each holding that level's boxes as image
   data with the variables as cell data. The **Information** panel lists them.
-- Coarse cells that a finer box covers are marked as hidden in `vtkGhostType`, as in ParaView.
+- Coarse cells that a finer box covers are marked as hidden in `vtkGhostType`.
   Surfaces, slices, clips, contours, thresholds, Integrate Variables, Resample To Image and
   probing skip them, so every place is shown and counted once, at its finest level.
 - AMReX vector variables written as `amrexvec_<name>_x`, `_y`, `_z` become one vector
-  `<name>`. In 2-D files the missing z is 0. ParaView puts the file's first variable there
-  instead.
+  `<name>`. In 2-D files the missing z is 0.
 - The time of the plotfile or dump is in the field data (`TimeValue`). Single- and
   double-precision files are read.
 - **Outline** draws the outline of every box, which shows where the refinement is.
@@ -368,14 +343,14 @@ stars.set(data="Particles")                # the particles instead of the grid
 
 ![A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way](images/flash_enzo.png)
 
-**Sources › AMR Gaussian Pulse** makes ParaView's small AMR test dataset: a coarse box and
+**Sources › AMR Gaussian Pulse** makes a small AMR test dataset: a coarse box and
 two finer boxes holding a Gaussian pulse, in 2-D or 3-D. **Filters › Overlapping AMR Level
 Ids** adds the cell array `LevelIdScalars` with each cell's level.
 
 **Filters › Resample AMR** samples AMR data on one uniform grid, so tools that want a single
 image can use it (volume rendering, image filters, export). **Number of samples** sets the
 grid points per axis; with **Whole domain** off, **Min** and **Max** pick a box (clipped to the
-data, dropping the samples that fall outside, as ParaView does). Each point takes the values of
+data, dropping the samples that fall outside). Each point takes the values of
 the finest cell holding it. With **Transfer to nodes** off, the values are taken at the
 cell centers instead and become cell data. Points no box holds are marked hidden.
 
@@ -386,41 +361,22 @@ grid = amr.resample_amr(samples=(64, 64, 64))
 part = amr.resample_amr(samples=(32, 32, 16), whole_domain=False, min=(0, 0, 0), max=(1, 1, 0.5))
 ```
 
-ParaView's Resample AMR has a demand-driven mode, on by default, that reads only the levels
-fine enough for the requested sampling. It needs a reader that supports it and gives nothing
-on a source. auraFX always uses every level, which is ParaView's result with that mode off.
+Resample AMR always uses every level of the data. 2-D FLASH files are read like 3-D ones.
+Ghost cells stored in Chombo files are dropped on every level. FLASH particles are given once
+each, with their own properties.
 
-Checked against ParaView 6.1.1: the AMR Gaussian Pulse source (cells, values, covered cells),
-the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
-(`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), the FLASH reader
-(FLASH 3 and FLASH 2 layouts, grid and particles) and the Enzo reader (grid and particles; the grid with and without Convert to CGS) on test
-files (`scripts/gen_amr_files.py`; every block's origin, spacing, size, array types and sums
-and covered cells), the Chombo reader against ParaView's VisIt Chombo reader (3-D, node-centered
-3-D, a 2-D file with ghost cells and three levels, and particles), Resample AMR (every value at the points, on the 2-D
-and 3-D Gaussian pulse, a region reaching past the data and a FLASH file), and on the AMR data
-Integrate Variables (the volume counts each place once), slices, Threshold, Extract Surface,
-Cell Data to Point Data and Resample To Image. ParaView 6.1.1 cannot read 2-D FLASH files
-(it reports "Inconsistent types of vtkCartesianGrid", and crashes with several levels); auraFX
-reads them, checked against the values the test file was written with. ParaView's Chombo
-reader keeps the ghost cells of level 0 as ordinary cells, so its level 0 reaches one ghost
-layer past the problem domain, while it drops them on the finer levels; auraFX drops them on
-every level. ParaView gives FLASH particles once per grid block (the same particles in every
-block) and reads every FLASH 3 particle property from the first column; auraFX gives each
-particle once with its own properties, checked against the same particles in FLASH 2's layout.
-ParaView's particle readers list no arrays to load in its Python interface, so they were driven
-directly. ParaView's Resample AMR with Transfer to nodes off copies values from the wrong
-cells (in the pulse, cells inside a level-1 box get another cell's values); auraFX takes each
-cell center's own cell, which the tests check against the cell positions.
+Verified against a reference implementation; the comparisons are listed in the
+verification notes (`docs/reference/verification.md` in the source tree).
 
 #### Contours of AMR data
 
 Values of AMR data sit at cell centers, and cells change size where levels meet. Averaging
-them to points box by box, which is what ParaView's Contour does, leaves gaps and overlaps
-along every level boundary. **Filters › AMR Contour** joins the cell centers of all levels into
-one mesh, the *dual grid*. Where a finer box meets coarser cells, its border cells reach out
-to the coarse cell centers, so the isosurface continues across the boundary without a crack.
-The other cell arrays are interpolated onto the surface. **Contour** on a cell array of AMR
-data does the same automatically. In 2-D data the result is closed isolines.
+them to points box by box leaves gaps and overlaps along every level boundary. **Filters ›
+AMR Contour** joins the cell centers of all levels into one mesh, the *dual grid*. Where a
+finer box meets coarser cells, its border cells reach out to the coarse cell centers, so the
+isosurface continues across the boundary without a crack. The other cell arrays are
+interpolated onto the surface. **Contour** on a cell array of AMR data does the same
+automatically. In 2-D data the result is closed isolines.
 
 ![The density isosurface of an AMReX plotfile: one closed surface across the fine box (smaller triangles) and the coarse boxes, colored by temperature](images/amr_contour.png)
 
@@ -433,18 +389,17 @@ cut = dual.clip(type="Scalar", array="density", value=0.3)   # a crack-free "dua
 
 **Filters › AMR Dual Grid** gives that mesh itself: one point per cell center, carrying all the
 cell arrays as point data. Clip, Slice, Stream Tracer and other filters that interpolate point
-data work on it across levels without seams; ParaView's AMR Dual Clip works this way too.
+data work on it across levels without seams.
 
-How it was checked: on a test plotfile whose density isosurface is a sphere crossing from the
-fine box into the coarse ones, the contour is closed (every edge shared by exactly two
-triangles, the topology of a sphere), its area is within 0.2 % of the sphere's, and its center
-is within 0.001 of the sphere's center. The box-by-box contour had 346 open edges there.
-ParaView's own AMR Contour and AMR Dual Clip are material-interface tools for CTH files and
-refuse this kind of AMR data, so there is no ParaView result to compare with.
+On a test plotfile whose density isosurface is a sphere crossing from the fine box into the
+coarse ones, the contour is closed (every edge shared by exactly two triangles, the topology
+of a sphere), its area is within 0.2 % of the sphere's, and its center is within 0.001 of the
+sphere's center. The box-by-box contour had 346 open edges there. More in the verification
+notes (`docs/reference/verification.md` in the source tree).
 
-Not read yet: plotfiles without FAB headers (the "NoFabHeader" variants), AMReX particles,
-Enzo, FLASH and Chombo files. Not available yet: ParaView's CTH material filters (AMR
-Fragments, Material Interface) and Resample AMR (Resample To Image does the same job).
+Not read yet: plotfiles without FAB headers (the "NoFabHeader" variants) and AMReX
+particles. Not available yet: material-interface filters for CTH data (AMR
+Fragments, Material Interface).
 
 ### Hyper tree grids
 
@@ -452,33 +407,31 @@ A *hyper tree grid* (HTG) starts from a grid of root cells. Each root cell is th
 tree: a refined cell splits into 2×2×2 children (3×3×3 with branch factor 3; 2×2 or 3×3 in
 2-D), and so on down to the leaves. Every cell of every tree, coarse or leaf, can hold values.
 A *mask* can hide cells. It is VTK's tree-based format for adaptive meshes. auraFX reads VTK's
-`.htg` files (XML version 2, as ParaView 5.10 and later write them).
+`.htg` files (XML version 2).
 
 What you get:
 - The grid is drawn as its visible leaves. Every filter that works on cells (Slice, Clip,
   Threshold, Contour after Cell Data to Point Data, Cell Centers, Integrate Variables...) sees
   those leaves as voxels (pixels in 2-D) with their values.
 - **Information** shows the dimension, branch factor, number of visible leaves and depth.
-  The cell count is the number of all cells (coarse ones included), as in ParaView.
-- A grid with **material interfaces** is drawn cut to its material (see below), as ParaView
-  draws it. Other filters still see whole leaves.
+  The cell count is the number of all cells (coarse ones included).
+- A grid with **material interfaces** is drawn cut to its material (see below). Other filters
+  still see whole leaves.
 - Saving as `.htg` keeps the grid: its trees, the mask and every cell's values (the
-  version 2 files ParaView writes). Saving as any other format (`.vtu` and the rest) writes the
+  version 2 files). Saving as any other format (`.vtu` and the rest) writes the
   visible leaves as an unstructured grid.
 
 **Sources:**
-- **Hyper Tree Grid** builds a grid from a text descriptor, as ParaView's source does.
-  Levels are separated by `|`. Each level lists `R` (refined) or `.` (leaf) for every cell
-  of that level, all trees in order; spaces are ignored. **Dimensions** (points per axis; 1
-  makes an axis flat), **Branch factor**, **Max depth**, **Grid scale**, and **Use mask** with
-  a **Mask** string of the same layout (`0` hides a leaf, `1` keeps it). ParaView builds
-  nothing when the mask hides a refined cell; auraFX ignores the mask on refined cells.
+- **Hyper Tree Grid** builds a grid from a text descriptor. Levels are separated by `|`.
+  Each level lists `R` (refined) or `.` (leaf) for every cell of that level, all trees in
+  order; spaces are ignored. **Dimensions** (points per axis; 1 makes an axis flat), **Branch
+  factor**, **Max depth**, **Grid scale**, and **Use mask** with a **Mask** string of the same
+  layout (`0` hides a leaf, `1` keeps it). The mask is ignored on refined cells.
 - **Random Hyper Tree Grid** refines cells at random. **Split fraction** is each cell's
-  chance of being refined, down to **Max depth**. It uses ParaView's random sequence, so the
-  same **Seed** gives the same grid as in ParaView. **Masked fraction** hides about that
-  share of the volume, whole subtrees at a time, with ParaView's random choices (the same
+  chance of being refined, down to **Max depth**. The same **Seed** gives the same grid.
+  **Masked fraction** hides about that share of the volume, whole subtrees at a time (the same
   settings hide the same cells). Its masking can hide a cell while leaving some cells below
-  it unmasked; those stay hidden, as in ParaView.
+  it unmasked; those stay hidden.
 
 **Filters** (Filters › Data):
 
@@ -487,7 +440,7 @@ What you get:
 | **Hyper Tree Grid To Unstructured Grid** | the visible leaves as an unstructured grid, with `OriginalIds` (each leaf's cell index) |
 | **Hyper Tree Grid Depth Limiter** | cuts every tree at a depth: cells at that depth become leaves (Depth 0 keeps only the root cells) |
 | **Hyper Tree Grid Generate Fields** | `CellSize` (volume, area or length of every cell), `ValidCell` (1 on visible leaves), `CellCenter`, and `TotalVisibleVolume` in the field data |
-| **Hyper Tree Grid To Dual Grid** | a point at the center of every visible leaf, with the leaf's values as point data, and a cell (voxel, pixel or line) joining the leaves around every corner. Use it for smooth contours and for filters that need point data. Points on the grid's boundary sit on the boundary; next to masked leaves they move as ParaView moves them |
+| **Hyper Tree Grid To Dual Grid** | a point at the center of every visible leaf, with the leaf's values as point data, and a cell (voxel, pixel or line) joining the leaves around every corner. Use it for smooth contours and for filters that need point data. Points on the grid's boundary sit on the boundary; next to masked leaves they move onto the face shared with the masked cell |
 | **Hyper Tree Grid Geometry** | the outside of the visible leaves as polygons with their values: in 3-D the faces on the grid's boundary and the walls next to masked cells (a face of a masked cell next to a coarser visible leaf carries that leaf's values); in 2-D a quad per visible leaf, in 1-D a line |
 | | With material interfaces, mixed cells are cut to their material (see below). **Fill material** (on by default): off draws only the interface lines in 2-D and leaves out pure cells in 1-D and 2-D |
 | **Hyper Tree Grid Feature Edges** | the edges of the visible region as lines with their leaves' values: the outline in 2-D, the outer corners and folds in 3-D |
@@ -509,8 +462,7 @@ hold a normal *n* (three values) and intercepts (*d1*, *d2*, *type*); each inter
 - *type* 0: the material lies between the two planes;
 - *type* 2 or more, or a zero normal: the cell is pure (all material).
 
-Hyper Tree Grid Geometry (and the default drawing) cuts each mixed cell by its planes, as
-ParaView does:
+Hyper Tree Grid Geometry (and the default drawing) cuts each mixed cell by its planes:
 - In 1-D and 2-D, each mixed leaf becomes the part of its line or quad that is in the
   material.
 - In 3-D, the faces of mixed cells and of their neighbors are drawn cut to the material, and
@@ -537,34 +489,16 @@ m = afx.load("interface_plane.htg")       # drawn cut to its material
 lines = m.hyper_tree_grid_geometry(fill_material=False)
 ```
 
-Checked against ParaView 6.1.1 on `.htg` files it wrote (3-D, 2-D with branch factor 3,
-masked):
-- the cell and visible-leaf counts, and the leaves in the same order (their `OriginalIds`
-  are ParaView's);
-- Depth Limiter, Generate Fields and all seven Evaluate Coarse operators;
-- both sources, which build the same grids as ParaView from the same settings, masks
-  included;
-- To Dual Grid on eleven grids (ParaView's files, both sources in 1-D, 2-D and 3-D, with and
-  without masks): every cell in ParaView's order, its type, where its points are and their
-  values;
-- `.htg` files auraFX writes open in ParaView with the same cells, leaves and values, and read
-  back into auraFX unchanged;
-- Geometry and Feature Edges on eight grids (1-D, 2-D and 3-D, files and sources, masked and
-  not): every polygon and line in ParaView's order, its points and its values;
-- Geometry with material interfaces on six grids (1-D, 2-D, 2-D masked, 2-D with branch
-  factor 3, 3-D, 3-D masked) with one-plane and two-plane interfaces, Fill material on and
-  off: every output cell in order, its points (shared exactly as in ParaView) and the cell it
-  comes from. ParaView keeps the output points in single precision, so cut points agree to
-  about 7 digits.
+To Unstructured Grid gives every leaf its index in `OriginalIds`, masked files included. To
+Dual Grid makes points for visible leaves only. **Cell Centers** works on hyper tree grids
+directly; there is no separate Axis Reflection filter for them. `.htg` files auraFX writes read
+back unchanged.
 
-ParaView's To Unstructured Grid leaves the `OriginalIds` of masked files partly unfilled (zeros
-at the end); auraFX gives every leaf its index. ParaView's To Dual Grid also keeps a point for
-every coarse and masked cell, left at the origin and used by no cell; auraFX leaves them out. ParaView deprecates its HTG Cell Centers and
-Axis Reflection filters in 6.0: Cell Centers works on hyper tree grids directly, and Axis
-Reflection is not provided.
+Verified against a reference implementation; the comparisons are listed in the
+verification notes (`docs/reference/verification.md` in the source tree).
 
 Not available yet: version 1 `.htg` files. Ghost Cells only matters for data split across
-processes. Interfaces are used by Geometry only (as in ParaView): slicing or clipping a grid
+processes. Interfaces are used by Geometry only: slicing or clipping a grid
 with interfaces works on whole leaves.
 
 ### Cell grids
@@ -572,8 +506,8 @@ with interfaces works on whole leaves.
 A *cell grid* holds cells whose fields are polynomials rather than one value per point or
 cell. Simulation codes using finite elements of the discontinuous Galerkin (DG) kind write
 fields this way. On each cell a field is a sum of basis functions, each times a coefficient
-stored in the file. A field can jump from one cell to the next. It is VTK's newest data type
-(ParaView 5.13 and later). auraFX reads VTK's `.dg` files (JSON).
+stored in the file. A field can jump from one cell to the next. It is VTK's newest data type.
+auraFX reads VTK's `.dg` files (JSON).
 
 Cells can be hexahedra, tetrahedra, wedges, pyramids, quadrilaterals, triangles, edges and
 vertices. Fields can be:
@@ -588,19 +522,20 @@ Edge and face fields are turned from the cell's own coordinates into space with 
 shape (its Jacobian), as in VTK. The cells' shape can itself be quadratic (curved).
 
 What you get:
-- The grid is drawn as its cells with every field evaluated at the corners. Where cells meet,
-  a field that jumps between them is averaged. Color by, the Spreadsheet, picking and every
+- The grid is drawn as its cells with every field evaluated at the corners. Quadratic cells
+  are drawn as linear cells through their corners. Where cells meet, a field that jumps
+  between them is averaged. Color by, the Spreadsheet, picking and every
   other filter see that mesh.
 - **Information** names the cell types and the number of fields (and, after Compute Sides,
   the number of sides shown).
 - Saving as `.dg` keeps the cell grid (every array, attribute and cell type, in the layout
-  VTK writes; ParaView opens these files). Saving as any other format writes the corner mesh
+  VTK writes). Saving as any other format writes the corner mesh
   as an unstructured grid.
 
-**Source** (Sources › Cell Grid): one cell of a chosen **Cell type** with test fields, as
-ParaView's source makes it: `hgrad` (1, 0, 0 at the first corner, 0 elsewhere), and on
-hexahedra, tetrahedra, wedges, quadrilaterals and triangles `hcurl` and `hdiv` (an edge and a
-face field whose first coefficient is 1). A vertex gets a `constant` field.
+**Source** (Sources › Cell Grid): one cell of a chosen **Cell type** with test fields:
+`hgrad` (1, 0, 0 at the first corner, 0 elsewhere), and on hexahedra, tetrahedra, wedges,
+quadrilaterals and triangles `hcurl` and `hdiv` (an edge and a face field whose first
+coefficient is 1). A vertex gets a `constant` field.
 
 **Filters** (Filters › Data):
 
@@ -613,7 +548,7 @@ face field whose first coefficient is 1). A vertex gets a `constant` field.
 | **Cell Grid Warp** | moves the cells' points by **Scale** times a vector attribute shared at the points (the same basis and order as the shape) |
 | **Cell Grid Probe** | finds the cells holding the points of a second dataset (the **Probe points**): a point for every cell each one is in, with `ContainingCellID` (the cell's number within its type), `CellType` (the VTK cell type number), `ParametricCoordinates` (where in the cell, in the cell's own coordinates) and, when **Attribute** names a field, the field's exact value there. Points in no cell are left out. A point on a face shared by two cells is listed twice |
 | **Cell Grid Compute Sides** | finds the sides of the cells and draws them instead of the 3-D cells: by default the faces on the outside (those not shared by two cells). **Sides to include** picks faces, edges or corners; see below |
-| **Convert To Cell Grid** | makes a cell grid from a mesh of vertices, lines, triangles, quads, tetrahedra, hexahedra, wedges and pyramids (other cells are skipped): point data becomes fields shared at the points, cell data constant fields (renamed "(cell)" when point data has the same name; ParaView drops one of the two) |
+| **Convert To Cell Grid** | makes a cell grid from a mesh of vertices, lines, triangles, quads, tetrahedra, hexahedra, wedges and pyramids (other cells are skipped): point data becomes fields shared at the points, cell data constant fields (renamed "(cell)" when point data has the same name) |
 
 ![VTK's two-hexahedron cell grid, see-through and colored by a field, with its cell centers as spheres colored by an edge field](images/cell_grid.png)
 
@@ -636,21 +571,26 @@ edges = g.cell_grid_compute_sides(include="Edges of inputs", omit_renderable=Fal
 
 ![VTK's two-hexahedron cell grid (left) and a copy turned, stretched and moved with Cell Grid Transform (right), both colored by the same field](images/cell_grid_transform.png)
 
-**Cell Grid Probe** works like ParaView's. Select the cell grid, Ctrl+click the dataset whose
+**Cell Grid Probe** looks up points in the cells. Select the cell grid, Ctrl+click the dataset whose
 points you want to look up (any dataset: its points are used), then choose Filters › Data ›
 Cell Grid Probe. In Properties, **Probe points** picks the second input and **Attribute** the
-field to sample (empty: only find the cells). A cell is searched with ParaView's quick test:
-the point must lie behind each of the cell's faces, taken as flat planes through the corners.
+field to sample (empty: only find the cells). A cell is searched with a quick test first:
+the point must lie behind each of the cell's faces, taken as flat planes through the corners
+(on a flat cell, the edges' directions stand in for the normals).
 Then the point's coordinates in the cell are found step by step from the cell's middle. On a
 cell with curved faces a point just outside can pass the quick test; it is kept, with empty
-(NaN) coordinates and values, as in ParaView. The grey points in the picture are such points,
+(NaN) coordinates and values. Points on an edge cell are kept when they lie between the two
+end planes and within the sphere around the edge, and are then kept only if they lie on the
+edge. The output points are in single precision, and with several cell types they are listed
+in the file's order. The grey points in the picture are such points,
 next to the curved face the two cells share.
 
 ![VTK's two-hexahedron cell grid as a wireframe, probed with a cloud of random points: the points found in the cells as spheres colored by the quadratic field, grey ones near the shared curved face](images/cell_grid_probe.png)
 
-**Cell Grid Compute Sides** works like ParaView's Compute Sides. Every side of every cell is
-listed, and a side is matched with the same side of a neighbor cell whichever way round its
-corners go. A side is kept once, for the first cell that has it. Properties:
+**Cell Grid Compute Sides** finds the sides of the cells. Every side of every cell is
+listed, by cell and then by side, and a side is matched with the same side of a neighbor
+cell whichever way round its corners go. A side is kept once, for the first cell that has
+it. Properties:
 - **Sides to include**:
   - *Next lowest dimension* (the default): the faces of 3-D cells, the edges of 2-D cells and
     the end points of edges;
@@ -673,74 +613,28 @@ The sides are stored in the grid as lists of (cell, side number) pairs, one per 
 ("quadrilateral sides of vtkDGHex"), as VTK stores them. The fields on a side are the fields of
 its cell, so a field that jumps between cells shows the value from the cell the side belongs
 to. Running Compute Sides on its result adds the sides of those sides, for example the edges of
-the outer faces. Saving as `.dg` keeps the lists, and ParaView draws them. Any filter other than
-the cell grid ones works on what is drawn: the sides.
+the outer faces. Saving as `.dg` keeps the lists. Any filter other than the cell grid ones
+works on what is drawn: the sides. VTK's markings of ghost and hidden points (which skip
+sides) are not read.
 
 ![A wavelet clipped by a slanted plane, made a cell grid and reduced with Cell Grid Compute Sides to the faces on its outside, drawn with their edges and colored by RTData](images/cell_grid_sides.png)
 
-Checked against ParaView 6.1.1 on VTK's ten DG test files (hexahedra, tetrahedra, wedges,
-pyramids including 19-node ones, quadrilaterals, quadratic quadrilaterals, triangles, edges,
-mixed types):
-- every corner point and every field there after To Unstructured Grid, edge and face fields
-  included;
-- Cell Grid Centers (positions and values);
-- Elevation, and the source's edge and face fields;
-- Cell Grid Transform (the edge and face fields follow the transformed cells), Cell Grid Warp
-  and Convert To Cell Grid, every corner point and value;
-- `.dg` files auraFX writes open in ParaView with the same values, and read back unchanged;
-- Cell Grid Probe on a lattice of points around each file and the cell centers: the same
-  cells for every point, and the coordinates and every field's value (edge and face fields
-  too) wherever ParaView gives them;
-- Cell Grid Compute Sides with eight settings (each choice of sides, omitting and keeping
-  surfaces, the three Keep rules) and run twice: the same sides of every cell, the same cells
-  hidden, the same lists (shape, side type, numbering, the `.dg` entries ParaView writes), and
-  the same cells and corners after To Unstructured Grid.
+On quadrilaterals and triangles the cell's shape matrix (its Jacobian) is flat, so it is
+completed with the cell's unit normal; edge and face fields then lie in the cell's plane, and
+Cell Grid Probe gives coordinates on flat cells and edges.
 
-Where auraFX differs from ParaView:
-- ParaView keeps the extra nodes of quadratic cells as points, but evaluates the fields there
-  at one fixed point of the cell (the center of a hexahedron, a corner of a tetrahedron)
-  instead of at the node, and draws the cell as if it were linear.
-  auraFX makes linear cells through the corners only.
-- On quadrilaterals and triangles, ParaView's edge fields read undefined memory and its face
-  fields come out NaN, because the flat cell's Jacobian is singular. auraFX completes it with
-  the cell's unit normal, so both are in the cell's plane.
-- ParaView's Cell Grid Centers gives one point for a file with several cell types; auraFX
-  gives one per cell.
-- Cell Grid Probe:
-  - On quadrilaterals, triangles and edges, ParaView's search for a point's coordinates
-    divides by zero (the same flat-cell Jacobian), so it gives NaN unless the point is at the
-    cell's parametric origin. auraFX gives the coordinates.
-  - For edges, ParaView's quick test reads undefined memory, so its results change from run
-    to run. auraFX keeps points between the two end planes, within the sphere around the
-    edge, and then keeps only the points on the edge.
-  - ParaView's quick test for a flat cell uses the edges' directions rather than their
-    normals. auraFX does the same, so the same points are listed (with NaN coordinates when
-    outside).
-  - ParaView samples the field in parallel with a shared cache, which mixes values between
-    points (the reference was made with ParaView's threads off). It also crashes on cells
-    with a quadratic shape. Its `CellType` array is always 0; auraFX gives the cell's VTK
-    type number.
-  - Points come out in single precision, as in ParaView.
-  - With several cell types, ParaView lists them in an order of its own; auraFX lists them
-    in the file's order.
-- Compute Sides:
-  - ParaView lists the sides in the order of a hash table, so some lists come out shuffled.
-    auraFX lists them by cell, then side.
-  - ParaView's To Unstructured Grid evaluates a side's fields on the wrong cell: the one
-    numbered like the side's place in its list, not the side's own cell. It also crashes on
-    the end points of edges. auraFX uses the side's cell, so a field that is continuous
-    between cells has the same values on the sides as on the cells.
-  - VTK's markings of ghost and hidden points (which skip sides) are not read.
+Verified against a reference implementation; the comparisons are listed in the
+verification notes (`docs/reference/verification.md` in the source tree).
 
-Not available yet: the cell grid filters ParaView 6.1.1 does not offer either (range, copy). Slicing or clipping works on the corner mesh, so curved cells come
-out straight.
+Not available yet: cell grid range and copy filters. Slicing or clipping works on the corner
+mesh, so curved cells come out straight.
 
 ## Writers
 
 | Format | Extensions | Notes |
 |---|---|---|
 | VTK XML | `.vtu .vtp .vti .vtr .vts .vtm` | appended binary; multiblocks as a folder of pieces |
-| VTK hyper tree grid | `.htg` | XML version 2, as ParaView 5.10 and later write it: the trees, mask and cell data |
+| VTK hyper tree grid | `.htg` | XML version 2: the trees, mask and cell data |
 | VTK cell grid | `.dg` | the JSON layout VTK writes: arrays, attributes and cell types |
 | VTK legacy | `.vtk` | |
 | VTKHDF | `.vtkhdf` | all dataset kinds; multiblocks as a collection; time series with `all_times=True`; written with auraFX's own HDF5 encoder (read by h5py and VTK) |
@@ -752,8 +646,10 @@ out straight.
 | Scenes | `.glb .obj .x3d .wrl` | see [Exporting](exporting.md) |
 | Pictures | `.png .svg`, GIF/MP4 animations | see [Exporting](exporting.md) |
 
-Files written by the VTK XML, VTKHDF, Exodus, EnSight, Xdmf and CGNS writers open in ParaView
-with the same points, cells and values. EnSight groups the cells of each part by type, and
+Files written by the VTK XML, VTKHDF, Exodus, EnSight, Xdmf and CGNS writers were read back
+with the same points, cells and values (verified against a reference implementation; the
+comparisons are listed in the verification notes, `docs/reference/verification.md` in the
+source tree). EnSight groups the cells of each part by type, and
 CGNS puts polyhedra after the other cells, so cells can come back in a different order (each
 keeps its values). Cell types a format does not have (Lagrange and Bezier cells, for example)
 are written by their corner points. A CGNS zone holds cells of one dimension: in a volume

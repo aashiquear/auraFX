@@ -1,10 +1,10 @@
 # auraFX Roadmap
 
 auraFX is a Rust-native scientific visualization and analysis workstation. The goal is
-feature parity with ParaView 6.1.1 (293 filters, 266 sources/readers, 46 writers, 101
+a complete catalog of readers, filters and views (293 filters, 266 sources/readers, 46 writers, 101
 view/representation types, 206 file-type groups; full inventory in
 `docs/reference/paraview-6.1.1-catalog.json`) delivered through a UI that a first-time
-user can drive without a manual, plus four things ParaView does not have:
+user can drive without a manual, plus four things that set it apart:
 
 1. A first-class AI assistant (cloud API, subscription, or local Ollama) that can see the
    pipeline, write and run analysis code, and explain results.
@@ -38,7 +38,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Datasets: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`, `UnstructuredGrid`, `Table`, `PointCloud`/particles.
 - [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid` (read and written as `.htg`; To Unstructured Grid, To Dual Grid, Depth Limiter, Generate Fields, Evaluate Coarse; descriptor and random sources with masks), `Molecule`, `CellGrid` (DG cells: HGRAD/HCURL/HDIV/constant fields on eight shapes; read from `.dg`, drawn at the corners; Centers, Elevation, source).
 - [x] Cell types: all VTK linear types (vertex, line, polyline, tri, quad, polygon, tet, hex, wedge, pyramid, pentagonal/hexagonal prism, polyhedron).
-- [x] Higher-order: Lagrange and Bezier cells of any order (curve, triangle, quad, tet, hex, wedge; per-cell `HigherOrderDegrees`, rational Bezier weights) and quadratic cells (complete, serendipity 8/20/15-node, quadratic-linear, cubic line), drawn curved and cut/integrated through their nodes like VTK (checked against ParaView 6.1.1). Pyramids (quadratic, Lagrange, Bezier) are still cut through their corners only.
+- [x] Higher-order: Lagrange and Bezier cells of any order (curve, triangle, quad, tet, hex, wedge; per-cell `HigherOrderDegrees`, rational Bezier weights) and quadratic cells (complete, serendipity 8/20/15-node, quadratic-linear, cubic line), drawn curved and cut/integrated through their nodes like VTK (verified against the reference implementation). Pyramids (quadratic, Lagrange, Bezier) are still cut through their corners only.
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
 - [~] Selections (IDs, rectangle/frustum, visible-only, threshold query done): IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
 - [~] Spatial structures (cell locator for probe and stream tracer done): point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
@@ -52,7 +52,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Time-aware execution: temporal filters read their input at any time (the upstream pipeline is re-evaluated on the worker thread), add or remap time steps, keep state between runs (particles advance incrementally) and skip re-running when their result does not depend on time.
 - [ ] Streaming/pieces for huge datasets; ghost-cell generation.
 - [x] Undo/redo of every pipeline and property change.
-- [~] State files (`.afx` JSON/TOML) and ParaView `.pvsm` import (best effort).
+- [~] State files (`.afx` JSON/TOML) and `.pvsm` state import (best effort).
 - [~] Python trace: every UI action recorded as an equivalent `aurafx` Python call.
 
 ---
@@ -71,10 +71,10 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] CSV/TSV with delimiter detection, header sniffing, and "table to points/structured grid".
 - [~] STL, OBJ, PLY, OFF, glTF/GLB.
 - [x] PNG/JPEG/BMP/TIFF images and stacks as `ImageData` (multi-page TIFF and `img_*.png` wildcards as volumes; iteration 18).
-- [~] VTKHDF (`.vtkhdf`: image data, unstructured grids, poly data, partitioned collections with assemblies, time steps, gzip; iteration 18, checked against ParaView); HDF5 generic browser todo.
+- [~] VTKHDF (`.vtkhdf`: image data, unstructured grids, poly data, partitioned collections with assemblies, time steps, gzip; iteration 18, verified against the reference reader); HDF5 generic browser todo.
 
 ### 1.2 Tier 2 (simulation ecosystem)
-- [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
+- [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against the reference reader).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26), ERDAS Imagine .img (iteration 51); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38), MapInfo .tab/.mif and Esri file geodatabases (iteration 50); other GDAL rasters, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML (iteration 35); OUTCAR todo.
@@ -85,8 +85,8 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [ ] Every remaining reader in the catalog, tracked per entry in `docs/reference/format-matrix.md`.
 
 ### 1.3 Writers
-- [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF (iteration 21; read by ParaView 6.1.1 since iteration 22).
-- [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified in ParaView), EnSight Gold and Xdmf 3 (iteration 22), CGNS/HDF5 (iteration 23), all verified in ParaView; OpenVDB, GenericIO, Fides.
+- [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF (iteration 21; read by the reference reader since iteration 22).
+- [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified with the reference reader), EnSight Gold and Xdmf 3 (iteration 22), CGNS/HDF5 (iteration 23), all verified with the reference reader; OpenVDB, GenericIO, Fides.
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG (JPEG/TIFF/BMP/EXR todo), screenshot with resolution override and transparent background (done, iteration 16).
 - [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
@@ -95,10 +95,9 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 
 ---
 
-## 2. Filters (full ParaView parity list)
+## 2. Filters (catalog)
 
-Each group below mirrors a ParaView menu category. Every ParaView filter name from the
-catalog is listed; those marked with a star are the ones that ship in the first usable build.
+Each group below is a menu category. Every filter of the catalog is listed; those marked with a star are the ones that ship in the first usable build.
 
 ### 2.1 Common (toolbar) ★
 - [~] Calculator ★ (expression language with vector/scalar/tensor functions, per-point and per-cell)
@@ -106,7 +105,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Clip ★ (plane, box, sphere, cylinder, cone, annulus, scalar, crinkle, inside-out)
 - [~] Slice ★ (plane, box, sphere, cylinder, multiple offsets, crinkle, merge points; Axis-Aligned Slice; Slice With Plane; Slice Along PolyLine; Slice Generic Dataset)
 - [~] Threshold ★ (between/below/above, all-points/any-point, component modes)
-- [~] Extract Subset ★ (VOI, sample rate, include boundary done, verified against ParaView; Extract Subset With Seed todo)
+- [~] Extract Subset ★ (VOI, sample rate, include boundary done; Extract Subset With Seed todo)
 - [~] Glyph ★ (arrow, cone, sphere, cylinder, line, 2D glyph, custom source; scale/orient by array; masking strategies), Glyph With Custom Source, Tensor Glyph, Normal Glyphs
 - [~] Stream Tracer ★ (RK2/RK4/RK45, point cloud and line seeds, surface streamlines, vorticity), Stream Tracer With Custom Source, Evenly Spaced Streamlines 2D
 - [~] Warp By Vector ★, Warp By Scalar ★
@@ -117,16 +116,16 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Histogram ★, Histogram 2D, Descriptive Statistics, Contingency Statistics, Multicorrelative Statistics, Principal Component Analysis, K-Means, Compute Quartiles, Extract Statistical Model Tables, Generate Statistics, Integrate Variables ★, Min Max, Scatter Plot, Table FFT, FFT Of Selection Over Time, Temporal Statistics ★ (live filter), Compute Derivatives, Gradient ★, Gradient Magnitude, Curvature, Elevation, Mesh Quality, Cell Quality, Boundary Mesh Quality, Cell Size, Polyline Length, Count Cell Faces, Count Cell Vertices, Validate Cells, Overlapping Cells Detector, Vortex Cores, Yield Criteria, Tensor Principal Invariants, Surface Flow, Minkowski Filter, OpenTURNS: OT Density Map, OT Kernel Smoothing
 
 ### 2.3 Alphabetical / geometry and topology
-- [~] Append Attributes, Append Datasets ★, Append Geometry (done, checked against ParaView), Append Reduce, Append Molecule, Append Selections
+- [~] Append Attributes, Append Datasets ★, Append Geometry (done), Append Reduce, Append Molecule, Append Selections
 - [~] Cell Centers ★, Cell Data to Point Data ★, Point Data to Cell Data ★, Field Data to Attribute, Pass Arrays ★, Rename Arrays, Extract Component ★, Merge Vector Components, Extract Attributes, Coordinates, Global Point And Cell Ids, Point And Cell Ids, Process Ids, Block Ids, Overlapping AMR Level Ids, Random Attributes, Random Vectors
 - [~] Clean ★, Clean to Grid, Clean Cells to Grid, Merge Blocks ★, Convert To Multi Block, Convert To Partitioned DataSet Collection, Convert AMR dataset to Multiblock, Convert To Point Cloud, Convert To Cell Grid, Convert Polyhedral Cells, Convert Into Molecule, Convert Selection, Image Data To AMR, Image Data To Uniform Grid, Image Data to Point Set, Rectilinear Data to Point Set, Table To Points ★, Table To Structured Grid, Transpose Table, Points Matching Transform
 - [~] Connectivity ★, Rectilinear Grid Connectivity, Extract Surface ★, Extract Edges, Feature Edges ★, Feature Edges Region Ids, Extract Region Surface, Extract Enclosed Points, Extract Cells By Region, Extract Cells By Type, Extract Cells Along Line, Extract Cells Along Lines (custom source), Extract Location, Extract Ghost Cells, Ghost Cells, Remove Ghost Information, Extract Selection ★, Extract Time Steps, Extract Particles Over Time, Extract AMR Blocks, Extract CTH Parts, Geometry Filter, Outline ★, Outline Corners, Outline Curvilinear DataSet, Outline Generic DataSet, Bounding Ruler
 - [~] Transform ★, Axis-Aligned Transform, Reflect, Axis-Aligned Reflect, Shrink, Explode DataSet, Crop, Image Shrink, Align Image Origins, Stitch Image Data With Ghosts
-- [~] Triangulate ★, Tetrahedralize ★, Tessellate (done: uniform levels instead of ParaView's chord-error refinement), Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
-- [x] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics (filter and source; checked against ParaView), plus the display Texture (an image on a surface)
-- [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR (iteration 41), Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
-- [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
-- [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
+- [~] Triangulate ★, Tetrahedralize ★, Tessellate (done: uniform levels instead of chord-error refinement), Tessellate Generic Dataset, Delaunay 2D ★, Delaunay 3D ★, Decimate ★, Quadric Decimation, Quadric Clustering, Decimate Polyline, Subdivide, Loop Subdivision, Smooth ★, Triangle Strips, Reverse Sense, Surface Normals ★, Surface Tangents, Surface Vectors, Deflect Normals, PCA Normal Estimation, Ribbon, Tube ★, Linear Extrusion, Linear Cell Extrusion, Rotational Extrusion, Volume Of Revolution, Clip Closed Surface, Iso Volume ★, Mask Points, Distribute Points, Generate Quadrature Points, Generate Quadrature Scheme Dictionary, Interpolate to Quadrature Points, Finite Element Field Distributor, Compute Sides
+- [x] Texture Map to Plane/Cylinder/Sphere, Perlin Noise, Spatio Temporal Harmonics (filter and source), plus the display Texture (an image on a surface)
+- [~] Resample To Image ★, Resample With Dataset ★ (done, verified point by point against the reference implementation), Resample To Line, Resample AMR (iteration 41), Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
+- [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
+- [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source; iteration 44: Geometry, Feature Edges; iteration 49: material interfaces in Geometry): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer; iteration 46: Probe; iteration 47: Compute Sides): Centers, Compute Sides, Elevation, Probe, To Unstructured Grid, Transform, Warp
@@ -138,7 +137,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 
 ### 2.4 Sources
 - [~] Geometric: Sphere ★, Cone ★, Cylinder ★, Box ★, Plane ★, Line ★, Disk, Ellipse, Arrow, Axes, Superquadric, Point Source, PolyLine Source, PolyPoint Source, Spline Source, Outline Source
-- [~] Synthetic data: Wavelet ★, Mandelbrot, Fast Uniform Grid, Hierarchical Fractal, Hyper Tree Grid (+Random), AMR Gaussian Pulse, Data Object Generator, Unstructured Cell Types (done, counts match ParaView), Partitioned DataSet Collection Source, Cell Grid Source, Spatio Temporal Harmonics Uniform Grid, Time Source, Trivial Producer
+- [~] Synthetic data: Wavelet ★, Mandelbrot, Fast Uniform Grid, Hierarchical Fractal, Hyper Tree Grid (+Random), AMR Gaussian Pulse, Data Object Generator, Unstructured Cell Types (done), Partitioned DataSet Collection Source, Cell Grid Source, Spatio Temporal Harmonics Uniform Grid, Time Source, Trivial Producer
 - [ ] Selection sources (ID, global ID, pedigree ID, location, frustum, threshold, value, block, query, composite/hierarchical ID)
 
 ### 2.5 Filter infrastructure
@@ -153,7 +152,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 ### 3.1 Render view (`aurafx-render`, wgpu)
 - [x] Camera: perspective/orthographic, trackball/terrain/joystick styles, reset/fit, standard views (+X,-X,...), isometric, roll, zoom to box, zoom to data, camera undo/redo, saved camera links.
 - [x] Surface rendering with flat/Gouraud/PBR shading; backface handling.
-- [x] Scalar coloring with color maps (ColorBrewer, viridis family, ParaView presets, imported `.json/.xml`), range modes (auto, custom, time-wide), log scale, discrete, NaN/above/below colors, opacity transfer functions, per-component or magnitude, categorical.
+- [x] Scalar coloring with color maps (ColorBrewer, viridis family, the classic preset gallery, imported `.json/.xml`), range modes (auto, custom, time-wide), log scale, discrete, NaN/above/below colors, opacity transfer functions, per-component or magnitude, categorical.
 - [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture.
 - [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
 - [x] Lighting (iterations 14–15): light kit, custom lights (camera-relative or fixed, colored), shadows, screen-space ambient occlusion, Eye-Dome Lighting, ACES/Reinhard tone mapping and exposure, MSAA + FXAA, order-independent transparency. Light widgets done in iteration 16. Not done: TAA. Original list: key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
@@ -176,7 +175,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 
 ---
 
-## 4. User experience (the thing that must be better than ParaView)
+## 4. User experience
 
 Design principles: progressive disclosure, no modal "Apply" button by default (auto-apply
 with cancel), everything searchable, every action scriptable, every panel optional.
@@ -253,7 +252,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 ---
 
-## 9. Distributed and remote (parity with pvserver)
+## 9. Distributed and remote
 
 - [~] Client/server split (data server and server-side rendering done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery, GPU-drawn color+depth images composited by depth; MPI todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
 - [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI launchers and ghost cells todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
@@ -265,7 +264,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 ## 10. Quality, docs, community
 
 - [~] Golden-image render tests, filter regression tests against VTK outputs, reader conformance suite with sample files for every format.
-- [ ] Benchmarks vs ParaView (load time, filter time, frame rate) published in docs.
+- [ ] Benchmarks (load time, filter time, frame rate) published in docs.
 - [ ] User guide, filter reference (auto-generated from property metadata), Python API docs, tutorials, example gallery.
 - [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook (done: `docs/plugins.md`).
 
@@ -273,8 +272,8 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 ## 11. Grain workbench (microstructure analysis and building)
 
-DREAM.3D's and the AM-Orientation-Shift-TOOLKIT's analyses as filters, sources, readers and
-charts, for FCC, BCC and HCP crystals. Design and stage details: `docs/design/grains-and-meshing.md`.
+EBSD and synthetic microstructures, grain segmentation and statistics, texture, boundaries
+and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and HCP crystals. Design and stage details: `docs/design/grains-and-meshing.md`.
 
 - [ ] G1 `aurafx-crystal` (orientation conversions, the 11 Laue groups, disorientation, fundamental zones, IPF/Rodrigues/Euler colours); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d`; Generate IPF Colors, Convert Orientations, Rotate Reference Frame, Crop, Change Resolution, Align Sections.
 - [ ] G2 Features: Segment Features (misorientation, scalar, C-axis), Find Sizes/Neighbors/Shapes/Centroids/Boundary Cells/Surface Features/Average Orientations/Misorientations/Kernel Average Misorientation/Reference Misorientations/Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; Features and Ensembles tables.
@@ -282,16 +281,16 @@ charts, for FCC, BCC and HCP crystals. Design and stage details: `docs/design/gr
 - [ ] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
 - [ ] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [ ] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
-- [ ] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, DREAM.3D pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
+- [ ] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
 
 ## 12. Geometry and mesh generator
 
-hexaform's structured hex meshing and a Sculpt-style overlay-grid mesher for arbitrary and
-voxel geometry, with Cubit's command style, quality tables and sets. Design: `docs/design/grains-and-meshing.md`.
+Implicit geometry, structured hex meshing (hexaform's methods) and an overlay-grid mesher for
+arbitrary and voxel geometry, with a command language, quality tables and sets. Design: `docs/design/grains-and-meshing.md`.
 
 - [ ] M1 Geometry kernel: implicit primitives, transforms, CSG, 2-D outlines extruded/revolved/swept, STL and existing surfaces as signed distance fields, named faces; the Geometry source and the `afx.mesh` command language (journals through the trace).
-- [ ] M2 Structured hex: box, mapped blocks, cube with packed inclusions (cubed-sphere O-grid macro-blocks, transfinite cores, graded shells, weld), plate with hole, dog-bone, 2-D sweep, Elevate to HEX20/27, blocks/side sets/node sets, periodic pairs; Mesh Quality with Cubit's metrics and thresholds; Exodus, VTK, Abaqus `.inp`, Gmsh `.msh` writers.
-- [ ] M3 Overlay-grid (Sculpt-style) mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
+- [ ] M2 Structured hex: box, mapped blocks, cube with packed inclusions (cubed-sphere O-grid macro-blocks, transfinite cores, graded shells, weld), plate with hole, dog-bone, 2-D sweep, Elevate to HEX20/27, blocks/side sets/node sets, periodic pairs; Mesh Quality with the full metric set and acceptable ranges; Exodus, VTK, Abaqus `.inp`, Gmsh `.msh` writers.
+- [ ] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
 - [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
 - [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
 
@@ -348,16 +347,16 @@ cases.
 Done in iteration 4: sending objects to 3D views from the right-click menu; data axes grid;
 keyframe animation (camera and filter values on a timeline, preview, export); OpenFOAM boundary
 patches; Exodus II writer with all time steps; Extract Subset; curved quadratic cells. The
-OpenFOAM patches, the Exodus writer and Extract Subset are checked against ParaView 6.1.1.
+OpenFOAM patches, the Exodus writer and Extract Subset are checked against the reference implementation.
 
 Done in iteration 5: color map editor (histogram, markers, bands, reverse, user presets,
 ParaView `.json` import/export) and a readable scalar bar backing.
 
 Done in iteration 6: multi-input filters in the pipeline (Ctrl+click several objects, then
 Append; an Inputs section in Properties; `afx.append_datasets(a, b)`), with Append Datasets,
-Append Geometry, Append Attributes and Resample With Dataset checked against ParaView 6.1.1.
+Append Geometry, Append Attributes and Resample With Dataset checked against the reference implementation.
 Probing image and rectilinear data is now trilinear like VTK (it was split into tetrahedra),
-Point/Cell Data conversions keep structured types and drop the source arrays as ParaView does
+Point/Cell Data conversions keep structured types and drop the source arrays by default
 (a "Pass" option keeps them), and a `Cells::default()` bug that lost the first appended cell
 is fixed.
 
@@ -365,11 +364,11 @@ Done in iteration 7: time-aware pipeline execution and the first temporal filter
 Tracer, Particle Path and Streak Line (incremental while playing; seeds from any dataset or a
 line), Temporal Interpolator (in-between and regular time steps), Temporal Shift Scale,
 Temporal Array Operator and a live Temporal Statistics. Interpolator, Shift Scale and Array
-Operator match ParaView 6.1.1. The particle filters are checked against the exact paths of
-`testdata/rotating.pvd` instead: ParaView advects each interval with the velocity at its end
+Operator match the reference implementation. The particle filters are checked against the exact paths of
+`testdata/rotating.pvd` instead: the reference implementation advects each interval with the velocity at its end
 (4.25 rad instead of 4.0 at t = 2) and its Streak Line output mixes seeds and has empty cells;
 auraFX interpolates the velocity linearly in time and builds one streak per seed. Particle ids
-are unique per particle (ParaView restarts them at every release).
+are unique per particle (the reference implementation restarts them at every release).
 
 Done in iteration 8: Python plugins (`@afx.filter`, `@afx.source`, `@afx.reader` in `.py` files
 from the plugin folder, `AURAFX_PLUGIN_PATH` or the Plugins window; hot reload re-runs nodes that
@@ -385,24 +384,24 @@ Extract Surface. Slice, Clip, Contour, Probe, Integrate Variables and Tetrahedra
 linear sub-cells. New: the Tessellate filter, the Unstructured Cell Types source, a Lagrange
 sample, and three curved test meshes (`scripts/gen_higher_order.py`).
 
-Against ParaView 6.1.1, Integrate Variables, Slice, Clip, Contour and Extract Surface at levels
+Against the reference implementation, Integrate Variables, Slice, Clip, Contour and Extract Surface at levels
 0-3 agree to about 1e-8 on Lagrange hexes, a rational Bezier hex and one cell of every other
 shape. There are two deliberate differences:
-- auraFX draws curved faces as quads, where ParaView splits them into triangles.
-- On Bezier cells, ParaView integrates the control net (3.0 for the quarter cylinder) and
+- auraFX draws curved faces as quads, where the reference implementation splits them into triangles.
+- On Bezier cells, the reference implementation integrates the control net (3.0 for the quarter cylinder) and
   skips Lagrange curves with an odd number of points; auraFX integrates the evaluated cells.
 
-VTK XML files are now written as version 2.2, so ParaView reads our Lagrange hexes correctly.
+VTK XML files are now written as version 2.2, so the reference reader reads our Lagrange hexes correctly.
 Older files are converted on reading the way VTK does. Curved cells also orient their faces
 from their corners, because VTK's Lagrange wedges are wound opposite to linear ones. Legacy
 `.vtk` files cannot carry degrees or rational weights for VTK, so use `.vtu` for curved cells.
 
 Done in iteration 10 (first part): serendipity quadratic cells. 20-node hexes, 15-node wedges
 and 8-node quads use serendipity shape functions. Quadratic-linear quads and wedges and cubic
-lines are treated as Lagrange cells. Extract Surface draws their faces with ParaView's pattern
+lines are treated as Lagrange cells. Extract Surface draws their faces with the reference implementation's pattern
 at every level: same point counts at levels 0-3 and areas within 1e-7 on
-`testdata/quadratic_shapes.vtu`. Slice and Contour match ParaView exactly. Integrate Variables
-gives positive volumes where ParaView's are signed or wrong (inverted 15-node wedge,
+`testdata/quadratic_shapes.vtu`. Slice and Contour match the reference implementation exactly. Integrate Variables
+gives positive volumes where the reference implementation's are signed or wrong (inverted 15-node wedge,
 quadratic-linear wedge 0.07 instead of 0.56, cubic line 1.48 for a 2.25 arc).
 
 Done in iteration 10: client/server. `aurafx-server` is a headless program that the app starts
@@ -546,7 +545,7 @@ Done in iteration 16 (exporters):
 - **Scene export** (File › Export Scene, `afx.export_scene("scene.glb")`): the visible
   surfaces, lines and points with their display colors as glTF 2.0 binary (vertex colors,
   normals, translucency, unlit objects, large coordinates in node translations) or OBJ with
-  vertex colors. ParaView 6.1 reads both with the same points, cells and bounds.
+  vertex colors. The reference viewer reads both with the same points, cells and bounds.
 
 - **3D widgets** for the active object: box (Clip by box, Box source: center and six face
   handles), sphere (Clip/Slice by sphere, Stream Tracer point-cloud seeds, Sphere source:
@@ -595,19 +594,19 @@ Done in iteration 17:
   visible triangles flat-shaded with the view's lights and sorted back to front, lines and
   points on top, and the overlays converted from the same egui shapes (text stays text).
   Where surfaces cut through each other, sorting by depth leaves jagged boundaries, as with
-  ParaView's GL2PS export. PDF: convert the SVG (Inkscape, rsvg-convert).
-- **X3D and VRML** scene export (`.x3d`, `.wrl`), with absolute coordinates; ParaView reads the
+  GL2PS exports. PDF: convert the SVG (Inkscape, rsvg-convert).
+- **X3D and VRML** scene export (`.x3d`, `.wrl`), with absolute coordinates; the reference viewer reads the
   VRML file with the same points, cells and bounds as the glTF.
 - **Wave keyframes:** a key that swings to the next key's value and back (sinusoid).
 
-Done in iteration 18 (P5 breadth: readers), each compared with ParaView 6.1.1's reader:
+Done in iteration 18 (P5 breadth: readers), each compared with the reference reader:
 - **VTKHDF** (`.vtkhdf`, pure Rust through `hdf5-reader`): image data, unstructured grids, poly
   data (several parts), partitioned collections nested by their assembly, time steps from the
   `Steps` group, contiguous, chunked and gzip-compressed storage. Counts, bounds and ranges
-  match ParaView on its own exports (a disk merged to one grid, Exodus blocks, a 3-step series).
+  match the reference reader on its own exports (a disk merged to one grid, Exodus blocks, a 3-step series).
 - **Images**: PNG, JPEG, BMP, TIFF (8/16-bit, float, gray/RGB/RGBA) as image data with
-  ParaView's array names and row order; multi-page TIFFs and wildcard paths
-  (`afx.load("slices/img_*.png")`, natural order) as volumes. ParaView 6.1.1 crashes on the
+  the reference reader's array names and row order; multi-page TIFFs and wildcard paths
+  (`afx.load("slices/img_*.png")`, natural order) as volumes. The reference reader crashes on the
   multi-page 16-bit TIFF that VTK writes; VTK's writer also labels its rows top-down while
   storing them bottom-up, and we follow the label as image viewers do.
 - **EnSight Gold** (`.case`): ASCII and C binary (either byte order), every standard element
@@ -615,24 +614,24 @@ Done in iteration 18 (P5 breadth: readers), each compared with ParaView 6.1.1's 
   per-element scalars/vectors/tensors, time sets with wildcard file names; one block per part.
 - **Tecplot ASCII**: ordered and FE zones, POINT/BLOCK packing, cell-centered variables,
   old-style FEPOINT headers, multi-line headers, `n*value` repeats, Fortran exponents (the last
-  three confuse ParaView's reader, which loses the zone).
+  three confuse the reference reader, which loses the zone).
 - **PDB** (all atoms, hydrogens included, MODELs as time steps, CONECT plus distance bonds) and
-  **Gaussian cube** (density volume and atoms in Å; ParaView keeps grid-index units).
+  **Gaussian cube** (density volume and atoms in Å; the reference reader keeps grid-index units).
 
 Done in iteration 19 (more readers):
 - **Xdmf 2/3**: inline, HDF5 and raw binary data; mixed and single-type unstructured,
   curvilinear, rectilinear and image topologies; spatial and temporal collections;
   `xi:include`/`Reference` XPath pointers (the way FEniCS and Dolfinx share one mesh across
-  time steps); HyperSlab and JOIN items. Matches ParaView on its own exports; ParaView drops a
+  time steps); HyperSlab and JOIN items. Matches the reference reader on its own exports; it drops a
   HyperSlab field and fails on a curvilinear Xdmf 2 grid, both read here.
 - **NetCDF CF** (classic and NetCDF-4): the grid most variables share, lon/lat on a unit sphere
-  with cells between the `bounds` edges (as ParaView), rectilinear otherwise, time steps from the
+  with cells between the `bounds` edges (as the reference reader), rectilinear otherwise, time steps from the
   time coordinate, `scale_factor`/`add_offset`, fill values as NaN. Counts, ranges and values
-  match ParaView on the IPCC sea surface temperature example and on generated files. Exodus
+  match the reference reader on the IPCC sea surface temperature example and on generated files. Exodus
   files with a `.nc` name still open as Exodus.
 - **PLOT3D**: grids and Q solutions, the binary layout found from the file size (Fortran or C
   binary, byte order, precision, multi-grid, 2-D/3-D, IBLANK), ASCII too; Density, Momentum,
-  StagnationEnergy, Pressure and Properties as in ParaView.
+  StagnationEnergy, Pressure and Properties as in the reference reader.
 - **VASP**: POSCAR/CONTCAR (VASP 4 and 5, direct or Cartesian, scale or volume) and
   CHGCAR/LOCPOT/ELFCAR/PARCHG volumes on the cell's axes (charge per Å³), known by file name.
 
@@ -645,18 +644,18 @@ Done in iteration 20:
 - **CGNS** (HDF5 storage, pure Rust): bases and zones as blocks; structured zones; unstructured
   zones with every standard element type (quadratic node orders converted), MIXED sections
   with or without CGNS 4 offsets, NGON/NFACE polyhedra; volume elements only (boundary
-  sections left out, as ParaView's default); vertex and cell-center solutions with X/Y/Z
+  sections left out, as the reference reader's default); vertex and cell-center solutions with X/Y/Z
   components joined into vectors; time steps from the iterative-data pointers. Matches
-  ParaView's CGNS reader on its own export and on a hand-made file with a structured zone,
+  the reference CGNS reader on its own export and on a hand-made file with a structured zone,
   a MIXED section, a boundary section and two time steps. (ADF storage: iteration 24.)
 - **Binary Tecplot** (`.plt`, format 1xx): ordered and FE zones, node- and cell-centered
   variables of any storage type, shared variables and connectivity, auxiliary data. A file
-  written from the spec reads the same as its ASCII twin; VisIt's reader in ParaView agrees on
+  written from the spec reads the same as its ASCII twin; the VisIt reader agrees on
   everything but the double-precision cell-centered variable, which it misreads. SZL
   (`.szplt`) files are not read.
 
 Done in iteration 21: a VTKHDF writer on auraFX's own small HDF5 encoder (`node.save("x.vtkhdf")`,
-`all_times=True`, the Save dialog; read back by h5py and our reader, not yet by ParaView's
+`all_times=True`, the Save dialog; read back by h5py and our reader, not yet by the reference
 reader), and the **user guide** (`docs/userguide`: Markdown sources, mdBook HTML, PDF) with a
 generated screenshot per feature (`scripts/userguide/shots.sh`, `build.sh`). Rule in CLAUDE.md:
 every feature ships with a guide entry and screenshot.
@@ -665,9 +664,9 @@ Done in iteration 22: **EnSight Gold writer** (C binary `.case`; parts per block
 blocks, every element type, polygons and polyhedra, time series with the geometry written once
 when it does not change) and **Xdmf 3 writer** (`.xmf` + `.h5`; Co/Rect/SMesh, single-type or
 Mixed topologies with polyhedra, collections, temporal collections sharing unchanged points and
-cells); the Xdmf reader reads Mixed polyhedra. Both read by ParaView 6.1.1 with the same counts,
-bounds and ranges. VTKHDF output now opens in ParaView: our HDF5 groups did not track link
-creation order, which VTK iterates by, and ParaView's HDF5 then allocated until the machine
+cells); the Xdmf reader reads Mixed polyhedra. Both read by the reference reader with the same counts,
+bounds and ranges. VTKHDF output now opens in the reference viewer: our HDF5 groups did not track link
+creation order, which VTK iterates by, and its HDF5 then allocated until the machine
 swapped. Fixed along the way: `afx.active_view()` raced the app (per-view show/hide from
 scripts), blocking updates (`save(all_times=True)`, values over time) could use a stale output
 while the app's worker held the node, and a color array set before the data arrived was looked
@@ -678,7 +677,7 @@ Done in iteration 23: **CGNS writer** (HDF5, CGNS 4 layout: structured zones, on
 section per zone (typed, or MIXED with offsets) plus NGON/NFACE for polygons and polyhedra,
 bases by cell dimension, vertex and cell-center solutions with vectors as X/Y/Z, time series
 with per-step solutions and moving coordinates through `ZoneIterativeData` pointers); read by
-ParaView 6.1.1 with the same counts, bounds and ranges. `afx.split_view()` waits for the new
+the reference reader with the same counts, bounds and ranges. `afx.split_view()` waits for the new
 view and returns its number (two splits in a row split the same view before).
 
 Done in iteration 24: **CGNS in ADF storage** (the pre-HDF5 format, same `.cgns` extension,
@@ -686,32 +685,32 @@ told apart by the file header): the 64-bit "B" layout the CGNS library writes to
 old 32-bit "A" layout with hex-text pointers, little- or big-endian data, data split into
 chunks, links inside the file and to other ADF files. The reader walks ADF nodes and HDF5
 groups through one node type, so everything the CGNS reader does works for both. The test
-files are written by the CGNS library in ParaView 6.1.1 (`scripts/gen_cgns_adf.py`); an
+files are written by the reference implementation's CGNS library (`scripts/gen_cgns_adf.py`); an
 old-layout file made from one of them (`scripts/gen_adf_old.py`) is read back by that library
 to the same values. Every file the CGNS writer produces, copied to ADF, reads exactly as the
-HDF5 original, and ParaView reports the same counts, bounds and ranges on the ADF copies.
+HDF5 original, and the reference reader reports the same counts, bounds and ranges on the ADF copies.
 
 Done in iteration 25: **MPAS** NetCDF output (ocean, atmosphere, land ice), found from the
-file's variables: the dual grid as ParaView's MPAS reader builds it by default (cell centers as
+file's variables: the dual grid as the reference MPAS reader builds it by default (cell centers as
 points, `cellsOnVertex` triangles or quads), cell variables as point data and vertex variables
 as cell data at the first index of extra dimensions (the top level), numbered time steps,
 `xtime` in field data. Boundary triangles and triangles touching land (`maxLevelCell`) are left
-out; ParaView keeps them collapsed onto an extra point at the origin. On an MPAS-style test
-file (`scripts/gen_mpas.py`) every point array and every cell ParaView keeps match exactly.
-Tecplot SZL is set aside: ParaView 6.1.1 has no reader to compare with and the format is not
+out; the reference reader keeps them collapsed onto an extra point at the origin. On an MPAS-style test
+file (`scripts/gen_mpas.py`) every point array and every cell the reference reader keeps match exactly.
+Tecplot SZL is set aside: there is no reference reader to compare with and the format is not
 published. Reader options (MPAS vertical level, multilayer and lon/lat views) need a reader
 parameter path through the pipeline first.
 
 Done in iteration 26: **GIS rasters** without GDAL: GeoTIFF (found from its GeoTIFF tags; any
 integer or float bands, compressed, strips or tiles, pixel- or band-interleaved, tie point and
 scale or a transformation matrix, pixel-is-point moved to the corner as GDAL does) and Esri
-ASCII grids, as ParaView's GDAL raster reader lays them out: image data with a cell per pixel
+ASCII grids, as GDAL's raster reader lays them out: image data with a cell per pixel
 at map coordinates, north up, bands named "Elevation", "Band 2"..., RGB(A) as one array,
-`NO_DATA_VALUE` and `MAP_PROJECTION` (EPSG code) in field data. No-data becomes NaN (ParaView
-hides the cells). Test files are written by the GDAL library in ParaView through ctypes
+`NO_DATA_VALUE` and `MAP_PROJECTION` (EPSG code) in field data. No-data becomes NaN (the reference viewer
+hides the cells). Test files are written by the GDAL library through ctypes
 (`scripts/gen_rasters.py`); extents, origins, spacings, first/last values and sums match
-ParaView. The `tiff` crate reads only the first plane of band-interleaved images, so those are
-put together chunk by chunk. ParaView's GDAL build has no ASCII grid driver; that file is
+the reference reader. The `tiff` crate reads only the first plane of band-interleaved images, so those are
+put together chunk by chunk. The reference GDAL build has no ASCII grid driver; that file is
 checked against the GeoTIFF it was written from.
 
 Done in iteration 27: **reader options**. A reader can offer settings for a file
@@ -721,22 +720,22 @@ saved in state files and undo history, and applied by reading again (static file
 time step (series), through a thread-local like the piece setting. First user: **MPAS** vertical
 level, multilayer view (wedge/hex columns, topography per level), layer thickness (0 = automatic),
 atmosphere (layers outwards) and the lon/lat map with cells crossing the edge mirrored to both
-sides and a chosen center longitude. Checked against ParaView's MPAS reader with the same
+sides and a chosen center longitude. Checked against the reference MPAS reader with the same
 settings: level 2 ranges, map point/cell counts and bounds (both centers), multilayer map depth.
-ParaView 6.1.1's multilayer point values are uninitialised memory and it never drops land
+The reference reader's multilayer point values are uninitialised memory and it never drops land
 layers (unsigned comparison); both noted in the guide. Options are not sent to remote servers yet.
 
 Done in iteration 28: **CAM-SE** (data file plus connectivity file, found beside it or named in
-a reader option): ParaView's CAM reader layout on a lon/lat map, seam quads moved to their
-shorter side on copied points (ParaView's inverted-cell test and anchor rule), surface /
+a reader option): the reference CAM reader's layout on a lon/lat map, seam quads moved to their
+shorter side on copied points (the reference reader's inverted-cell test and anchor rule), surface /
 midpoint / interface variables, all levels as hexahedra with a level array or one level, and a
-sphere layout ParaView lacks. **POP** and other curvilinear CF files: 2-D longitude/latitude
+sphere layout of its own. **POP** and other curvilinear CF files: 2-D longitude/latitude
 from the `coordinates` attribute put the grid on the sphere, a vertical axis as radius with
-ParaView's rule (positive="down" negated, shifted to non-negative; now also for 1-D lon/lat
+the reference reader's rule (positive="down" negated, shifted to non-negative; now also for 1-D lon/lat
 grids), the auxiliary coordinates kept out of the data, and a "Variables on" reader option to
-pick the grid (ParaView's Dimensions). ParaView's own POP reader reads only 3-D variables, so
-POP history files are compared with its NetCDF reader. CAM checked in all four of ParaView's
-modes (counts, bounds, first cell, array sums); POP on both grids (bounds, ranges).
+pick the grid. The reference POP reader reads only 3-D variables, so
+POP history files are compared with the reference NetCDF reader. CAM checked in all four of the
+reference reader's modes (counts, bounds, first cell, array sums); POP on both grids (bounds, ranges).
 
 Done in iteration 29: **reader options on servers** (protocol 8). Reader nodes already sent
 their parameters with each request and the server applies them to its reader node, which now
@@ -751,26 +750,26 @@ keep server nodes' parameters (they were dropped on load before). Tested in-proc
 Done in iteration 30: **texture mapping and made-up data**. Texture Map to Plane (least-squares
 plane or origin/point 1/point 2), Cylinder (axis from the oriented bounding box, with VTK's
 Jacobi eigenvector signs, or two points) and Sphere (center = mean of the points), each with
-Prevent Seam, ported from VTK so all 14 cases on two surfaces match ParaView 6.1.1 to float
+Prevent Seam, ported from VTK so all 14 cases on two surfaces match the reference implementation to float
 precision. The display gets a **Texture** (PNG/JPEG, mipmapped, repeating): texture
 coordinates travel packed as two halves in the vertex scalar, so the vertex layout is
 unchanged; the image replaces array colors, lighting still applies (ray tracing, scene export
 and server-drawn pictures show the solid color). **Perlin Noise** (VTK's Graphics Gems
 version, bit-exact hashing) and **Spatio Temporal Harmonics** as a filter (input's time; time 0
-on static data, as ParaView) and as a source with **time steps of its own**: sources can now
+on static data, as the reference implementation) and as a source with **time steps of its own**: sources can now
 be temporal (their steps join the animation, they recompute per step, saved states keep
-them). Values match ParaView's filters and source (default harmonics and times as ParaView's
+them). Values match the reference filters and source (default harmonics and times as its
 rounded defaults).
 
 Done in iteration 31: **GIS vectors** without GDAL: ESRI Shapefiles (.shp/.dbf/.prj; all
 shape types but multipatch, dBASE field typing as GDAL), GeoJSON (field order and typing as
 GDAL), KML (folders as layers, Name/Description/extended data typed by Schemas) and GeoPackage
 (own read-only SQLite reader: b-tree pages, overflow chains, rowid aliases; GPKG geometry
-blobs and WKB with Z/M), laid out as ParaView's GDAL vector reader (vertices, polylines,
+blobs and WKB with Z/M), laid out as GDAL's vector reader (vertices, polylines,
 polygon rings as closed lines, attributes as cell data). Reader options: one block per layer
-(default) or per feature (ParaView's), layer choice, filled polygons (ear clipping with hole
+(default) or per feature, layer choice, filled polygons (ear clipping with hole
 bridges, exact areas on a 20 000-point polygon with holes), feature ids. With one block per
-feature every point, cell size and attribute matches ParaView 6.1.1 on GDAL-written shapefiles,
+feature every point, cell size and attribute matches the reference reader on GDAL-written shapefiles,
 GeoJSON and GeoPackage. Also fixed: `node.set` now handles the documented display keys
 (`solid_color`, `range`, `log_scale`, `component`, `line_width`, `lighting`, ...; before they
 were silently stored as parameters) and `color_by=None` sticks when set before the data loads.
@@ -783,7 +782,7 @@ clip, threshold, integrate, surface) and by the probe locator (Resample To Image
 image data with hidden cells takes the general surface path; Extract Surface now works block
 by block (cell data kept). Readers: VTK `.vthb`/`.vth` and AMReX plotfiles (Version_v1 FABs,
 float/double, either byte order, `amrexvec_` vectors). Source: AMR Gaussian Pulse (2-D/3-D);
-filter: Overlapping AMR Level Ids; Outline draws every box. Checked against ParaView 6.1.1:
+filter: Overlapping AMR Level Ids; Outline draws every box. Checked against the reference implementation:
 source (cells, sums, covered cells), both readers (per-box origin, size, sums), Integrate
 Variables, slices, Threshold, Extract Surface, Cell Data to Point Data, Resample To Image.
 Array parameters given by name now find cell arrays too (shared `array_or_default`).
@@ -794,8 +793,8 @@ coarser cells' centers there (degenerate hexes), and dual cells touching covered
 left to the finer level, so contours (and clips, slices on the dual grid) are crack-free
 across levels. Contour on an AMR cell array uses it automatically. Checked on a plotfile whose
 isosurface is a sphere crossing the level boundary: closed, Euler characteristic 2, area within
-0.2 %, centered (the box-by-box contour had 346 open edges); 2-D isolines close. ParaView's
-AMR Contour / Dual Clip only take CTH non-overlapping AMR, so there is no ParaView reference.
+0.2 %, centered (the box-by-box contour had 346 open edges); 2-D isolines close. The reference
+AMR Contour / Dual Clip only take CTH non-overlapping AMR, so there is no reference to compare with.
 Also fixed: Surface With Edges drew the edges from the color map (now the edge color, with a
 Properties control), and the renderer could keep a stale mesh when a new mesh reused a freed
 one's address (it now holds the mesh it uploaded).
@@ -803,12 +802,12 @@ one's address (it now holds the mesh it uploaded).
 Done in iteration 34: **hyper tree grids**. A new dataset type (`aurafx_data::HyperTreeGrid`:
 root grid coordinates, branch factor, per tree a breadth-first refinement list with the cell
 index of each vertex, mask, cell data for every vertex), read from VTK `.htg` (XML version 2,
-bit arrays MSB first) and made by ParaView's Hyper Tree Grid source (string descriptor, VTK's
+bit arrays MSB first) and made by the Hyper Tree Grid source (string descriptor, VTK's
 level-major numbering) and Random Hyper Tree Grid source (VTK's minimal-standard random
 sequence per tree, creation-order numbering; no masking). Filters: To Unstructured Grid
 (leaves with shared corners, `OriginalIds`), Depth Limiter, Generate Fields, Evaluate Coarse
 (all operators); every other filter (and drawing, writing) works on the visible leaves.
-Checked against ParaView 6.1.1: counts, leaf order (OriginalIds), depth sums, limiter,
+Checked against the reference implementation: counts, leaf order (OriginalIds), depth sums, limiter,
 fields, coarse operators, both sources. Also fixed: pixel cells were drawn and surfaced with
 their corners out of order (bow-ties); they now become quads.
 
@@ -818,7 +817,7 @@ atoms' colors) built as sphere/cylinder meshes with level of detail, the Element
 (Jmol colors, exact per element over [-0.5, 127.5]), element data from VTK's periodic table
 (`aurafx_data::elements`), molecules opening that way by default (up to 100 000 atoms), the
 CML reader (bond orders) and Compute Molecule Bonds (VTK's simple bond perceiver; existing
-bonds kept, no duplicates). Checked against ParaView 6.1.1: the CML reader (atoms, bonds,
+bonds kept, no duplicates). Checked against the reference implementation: the CML reader (atoms, bonds,
 orders) and the bond sets for absolute and relative tolerances. Protocol 9 (display settings
 and hyper tree grids changed the wire format). Cell grids were moved after molecules: the
 .dg format needs VTK's DG cell framework (HGRAD/HCURL/HDIV bases on eight shapes).
@@ -832,12 +831,12 @@ shapes) are translated from VTK's generated headers by `scripts/gen_dg_basis.py`
 fields by J/det J. The grid is drawn, listed and filtered as its linear cells with every field
 evaluated at the corners and averaged where cells meet (cached in the grid). Filters: Cell
 Grid To Unstructured Grid, Cell Grid Centers, Cell Grid Elevation; the Cell Grid source.
-Checked against ParaView 6.1.1 on VTK's ten DG test files: every corner point and value
+Checked against the reference implementation on VTK's ten DG test files: every corner point and value
 (HGRAD, HCURL, HDIV), the centers and their values, elevation, the source's fields.
-Differences: quadratic cells become linear cells through the corners (ParaView keeps the extra
+Differences: quadratic cells become linear cells through the corners (the reference implementation keeps the extra
 nodes but evaluates them at parametric (0,0,0)); flat cells' Jacobians are completed with the
-unit normal (ParaView: NaN/undefined for face/edge fields); Centers on mixed types gives every
-cell (ParaView one point). Protocol 10.
+unit normal (the reference implementation: NaN/undefined for face/edge fields); Centers on mixed types gives every
+cell (the reference implementation one point). Protocol 10.
 
 Done in iteration 37: **hyper tree grid writer, dual grid and masking**. The `.htg` writer (XML
 version 2: per tree its breadth-first descriptor, vertices per depth, mask and cell data in
@@ -846,7 +845,7 @@ found level by level, never below a masked cell; corner ownership by level and n
 index; boundary and mask point shifts, including VTK's diagonal signs), and the Random Hyper
 Tree Grid source's Masked fraction (VTK's shuffled trees and children, masking cost per level).
 Fixed: the Hyper Tree Grid source's mask string lost its digits, so Use mask always failed.
-Checked against ParaView 6.1.1: our `.htg` files read in ParaView (cells, leaves, Depth sums)
+Checked against the reference implementation: our `.htg` files read in the reference reader (cells, leaves, Depth sums)
 and back in auraFX (same leaves and values); the dual grid cell by cell on eleven grids (1-D,
 2-D, 3-D, files, masks, masked random grids); the masked descriptor source and the masked
 random source (cells, visible leaves, depth sums, masked counts). auraFX's dual grid leaves out
@@ -857,9 +856,9 @@ columns and CRS, features after the packed Hilbert R-tree index, every property 
 simple geometry types), GML 2, 3 and 3.2 (feature types as layers, fields typed by the `.xsd`
 beside the file or by their values, posList/pos/coordinates/coord, Curve and Surface patches;
 coordinates swapped back for latitude-first EPSG URNs as GDAL does) and KMZ (own zip directory
-reader, deflate via flate2, then the KML reader). Checked against ParaView 6.1.1 on FlatGeobuf
+reader, deflate via flate2, then the KML reader). Checked against the reference reader on FlatGeobuf
 files written by GDAL (including 300 features with a three-level index); GML (3.2 and 2) and
-KMZ, which ParaView's GDAL cannot read (no XML parser), against the same data as GeoJSON.
+KMZ, which the reference GDAL build cannot read (no XML parser), against the same data as GeoJSON.
 
 Done in iteration 39: **FLASH and Enzo AMR readers**. FLASH HDF5 plot/checkpoint files (FLASH 2
 and FLASH 3/4 layouts: file format version from the dataset or "sim info", nxb/nyb/nzb from
@@ -868,42 +867,42 @@ every variable in "unknown names" as doubles; recognized by content since the na
 extension) and Enzo dumps (parameter file, `.hierarchy` parsed token by token as VTK does,
 `GridNNNNNNNN` groups in the HDF5 grid files, the field names of the grid with the fewest cells,
 stored types kept, reader option Convert to CGS from `#DataCGSConversionFactor`). Both become
-overlapping AMR with covered cells hidden. Checked against ParaView 6.1.1 on files written by
+overlapping AMR with covered cells hidden. Checked against the reference reader on files written by
 scripts/gen_amr_files.py (FLASH 3 and FLASH 2 layouts of a 3-D grid; Enzo with three levels,
 with and without CGS): every block's origin, spacing, size, array types and sums, covered
-cells. ParaView 6.1.1 cannot read 2-D FLASH files ("Inconsistent types of vtkCartesianGrid",
+cells. The reference reader cannot read 2-D FLASH files ("Inconsistent types of vtkCartesianGrid",
 segfault with several levels); the 2-D file is checked against its analytic values.
 
 Done in iteration 40: **Chombo AMR reader**. Chombo HDF5 files (cell-centered, 1-D to 3-D):
 `Chombo_global/SpaceDim`, component names, `level_N` groups with compound `boxes`, dx or
 `vec_dx`, `prob_lo` and `aspect_ratio` (compound or array attributes, decoded from their raw
 bytes), every box's components from `data:datatype=0` with the `outputGhost` ghost cells
-dropped. Overlapping AMR with covered cells hidden. Checked against ParaView 6.1.1's VisIt
+dropped. Overlapping AMR with covered cells hidden. Checked against the VisIt
 Chombo reader on two files from scripts/gen_amr_files.py (3-D; 2-D with ghosts, prob_lo,
 vec_dx and three levels): every block's origin, spacing, dimensions, array sums and covered
-cells, and the 2-D values against the functions they were written from. ParaView keeps level
+cells, and the 2-D values against the functions they were written from. The reference reader keeps level
 0's ghost cells as ordinary cells (and drops the finer levels'); auraFX drops them everywhere.
 
 Done in iteration 41: **Resample AMR**. AMR data sampled on a uniform grid (number of samples,
 whole domain or a Min/Max box clipped to the data with VTK's sample adjustment), each point
 taking the finest holding cell's values found the way vtkAMRResampleFilter's probe does (closed
 box bounds, the previous point's box tried first, then finer levels), or cell centers as cell
-data; unheld points hidden. Checked against ParaView 6.1.1 (demand-driven mode off): grid and
+data; unheld points hidden. Checked against the reference implementation (demand-driven mode off): grid and
 every value on the 3-D and 2-D Gaussian pulse, a region past the data, and a FLASH file.
-ParaView's cell-center mode copies wrong cells' values; ours is checked geometrically.
+The reference implementation's cell-center mode copies wrong cells' values; ours is checked geometrically.
 
 Done in iteration 42: **FLASH and Enzo particles**. Reader option Data (Grid / Particles) on
 files with particles. FLASH 3 particle tables (columns named by "particle names") and FLASH 2
 compound particle datasets, every property as doubles; Enzo particle_position_x/y/z and the
 other particle_* datasets of every grid (names from the smallest grid with particles), stored
-types kept, all grids in one point set. Checked against VTK's particle readers as ParaView
-6.1.1 runs them (driven directly; its proxies list no arrays): positions and properties.
-ParaView repeats FLASH particles in every block and reads every FLASH 3 property from column 0.
+types kept, all grids in one point set. Checked against VTK's particle readers
+(driven directly; the reference proxies list no arrays): positions and properties.
+The reference reader repeats FLASH particles in every block and reads every FLASH 3 property from column 0.
 
 Done in iteration 43: **Chombo node-centered data and particles**. Node-centered Chombo files
 (data_centering 7: a value per node, ghosts dropped) give point data on the boxes; the
 /particles group (position_x/y/z and one dataset per property, name order, doubles) is read
-with the reader option Data = Particles. Checked against ParaView 6.1.1's VisIt Chombo reader:
+with the reader option Data = Particles. Checked against the VisIt Chombo reader:
 the node-centered boxes and point sums, and every particle and property (its positions are
 single precision).
 
@@ -913,29 +912,29 @@ find them). Geometry: a line/quad per visible leaf in 1-D/2-D; in 3-D the faces 
 leaves next to the grid's boundary or masked cells and the faces of masked cells next to a
 coarser visible leaf, corners in VTK's edge-walk order, points shared within a cell. Feature
 Edges: VTK's rules (2-D outline; 3-D corner and fold tests on the three neighbors of each
-edge, masked-cell cases). Checked against ParaView 6.1.1 on eight grids: every cell in order,
+edge, masked-cell cases). Checked against the reference implementation on eight grids: every cell in order,
 its points and values, point counts. Material interfaces and ghost cells not done.
 
 Done in iteration 45: **cell grid writer, Transform, Warp, Convert To Cell Grid**. The .dg
-writer (VTK's JSON layout; ParaView opens the files); Cell Grid Transform (HGRAD/constant 3-D
-values, shared or per cell, by ParaView's transform), Cell Grid Warp (shape + scale x a shared
+writer (VTK's JSON layout; the files open in the reference viewer); Cell Grid Transform (HGRAD/constant 3-D
+values, shared or per cell, by the reference transform), Cell Grid Warp (shape + scale x a shared
 HGRAD attribute of the same basis and order), Convert To Cell Grid (eight linear shapes, a
 shared coordinates group, point data as shared HGRAD C1, cell data as constant attributes).
-Checked against ParaView 6.1.1 through To Unstructured Grid (Transform on dgHexahedra with its
+Checked against the reference implementation through To Unstructured Grid (Transform on dgHexahedra with its
 HCURL/HDIV fields, Warp on the source, Convert on a tetrahedralized wavelet); written files read
-back exactly and open in ParaView with the same values. Also fixed: Transform rotated in the
-wrong order (now ParaView's Rz Rx Ry; checked on a point), and serde_json now parses floats
+back exactly and open in the reference viewer with the same values. Also fixed: Transform rotated in the
+wrong order (now Rz Rx Ry, as the reference implementation; checked on a point), and serde_json now parses floats
 exactly (float_roundtrip). Cell Grid Probe not done.
 
-Done in iteration 46: **Cell Grid Probe**. ParaView's CellGridPointProbe: for each cell, the
+Done in iteration 46: **Cell Grid Probe**: for each cell, the
 probe points within the sphere around its corners and behind every bounding side's plane
 (VTK's half-spaces, quirks kept: a quad face's test corner taken from the cell, a 2-D cell's
 edges as directions), then Newton steps from the parametric origin (20, to 1e-7) and VTK's
 IsInside; a vertex per (point, cell) with CellType, ContainingCellID, ParametricCoordinates
-(NaN when outside) and the attribute's value. Checked against ParaView 6.1.1 with its SMP
+(NaN when outside) and the attribute's value. Checked against the reference implementation with its SMP
 backend sequential (its parallel interpolation races on a shared cache) on eight of VTK's DG
 files (a lattice plus cell centers): the same hits, and coordinates and values (HCURL/HDIV
-too) wherever ParaView has them. ParaView gives NaN on 2-D and 1-D cells (singular Jacobian),
+too) wherever the reference implementation has them. It gives NaN on 2-D and 1-D cells (singular Jacobian),
 reads undefined memory for edges and crashes on quadratic shapes; auraFX solves them (checked
 by the cell centers of the quadratic files). Edge Jacobians are now completed like 2-D ones.
 Compute Sides not done.
@@ -944,13 +943,13 @@ Done in iteration 47: **Cell Grid Compute Sides**. VTK's side tables for the eig
 sides of sides, side types); cell types now carry VTK's side specs (blanked, offset, (cell,
 side) lists by side shape), read and written in .dg files and drawn by the corner mesh (fields
 from the side's own cell). The filter is vtkCellGridComputeSides' three passes: hash every
-requested side (ParaView's SideFlags, omitting sides of renderable inputs; sides of input side
+requested side (the SideFlags setting, omitting sides of renderable inputs; sides of input side
 specs walked down through sides of sides) by shape and canonical point order; keep the first
 (type name, cell, side) per hash under the Boundary, Winding or AnyOccurrence rule; blank the
-cells and append side specs by descending shape with VTK's offsets. Checked against ParaView
-6.1.1 on the ten DG files for eight settings and a second pass: the cell-type entries ParaView
-writes, every (cell, side) pair (ParaView's lists are in hash-table order; compared as sets) and
-the cells of To Unstructured Grid. ParaView's To Unstructured Grid evaluates side fields on
+cells and append side specs by descending shape with VTK's offsets. Checked against the reference
+implementation on the ten DG files for eight settings and a second pass: the cell-type entries it
+writes, every (cell, side) pair (the reference lists are in hash-table order; compared as sets) and
+the cells of To Unstructured Grid. The reference To Unstructured Grid evaluates side fields on
 the wrong cell (the side's list index) and crashes on vertex sides of edges; auraFX's continuous
 fields on sides match the input's. Ghost-node marks are not read.
 
@@ -970,9 +969,9 @@ giving 2-D interface lines; in 3-D the faces of mixed cells and of their neighbo
 the material and the interface polygons linked edge by edge, with VTK's by-value point copies
 (which decide the point numbering) and the swap of inverted sandwich intercepts. The default
 drawing of a grid with interfaces goes through it (picking mapped to the leaves). Checked
-against ParaView 6.1.1 on six grids made by scripts/htg_interface_reference.py (1-D, 2-D,
+against the reference implementation on six grids made by scripts/htg_interface_reference.py (1-D, 2-D,
 masked, branch factor 3, 3-D, masked 3-D; one- and two-plane interfaces, swapped intercepts,
-zero normals), Fill Material on and off: every cell's point ids, points (ParaView single
+zero normals), Fill Material on and off: every cell's point ids, points (the reference implementation keeps single
 precision), type and source cell. Client/server protocol 11 (also covers iteration 47's cell
 grid side lists).
 
@@ -984,7 +983,7 @@ and custom symbols, lines, polylines, multi-polylines and regions with their hol
 versions, multipoints) and .mif/.mid interchange files (Columns, Delimiter, Transform; Point,
 Line, Pline [Multiple], Region with rings grouped by area and containment as GDAL's
 organizePolygons, Multipoint; the .mid rows). Per-feature blocks now include features without
-geometry as empty blocks, as ParaView does. Checked against ParaView 6.1.1's GDAL reader on
+geometry as empty blocks, as GDAL does. Checked against the reference GDAL reader on
 .tab and .mif versions of the three test layers and a 63-feature detail layer (compressed
 regions with holes, 300-vertex roads across coordinate blocks, a two-point line, compressed
 and plain multi-lines, points, no geometry): every point, cell and attribute. Text, arcs,
@@ -995,9 +994,9 @@ field's origin, scales and coordinate system), rows through the .gdbtablx index 
 map of present 1024-row blocks), null bits, every value type (int16/32, float32/64, text in
 UTF-8 or UTF-16, dates as days since 1899-12-30, GUIDs, XML), and the compressed shape
 buffers (varint counts, zig-zag deltas on the field grid, Z after XY; polygon rings grouped as
-GDAL's organizePolygons; curves as their vertices). Checked against ParaView 6.1.1 on a GDAL-
+GDAL's organizePolygons; curves as their vertices). Checked against the reference reader on a GDAL-
 written geodatabase of six layers (multi types, heights): each layer alone and all together
-(ParaView cannot select a file's last layer alone: its index reads every layer).
+(the reference reader cannot select a file's last layer alone: its index reads every layer).
 
 Done in iteration 51: **ERDAS Imagine rasters** (.img, GDAL's HFA driver). The file's data
 dictionary is parsed (types of fields: counts, pointers, objects, inline objects, enums,
@@ -1006,15 +1005,15 @@ is a band (u1/u2/u4 to f64, 64 x 64 or other tiles, plain or run-length compress
 invalid blocks filled with no-data), placed by Eprj_MapInfo as HFAGetGeoTransform does
 (including arc-second units), with Eimg_NonInitializedValue as no-data and EPSG codes for
 UTM/longitude-latitude on WGS 84. Checked against the GeoTIFFs GDAL copied them from (every
-cell, placement, projection) and ParaView 6.1.1's band sums, plus compressed byte, 1-bit and
-4-bit layers against their formulas. ParaView places .img files at the origin with zero
+cell, placement, projection) and the reference reader's band sums, plus compressed byte, 1-bit and
+4-bit layers against their formulas. The reference reader places .img files at the origin with zero
 spacing (its GCP branch reads GDAL's empty GCP list) and leaves Elevation empty.
 
 Done in iteration 52: **4-D Chombo**, as VisIt's Chombo reader shows it (single level):
 boxes with the same (i, j) extent grouped into one 2-D box (VisIt's representative boxes),
 each component an array with a value per velocity cell (k major, l minor, NaN where no box
 covers it), `_vpar`/`_mu` velocity coordinates and `<component>_sum` (VisIt's array_sum
-expression, skipping uncovered cells). ParaView 6.1.1's VisIt reader builds the same two 2-D
+expression, skipping uncovered cells). The VisIt reader builds the same two 2-D
 boxes (checked: origin, spacing, size) but no arrays; the values were checked against the
 formulas of scripts/gen_amr_files.py's chombo4d.hdf5.
 

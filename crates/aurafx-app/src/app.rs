@@ -739,7 +739,7 @@ impl State {
                     self.load_state(last);
                 }
                 ui.menu_button("Open Sample Data", |ui| {
-                    if ui.button("Heated disk in a flow (Exodus)").on_hover_text("ParaView's disk_out_ref: temperature, pressure, velocity").clicked() {
+                    if ui.button("Heated disk in a flow (Exodus)").on_hover_text("The disk_out_ref sample: a heated disk in a flow, with temperature, pressure and velocity").clicked() {
                         ui.close();
                         self.open_sample("disk_out_ref.ex2");
                     }

@@ -730,7 +730,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         });
     }
-    // OpenFOAM cases: boundary patches are one click away (ParaView's "Mesh Regions").
+    // OpenFOAM cases: boundary patches are one click away.
     let foam = {
         let s = state.session.lock();
         s.nodes.get(&id).and_then(|n| match &n.kind {

@@ -67,8 +67,7 @@ files and the Plane source come with them. For anything else, add one of these f
 
 **Prevent seam** (cylinder and sphere, on by default) runs the image across half the way
 round and back mirrored. That avoids a visible join, but shows the image twice. Turn it off
-to wrap the image once, as for a world map. A thin seam then shows where the edges meet
-(ParaView shows the same seam).
+to wrap the image once, as for a world map. A thin seam then shows where the edges meet.
 
 Then pick the image in **Properties › Display › Texture › Choose…** (× removes it). The row
 appears when the object has texture coordinates. The image replaces the array colors and the
@@ -85,9 +84,8 @@ p = d.texture_map_to_plane(automatic=False, origin=(0, 0, 0), point1=(10, 0, 0),
 c = d.texture_map_to_cylinder(point1=(0, 0, -1), point2=(0, 0, 1), automatic=False)
 ```
 
-The new array is called **Texture Coordinates**. The three filters give the same numbers as
-ParaView's filters of the same names, and the coordinates can also be colored by like any
-other array.
+The new array is called **Texture Coordinates**. The coordinates can also be colored by like any other
+array.
 
 Limits:
 - The image is shown on surfaces (Surface and Surface With Edges) and on lines. Points and
@@ -106,9 +104,8 @@ Limits:
 | **Spatio Temporal Harmonics** (source, **Sources** menu) | an image volume with those waves and **20 time steps of its own** (one period), so it animates without a file | **Whole extent** (x min, x max, y min, y max, z min, z max; spacing 1), **Harmonics**, **Time steps** |
 
 The source's time steps join the time toolbar like a file's. The filter follows the time of
-its input. On data without time steps it uses time 0, as ParaView does. Both match ParaView's
-filter and source with the same defaults (ParaView rounds π/5 to 0.6283 in its defaults, and
-so does auraFX).
+its input. On data without time steps it uses time 0. The default
+frequencies round π/5 to 0.6283.
 
 ![The harmonics source at its sixth time step, and a plane warped by Perlin noise](images/harmonics_noise.png)
 

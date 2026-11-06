@@ -36,7 +36,7 @@ their colors, as:
 |---|---|
 | **glTF binary** (`.glb`) | for Blender, three.js, PowerPoint, Windows 3D Viewer; vertex colors, normals, translucency, materials (metallic, roughness) |
 | **OBJ** (`.obj`) | with vertex colors after the coordinates (Blender and MeshLab read them) |
-| **X3D** (`.x3d`), **VRML** (`.wrl`) | absolute coordinates, vertex colors; ParaView reads the VRML |
+| **X3D** (`.x3d`), **VRML** (`.wrl`) | absolute coordinates, vertex colors |
 
 Volumes are not exported (they are not geometry).
 

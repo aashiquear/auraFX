@@ -36,9 +36,9 @@ auraFX is inspired by ParaView, DREAM.3D and Cubit, and that is said once, in th
 else (user guide, roadmap catalog, help texts, code comments, commit messages) describe what
 auraFX does in its own terms: do not present a feature as a copy, clone or port of another
 program's feature, and do not compare with those programs. The exceptions are file formats
-named after a program (a ParaView `.pvd` collection, DREAM.3D `.dream3d` files, a ParaView
-color-map `.json`), and the test suite and `testdata/README.md`, which may say which reference
-program produced a reference file.
+named after a program, comments in readers and tests that explain how a reference file was written (a ParaView `.pvd` collection, DREAM.3D `.dream3d` files, a ParaView
+color-map `.json`), and the test suite, `testdata/README.md` and `docs/reference/verification.md`, which may say
+which reference program produced a reference file and how the results compare.
 
 ## Other conventions
 

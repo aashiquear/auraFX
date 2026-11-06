@@ -1,4 +1,4 @@
-# Resample AMR: ParaView's AMR Gaussian Pulse (three boxes on two levels, drawn as outlines)
+# Resample AMR: the AMR Gaussian Pulse source (three boxes on two levels, drawn as outlines)
 # resampled onto a 40 x 40 x 40 grid of points and shown as a volume.
 import aurafx as afx
 p = afx.amr_gaussian_pulse()

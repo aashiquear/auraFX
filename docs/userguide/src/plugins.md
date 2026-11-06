@@ -44,8 +44,8 @@ with several inputs (the function receives a list).
 `data` is an `afx.Data`, a copy of the input: `data.points` (N×3), `data.point_data["T"]`,
 `data.cell_data[...]`, `data.field_data[...]` (assign to add, `del` to remove), `data.n_points`,
 `data.n_cells`, `data.bounds`, `data.type`, `data.cells` (offsets, connectivity, VTK types),
-`data.blocks()`, `data.copy()`. ParaView spellings such as `data.PointData.append(a, "name")`
-work too. Build new data with `afx.make_points`, `afx.make_polydata`, `afx.make_image`,
+`data.blocks()`, `data.copy()`. The spellings `data.PointData.append(a, "name")` and
+`data.CellData` work too. Build new data with `afx.make_points`, `afx.make_polydata`, `afx.make_image`,
 `afx.make_grid` and `afx.make_multiblock`.
 
 ## Sources and readers

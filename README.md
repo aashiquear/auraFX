@@ -13,8 +13,8 @@
 
 **auraFX** is an open-source scientific visualization, analysis and simulation workbench
 written in Rust. It reads the files your solvers write (Exodus II, VTK, LAMMPS dumps and
-more), renders them on any GPU through Vulkan/Metal/DX12, and puts three things ParaView
-does not have right next to the 3D view:
+more), renders them on any GPU through Vulkan/Metal/DX12, and puts three things right next to the
+3D view:
 
 * an **AI assistant** (Claude, any OpenAI-compatible API, or local/cloud models through Ollama)
   that sees your pipeline and writes runnable Python for you,
@@ -22,9 +22,10 @@ does not have right next to the 3D view:
 * a **simulation runner** that launches LAMMPS, MOOSE, OpenFOAM or your own Python pipeline
   locally, on a remote GPU box over SSH, or through Slurm, and opens the results when the run ends.
 
-The goal is ParaView's breadth with a UI a new user can drive without a manual. The full
-plan, with every ParaView 6.1.1 reader, filter and view mapped to a phase, is in
-[ROADMAP.md](ROADMAP.md). The **user guide** is in [docs/userguide](docs/userguide/src/SUMMARY.md)
+The goal is the breadth of a full visualization suite with a UI a new user can drive
+without a manual. auraFX is inspired by ParaView, DREAM.3D and Cubit; it shares no code with
+them. The full plan, with every reader, filter and view of the catalog mapped to a phase, is
+in [ROADMAP.md](ROADMAP.md). The **user guide** is in [docs/userguide](docs/userguide/src/SUMMARY.md)
 (also as a PDF, `docs/userguide/auraFX-user-guide.pdf`; build the online book with
 `scripts/userguide/build.sh`).
 
@@ -36,10 +37,10 @@ plan, with every ParaView 6.1.1 reader, filter and view mapped to a phase, is in
 
 | Area | Status |
 |---|---|
-| **Readers** | Exodus II (NetCDF-3 and NetCDF-4/HDF5, time steps, nodal/element/global variables, blocks, displacements), VTK legacy and XML (`.vtk .vtu .vtp .vti .vtr .vts .vtt`, parallel, `.vtm`, `.pvd`), VTKHDF, OpenFOAM cases (ASCII/binary/gzip, decomposed, boundary patches), LAMMPS dumps and data files, XYZ / extended XYZ, EnSight Gold, CGNS (HDF5 and ADF), Xdmf 2/3, NetCDF (CF conventions, POP, CAM-SE with its connectivity file, MPAS), Tecplot (ASCII and binary), PLOT3D, molecules (PDB, XYZ, VASP, Gaussian cube, CML), images and image stacks as volumes, STL, PLY, OBJ, CSV; **AMR** (AMReX plotfiles, VTK `.vthb`, FLASH, Enzo, Chombo 1-D to 4-D, with their particles); **hyper tree grids** (`.htg`, with material interfaces); **cell grids** (`.dg`, discontinuous-Galerkin fields); **GIS** rasters (GeoTIFF, Esri ASCII grid, ERDAS Imagine) and vectors (Shapefile, GeoJSON, KML/KMZ, GeoPackage, FlatGeobuf, GML, MapInfo, Esri file geodatabases) — all without GDAL, and checked against ParaView 6.1.1 |
-| **Writers** | VTK XML (all types + multiblock), legacy VTK, VTKHDF, **Exodus II** (blocks, variables, all time steps), EnSight Gold, Xdmf, CGNS, hyper tree grids (`.htg`), cell grids (`.dg`), CSV, STL, PLY — all verified readable by ParaView |
+| **Readers** | Exodus II (NetCDF-3 and NetCDF-4/HDF5, time steps, nodal/element/global variables, blocks, displacements), VTK legacy and XML (`.vtk .vtu .vtp .vti .vtr .vts .vtt`, parallel, `.vtm`, `.pvd`), VTKHDF, OpenFOAM cases (ASCII/binary/gzip, decomposed, boundary patches), LAMMPS dumps and data files, XYZ / extended XYZ, EnSight Gold, CGNS (HDF5 and ADF), Xdmf 2/3, NetCDF (CF conventions, POP, CAM-SE with its connectivity file, MPAS), Tecplot (ASCII and binary), PLOT3D, molecules (PDB, XYZ, VASP, Gaussian cube, CML), images and image stacks as volumes, STL, PLY, OBJ, CSV; **AMR** (AMReX plotfiles, VTK `.vthb`, FLASH, Enzo, Chombo 1-D to 4-D, with their particles); **hyper tree grids** (`.htg`, with material interfaces); **cell grids** (`.dg`, discontinuous-Galerkin fields); **GIS** rasters (GeoTIFF, Esri ASCII grid, ERDAS Imagine) and vectors (Shapefile, GeoJSON, KML/KMZ, GeoPackage, FlatGeobuf, GML, MapInfo, Esri file geodatabases) — all without GDAL, and verified against reference readers |
+| **Writers** | VTK XML (all types + multiblock), legacy VTK, VTKHDF, **Exodus II** (blocks, variables, all time steps), EnSight Gold, Xdmf, CGNS, hyper tree grids (`.htg`), cell grids (`.dg`), CSV, STL, PLY — all verified against reference readers |
 | **Filters (80+, and 15 sources)** | Tessellate, Unstructured Cell Types, Programmable Filter, Python Calculator, Particle Tracer / Path / Streak Line, Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator, Append Datasets, Append Attributes, Resample With Dataset (multi-input), Slice, Clip, Contour, Threshold, Calculator, Warp, Glyph, Stream Tracer, Tube, Plot Over Line, Probe, Resample To Image, Histogram, Descriptive Statistics, Integrate Variables, Gradient, Find Data, Extract Selection, Connectivity, Clean, Surface Normals, Smooth, Shrink, Reflect, Extract Block, Cell Size, Mesh Quality, Elevation, Triangulate, Tetrahedralize, Mask Points, Temporal Statistics, Extract Subset, OpenFOAM Boundary Patches, texture mapping, the AMR filters (Contour, Dual Grid, Resample, Level Ids), the hyper tree grid filters (Geometry, Feature Edges, Dual Grid, Depth Limiter, Generate Fields, Evaluate Coarse), the cell grid filters (To Unstructured Grid, Centers, Elevation, Transform, Warp, Probe, Compute Sides, Convert To Cell Grid), Compute Molecule Bonds and more |
-| **Curved cells** | Lagrange and Bezier cells of any order (VTK types 68-80, rational weights, per-cell degrees) and quadratic cells drawn curved, with an adjustable subdivision level; Slice, Clip, Contour, Probe and Integrate Variables follow their nodes like ParaView (checked against ParaView 6.1.1) |
+| **Curved cells** | Lagrange and Bezier cells of any order (VTK types 68-80, rational weights, per-cell degrees) and quadratic cells drawn curved, with an adjustable subdivision level; Slice, Clip, Contour, Probe and Integrate Variables follow their nodes (verified against a reference implementation) |
 | **Rendering** | wgpu (Vulkan / Metal / DX12 / GL), progressive path tracing, environment maps and metal/rough materials, Surface LIC, MSAA + FXAA, light kit and custom lights, shadows, ambient occlusion, tone mapping, order-independent transparency, Eye-Dome Lighting, crease-angle shading, surface / edges / wireframe / points / outline / molecules (ball-and-stick, van der Waals, liquorice) / **GPU volume rendering**, line widths, 18 color maps with previews plus a **color map editor** (histogram, drag markers, bands, reverse, your own presets, ParaView `.json` import/export), log scale, scalar bar, translucency, volumes depth-merged with surfaces, X-ray selection highlight, data axes grid, text and time annotations, headless rendering |
 | **Interaction** | Several 3D views side by side or stacked with linked cameras; pick values on surfaces; rectangle selection of visible cells (or through); ruler; interactive slice/clip plane widget; camera presets; time player |
 | **UI** | Dark, light or system theme; Windows menu with panel toggles and layout presets; command palette (Ctrl+K); undo/redo; `.afx` session files and last-session restore; charts; spreadsheet; keyframe animation (camera and filter values on a timeline) and export (GIF, MP4, PNG) |
@@ -54,8 +55,8 @@ plan, with every ParaView 6.1.1 reader, filter and view mapped to a phase, is in
 
 The next two phases turn auraFX into one place for a materials workflow: build a geometry
 and an all-hex mesh on it (hexaform's structured meshing and a Sculpt-style overlay-grid
-mesher driven by a Cubit-like command language), put a polycrystal on the mesh or build a
-synthetic one (DREAM.3D's statistics, packing and crystallography matching), run it in
+mesher driven by a small command language), put a polycrystal on the mesh or build a
+synthetic one from grain statistics, packing and crystallography matching, run it in
 MOOSE, SPPARKS, PINNACLE or LAMMPS locally or over SSH with the existing job runner, and
 analyse the result or an EBSD scan with the grain filters (segmentation, sizes, shapes,
 misorientations, KAM and GND, pole figures and ODFs, Schmid and Taylor factors, SROD by
@@ -161,8 +162,9 @@ More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 cargo test --workspace
 ```
 
-The 150 tests compare readers, writers and filters with ParaView 6.1.1's output on the files in
-`testdata/` (how each file and reference was made is in [testdata/README.md](testdata/README.md));
+The 150 tests compare readers, writers and filters with reference outputs on the files in
+`testdata/` (how each file and reference was made is in [testdata/README.md](testdata/README.md)
+and [docs/reference/verification.md](docs/reference/verification.md));
 the rendering tests draw on the GPU headless and check the pixels.
 
 ## Contributing

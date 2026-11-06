@@ -505,8 +505,9 @@ What you get:
   a field that jumps between them is averaged. Color by, the Spreadsheet, picking and every
   other filter see that mesh.
 - **Information** names the cell types and the number of fields.
-- Saving writes that mesh as an unstructured grid (`.vtu` and the other formats). `.dg` files
-  cannot be written yet.
+- Saving as `.dg` keeps the cell grid (every array, attribute and cell type, in the layout
+  VTK writes; ParaView opens these files). Saving as any other format writes the corner mesh
+  as an unstructured grid.
 
 **Source** (Sources › Cell Grid): one cell of a chosen **Cell type** with test fields, as
 ParaView's source makes it: `hgrad` (1, 0, 0 at the first corner, 0 elsewhere), and on
@@ -520,6 +521,9 @@ face field whose first coefficient is 1). A vertex gets a `constant` field.
 | **Cell Grid To Unstructured Grid** | the cells with the fields at their corners (what is drawn); corners at the same place become one point |
 | **Cell Grid Centers** | a point at the center of every cell with every field evaluated there (exact, not averaged) |
 | **Cell Grid Elevation** | adds a field: the distance from **Origin** along **Axis** (or, with Spherical distance, from Origin) |
+| **Cell Grid Transform** | moves, rotates (degrees) and scales the cells, as **Transform** does, or another 3-D attribute shared at points or stored per cell. Edge and face fields follow the new shape |
+| **Cell Grid Warp** | moves the cells' points by **Scale** times a vector attribute shared at the points (the same basis and order as the shape) |
+| **Convert To Cell Grid** | makes a cell grid from a mesh of vertices, lines, triangles, quads, tetrahedra, hexahedra, wedges and pyramids (other cells are skipped): point data becomes fields shared at the points, cell data constant fields (renamed "(cell)" when point data has the same name; ParaView drops one of the two) |
 
 ![VTK's two-hexahedron cell grid, see-through and colored by a field, with its cell centers as spheres colored by an edge field](images/cell_grid.png)
 
@@ -531,7 +535,12 @@ centers.set(color_by="curl1", points_as_spheres=True)
 height = g.cell_grid_elevation(axis=(0, 0, 1))
 cell = afx.cell_grid(cell_type="Tetrahedron")
 mesh = g.cell_grid_to_unstructured_grid()
+turned = g.cell_grid_transform(rotate=(0, 0, 30), scale=(1, 1, 2))
+grid = afx.load("mesh.vtu").convert_to_cell_grid()
+grid.save("mesh.dg")
 ```
+
+![VTK's two-hexahedron cell grid (left) and a copy turned, stretched and moved with Cell Grid Transform (right), both colored by the same field](images/cell_grid_transform.png)
 
 Checked against ParaView 6.1.1 on VTK's ten DG test files (hexahedra, tetrahedra, wedges,
 pyramids including 19-node ones, quadrilaterals, quadratic quadrilaterals, triangles, edges,
@@ -539,7 +548,10 @@ mixed types):
 - every corner point and every field there after To Unstructured Grid, edge and face fields
   included;
 - Cell Grid Centers (positions and values);
-- Elevation, and the source's edge and face fields.
+- Elevation, and the source's edge and face fields;
+- Cell Grid Transform (the edge and face fields follow the transformed cells), Cell Grid Warp
+  and Convert To Cell Grid, every corner point and value;
+- `.dg` files auraFX writes open in ParaView with the same values, and read back unchanged.
 
 Where auraFX differs from ParaView:
 - ParaView keeps the extra nodes of quadratic cells as points, but evaluates the fields there
@@ -552,9 +564,9 @@ Where auraFX differs from ParaView:
 - ParaView's Cell Grid Centers gives one point for a file with several cell types; auraFX
   gives one per cell.
 
-Not available yet: writing `.dg`, and the other cell grid filters (Compute Cell Grid Sides,
-Cell Grid Transform, Cell Grid Range, the Cell Grid Copy and Point Probe filters). Slicing or
-clipping works on the corner mesh, so curved cells come out straight.
+Not available yet: Cell Grid Probe and the cell grid filters ParaView 6.1.1 does not offer
+either (sides, range, copy). Slicing or clipping works on the corner mesh, so curved cells come
+out straight.
 
 ## Writers
 
@@ -562,6 +574,7 @@ clipping works on the corner mesh, so curved cells come out straight.
 |---|---|---|
 | VTK XML | `.vtu .vtp .vti .vtr .vts .vtm` | appended binary; multiblocks as a folder of pieces |
 | VTK hyper tree grid | `.htg` | XML version 2, as ParaView 5.10 and later write it: the trees, mask and cell data |
+| VTK cell grid | `.dg` | the JSON layout VTK writes: arrays, attributes and cell types |
 | VTK legacy | `.vtk` | |
 | VTKHDF | `.vtkhdf` | all dataset kinds; multiblocks as a collection; time series with `all_times=True`; written with auraFX's own HDF5 encoder (read by h5py and VTK) |
 | Exodus II | `.exo` | blocks, nodal and element variables, every time step with `all_times=True` |

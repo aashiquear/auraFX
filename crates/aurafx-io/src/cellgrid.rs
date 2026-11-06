@@ -91,3 +91,107 @@ pub fn read(path: &Path) -> Result<DataSet> {
     }
     Ok(DataSet::CellGrid(g))
 }
+
+fn type_name(d: &ArrayData) -> &'static str {
+    match d {
+        ArrayData::F64(_) => "double",
+        ArrayData::F32(_) | ArrayData::F16(_) => "float",
+        ArrayData::I64(_) => "vtktypeint64",
+        ArrayData::U64(_) => "vtktypeuint64",
+        ArrayData::I32(_) => "int",
+        ArrayData::U32(_) => "unsigned int",
+        ArrayData::I16(_) => "short",
+        ArrayData::U16(_) => "unsigned short",
+        ArrayData::I8(_) => "signed char",
+        ArrayData::U8(_) => "unsigned char",
+        ArrayData::String(_) => "string",
+    }
+}
+
+fn space_of(n: usize) -> String {
+    const SUP: [&str; 10] = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
+    if n == 1 {
+        "ℝ".into()
+    } else {
+        format!("ℝ{}", n.to_string().chars().map(|c| SUP[c.to_digit(10).unwrap() as usize]).collect::<String>())
+    }
+}
+
+fn shape_name(s: Shape) -> &'static str {
+    match s {
+        Shape::Vertex => "vertex",
+        Shape::Edge => "edge",
+        Shape::Triangle => "triangle",
+        Shape::Quadrilateral => "quadrilateral",
+        Shape::Tetrahedron => "tetrahedron",
+        Shape::Hexahedron => "hexahedron",
+        Shape::Wedge => "wedge",
+        Shape::Pyramid => "pyramid",
+    }
+}
+
+/// Write a cell grid as a VTK `.dg` file (the JSON layout vtkCellGridWriter writes).
+pub fn write(g: &CellGrid, path: &Path) -> Result<()> {
+    use serde_json::{json, Map};
+    let conn_refs: Vec<&ArrayRef> = g.cell_types.values().map(|c| &c.connectivity).collect();
+    let mut arrays = Map::new();
+    for (group, list) in &g.groups {
+        let items: Vec<Value> = list
+            .iter()
+            .map(|a| {
+                let data: Vec<Value> = match &a.data {
+                    ArrayData::String(s) => s.iter().map(|x| json!(x)).collect(),
+                    d if d.scalar_type().is_float() => d.to_f64_vec().into_iter().map(|v| if v.is_finite() { json!(v) } else { Value::Null }).collect(),
+                    d => d.to_f64_vec().into_iter().map(|v| json!(v as i64)).collect(),
+                };
+                let mut o = json!({"name": a.name, "type": type_name(&a.data), "components": a.ncomp, "tuples": a.len(), "data": data});
+                if conn_refs.iter().any(|r| r.0 == *group && r.1 == a.name) {
+                    o["default_scalars"] = json!(true);
+                }
+                o
+            })
+            .collect();
+        arrays.insert(group.clone(), Value::Array(items));
+    }
+    let attributes: Vec<Value> = g
+        .attributes
+        .iter()
+        .map(|a| {
+            let mut info = Map::new();
+            for (t, i) in &a.info {
+                let mut arrs = json!({"values": [i.values.0, i.values.1]});
+                let conn = i.connectivity.clone().or_else(|| i.sharing.as_ref().and_then(|_| g.cell_types.get(t).map(|c| c.connectivity.clone())));
+                if let Some(c) = conn {
+                    arrs["connectivity"] = json!([c.0, c.1]);
+                }
+                let mut e = json!({"function-space": i.function_space, "basis": i.basis, "order": i.order, "arrays": arrs});
+                if let Some(s) = &i.sharing {
+                    e["dof-sharing"] = json!(s);
+                }
+                info.insert(t.clone(), e);
+            }
+            let mut o = json!({"name": a.name, "components": a.components, "space": space_of(a.components), "cell-info": info});
+            if a.shape {
+                o["shape"] = json!(true);
+            }
+            o
+        })
+        .collect();
+    let cell_types: Vec<Value> = g
+        .cell_types
+        .iter()
+        .map(|(t, c)| json!({"type": t, "cell-spec": {"connectivity": [c.connectivity.0, c.connectivity.1], "shape": shape_name(c.shape)}}))
+        .collect();
+    let doc = json!({
+        "data-type": "cell-grid",
+        "format-version": 1,
+        "schema-name": "dg leaf",
+        "schema-version": 1,
+        "content-version": 1,
+        "arrays": arrays,
+        "attributes": attributes,
+        "cell-types": cell_types,
+    });
+    std::fs::write(path, serde_json::to_string(&doc)?).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}

@@ -129,7 +129,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source; iteration 44: Geometry, Feature Edges): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
-- [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source): Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
+- [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer): Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
 - [ ] Parallel/distributed: D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
@@ -874,8 +874,19 @@ Edges: VTK's rules (2-D outline; 3-D corner and fold tests on the three neighbor
 edge, masked-cell cases). Checked against ParaView 6.1.1 on eight grids: every cell in order,
 its points and values, point counts. Material interfaces and ghost cells not done.
 
+Done in iteration 45: **cell grid writer, Transform, Warp, Convert To Cell Grid**. The .dg
+writer (VTK's JSON layout; ParaView opens the files); Cell Grid Transform (HGRAD/constant 3-D
+values, shared or per cell, by ParaView's transform), Cell Grid Warp (shape + scale x a shared
+HGRAD attribute of the same basis and order), Convert To Cell Grid (eight linear shapes, a
+shared coordinates group, point data as shared HGRAD C1, cell data as constant attributes).
+Checked against ParaView 6.1.1 through To Unstructured Grid (Transform on dgHexahedra with its
+HCURL/HDIV fields, Warp on the source, Convert on a tetrahedralized wavelet); written files read
+back exactly and open in ParaView with the same values. Also fixed: Transform rotated in the
+wrong order (now ParaView's Rz Rx Ry; checked on a point), and serde_json now parses floats
+exactly (float_roundtrip). Cell Grid Probe not done.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces, Cell Grid Probe
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

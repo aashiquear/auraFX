@@ -1500,3 +1500,71 @@ fn hyper_tree_grid_surfaces_match_paraview() {
         }
     }
 }
+
+/// Transform composes its rotations as ParaView's (vtkPVTransform: R = Rz Rx Ry), checked on a
+/// point against ParaView 6.1.1 (translate (0.5, -1, 2), rotate (30, 40, 50), scale (2, 3, 0.5)).
+#[test]
+fn transform_matches_paraview() {
+    let f = aurafx_filters::transform::affine([0.5, -1.0, 2.0], [30.0, 40.0, 50.0], [2.0, 3.0, 0.5]);
+    let q = f([1.0, 2.0, 3.0]);
+    let want = [-1.9281978607177734, 4.296149253845215, 4.88178014755249]; // float32 in ParaView
+    assert!((0..3).all(|k| (q[k] - want[k]).abs() < 1e-6), "{q:?}");
+}
+
+/// Cell Grid Transform, Cell Grid Warp and Convert To Cell Grid against ParaView 6.1.1
+/// (testdata/cellgrid/filters_reference.json from scripts/cellgrid_filters_reference.py), each
+/// seen through Cell Grid To Unstructured Grid: every corner point and value (the HCURL and HDIV
+/// fields follow the transformed shape). The .dg writer: written grids read back the same.
+#[test]
+fn cell_grid_filters_match_paraview() {
+    use serde_json::{json, Value};
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/filters_reference.json")).unwrap()).unwrap();
+    let check = |key: &str, g: &DataSet| {
+        let want = &reference[key];
+        let ug = run("cell_grid_to_unstructured_grid", Some(g), &[]);
+        assert_eq!(ug.n_cells() as u64, want["cells"].as_u64().unwrap(), "{key} cells");
+        let pts = ug.points().unwrap();
+        let wp = want["points"].as_array().unwrap();
+        assert_eq!(pts.len(), wp.len(), "{key} points");
+        for (wi, w) in wp.iter().enumerate() {
+            let w: Vec<f64> = w.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
+            let i = (0..pts.len()).find(|&i| (0..3).all(|k| (pts.get(i)[k] - w[k]).abs() <= 1e-5 * (1.0 + w[k].abs()))).unwrap_or_else(|| panic!("{key}: no point at {w:?}"));
+            for (name, vals) in want["arrays"].as_object().unwrap() {
+                let a = ug.point_data().unwrap().get(name).unwrap_or_else(|| panic!("{key}: no {name}"));
+                for (c, v) in vals[wi].as_array().unwrap().iter().enumerate() {
+                    let v = v.as_f64().unwrap_or(f64::NAN);
+                    if v.is_finite() {
+                        assert!((a.get(i, c) - v).abs() <= 1e-5 * (1.0 + v.abs()), "{key} {name}[{c}] at {w:?}: {} vs ParaView {v}", a.get(i, c));
+                    }
+                }
+            }
+        }
+    };
+    let hex = td("cellgrid/dgHexahedra.dg");
+    let t = run("cell_grid_transform", Some(&hex), &[("translate", json!([0.5, -1, 2])), ("rotate", json!([30, 40, 50])), ("scale", json!([2, 3, 0.5]))]);
+    check("transform", &t);
+    let src = run("cell_grid", None, &[("cell_type", json!("Hexahedron"))]);
+    let w = run("cell_grid_warp", Some(&src), &[("attribute", json!("hgrad")), ("scale", json!(0.5))]);
+    check("warp", &w);
+    let c = run("convert_to_cell_grid", Some(&td("cellgrid/convert_input.vtu")), &[]);
+    check("convert", &c);
+    // The writer: each grid written and read back gives the same cells and values.
+    let dir = std::env::temp_dir().join(format!("aurafx_dg_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, g) in [("t", &t), ("w", &w), ("c", &c), ("mixed", &td("cellgrid/dgMixed.dg"))] {
+        let p = dir.join(format!("{name}.dg"));
+        aurafx_io::writers::write_file(g, &p).unwrap();
+        let back = match aurafx_io::read_file(&p).unwrap() {
+            aurafx_io::Loaded::Static(d) => (*d).clone(),
+            _ => panic!(),
+        };
+        let (a, b) = (run("cell_grid_to_unstructured_grid", Some(g), &[]), run("cell_grid_to_unstructured_grid", Some(&back), &[]));
+        let (DataSet::UnstructuredGrid(a), DataSet::UnstructuredGrid(b)) = (&a, &b) else { panic!() };
+        assert_eq!(a.points, b.points, "{name} points");
+        assert_eq!(a.cells, b.cells, "{name} cells");
+        for x in a.point_data.iter() {
+            assert_eq!(x.data.to_f64_vec(), b.point_data.get(&x.name).unwrap().data.to_f64_vec(), "{name} {}", x.name);
+        }
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

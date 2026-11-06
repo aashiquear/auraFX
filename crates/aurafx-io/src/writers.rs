@@ -17,7 +17,7 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
         DataSet::MultiBlock(_) => vec![("vtm", "VTK multiblock (folder of pieces)")],
         DataSet::Table(_) => vec![],
         DataSet::HyperTreeGrid(_) => vec![("htg", "VTK hyper tree grid"), ("vtu", "VTK unstructured grid (the leaves)")],
-        DataSet::CellGrid(_) => vec![("vtu", "VTK unstructured grid (values at the corners)")],
+        DataSet::CellGrid(_) => vec![("dg", "VTK cell grid"), ("vtu", "VTK unstructured grid (values at the corners)")],
     };
     if !matches!(ds, DataSet::MultiBlock(_) | DataSet::Table(_)) {
         v.push(("vtk", "Legacy VTK"));
@@ -35,6 +35,12 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
 
 pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if ext == "dg" {
+        return match ds {
+            DataSet::CellGrid(g) => crate::cellgrid::write(g, path).with_context(|| format!("writing {}", path.display())),
+            other => bail!(".dg files hold cell grids, not {} (Convert To Cell Grid first)", other.type_name()),
+        };
+    }
     if ext == "htg" {
         return match ds {
             DataSet::HyperTreeGrid(h) => write_htg(h, path).with_context(|| format!("writing {}", path.display())),

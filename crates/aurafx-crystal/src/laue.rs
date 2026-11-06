@@ -125,6 +125,24 @@ impl Laue {
         })
     }
 
+    /// The class of a space group (International Tables number, 1 to 230).
+    pub fn from_space_group(it: i64) -> Option<Laue> {
+        Some(match it {
+            1..=2 => Laue::Triclinic,
+            3..=15 => Laue::Monoclinic,
+            16..=74 => Laue::Orthorhombic,
+            75..=88 => Laue::TetragonalLow,
+            89..=142 => Laue::TetragonalHigh,
+            143..=148 => Laue::TrigonalLow,
+            149..=167 => Laue::TrigonalHigh,
+            168..=176 => Laue::HexagonalLow,
+            177..=194 => Laue::HexagonalHigh,
+            195..=206 => Laue::CubicLow,
+            207..=230 => Laue::CubicHigh,
+            _ => return None,
+        })
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Laue::Triclinic => "Triclinic -1",

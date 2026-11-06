@@ -275,9 +275,9 @@ with cancel), everything searchable, every action scriptable, every panel option
 EBSD and synthetic microstructures, grain segmentation and statistics, texture, boundaries
 and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and HCP crystals. Design and stage details: `docs/design/grains-and-meshing.md`.
 
-- [ ] G1 `aurafx-crystal` (orientation conversions, the 11 Laue groups, disorientation, fundamental zones, IPF/Rodrigues/Euler colours); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d`; Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations, Crop, Change Resolution, Align Sections.
+- [x] G1 `aurafx-crystal` (orientation conversions, the 11 Laue groups, disorientation, fundamental zones, IPF/Rodrigues/Euler colours); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d`; Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations, Crop, Change Resolution, Align Sections.
   - [x] G1a: `aurafx-crystal`, `.ang` (square grids) and `.ctf` readers, Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations; 8-bit RGB arrays drawn as their own colors (iteration 53).
-  - [ ] G1b: `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` readers; Crop, Change Resolution, Align Sections.
+  - [x] G1b: `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` readers; Crop, Change Resolution, Align Sections (iteration 54).
 - [ ] G2 Features: Segment Features (misorientation, scalar, C-axis), Find Sizes/Neighbors/Shapes/Centroids/Boundary Cells/Surface Features/Average Orientations/Misorientations/Kernel Average Misorientation/Reference Misorientations/Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; Features and Ensembles tables.
 - [ ] G3 Texture: pole figures, inverse pole figures, ODF sections and texture index, MDF, texture fractions, chord lengths (charts, pictures, CSV).
 - [ ] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
@@ -341,6 +341,18 @@ Checked against `testdata/crystal/reference.json` (SciPy rotations, brute-force
 disorientations over SciPy's groups, IPF colors reduced independently; the toolkit's cubic
 disorientation agrees with the brute force) and the synthetic maps of
 `scripts/gen_ebsd.py`. Guide chapter: Grains and crystals.
+
+Done in iteration 54 (G1b, closing G1): HDF5 EBSD readers (`.h5ebsd` TSL/HKL stacks read as one
+volume, EDAX OIM and Bruker Esprit `.h5` scans recognised by their root Manufacturer dataset,
+points placed by position or beam index) and the `.dream3d` reader (image, rectilinear and
+shared-list geometries; cell/vertex arrays as cell/point data, feature and ensemble arrays as
+field data; reader options for the data container and for reading only some arrays of big
+volumes). Grains filters Crop (box in sample coordinates, features renumbered), Change
+Resolution (nearest cell) and Align Sections (misorientation, feature ids or given shifts;
+hill-climbing search per slice pair, in parallel). Orientation Colors agrees with DREAM.3D's
+stored IPF colors within 1/255 on a window of NIST's AM Bench IN718 volume
+(`testdata/dream3d/am_bench_subset.dream3d`); the full 3.5 GB volume reads in 3 s and aligns in
+7 s. Next: M1.
 
 ## Status (2026-11-05)
 

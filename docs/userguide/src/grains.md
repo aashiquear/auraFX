@@ -1,9 +1,10 @@
 # Grains and crystals
 
-auraFX reads electron backscatter diffraction (EBSD) maps and works with crystal orientations:
-it colors them, converts them between representations and re-expresses them in a turned
-reference frame. This is the first part of the grain workbench; segmenting grains, grain
-statistics and building synthetic microstructures come in later releases.
+auraFX reads electron backscatter diffraction (EBSD) maps, serial-section stacks and voxel
+microstructures, and works with crystal orientations. It colors them, converts them between
+representations and re-expresses them in a turned reference frame. It also crops, resamples
+and aligns voxel volumes. This is the first part of the grain workbench. Segmenting grains,
+grain statistics and building synthetic microstructures come in later releases.
 
 ## EBSD maps
 
@@ -13,6 +14,13 @@ Open a map with **File › Open** or `afx.load("scan.ang")`.
 |---|---|---|
 | TSL/EDAX | `.ang` | square grids; hexagonal grids are not read yet |
 | Oxford | `.ctf` | angles in degrees in the file, converted to radians |
+| EBSD stacks | `.h5ebsd` | serial sections from TSL or Oxford (HKL) maps, read as one volume |
+| EDAX OIM HDF5 | `.h5` | square-grid scans; choose the scan with the **Scan** reader option |
+| Bruker Esprit HDF5 | `.h5` | angles in degrees in the file; phases from their space group |
+| Microstructures | `.dream3d` | voxel volumes and meshes with their cell, feature and phase arrays; see below |
+
+`.h5` files are recognised by their contents, so other HDF5 files with that extension still
+open with their own readers.
 
 A map becomes image data with one cell per measured point, the cells centered on the points
 (so the map's corner lies half a step before the first point). Its arrays are:
@@ -27,6 +35,12 @@ A map becomes image data with one cell per measured point, the cells centered on
 
 A single-phase `.ang` scan writes phase 0 for every point. auraFX counts those points as
 phase 1, unless their confidence index is negative.
+
+An `.h5ebsd` stack becomes one volume with a cell layer per slice, the slices `Z Resolution`
+apart. The stack's sample and Euler transformations are not applied. They are kept as the
+field arrays `SampleTransformationAngle`, `SampleTransformationAxis`,
+`EulerTransformationAngle` and `EulerTransformationAxis`. Apply them with Rotate Orientations
+(and Transform for the sample) if you need them.
 
 **Hexagonal axes.** Oxford files describe hexagonal crystals with the [10-10] direction along
 x. auraFX, `.ang` files and the color key put [2-1-10] along x. By default the `.ctf` reader
@@ -50,6 +64,27 @@ m = afx.load("titanium.ctf", hexagonal_axes="As stored")
 
 Face-centered and body-centered cubic metals (nickel, aluminium, iron) are Cubic m-3m.
 Hexagonal close-packed metals (titanium, magnesium, zirconium) are Hexagonal 6/mmm.
+
+### Microstructure files (.dream3d)
+
+A `.dream3d` file holds one or more data containers, each a geometry with arrays. auraFX reads
+image (voxel), rectilinear, vertex, edge, triangle, quadrilateral, tetrahedral and
+hexahedral geometries.
+
+- Cell arrays (voxels, triangles, ...) become cell data, and vertex arrays become point data.
+- Feature arrays (one row per feature, such as `AvgQuats`, `Volumes` or `Centroids`) and phase
+  arrays (`CrystalStructures`, `LatticeConstants`, `MaterialName`) become field data.
+- Neighbor lists are not read.
+- A file with several data containers opens as blocks. The **Data container** reader option
+  picks one.
+- Large volumes load faster with only the arrays you need. Give their names in the **Arrays**
+  reader option, separated by commas.
+
+```python
+v = afx.load("volume.dream3d", arrays="EulerAngles, Phases, FeatureIds")
+```
+
+![A window of a real additively manufactured nickel alloy volume read from a .dream3d file, drawn with the inverse pole figure colors stored in it](images/dream3d_volume.png)
 
 ## Orientation conventions
 
@@ -134,12 +169,61 @@ description of their orientations changes.
 r = m.rotate_orientations(frame="Sample", axis=(0, 0, 1), angle=90)
 ```
 
+## Crop
+
+**Filters › Grains › Crop** keeps the cells of a voxel volume or EBSD map whose centres lie
+inside a box, given in sample coordinates (leave a side unset to keep everything on that
+side). The cells keep their place in space. With **Renumber features** (on by default), the
+remaining feature ids are numbered from 1 and the per-feature field arrays keep only the
+rows of those features. To crop by grid index instead, use **Extract Subset**.
+
+```python
+c = v.crop_volume(min=(0, 0, 0), max=(100, 80, 20))
+```
+
+## Change Resolution
+
+**Filters › Grains › Change Resolution** resamples a voxel volume or EBSD map onto cells of
+another size. Each new cell takes the values of the old cell that holds its centre, so
+orientations, phases and feature ids stay valid. The volume keeps its corner and, rounded to
+whole cells, its size. Features that disappear are dropped and the rest renumbered, as in
+Crop. Point data is not carried over.
+
+```python
+coarse = v.change_resolution(spacing=(2, 2, 2))
+```
+
+## Align Sections
+
+**Filters › Grains › Align Sections** moves each z slice of a serial-section volume in x and
+y, by whole cells, so it matches the slice below. Choose how slices are compared:
+
+- **Misorientation** (the default): two cells match when their orientations differ by less
+  than the **Tolerance** (5° by default), with the crystal class of their phase.
+- **Feature ids**: two cells match when they belong to the same feature.
+- **Given shifts**: no search. Each slice moves by the x and y cells you give, against the
+  slice below.
+
+The search starts from no move and steps to the neighbouring shift with fewer differing cells
+until none is better, at most **Largest shift** cells each way. A **Mask** array (a sample or
+good-data mask) limits the comparison to cells where it is not 0. Cells uncovered by a move
+are set to 0 (phase 0, not indexed). The total shift of each slice is kept as the field array
+`SectionShifts` (x, y cells). Point data is not carried over.
+
+```python
+a = stack.align_sections(method="Misorientation", tolerance=5, mask="SampleVoxels")
+a.align_sections(method="Given shifts", shifts=[2, -1, 3, 1, -1, 2])   # 3 slices after the first
+```
+
+![A stack of four shifted slices colored by orientation, as read (left) and after Align Sections (right); both are stretched along z, and the black edges are cells uncovered by the moves](images/align_sections.png)
+
 ## Limits
 
-- Hexagonal-grid `.ang` files, HDF5 EBSD files (`.h5ebsd`, EDAX and Bruker `.h5`) and
-  `.dream3d` files are not read yet.
+- Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
+  are not read yet.
 - Cubochoric vectors are not among the representations.
 - The orientation mathematics is checked against independent references: rotations from
   SciPy, disorientation angles by brute force over every crystal class, and the color key by
-  a separate implementation. The verification notes (`docs/reference/verification.md` in the
+  a separate implementation. On a window of a real volume, the inverse pole figure colors
+  agree with those stored in the file within one level of 255. The verification notes (`docs/reference/verification.md` in the
   source tree) list the comparisons.

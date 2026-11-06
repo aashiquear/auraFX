@@ -29,18 +29,25 @@ pub fn options(path: &Path) -> Vec<ReaderOption> {
     )]
 }
 
-struct Phase {
-    name: String,
-    laue: Option<Laue>,
-    lattice: [f64; 6],
+pub(crate) struct Phase {
+    pub name: String,
+    pub laue: Option<Laue>,
+    pub lattice: [f64; 6],
 }
 
 /// The image of a map: `nx` x `ny` cells of `step`, origin at the first point's cell corner.
 fn image(nx: usize, ny: usize, step: [f64; 2], first: [f64; 2], cells: Attributes, phases: &[Phase]) -> DataSet {
+    grid([nx, ny, 1], [step[0], step[1], 1.0], [first[0], first[1], 0.0], cells, phases)
+}
+
+/// Image data of `dims` cells of `step` whose first cell is centred on `first`, with the
+/// phases as field data.
+pub(crate) fn grid(dims: [usize; 3], step: [f64; 3], first: [f64; 3], cells: Attributes, phases: &[Phase]) -> DataSet {
     let mut img = ImageData {
-        extent: [0, nx as i64, 0, ny as i64, 0, 0],
-        origin: [first[0] - 0.5 * step[0], first[1] - 0.5 * step[1], 0.0],
-        spacing: [step[0], step[1], 1.0],
+        // A single map stays a flat (2-D) image.
+        extent: [0, dims[0] as i64, 0, dims[1] as i64, 0, if dims[2] <= 1 { 0 } else { dims[2] as i64 }],
+        origin: std::array::from_fn(|k| first[k] - 0.5 * step[k]),
+        spacing: step,
         cell_data: cells,
         ..Default::default()
     };

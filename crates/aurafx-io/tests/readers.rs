@@ -1972,3 +1972,100 @@ fn ebsd_maps() {
     assert!((raw.cell_data().unwrap().get("EulerAngles").unwrap().get(c, 2) - want).abs() < 2e-5);
     assert!(read_file(td("ebsd/ni_map.ang")).is_ok());
 }
+
+fn image_of(d: &aurafx_data::DataSet) -> &aurafx_data::ImageData {
+    match d {
+        aurafx_data::DataSet::ImageData(i) => i,
+        _ => panic!("not image data"),
+    }
+}
+
+/// The EBSD HDF5 layouts (testdata/ebsd from scripts/gen_ebsd_h5.py) hold the same maps as
+/// the text files they were written from.
+#[test]
+fn ebsd_hdf5_files() {
+    let same = |a: &aurafx_data::ImageData, b: &aurafx_data::ImageData, cells: &[(usize, usize)], what: &str| {
+        for (ia, ib) in cells {
+            for name in ["EulerAngles", "Phases"] {
+                let (x, y) = (a.cell_data.get(name).unwrap(), b.cell_data.get(name).unwrap());
+                for c in 0..x.ncomp {
+                    assert!((x.get(*ia, c) - y.get(*ib, c)).abs() < 2e-5, "{what} {name} cell {ia}/{ib}: {} vs {}", x.get(*ia, c), y.get(*ib, c));
+                }
+            }
+        }
+    };
+    let ni = static_ds("ebsd/ni_map.ang");
+    let ni = image_of(&ni);
+    let all: Vec<(usize, usize)> = (0..80 * 60).map(|k| (k, k)).collect();
+    // EDAX: two scans, IQ/CI renamed as in .ang files.
+    let edax = static_ds("ebsd/ni_map_edax.h5");
+    let e = image_of(&edax);
+    assert_eq!(e.extent, ni.extent);
+    same(e, ni, &all, "EDAX");
+    assert!(e.cell_data.get("Image Quality").is_some() && e.cell_data.get("Confidence Index").is_some());
+    let o: aurafx_io::ReaderOptions = [("scan".to_string(), "Scan 2".to_string())].into();
+    let s2 = match aurafx_io::with_options(&o, || read_file(td("ebsd/ni_map_edax.h5"))).unwrap() {
+        Loaded::Static(d) => d,
+        _ => panic!(),
+    };
+    let two = static_ds("ebsd/two_phase.ang");
+    let two = image_of(&two);
+    let all2: Vec<(usize, usize)> = (0..60 * 40).map(|k| (k, k)).collect();
+    same(image_of(&s2), two, &all2, "EDAX scan 2");
+    assert_eq!(image_of(&s2).field_data.get("CrystalStructures").unwrap().len(), 3);
+    // Bruker: shuffled points placed by their beam position, phases by space group.
+    let br = static_ds("ebsd/two_phase_bruker.h5");
+    let b = image_of(&br);
+    same(b, two, &all2, "Bruker");
+    let cs = b.field_data.get("CrystalStructures").unwrap();
+    assert_eq!((cs.get(1, 0), cs.get(2, 0)), (1.0, 0.0));
+    assert!((b.spacing[0] - 2.0).abs() < 1e-12 && (b.origin[0] + 1.0).abs() < 1e-9);
+    // TSL stack: slice z is the window of ni_map at the recorded corner.
+    let exp: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(td("ebsd/ebsd_h5_expected.json")).unwrap()).unwrap();
+    let st = static_ds("ebsd/ni_stack.h5ebsd");
+    let s = image_of(&st);
+    assert_eq!(s.extent, [0, 70, 0, 50, 0, 4]);
+    assert!((s.spacing[2] - 0.5).abs() < 1e-6);
+    for (z, c) in exp["ni_stack.h5ebsd"]["corners"].as_array().unwrap().iter().enumerate() {
+        let (c0, r0) = (c[0].as_u64().unwrap() as usize, c[1].as_u64().unwrap() as usize);
+        let cells: Vec<(usize, usize)> = (0..50).flat_map(|j| (0..70).map(move |i| (z * 3500 + j * 70 + i, (j + r0) * 80 + i + c0))).collect();
+        same(s, ni, &cells, "TSL stack");
+    }
+    assert_eq!(s.field_data.get("SampleTransformationAngle").unwrap().get(0, 0), 180.0);
+    // HKL stack: degrees to radians and +30 degrees on phi2, like the .ctf reader.
+    let ti = static_ds("ebsd/ti_map.ctf");
+    let hk = static_ds("ebsd/ti_stack.h5ebsd");
+    let h = image_of(&hk);
+    assert_eq!(h.extent, [0, 70, 0, 50, 0, 2]);
+    let all3: Vec<(usize, usize)> = (0..3500).flat_map(|k| [(k, k), (k + 3500, k)]).collect();
+    same(h, image_of(&ti), &all3, "HKL stack");
+}
+
+/// A window of a real `.dream3d` volume (testdata/dream3d/am_bench_subset.dream3d, cut by
+/// scripts/gen_ebsd_h5.py from NIST's AM Bench 2022 IN718 EBSD data).
+#[test]
+fn dream3d_subset() {
+    let d = static_ds("dream3d/am_bench_subset.dream3d");
+    let img = image_of(&d);
+    assert_eq!(img.extent, [0, 48, 0, 40, 0, 6]);
+    assert!((img.spacing[2] - 2.12).abs() < 1e-5);
+    let e = img.cell_data.get("EulerAngles").unwrap();
+    assert_eq!((e.ncomp, e.len()), (3, 48 * 40 * 6));
+    assert_eq!(img.cell_data.get("IPFColorZ").unwrap().ncomp, 3);
+    let cs = img.field_data.get("CrystalStructures").unwrap();
+    assert_eq!(cs.get(0, 0), 999.0);
+    assert_eq!(cs.get(1, 0), 1.0);
+    assert!(matches!(&img.field_data.get("MaterialName").unwrap().data, ArrayData::String(v) if v[1] == "Ni"));
+    // Feature arrays (one row per feature) are field data.
+    let fid = img.cell_data.get("FeatureIds").unwrap();
+    let nf = (0..fid.len()).map(|k| fid.get(k, 0) as usize).max().unwrap();
+    assert_eq!(img.field_data.get("AvgQuats").unwrap().len(), nf + 1);
+    // Only some arrays.
+    let o: aurafx_io::ReaderOptions = [("arrays".to_string(), "EulerAngles, Phases".to_string())].into();
+    let d2 = match aurafx_io::with_options(&o, || read_file(td("dream3d/am_bench_subset.dream3d"))).unwrap() {
+        Loaded::Static(d) => d,
+        _ => panic!(),
+    };
+    let names: Vec<&str> = image_of(&d2).cell_data.names().collect();
+    assert_eq!(names, vec!["EulerAngles", "Phases"]);
+}

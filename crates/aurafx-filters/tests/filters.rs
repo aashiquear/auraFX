@@ -1903,3 +1903,94 @@ fn eul_of(d: &DataSet) -> Vec<aurafx_crystal::Quat> {
     let e = d.cell_data().unwrap().get("EulerAngles").unwrap();
     (0..e.len()).map(|k| aurafx_crystal::euler_to_quat([e.get(k, 0), e.get(k, 1), e.get(k, 2)])).collect()
 }
+
+/// Orientation Colors against the IPF colors DREAM.3D computed for a window of a real EBSD
+/// volume (testdata/dream3d/am_bench_subset.dream3d: AM Bench 2022 IN718, cubic).
+#[test]
+fn ipf_colors_match_dream3d() {
+    let d = td("dream3d/am_bench_subset.dream3d");
+    for (dir, name) in [([0, 0, 1], "IPFColorZ"), ([1, 0, 0], "IPFColorX")] {
+        let c = run("orientation_colors", Some(&d), &[("direction", serde_json::json!(dir))]);
+        let (ours, theirs) = (c.cell_data().unwrap().get("IPFColor").unwrap(), d.cell_data().unwrap().get(name).unwrap());
+        let mut worst = 0;
+        for k in 0..ours.len() {
+            for ch in 0..3 {
+                worst = worst.max((ours.get(k, ch) as i32 - theirs.get(k, ch) as i32).abs());
+            }
+        }
+        assert!(worst <= 1, "{name}: largest difference {worst}");
+    }
+}
+
+/// Align Sections recovers the shifts of the TSL stack (testdata/ebsd/ni_stack.h5ebsd: slices
+/// cut from one map at known windows); Crop and Change Resolution on a real `.dream3d` window.
+#[test]
+fn grains_volume_filters() {
+    let st = td("ebsd/ni_stack.h5ebsd");
+    // Slice z starts at window column c0, row r0 of the map: moving it by (c0 - c0', r0 - r0')
+    // against the slice below lines it up.
+    let want = [[0, 0], [2, -1], [5, 0], [4, 2]];
+    for method in ["Misorientation", "Given shifts"] {
+        let a = run("align_sections", Some(&st), &[("method", method.into()), ("shifts", serde_json::json!([2, -1, 3, 1, -1, 2]))]);
+        let s = a.field_data().get("SectionShifts").unwrap();
+        let got: Vec<[i64; 2]> = (0..4).map(|k| [s.get(k, 0) as i64, s.get(k, 1) as i64]).collect();
+        assert_eq!(got, want.to_vec(), "{method}");
+        // Every covered cell of an aligned slice now holds the orientation of slice 0 there.
+        let e = a.cell_data().unwrap().get("EulerAngles").unwrap();
+        for z in 1..4 {
+            for j in 5..45 {
+                for i in 6..64 {
+                    let (c, c0) = (z * 3500 + j * 70 + i, j * 70 + i);
+                    assert!((e.get(c, 0) - e.get(c0, 0)).abs() < 1e-6 || i < 6, "slice {z} cell ({i}, {j})");
+                }
+            }
+        }
+    }
+    // Crop to a box in sample coordinates: features renumbered, feature rows kept.
+    let d = td("dream3d/am_bench_subset.dream3d");
+    let DataSet::ImageData(img) = &d else { panic!() };
+    let (o, sp) = (img.origin, img.spacing);
+    let lo = [o[0] + 10.0 * sp[0], o[1] + 5.0 * sp[1], o[2] - 1.0];
+    let hi = [o[0] + 29.9 * sp[0], o[1] + 24.9 * sp[1], o[2] + 2.9 * sp[2]];
+    let c = run("crop_volume", Some(&d), &[("min", serde_json::json!(lo)), ("max", serde_json::json!(hi))]);
+    let DataSet::ImageData(ci) = &c else { panic!() };
+    assert_eq!(ci.extent, [10, 30, 5, 25, 0, 3]);
+    let (fid0, fid) = (img.cell_data.get("FeatureIds").unwrap(), ci.cell_data.get("FeatureIds").unwrap());
+    let nf = (0..fid.len()).map(|k| fid.get(k, 0) as usize).max().unwrap();
+    assert_eq!(ci.field_data.get("AvgQuats").unwrap().len(), nf + 1);
+    let mut seen = vec![false; nf + 1];
+    for k in 0..fid.len() {
+        seen[fid.get(k, 0) as usize] = true;
+    }
+    assert!(seen[1..].iter().all(|s| *s), "ids are compact");
+    // The feature table row follows its feature: the average orientation of a cell's feature
+    // is the same before and after.
+    let (q0, q1) = (img.field_data.get("AvgQuats").unwrap(), ci.field_data.get("AvgQuats").unwrap());
+    for (j, i, z) in [(5usize, 10usize, 0usize), (12, 20, 1), (24, 29, 2)] {
+        let k0 = (z * 40 + j) * 48 + i;
+        let k1 = (z * 20 + (j - 5)) * 20 + (i - 10);
+        let (a, b) = (fid0.get(k0, 0) as usize, fid.get(k1, 0) as usize);
+        for comp in 0..4 {
+            assert_eq!(q0.get(a, comp), q1.get(b, comp));
+        }
+    }
+    // Change Resolution: cells twice as large in x and y, values from the old cell at each centre.
+    let r = run("change_resolution", Some(&d), &[("spacing", serde_json::json!([2.0 * sp[0], 2.0 * sp[1], sp[2]]))]);
+    let DataSet::ImageData(ri) = &r else { panic!() };
+    assert_eq!(ri.extent, [0, 24, 0, 20, 0, 6]);
+    assert!((0..3).all(|k| (ri.origin[k] - o[k]).abs() < 1e-9));
+    let (e0, e1) = (img.cell_data.get("EulerAngles").unwrap(), ri.cell_data.get("EulerAngles").unwrap());
+    for (i, j, z) in [(0usize, 0usize, 0usize), (7, 3, 2), (23, 19, 5)] {
+        let k1 = (z * 20 + j) * 24 + i;
+        let k0 = (z * 40 + 2 * j + 1) * 48 + 2 * i + 1;
+        assert_eq!(e1.get(k1, 1), e0.get(k0, 1));
+    }
+    // A flat 2-D map stays flat.
+    let ni = td("ebsd/ni_map.ang");
+    let c = run("crop_volume", Some(&ni), &[("min", serde_json::json!([5.0, 5.0, -1.0])), ("max", serde_json::json!([20.0, 10.0, 1.0]))]);
+    let DataSet::ImageData(ci) = &c else { panic!() };
+    assert_eq!((ci.extent, c.n_cells()), ([10, 41, 10, 21, 0, 0], 31 * 11));
+    let r = run("change_resolution", Some(&ni), &[("spacing", serde_json::json!([1.0, 1.0, 1.0]))]);
+    let DataSet::ImageData(ri) = &r else { panic!() };
+    assert_eq!((ri.extent, r.n_cells()), ([0, 40, 0, 30, 0, 0], 1200));
+}

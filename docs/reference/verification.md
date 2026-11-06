@@ -258,6 +258,15 @@ implementations (`testdata/crystal/reference.json`, `scripts/crystal_reference.p
 - Cubic m-3m and hexagonal 6/mmm IPF colors agree within one level of 255 with a separate
   implementation that reduces the direction by sorting its components (cubic) or folding its
   azimuth (hexagonal) instead of searching the group.
+- On a window of NIST's AM Bench 2022 IN718 volume (`testdata/dream3d/am_bench_subset.dream3d`,
+  written by DREAM.3D 6.6), Orientation Colors agrees with the `IPFColorZ` and `IPFColorX`
+  arrays DREAM.3D stored, within one level of 255 on every cell.
+- The full 2 µm AM Bench volume (525 × 424 × 367 cells, 3.5 GB) reads in about 3 s with three
+  arrays; Align Sections by misorientation runs over its 525 slices in about 7 s.
+- The HDF5 readers (`.h5ebsd` TSL and HKL stacks, EDAX OIM and Bruker Esprit `.h5`) are checked
+  against the text maps the test files were written from (`scripts/gen_ebsd_h5.py`, in the
+  layouts of EbsdLib's readers and importers); no real files in these layouts were at hand.
+- Align Sections recovers the known window shifts of `ni_stack.h5ebsd` exactly.
 - The `.ang` and `.ctf` readers are checked against the angles, phases and quality values
   `scripts/gen_ebsd.py` wrote, including the +30° on φ2 of hexagonal Oxford phases.
 

@@ -61,6 +61,11 @@ impl Repr {
             _ => return None,
         })
     }
+    /// The orientation of tuple `i` of an array holding this representation.
+    pub fn decode_values(self, a: &Array, i: usize) -> Quat {
+        self.decode(&values(a, i))
+    }
+
     fn decode(self, v: &[f64]) -> Quat {
         match self {
             Repr::Euler => cx::euler_to_quat([v[0], v[1], v[2]]),
@@ -122,6 +127,10 @@ pub fn orientation_array<'a>(ds: &'a DataSet, named: Option<(Association, String
 }
 
 /// The crystal class of every tuple of an array of `n` tuples (None: unknown or not indexed).
+pub fn classes_of(ds: &DataSet, assoc: Association, n: usize, structure: &str, phases: Option<&str>) -> Result<Vec<Option<Laue>>> {
+    classes(ds, assoc, n, structure, phases)
+}
+
 fn classes(ds: &DataSet, assoc: Association, n: usize, structure: &str, phases: Option<&str>) -> Result<Vec<Option<Laue>>> {
     if structure != FROM_PHASES {
         let l = Laue::from_label(structure).ok_or_else(|| anyhow!("unknown crystal structure {structure}"))?;

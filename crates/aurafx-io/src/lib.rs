@@ -9,6 +9,7 @@ pub mod cam;
 pub mod cellgrid;
 pub mod chombo;
 pub mod ebsd;
+pub mod ebsd_h5;
 pub mod cgns;
 pub mod cgns_writer;
 pub mod csv;
@@ -89,7 +90,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
         (&["tif", "tiff", "asc", "img"], "GIS rasters (GeoTIFF, Esri ASCII grid, ERDAS Imagine)"),
-        (&["ang", "ctf"], "EBSD maps (TSL/EDAX .ang, Oxford .ctf)"),
+        (&["ang", "ctf", "h5ebsd", "dream3d"], "EBSD maps and microstructures (TSL/EDAX .ang, Oxford .ctf, .h5ebsd, EDAX and Bruker .h5, .dream3d)"),
         (&["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml", "tab", "mif"], "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML, MapInfo; file geodatabases: open the .gdb folder or a file in it)"),
     ]
 }
@@ -163,6 +164,9 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     if enzo::is_enzo(path) {
         return Ok(Loaded::Static(Arc::new(enzo::read(path)?)));
     }
+    if ebsd_h5::is_ebsd_h5(path) && ext_of(path) != "dream3d" {
+        return Ok(Loaded::Static(Arc::new(ebsd_h5::read(path)?)));
+    }
     if chombo::is_chombo(path) {
         return Ok(Loaded::Static(Arc::new(chombo::read(path)?)));
     }
@@ -184,6 +188,8 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "asc" => Loaded::Static(Arc::new(rasters::read_ascii_grid(path)?)),
         "ang" => Loaded::Static(Arc::new(ebsd::read_ang(path)?)),
         "ctf" => Loaded::Static(Arc::new(ebsd::read_ctf(path)?)),
+        "dream3d" => Loaded::Static(Arc::new(ebsd_h5::read_dream3d(path)?)),
+        "h5ebsd" => Loaded::Static(Arc::new(ebsd_h5::read(path)?)),
         "img" => Loaded::Static(Arc::new(rasters::read_hfa(path)?)),
         "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif" => Loaded::Static(Arc::new(vectors::read(path)?)),
         "json" if vectors::is_geojson(path) => Loaded::Static(Arc::new(vectors::read(path)?)),
@@ -296,6 +302,8 @@ pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
         "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif" => vectors::options(path),
         "hierarchy" | "boundary" => enzo::options(path),
         "ctf" => ebsd::options(path),
+        "dream3d" | "h5ebsd" => ebsd_h5::options(path),
+        "h5" | "hdf5" if ebsd_h5::is_ebsd_h5(path) => ebsd_h5::options(path),
         "json" if vectors::is_geojson(path) => vectors::options(path),
         _ if flash::is_flash(path) => flash::options(path),
         _ if chombo::is_chombo(path) => chombo::options(path),

@@ -15,7 +15,7 @@ use hdf5_reader::{Datatype, Hdf5File};
 use std::path::Path;
 
 /// The numbers in an attribute: a scalar, an array, or the fields of compound values in order.
-fn attr_nums(a: &Attribute) -> Vec<f64> {
+pub(crate) fn attr_nums(a: &Attribute) -> Vec<f64> {
     fn decode(dt: &Datatype, b: &[u8]) -> Vec<f64> {
         match dt {
             Datatype::FixedPoint { size, signed, .. } => b

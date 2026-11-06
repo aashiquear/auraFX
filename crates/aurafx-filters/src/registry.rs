@@ -2630,6 +2630,88 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "crop_volume",
+            label: "Crop",
+            category: "Grains",
+            description: "Keep the cells of a voxel volume or EBSD map inside a box (sample coordinates), renumbering the features that remain.",
+            keywords: &["crop", "box", "region", "subvolume", "trim", "voxels", "ebsd", "features"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("min", "Box minimum", [f64::NAN; 3]).help("Cells whose centres lie at or above these coordinates are kept; leave unset for an open side."),
+                v3("max", "Box maximum", [f64::NAN; 3]).help("Cells whose centres lie at or below these coordinates are kept; leave unset for an open side."),
+                b("renumber_features", "Renumber features", true).help("Number the remaining feature ids from 1 and keep only their rows of the per-feature field arrays."),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+            ],
+            apply: |input, p| {
+                let v = |k: &str| match p.get(k) {
+                    Some(ParamValue::Vec3(x)) => *x,
+                    _ => [f64::NAN; 3],
+                };
+                crate::grain_grid::crop(input.unwrap(), v("min"), v("max"), p.bool("renumber_features", true), &p.str("feature_ids"))
+            },
+        },
+        FilterDef {
+            id: "change_resolution",
+            label: "Change Resolution",
+            category: "Grains",
+            description: "Resample a voxel volume or EBSD map onto larger or smaller cells, each taking the value of the old cell at its centre.",
+            keywords: &["resample", "resolution", "voxel size", "coarsen", "refine", "spacing", "downsample", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("spacing", "New cell size", [1.0, 1.0, 1.0]),
+                b("renumber_features", "Renumber features", true).help("Number the remaining feature ids from 1 and keep only their rows of the per-feature field arrays."),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+            ],
+            apply: |input, p| crate::grain_grid::change_resolution(input.unwrap(), p.vec3("spacing", [1.0; 3]), p.bool("renumber_features", true), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "align_sections",
+            label: "Align Sections",
+            category: "Grains",
+            description: "Move the slices of a serial-section volume in x and y so each matches the one below, by orientation or by feature ids, or by given shifts.",
+            keywords: &["serial sectioning", "registration", "align", "slices", "shift", "3d ebsd", "stack"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("method", "Match by", &[crate::grain_grid::ALIGN_MISORIENTATION, crate::grain_grid::ALIGN_FEATURES, crate::grain_grid::ALIGN_SHIFTS], crate::grain_grid::ALIGN_MISORIENTATION)
+                    .help("Misorientation: cells match when their orientations differ by less than the tolerance. Feature ids: cells match when they belong to the same feature. Given shifts: move each slice by the numbers below."),
+                f("tolerance", "Tolerance (degrees)", 5.0, 0.0, 180.0),
+                i("max_shift", "Largest shift (cells)", 20, 0, 10000).help("The largest move of one slice against the one below, in cells along x and y."),
+                cell_arr("mask", "Mask").help("Only cells where this array is not 0 are compared (for example a good-data or sample mask)."),
+                cell_arr("orientations", "Orientations").advanced(),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced(),
+                cell_arr("phases", "Phases").advanced(),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                ParamSpec::new("shifts", "Given shifts", ParamKind::Floats, ParamValue::Floats(Vec::new()))
+                    .help("x and y cells for each slice after the first, against the slice below (Given shifts only).")
+                    .advanced(),
+            ],
+            apply: |input, p| {
+                let mask = p.array("mask").map(|x| x.1);
+                let phases = p.array("phases").map(|x| x.1);
+                crate::grain_grid::align_sections(
+                    input.unwrap(),
+                    &p.str("method"),
+                    p.array("orientations"),
+                    p.f64("tolerance", 5.0),
+                    &p.str("structure"),
+                    phases.as_deref(),
+                    &p.str("feature_ids"),
+                    mask.as_deref(),
+                    p.i64("max_shift", 20),
+                    &p.floats("shifts"),
+                )
+            },
+        },
+        FilterDef {
             id: "ipf_color_key",
             label: "IPF Color Key",
             category: "Sources",

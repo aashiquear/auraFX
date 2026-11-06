@@ -2,7 +2,9 @@
 //! box's components stored one after the other in `data:datatype=0` (with `outputGhost` ghost
 //! cells around each box), dx (or `vec_dx`), `prob_lo` and the component names at the root.
 //! Read as overlapping AMR data like VisIt's Chombo reader (ParaView's VisItChomboReader),
-//! with the ghost cells removed on every level and the covered cells hidden.
+//! with the ghost cells removed on every level and the covered cells hidden. Node-centered
+//! files (data_centering 7) give point data; the particles in `/particles` are read with the
+//! reader option data = Particles.
 
 use anyhow::{anyhow, bail, Context, Result};
 use aurafx_data::amr::{Amr, AmrBlock, AmrLevel};
@@ -70,6 +72,48 @@ pub fn is_chombo(path: &Path) -> bool {
     f.group("Chombo_global").is_ok() && f.group("level_0").is_ok()
 }
 
+/// Whether the file has particles (positions in /particles).
+fn has_particles(f: &Hdf5File, dim: usize) -> bool {
+    let Ok(g) = f.group("particles") else { return false };
+    ["position_x", "position_y", "position_z"].iter().take(dim.max(2)).all(|n| g.dataset(n).is_ok())
+}
+
+pub fn options(path: &Path) -> Vec<crate::ReaderOption> {
+    let Ok(f) = Hdf5File::open(path) else { return Vec::new() };
+    let dim = f.group("Chombo_global").ok().and_then(|g| nums(&g, "SpaceDim")).and_then(|v| v.first().copied()).unwrap_or(3.0) as usize;
+    if !has_particles(&f, dim) {
+        return Vec::new();
+    }
+    vec![crate::ReaderOption::new(
+        "data",
+        "Data",
+        crate::ReaderOptionKind::Choice(vec!["Grid".into(), "Particles".into()]),
+        "Grid",
+        "The AMR grid, or the particles as points with their properties.",
+    )]
+}
+
+/// The particles: a point each (position_x/y/z), every other dataset of /particles as a
+/// double array, in name order (as VisIt lists them).
+fn particles(f: &Hdf5File, dim: usize) -> Result<DataSet> {
+    let g = f.group("particles")?;
+    let col = |n: &str| -> Result<Vec<f64>> { Ok(crate::vtkhdf::read(&g.dataset(n)?)?.0.to_f64_vec()) };
+    let x = col("position_x")?;
+    let y = col("position_y")?;
+    let z = if dim == 3 { col("position_z")? } else { vec![0.0; x.len()] };
+    let pts: Vec<f64> = (0..x.len()).flat_map(|i| [x[i], y.get(i).copied().unwrap_or(0.0), z.get(i).copied().unwrap_or(0.0)]).collect();
+    let mut pd = PolyData::from_points(Points::new_f64(pts));
+    let mut names: Vec<String> = g.datasets()?.iter().map(|d| d.name().rsplit('/').next().unwrap_or("").to_string()).filter(|n| !n.starts_with("position_")).collect();
+    names.sort();
+    for n in names {
+        let v = col(&n)?;
+        if v.len() == x.len() {
+            pd.point_data.insert(Array::scalars_f64(n, v));
+        }
+    }
+    Ok(DataSet::PolyData(pd))
+}
+
 pub fn read(path: &Path) -> Result<DataSet> {
     let f = Hdf5File::open(path).with_context(|| format!("opening {} as HDF5", path.display()))?;
     let root = f.root_group()?;
@@ -78,9 +122,12 @@ pub fn read(path: &Path) -> Result<DataSet> {
     if !(1..=3).contains(&dim) {
         bail!("{}: {dim}-dimensional Chombo data is not supported (1 to 3 dimensions are)", path.display());
     }
-    if nums(&root, "data_centering").and_then(|v| v.first().copied()) == Some(7.0) {
-        bail!("{}: node-centered Chombo data is not supported yet (cell-centered is)", path.display());
+    if crate::option("data").as_deref() == Some("Particles") {
+        return particles(&f, dim);
     }
+    // Node-centered data: a value per node (one more per axis than cells).
+    let node = nums(&root, "data_centering").and_then(|v| v.first().copied()) == Some(7.0);
+    let extra = if node { 1 } else { 0 };
     let n_levels = nums(&root, "num_levels").and_then(|v| v.first().copied()).unwrap_or(1.0) as usize;
     let ncomp = nums(&root, "num_components").and_then(|v| v.first().copied()).unwrap_or(0.0) as usize;
     let names: Vec<String> = (0..ncomp)
@@ -129,7 +176,8 @@ pub fn read(path: &Path) -> Result<DataSet> {
         let mut at = 0usize;
         for (b, (lo, hi)) in boxes.iter().enumerate() {
             let real: [usize; 3] = std::array::from_fn(|k| (hi[k] - lo[k] + 1).max(1) as usize);
-            let full: [usize; 3] = std::array::from_fn(|k| real[k] + 2 * ghost[k] as usize);
+            let full: [usize; 3] = std::array::from_fn(|k| if k < dim { real[k] + extra + 2 * ghost[k] as usize } else { 1 });
+            let vals: [usize; 3] = std::array::from_fn(|k| if k < dim { real[k] + extra } else { 1 });
             let amt = full[0] * full[1] * full[2];
             if at + ncomp * amt > data.len() {
                 bail!("{}: level {l} box {b} runs past the data", path.display());
@@ -139,14 +187,19 @@ pub fn read(path: &Path) -> Result<DataSet> {
             let mut img = ImageData { origin, spacing, extent: [0, dims[0] as i64 - 1, 0, dims[1] as i64 - 1, 0, dims[2] as i64 - 1], ..Default::default() };
             for (c, name) in names.iter().enumerate() {
                 let src = &data[at + c * amt..at + (c + 1) * amt];
-                let mut v = Vec::with_capacity(real[0] * real[1] * real[2]);
-                for z in 0..real[2] {
-                    for y in 0..real[1] {
+                let mut v = Vec::with_capacity(vals[0] * vals[1] * vals[2]);
+                for z in 0..vals[2] {
+                    for y in 0..vals[1] {
                         let row = (z + ghost[2] as usize) * full[1] * full[0] + (y + ghost[1] as usize) * full[0] + ghost[0] as usize;
-                        v.extend_from_slice(&src[row..row + real[0]]);
+                        v.extend_from_slice(&src[row..row + vals[0]]);
                     }
                 }
-                img.cell_data.insert(Array::scalars_f64(name.clone(), v));
+                let a = Array::scalars_f64(name.clone(), v);
+                if node {
+                    img.point_data.insert(a);
+                } else {
+                    img.cell_data.insert(a);
+                }
             }
             at += ncomp * amt;
             lev.blocks.push(AmrBlock { lo: *lo, hi: *hi, data: img });

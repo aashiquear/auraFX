@@ -1252,5 +1252,77 @@
     }
    ]
   ]
+ },
+ "chombo3d_node.hdf5": {
+  "levels": [
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      9,
+      9,
+      9
+     ],
+     "arrays": {
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       192.0
+      ],
+      "point:density": [
+       "vtkDoubleArray",
+       2916.0
+      ],
+      "point:energy": [
+       "vtkDoubleArray",
+       182.25
+      ]
+     },
+     "covered": 24
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      9,
+      7,
+      5
+     ],
+     "arrays": {
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ],
+      "point:density": [
+       "vtkDoubleArray",
+       1102.5
+      ],
+      "point:energy": [
+       "vtkDoubleArray",
+       108.28125
+      ]
+     },
+     "covered": 0
+    }
+   ]
+  ]
  }
 }

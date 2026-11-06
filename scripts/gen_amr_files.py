@@ -25,6 +25,9 @@ chombo3d.hdf5               Chombo (cell-centered): two levels, three boxes, com
     and energy (functions of x, y, z).
 chombo2d.hdf5               Chombo 2-D: three levels, one ghost cell around every box
     (outputGhost), prob_lo and vec_dx as compound attributes.
+chombo3d_node.hdf5          Chombo 3-D node-centered (data_centering 7): values at the nodes.
+chombo2d_particles.hdf5     Chombo 2-D with 30 particles (/particles: position_x, position_y,
+    mass, particle_id).
 """
 import os, sys
 import numpy as np
@@ -173,7 +176,7 @@ iv3 = np.dtype([("intvecti", "<i4"), ("intvectj", "<i4"), ("intvectk", "<i4")])
 iv2 = np.dtype([("intvecti", "<i4"), ("intvectj", "<i4")])
 dv2 = np.dtype([("x", "<f8"), ("y", "<f8")])
 
-def chombo(path, dim, levels, ghost, prob_lo=None, vec_dx=False):
+def chombo(path, dim, levels, ghost, prob_lo=None, vec_dx=False, node=False, particles=None):
     """levels: [(dx, [(lo, hi), ...]), ...] with lo/hi cell indices of length dim."""
     comps = [("density", lambda x, y, z: 1 + x + 2 * y + 3 * z), ("energy", lambda x, y, z: x * y - z + 0.5)]
     lo0 = prob_lo or [0.0] * dim
@@ -185,6 +188,12 @@ def chombo(path, dim, levels, ghost, prob_lo=None, vec_dx=False):
             f.attrs[f"component_{i}"] = np.bytes_(n)
         f.attrs["time"] = 0.75
         f.attrs["iteration"] = np.int32(12)
+        if node:
+            f.attrs["data_centering"] = np.int32(7)
+        if particles is not None:
+            pg = f.create_group("particles")
+            for k, v in particles.items():
+                pg[k] = v
         if prob_lo:
             f.attrs["prob_lo"] = np.array(tuple(prob_lo), dtype=dv2)
         g = f.create_group("Chombo_global")
@@ -206,7 +215,8 @@ def chombo(path, dim, levels, ghost, prob_lo=None, vec_dx=False):
             L["boxes"] = np.array([tuple(lo) + tuple(hi) for lo, hi in boxes], dtype=bt)
             data, offs = [], [0]
             for lo, hi in boxes:
-                c = [lo0[k] + (np.arange(lo[k] - ghost, hi[k] + ghost + 1) + 0.5) * dx for k in range(dim)]
+                # Cell centers, or the nodes (one more per axis) of node-centered data.
+                c = [lo0[k] + (np.arange(lo[k] - ghost, hi[k] + ghost + 1 + (1 if node else 0)) + (0.0 if node else 0.5)) * dx for k in range(dim)]
                 if dim == 2:
                     y, x = np.meshgrid(c[1], c[0], indexing="ij")
                     z = 0 * x
@@ -224,6 +234,11 @@ def chombo(path, dim, levels, ghost, prob_lo=None, vec_dx=False):
             da.attrs["ghost"] = np.array(tuple([ghost] * dim), dtype=it)
 
 chombo(os.path.join(out, "chombo3d.hdf5"), 3, [(0.125, [((0, 0, 0), (7, 7, 7))]), (0.0625, [((4, 4, 4), (11, 9, 7)), ((10, 10, 8), (13, 13, 11))])], 0)
+chombo(os.path.join(out, "chombo3d_node.hdf5"), 3, [(0.125, [((0, 0, 0), (7, 7, 7))]), (0.0625, [((4, 4, 4), (11, 9, 7))])], 0, node=True)
+pr = np.random.default_rng(11)
+pp = pr.random((30, 2))
+chombo(os.path.join(out, "chombo2d_particles.hdf5"), 2, [(0.125, [((0, 0), (7, 7))]), (0.0625, [((2, 2), (9, 7))])], 0,
+       particles={"position_x": pp[:, 0], "position_y": pp[:, 1], "mass": 1 + pr.random(30), "particle_id": np.arange(30, dtype="<i4")})
 chombo(os.path.join(out, "chombo2d.hdf5"), 2,
        [(0.125, [((0, 0), (7, 7))]), (0.0625, [((2, 2), (9, 7)), ((8, 10), (13, 15))]), (0.03125, [((6, 6), (13, 11))])], 1, prob_lo=[-0.5, 0.25], vec_dx=True)
 

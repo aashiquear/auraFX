@@ -21,6 +21,7 @@ cases = {
     "enzo/DD0003/data0003.hierarchy#cgs": (EnzoReader, ["Density", "TotalEnergy"], {"ConvertToCGS": 1}),
     "chombo3d.hdf5": (VisItChomboReader, ["density", "energy"], {}),
     "chombo2d.hdf5": (VisItChomboReader, ["density", "energy"], {}),
+    "chombo3d_node.hdf5": (VisItChomboReader, ["density", "energy"], {"node": 1}),
 }
 out = {}
 for key, (Reader, arrays, props) in cases.items():
@@ -29,6 +30,9 @@ for key, (Reader, arrays, props) in cases.items():
     if Reader is not VisItChomboReader:
         r.Level = 10
     r.CellArrayStatus = arrays
+    if props.pop("node", None):
+        r.CellArrayStatus = []
+        r.PointArrayStatus = arrays
     for k, v in props.items():
         setattr(r, k, v)
     r.UpdatePipeline()
@@ -40,11 +44,11 @@ for key, (Reader, arrays, props) in cases.items():
             g = amr.GetDataSetAsImageData(l, b)
             if g is None:
                 continue
-            cd = g.GetCellData()
             sums = {}
-            for i in range(cd.GetNumberOfArrays()):
-                a = cd.GetArray(i)
-                sums[a.GetName()] = [a.GetClassName(), float(v2n(a).astype("float64").sum())]
+            for kind, cd in (("", g.GetCellData()), ("point:", g.GetPointData())):
+                for i in range(cd.GetNumberOfArrays()):
+                    a = cd.GetArray(i)
+                    sums[kind + a.GetName()] = [a.GetClassName(), float(v2n(a).astype("float64").sum())]
             ghost = g.GetCellGhostArray()
             hidden = int((v2n(ghost) & 8 != 0).sum()) if ghost is not None else 0
             blocks.append({"origin": list(g.GetOrigin()), "spacing": list(g.GetSpacing()), "dims": list(g.GetDimensions()), "arrays": sums, "covered": hidden})

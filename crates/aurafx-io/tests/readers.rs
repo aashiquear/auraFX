@@ -1670,7 +1670,12 @@ fn flash_and_enzo_match_paraview() {
                     if ghosted && name != "vtkGhostType" {
                         continue;
                     }
-                    let a = img.cell_data.get(name).unwrap_or_else(|| panic!("{tag}: no {name}"));
+                    // Point arrays (node-centered Chombo) are listed as "point:<name>".
+                    let a = match name.strip_prefix("point:") {
+                        Some(n) => img.point_data.get(n),
+                        None => img.cell_data.get(name),
+                    }
+                    .unwrap_or_else(|| panic!("{tag}: no {name}"));
                     let (class, sum) = (v[0].as_str().unwrap(), v[1].as_f64().unwrap());
                     if name == "vtkGhostType" {
                         let covered = (0..a.len()).filter(|&i| a.get(i, 0) as u8 & 8 != 0).count();
@@ -1807,6 +1812,18 @@ fn amr_particles_match_paraview() {
         let want: Vec<f64> = blocks.iter().flat_map(|b| floats(&b["arrays"][name][1])).collect();
         same(&col(&pe, name), &want, name);
     }
+    // Chombo particles (ParaView's VisIt Chombo reader: every property as doubles).
+    let c = &reference["chombo2d_particles.hdf5"]["data"]["0"];
+    let DataSet::PolyData(pc) = read("chombo2d_particles.hdf5", &[("data", "Particles")]) else { panic!() };
+    // ParaView's VisIt bridge keeps the positions in single precision.
+    for (x, y) in pts(&pc).iter().zip(floats(&c["points"])) {
+        assert!((x - y).abs() <= 1e-7 * (1.0 + y.abs()), "Chombo points: {x} vs ParaView {y}");
+    }
+    for (name, v) in c["arrays"].as_object().unwrap() {
+        assert_eq!(pc.point_data.get(name).unwrap().scalar_type(), ScalarType::F64, "{name}");
+        same(&col(&pc, name), &floats(&v[1]), name);
+    }
+    assert!(matches!(read("chombo2d_particles.hdf5", &[]), DataSet::MultiBlock(_)));
     // The grid is still the default.
     assert!(matches!(read("flash3d_hdf5_part_0007", &[]), DataSet::MultiBlock(_)));
     assert!(matches!(read("enzo/DD0004/data0004.hierarchy", &[]), DataSet::MultiBlock(_)));

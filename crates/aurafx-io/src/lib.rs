@@ -286,6 +286,7 @@ pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
         "hierarchy" | "boundary" => enzo::options(path),
         "json" if vectors::is_geojson(path) => vectors::options(path),
         _ if flash::is_flash(path) => flash::options(path),
+        _ if chombo::is_chombo(path) => chombo::options(path),
         _ => Vec::new(),
     }
 }

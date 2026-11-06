@@ -269,11 +269,12 @@ auraFX reads:
 - **Particles** in FLASH and Enzo files: when a file has them, the reader option **Data**
   switches between **Grid** (the AMR data) and **Particles**, a point for every particle with
   its properties as point data (FLASH's as doubles, Enzo's in their stored types). Open the
-  file twice to see both, as in the picture below. Chombo particles are not read yet.
-- **Chombo** files (`.hdf5`, `.h5`; cell-centered, 1-D to 3-D), as Chombo-based codes write them
-  (`level_0`, `level_1`... groups with boxes). The component names become cell arrays. Ghost
-  cells stored around each box are dropped, and the boxes are placed from `prob_lo` and the
-  level's `dx` (or `vec_dx`). Node-centered and 4-D files are not read yet.
+  file twice to see both, as in the picture below. Chombo files with a `particles` group get
+  the same option (properties as doubles, as in ParaView).
+- **Chombo** files (`.hdf5`, `.h5`; 1-D to 3-D), as Chombo-based codes write them (`level_0`,
+  `level_1`... groups with boxes). The component names become cell arrays, or point arrays in
+  node-centered files. Ghost cells stored around each box are dropped, and the boxes are
+  placed from `prob_lo` and the level's `dx` (or `vec_dx`). 4-D files are not read.
 
 What you get:
 - One block per level (**Level 0**, **Level 1**, ...), each holding that level's boxes as image
@@ -307,6 +308,8 @@ stars.set(data="Particles")                # the particles instead of the grid
 
 ![An Enzo dump read twice: its grid as box outlines and its particles as spheres colored by mass](images/amr_particles.png)
 
+![A 2-D Chombo file read twice: its two levels colored by density, and its particles as spheres colored by mass](images/chombo_particles.png)
+
 ![A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells](images/chombo.png)
 
 ![A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way](images/flash_enzo.png)
@@ -338,8 +341,8 @@ the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
 (`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), the FLASH reader
 (FLASH 3 and FLASH 2 layouts, grid and particles) and the Enzo reader (grid and particles; the grid with and without Convert to CGS) on test
 files (`scripts/gen_amr_files.py`; every block's origin, spacing, size, array types and sums
-and covered cells), the Chombo reader against ParaView's VisIt Chombo reader (3-D and a 2-D
-file with ghost cells and three levels), Resample AMR (every value at the points, on the 2-D
+and covered cells), the Chombo reader against ParaView's VisIt Chombo reader (3-D, node-centered
+3-D, a 2-D file with ghost cells and three levels, and particles), Resample AMR (every value at the points, on the 2-D
 and 3-D Gaussian pulse, a region reaching past the data and a FLASH file), and on the AMR data
 Integrate Variables (the volume counts each place once), slices, Threshold, Extract Surface,
 Cell Data to Point Data and Resample To Image. ParaView 6.1.1 cannot read 2-D FLASH files

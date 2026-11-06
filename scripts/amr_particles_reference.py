@@ -32,4 +32,17 @@ for R, f in ((vtkAMRFlashParticlesReader, "flash3d_hdf5_part_0007"), (vtkAMRFlas
                      "arrays": {pd.GetArrayName(i): [pd.GetArray(i).GetClassName(), v2n(pd.GetArray(i)).astype(float).ravel().tolist()] for i in range(pd.GetNumberOfArrays())}}
     out[f] = {"blocks": o.GetNumberOfBlocks(), "data": blocks}
     print(f, o.GetNumberOfBlocks(), list(blocks))
+# Chombo particles through ParaView's VisIt Chombo reader (the particles mesh alone).
+from paraview.simple import VisItChomboReader
+r = VisItChomboReader(FileName=os.path.join(td, "chombo2d_particles.hdf5"))
+r.MeshStatus = ["particles"]
+r.PointArrayStatus = ["mass", "particle_id"]
+r.UpdatePipeline()
+o = r.GetClientSideObject().GetOutputDataObject(0)
+while o.IsA("vtkMultiBlockDataSet"):
+    o = [o.GetBlock(i) for i in range(o.GetNumberOfBlocks()) if o.GetBlock(i) is not None][-1]
+pd = o.GetPointData()
+out["chombo2d_particles.hdf5"] = {"blocks": 1, "data": {"0": {"points": v2n(o.GetPoints().GetData()).ravel().tolist(),
+    "arrays": {pd.GetArrayName(i): [pd.GetArray(i).GetClassName(), v2n(pd.GetArray(i)).astype(float).ravel().tolist()] for i in range(pd.GetNumberOfArrays())}}}}
+print("chombo2d_particles.hdf5", o.GetClassName(), o.GetNumberOfPoints())
 json.dump(out, open(os.path.join(td, "particles_reference.json"), "w"))

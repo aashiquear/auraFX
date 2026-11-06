@@ -307,20 +307,41 @@ chombo = afx.load("plot.0010.2d.hdf5")      # Chombo
 two finer boxes holding a Gaussian pulse, in 2-D or 3-D. **Filters › Overlapping AMR Level
 Ids** adds the cell array `LevelIdScalars` with each cell's level.
 
+**Filters › Resample AMR** samples AMR data on one uniform grid, so tools that want a single
+image can use it (volume rendering, image filters, export). **Number of samples** sets the
+grid points per axis; with **Whole domain** off, **Min** and **Max** pick a box (clipped to the
+data, dropping the samples that fall outside, as ParaView does). Each point takes the values of
+the finest cell holding it. With **Transfer to nodes** off, the values are taken at the
+cell centers instead and become cell data. Points no box holds are marked hidden.
+
+![The AMR Gaussian Pulse's boxes as outlines and the pulse resampled onto 40 x 40 x 40 points, drawn as a volume](images/resample_amr.png)
+
+```python
+grid = amr.resample_amr(samples=(64, 64, 64))
+part = amr.resample_amr(samples=(32, 32, 16), whole_domain=False, min=(0, 0, 0), max=(1, 1, 0.5))
+```
+
+ParaView's Resample AMR has a demand-driven mode, on by default, that reads only the levels
+fine enough for the requested sampling. It needs a reader that supports it and gives nothing
+on a source. auraFX always uses every level, which is ParaView's result with that mode off.
+
 Checked against ParaView 6.1.1: the AMR Gaussian Pulse source (cells, values, covered cells),
 the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
 (`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), the FLASH reader
 (FLASH 3 and FLASH 2 layouts) and the Enzo reader (with and without Convert to CGS) on test
 files (`scripts/gen_amr_files.py`; every block's origin, spacing, size, array types and sums
 and covered cells), the Chombo reader against ParaView's VisIt Chombo reader (3-D and a 2-D
-file with ghost cells and three levels), and on the AMR data
+file with ghost cells and three levels), Resample AMR (every value at the points, on the 2-D
+and 3-D Gaussian pulse, a region reaching past the data and a FLASH file), and on the AMR data
 Integrate Variables (the volume counts each place once), slices, Threshold, Extract Surface,
 Cell Data to Point Data and Resample To Image. ParaView 6.1.1 cannot read 2-D FLASH files
 (it reports "Inconsistent types of vtkCartesianGrid", and crashes with several levels); auraFX
 reads them, checked against the values the test file was written with. ParaView's Chombo
 reader keeps the ghost cells of level 0 as ordinary cells, so its level 0 reaches one ghost
 layer past the problem domain, while it drops them on the finer levels; auraFX drops them on
-every level.
+every level. ParaView's Resample AMR with Transfer to nodes off copies values from the wrong
+cells (in the pulse, cells inside a level-1 box get another cell's values); auraFX takes each
+cell center's own cell, which the tests check against the cell positions.
 
 #### Contours of AMR data
 

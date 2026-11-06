@@ -1751,6 +1751,29 @@ fn build() -> Vec<FilterDef> {
             apply: |input, _| Ok(DataSet::UnstructuredGrid(crate::amr::dual_grid(input.unwrap())?)),
         },
         FilterDef {
+            id: "resample_amr",
+            label: "Resample AMR",
+            category: "Data",
+            description: "AMR data sampled on a uniform grid: each point takes the values of the finest cell holding it (ParaView's Resample AMR).",
+            keywords: &["amr", "resample", "uniform grid", "regrid", "adaptive mesh refinement", "flatten levels"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("samples", "Number of samples", [10.0, 10.0, 10.0]),
+                b("whole_domain", "Whole domain", true).help("Sample the data's bounds; off to use Min and Max."),
+                v3("min", "Min", [0.0; 3]),
+                v3("max", "Max", [1.0; 3]),
+                b("to_nodes", "Transfer to nodes", true).help("Values at the grid points (point data); off for values at the cell centers (cell data)."),
+            ],
+            apply: |input, p| {
+                let s = p.vec3("samples", [10.0; 3]).map(|v| v.max(1.0) as usize);
+                let region = if p.bool("whole_domain", true) { None } else { Some((p.vec3("min", [0.0; 3]), p.vec3("max", [1.0; 3]))) };
+                Ok(DataSet::ImageData(crate::amr::resample_amr(input.unwrap(), s, region, p.bool("to_nodes", true))?))
+            },
+        },
+        FilterDef {
             id: "hyper_tree_grid_to_unstructured_grid",
             label: "Hyper Tree Grid To Unstructured Grid",
             category: "Data",

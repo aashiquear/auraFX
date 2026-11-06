@@ -1383,3 +1383,66 @@ fn random_hyper_tree_grid_mask_matches_paraview() {
         assert_eq!((h.n_vertices(), h.n_leaves(), dsum, masked), want, "{dims:?} seed {seed} masked {frac}");
     }
 }
+
+/// Resample AMR against ParaView 6.1.1 (testdata/amr/resample_reference.json from
+/// scripts/resample_amr_reference.py, demand-driven mode off): the grid (origin, spacing,
+/// dimensions, also for a region reaching past the data) and every value, at the points and at
+/// the cell centers, on the AMR Gaussian pulse (3-D and 2-D) and a FLASH file.
+#[test]
+fn resample_amr_matches_paraview() {
+    use serde_json::{json, Value};
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/amr/resample_reference.json")).unwrap()).unwrap();
+    for (key, want) in reference.as_object().unwrap() {
+        let input = match key.as_str() {
+            "pulse2d" => run("amr_gaussian_pulse", None, &[("dimension", json!("2D"))]),
+            "flash3d" => td("amr/flash3d_hdf5_plt_cnt_0007"),
+            _ => run("amr_gaussian_pulse", None, &[]),
+        };
+        let mut params = vec![("samples", want["samples"].clone()), ("to_nodes", json!(want["nodes"].as_i64() == Some(1)))];
+        if !want["region"].is_null() {
+            params.push(("whole_domain", json!(false)));
+            params.push(("min", want["region"][0].clone()));
+            params.push(("max", want["region"][1].clone()));
+        }
+        let out = run("resample_amr", Some(&input), &params);
+        let DataSet::ImageData(img) = &out else { panic!("{key}") };
+        let f3 = |v: &Value| -> [f64; 3] { std::array::from_fn(|k| v[k].as_f64().unwrap()) };
+        let close3 = |a: [f64; 3], b: [f64; 3]| (0..3).all(|k| (a[k] - b[k]).abs() <= 1e-12 * (1.0 + b[k].abs()));
+        assert!(close3(img.origin, f3(&want["origin"])), "{key} origin {:?}", img.origin);
+        assert!(close3(img.spacing, f3(&want["spacing"])), "{key} spacing {:?}", img.spacing);
+        assert_eq!(img.dims().map(|d| d as f64), f3(&want["dims"]), "{key} dims");
+        let attrs = if want["nodes"].as_i64() == Some(1) { &img.point_data } else { &img.cell_data };
+        if want["nodes"].as_i64() == Some(0) {
+            // ParaView's cell-center mode copies values from the wrong cells (its first cells
+            // inside a level-1 box all get the centroid (0.125, 0.125, 0.125)); here each
+            // cell's donor (the pulse's Centroid array) must be the cell holding its center:
+            // within half a level-0 cell, and half a level-1 cell inside the level-1 boxes.
+            let c = attrs.get("Centroid").unwrap();
+            let n = img.dims().map(|d| d - 1);
+            for k in 0..n[2] {
+                for j in 0..n[1] {
+                    for i in 0..n[0] {
+                        let q = [img.origin[0] + (i as f64 + 0.5) * img.spacing[0], img.origin[1] + (j as f64 + 0.5) * img.spacing[1], img.origin[2] + (k as f64 + 0.5) * img.spacing[2]];
+                        let id = i + n[0] * (j + n[1] * k);
+                        let fine = (q[0] <= -1.0 && q[1] <= -0.5) || (q[0] >= -0.5 && q[1] >= -1.0);
+                        let half = if fine { 0.125 } else { 0.25 };
+                        assert!((0..3).all(|a| (c.get(id, a) - q[a]).abs() <= half + 1e-12), "{key} cell {id}: centroid {:?} for center {q:?}", (0..3).map(|a| c.get(id, a)).collect::<Vec<_>>());
+                    }
+                }
+            }
+            continue;
+        }
+        for (name, vals) in want["arrays"].as_object().unwrap() {
+            if name == "vtkGhostType" {
+                continue;
+            }
+            let a = attrs.get(name).unwrap_or_else(|| panic!("{key}: no {name}"));
+            let vals: Vec<f64> = vals.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
+            assert_eq!(a.len() * a.ncomp, vals.len(), "{key} {name} size");
+            for (i, w) in vals.iter().enumerate() {
+                let g = a.get(i / a.ncomp, i % a.ncomp);
+                assert!((g - w).abs() <= 1e-12 * (1.0 + w.abs()), "{key} {name}[{i}]: {g} vs ParaView {w}");
+            }
+        }
+    }
+}

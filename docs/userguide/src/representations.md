@@ -7,10 +7,10 @@
 | Representation | Use |
 |---|---|
 | **Surface** | the outer surface, smooth-shaded (hard edges stay sharp: a 30° crease angle) |
-| **Surface With Edges** | the surface with cell edges (**Edge color** in Properties) |
+| **Surface With Edges** | the surface with cell edges (**Edge color** in Properties, `edge_color=` in Python) |
 | **Wireframe** | edges only |
 | **Points** | the points, as flat dots or shaded spheres (**Point size**, **spheres**) |
-| **Outline** | the bounding box |
+| **Outline** | the bounding box (every box of [AMR data](file-formats.md#amr-data-adaptive-mesh-refinement)) |
 | **Volume** | GPU ray casting of image data (other meshes are resampled first) |
 | **Surface LIC** | a vector field as streaks (see [Lighting](rendering.md)) |
 

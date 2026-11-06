@@ -128,7 +128,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [ ] Hyper Tree Grid: Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
-- [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
+- [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [ ] Cell Grid: Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [ ] Molecules: Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
@@ -746,8 +746,20 @@ source (cells, sums, covered cells), both readers (per-box origin, size, sums), 
 Variables, slices, Threshold, Extract Surface, Cell Data to Point Data, Resample To Image.
 Array parameters given by name now find cell arrays too (shared `array_or_default`).
 
+Done in iteration 33: **AMR Contour and AMR Dual Grid**. The dual grid joins the cell centers
+of all levels; dual cells of a finer level whose corners fall outside its boxes take the
+coarser cells' centers there (degenerate hexes), and dual cells touching covered cells are
+left to the finer level, so contours (and clips, slices on the dual grid) are crack-free
+across levels. Contour on an AMR cell array uses it automatically. Checked on a plotfile whose
+isosurface is a sphere crossing the level boundary: closed, Euler characteristic 2, area within
+0.2 %, centered (the box-by-box contour had 346 open edges); 2-D isolines close. ParaView's
+AMR Contour / Dual Clip only take CTH non-overlapping AMR, so there is no ParaView reference.
+Also fixed: Surface With Edges drew the edges from the color map (now the edge color, with a
+Properties control), and the renderer could keep a stale mesh when a new mesh reused a freed
+one's address (it now holds the mesh it uploaded).
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (AMR-specific filters: AMR Contour/Dual Clip/Fragments/Resample AMR; Enzo/FLASH/Chombo readers; hyper tree grids, cell
+(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; hyper tree grids, cell
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

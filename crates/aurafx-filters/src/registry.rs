@@ -205,6 +205,13 @@ fn harmonics_grid(p: &Params, t: f64) -> Result<DataSet> {
     crate::texture::harmonics_grid(e, &harmonics_param(p), t)
 }
 
+fn ds_first_leaf(ds: &DataSet) -> Option<&DataSet> {
+    match ds {
+        DataSet::MultiBlock(mb) => mb.blocks.iter().filter_map(|(_, b)| b.as_ref()).find_map(ds_first_leaf),
+        d => Some(d),
+    }
+}
+
 /// Component selection: "" or "Magnitude" -> None, "X"/"0" -> Some(0) ...
 fn comp(p: &Params) -> Option<usize> {
     match p.str("component").as_str() {
@@ -546,6 +553,23 @@ fn build() -> Vec<FilterDef> {
             ],
             apply: |input, p| {
                 let ds = input.unwrap();
+                // A cell array of AMR data is contoured on its dual grid: no cracks between levels.
+                if aurafx_data::amr::is_amr(ds) {
+                    if let Some(leaf) = ds_first_leaf(ds) {
+                        if let Ok((Association::Cells, n)) = array_or_default(leaf, p, "array", false) {
+                            if let Some(def) = find("amr_contour") {
+                                let mut q = def.default_params();
+                                q.set("array", ParamValue::Array { assoc: Association::Cells, name: n });
+                                for k in ["component", "values"] {
+                                    if let Some(v) = p.get(k) {
+                                        q.set(k, v.clone());
+                                    }
+                                }
+                                return def.run(Some(ds), &q);
+                            }
+                        }
+                    }
+                }
                 per_leaf(ds, &|d| {
                     let (a, n) = array_or_default(d, p, "array", false)?;
                     let mut values = p.floats("values");
@@ -1639,6 +1663,59 @@ fn build() -> Vec<FilterDef> {
                 let h = harmonics_param(p);
                 per_leaf(input.unwrap(), &|d| crate::texture::harmonics(d, &h, 0.0))
             },
+        },
+        FilterDef {
+            id: "amr_contour",
+            label: "AMR Contour",
+            category: "Common",
+            description: "Isosurfaces of a cell array of AMR data, without cracks where levels meet (on the dual grid).",
+            keywords: &["amr", "amr contour", "cell data contour", "adaptive mesh refinement", "crack-free", "dual"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Cell array"),
+                s("component", "Component", ""),
+                ParamSpec::new("values", "Values", ParamKind::Floats, ParamValue::Floats(vec![])).help("Leave empty for the middle of the data range."),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (_, name) = p.array("array").filter(|(_, n)| !n.is_empty()).or_else(|| {
+                    ds_first_leaf(ds).and_then(|l| l.cell_data().and_then(|cd| cd.iter().find(|a| a.name != "vtkGhostType" && a.scalar_type() != ScalarType::String).map(|a| (Association::Cells, a.name.clone()))))
+                }).ok_or_else(|| anyhow!("choose a cell array"))?;
+                let mut values = p.floats("values");
+                if values.is_empty() {
+                    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+                    if let DataSet::MultiBlock(mb) = ds {
+                        for (_, l) in mb.leaves() {
+                            if let Some(a) = l.cell_data().and_then(|c| c.get(&name)) {
+                                let (a0, a1) = a.range(comp(p));
+                                lo = lo.min(a0);
+                                hi = hi.max(a1);
+                            }
+                        }
+                    }
+                    if lo > hi {
+                        return Err(anyhow!("no cell array {name}"));
+                    }
+                    values = vec![0.5 * (lo + hi)];
+                }
+                Ok(DataSet::PolyData(crate::amr::amr_contour(ds, &name, comp(p), &values)?))
+            },
+        },
+        FilterDef {
+            id: "amr_dual_grid",
+            label: "AMR Dual Grid",
+            category: "Data",
+            description: "AMR data as one mesh joining the cell centers (levels stitched together), cell arrays on its points: for crack-free clips, slices and streamlines.",
+            keywords: &["amr", "dual grid", "cell centers", "stitch levels", "adaptive mesh refinement", "dual clip"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| Ok(DataSet::UnstructuredGrid(crate::amr::dual_grid(input.unwrap())?)),
         },
         FilterDef {
             id: "overlapping_amr_level_ids",

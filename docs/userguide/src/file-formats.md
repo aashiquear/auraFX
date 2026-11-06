@@ -252,6 +252,7 @@ What you get:
 - The plotfile's time is in the field data (`TimeValue`). Single- and double-precision
   plotfiles are read.
 - **Outline** draws the outline of every box, which shows where the refinement is.
+- Contours of cell data are stitched across levels (see below).
 
 ![An AMReX plotfile: the outlines of its two coarse boxes and one finer box, and a slice through both levels colored by density](images/amr_view.png)
 
@@ -273,9 +274,39 @@ the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
 Integrate Variables (the volume counts each place once), slices, Threshold, Extract Surface,
 Cell Data to Point Data and Resample To Image.
 
+#### Contours of AMR data
+
+Values of AMR data sit at cell centers, and cells change size where levels meet. Averaging
+them to points box by box, which is what ParaView's Contour does, leaves gaps and overlaps
+along every level boundary. **Filters › AMR Contour** joins the cell centers of all levels into
+one mesh, the *dual grid*. Where a finer box meets coarser cells, its border cells reach out
+to the coarse cell centers, so the isosurface continues across the boundary without a crack.
+The other cell arrays are interpolated onto the surface. **Contour** on a cell array of AMR
+data does the same automatically. In 2-D data the result is closed isolines.
+
+![The density isosurface of an AMReX plotfile: one closed surface across the fine box (smaller triangles) and the coarse boxes, colored by temperature](images/amr_contour.png)
+
+```python
+c = amr.amr_contour(array="density", values=[0.3])
+c = amr.contour(array="density", values=[0.3])     # the same, for AMR cell data
+dual = amr.amr_dual_grid()                          # cell values on one stitched mesh
+cut = dual.clip(type="Scalar", array="density", value=0.3)   # a crack-free "dual clip"
+```
+
+**Filters › AMR Dual Grid** gives that mesh itself: one point per cell center, carrying all the
+cell arrays as point data. Clip, Slice, Stream Tracer and other filters that interpolate point
+data work on it across levels without seams; ParaView's AMR Dual Clip works this way too.
+
+How it was checked: on a test plotfile whose density isosurface is a sphere crossing from the
+fine box into the coarse ones, the contour is closed (every edge shared by exactly two
+triangles, the topology of a sphere), its area is within 0.2 % of the sphere's, and its center
+is within 0.001 of the sphere's center. The box-by-box contour had 346 open edges there.
+ParaView's own AMR Contour and AMR Dual Clip are material-interface tools for CTH files and
+refuse this kind of AMR data, so there is no ParaView result to compare with.
+
 Not read yet: plotfiles without FAB headers (the "NoFabHeader" variants), AMReX particles,
-Enzo, FLASH and Chombo files. Not available yet: ParaView's AMR-specific filters (AMR Contour,
-Dual Clip, Fragments, Resample AMR).
+Enzo, FLASH and Chombo files. Not available yet: ParaView's CTH material filters (AMR
+Fragments, Material Interface) and Resample AMR (Resample To Image does the same job).
 
 ## Writers
 

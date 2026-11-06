@@ -32,6 +32,8 @@ pub struct MeshData {
     pub lic: Vec<[f32; 4]>,
     /// The vertices carry texture coordinates (packed in `scalar`) for the display's image.
     pub textured: bool,
+    /// Polygon edges of Surface With Edges (drawn in the edge color).
+    pub edges: Vec<Vertex>,
 }
 
 /// A scalar field on a uniform grid for ray casting. Values are normalized to [0, 1] over `range`
@@ -491,7 +493,7 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
                 emit_triangles(pd, origin, ps, cs, poly_cell_base, crease, &cell_ids, &mut mesh.tris);
                 emit_lines(pd, origin, ps, cs, pd.verts.len(), &mut mesh.lines);
                 if display.representation == Representation::SurfaceWithEdges {
-                    emit_polygon_edges(pd, origin, None, &mut mesh.lines);
+                    emit_polygon_edges(pd, origin, None, &mut mesh.edges);
                 }
                 if pd.polys.is_empty() && pd.strips.is_empty() && pd.lines.is_empty() {
                     emit_points(pd, origin, ps, cs, &mut mesh.points);

@@ -189,4 +189,15 @@ def sneaky(data):
     assert_eq!((w.display.range, w.display.log_scale, w.display.show_scalar_bar), (Some((50.0, 200.0)), true, false));
     let t = s.nodes.values().filter(|n| n.def().is_some_and(|d| d.id == "threshold")).max_by_key(|n| n.id).unwrap();
     assert_eq!(t.params.str("component"), "X");
+    drop(s);
+
+    // AMR (the user guide's examples).
+    let plt = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/amr/plt_3d");
+    let out = rt.run(&format!(
+        "amr = afx.load({plt:?})\namr.set(representation='Outline')\nc = amr.amr_contour(array='density', values=[0.3])\nc2 = amr.contour(array='density', values=[0.3])\n\
+         print(c.info()['n_cells'] == c2.info()['n_cells'] > 1000)\ndual = amr.amr_dual_grid()\ncut = dual.clip(type='Scalar', array='density', value=0.3)\nprint(cut.info()['n_cells'] > 0)\n\
+         lev = amr.overlapping_amr_level_ids()\nprint('LevelIdScalars' in str(lev.info()))\np = afx.amr_gaussian_pulse(dimension='2D')\nprint(p.info()['n_cells'])"
+    ));
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "True\nTrue\nTrue\n73", "{}", out.stdout);
 }

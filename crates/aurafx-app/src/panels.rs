@@ -936,6 +936,11 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
 
+                if d.representation == Representation::SurfaceWithEdges {
+                    ui.label("Edge color");
+                    ui.color_edit_button_rgb(&mut d.edge_color).on_hover_text("Color of the cell edges");
+                    ui.end_row();
+                }
                 if matches!(d.representation, Representation::Surface | Representation::SurfaceWithEdges | Representation::SurfaceLic) && d.lighting {
                     ui.label("Material");
                     ui.horizontal(|ui| {

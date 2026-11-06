@@ -6,6 +6,7 @@ pub mod params;
 pub mod registry;
 pub mod simplex;
 
+pub mod amr;
 pub mod analysis;
 pub mod append;
 pub mod attributes;

@@ -1,6 +1,7 @@
 use aurafx_data::*;
 use aurafx_filters::params::*;
 use aurafx_filters::*;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn td(name: &str) -> DataSet {
@@ -932,4 +933,75 @@ fn amr_gaussian_pulse_matches_paraview() {
     // Level ids.
     let ids = run("overlapping_amr_level_ids", Some(&amr), &[]);
     close(cell_sum(&ids, "LevelIdScalars"), 480.0, "level ids"); // 2 fine boxes × 240 cells at level 1
+}
+
+/// AMR Contour on an AMReX plotfile whose isosurface is a sphere crossing the boundary
+/// between the levels: closed (every edge shared by two triangles), a sphere's topology, and
+/// the sphere's area and centre.
+#[test]
+fn amr_contour_is_closed_across_levels() {
+    use serde_json::json;
+    let amr = td("amr/plt_3d");
+    let r = (f64::ln(1.0 / 0.3) / 4.0).sqrt(); // density = exp(-4 r²)
+    let edges = |pd: &PolyData| -> HashMap<(u32, u32), usize> {
+        let mut m = HashMap::new();
+        for i in 0..pd.polys.len() {
+            let c = pd.polys.cell(i);
+            for k in 0..c.len() {
+                let (a, b) = (c[k], c[(k + 1) % c.len()]);
+                *m.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        m
+    };
+    let c = run("amr_contour", Some(&amr), &[("array", json!("density")), ("values", json!([0.3]))]);
+    let DataSet::PolyData(pd) = &c else { panic!() };
+    let e = edges(pd);
+    let open = e.values().filter(|&&n| n != 2).count();
+    assert_eq!(open, 0, "{open} edges not shared by exactly two triangles");
+    let used: std::collections::HashSet<u32> = (0..pd.polys.len()).flat_map(|i| pd.polys.cell(i).to_vec()).collect();
+    let euler = used.len() as i64 - e.len() as i64 + pd.polys.len() as i64;
+    assert_eq!(euler, 2, "a sphere");
+    let (mut area, mut centroid) = (0.0, [0.0f64; 3]);
+    for i in 0..pd.polys.len() {
+        let t = pd.polys.cell(i);
+        let p = |k: usize| pd.points.get(t[k] as usize);
+        for k in 1..t.len() - 1 {
+            let (a, b, cc) = (p(0), p(k), p(k + 1));
+            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let v = [cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]];
+            let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+            let da = 0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            area += da;
+            for q in 0..3 {
+                centroid[q] += da * (a[q] + b[q] + cc[q]) / 3.0;
+            }
+        }
+    }
+    let want_a = 4.0 * std::f64::consts::PI * r * r;
+    let centroid = centroid.map(|c| c / area);
+    eprintln!("AMR contour: {} triangles, area {area} (sphere {want_a}), centre {centroid:?}", pd.polys.len());
+    assert!((area / want_a - 1.0).abs() < 0.01, "area {area} vs {want_a}");
+    assert!(centroid[0].abs() < 0.01 && centroid[1].abs() < 0.01 && (centroid[2] - 1.0).abs() < 0.01, "centred at (0, 0, 1)");
+
+    // The plain Contour of a cell array of AMR data takes the same route (box by box, with
+    // cell data averaged to points, it left 346 open edges along the level boundary).
+    let plain = run("contour", Some(&amr), &[("array", json!(["CELLS", "density"])), ("values", json!([0.3]))]);
+    assert_eq!(plain.n_cells(), pd.polys.len());
+
+    // 2-D: an isoline that closes on itself (every point on two segments).
+    // (z = 0 there, so density = exp(-4 (x² + y² + 1)): 0.01 is a circle of radius 0.39.)
+    let c2 = run("amr_contour", Some(&td("amr/plt_2d/Header")), &[("array", json!("density")), ("values", json!([0.01]))]);
+    let DataSet::PolyData(l) = &c2 else { panic!() };
+    assert!(l.lines.len() > 10, "{} segments", l.lines.len());
+    let mut deg: HashMap<u32, usize> = HashMap::new();
+    for i in 0..l.lines.len() {
+        let s = l.lines.cell(i);
+        *deg.entry(s[0]).or_default() += 1;
+        *deg.entry(s[s.len() - 1]).or_default() += 1;
+    }
+    assert!(deg.values().all(|&d| d == 2), "closed isoline");
+    // The dual grid itself.
+    let dg = run("amr_dual_grid", Some(&amr), &[]);
+    assert!(dg.point_data().unwrap().get("velocity").is_some());
 }

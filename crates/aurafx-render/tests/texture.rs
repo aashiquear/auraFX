@@ -68,3 +68,32 @@ fn image_follows_texture_coordinates() {
     assert!(!mesh.textured);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Surface With Edges draws the polygon edges in the edge color (not from the color map), and
+/// a new mesh is uploaded even when it reuses a dropped mesh's memory.
+#[test]
+fn edges_use_the_edge_color() {
+    let (w, h) = (160u32, 160u32);
+    let Ok(mut r) = headless(w, h) else {
+        eprintln!("no GPU adapter");
+        return;
+    };
+    let plane = DataSet::PolyData(aurafx_filters::sources::plane([-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [-1.0, 1.0, 0.0], 4, 4));
+    let mut d = DisplayProps::default();
+    d.lighting = false;
+    d.representation = aurafx_pipeline::Representation::SurfaceWithEdges;
+    d.solid_color = [1.0, 1.0, 1.0];
+    d.edge_color = [1.0, 0.0, 0.0];
+    let mut cam = Camera::default();
+    cam.set_view([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], &plane.bounds());
+    cam.update_clip(&plane.bounds());
+    let reds = |r: &mut Renderer, d: &DisplayProps| {
+        r.render(&cam, &[NodeDraw { id: 1, mesh: Arc::new(tessellate::tessellate(&plane, d)), display: d.clone(), overlay: false }], &RenderSettings::default());
+        let (_, _, img) = r.read_pixels().unwrap();
+        img.chunks(4).filter(|p| p[0] as i32 - p[1] as i32 > 60 && (p[1] as i32 - p[2] as i32).abs() < 30).count()
+    };
+    let n = reds(&mut r, &d);
+    assert!(n > 200, "red edges drawn ({n} pixels)");
+    d.representation = aurafx_pipeline::Representation::Surface;
+    assert_eq!(reds(&mut r, &d), 0, "no edges once the representation changes");
+}

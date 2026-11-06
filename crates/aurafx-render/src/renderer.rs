@@ -82,11 +82,16 @@ struct GpuVolume {
 
 struct GpuNode {
     volume: Option<GpuVolume>,
-    mesh_ptr: usize,
+    /// The mesh uploaded (kept alive so a new mesh cannot reuse its address).
+    mesh: Arc<crate::tessellate::MeshData>,
     /// Vertex buffers, split to stay within the device's buffer size limit.
     tris: Vec<(wgpu::Buffer, u32)>,
     lines: Vec<(wgpu::Buffer, u32)>,
     points: Vec<(wgpu::Buffer, u32)>,
+    /// Polygon edges of Surface With Edges, drawn in the edge color with their own uniform.
+    edges: Vec<(wgpu::Buffer, u32)>,
+    edge_uniform: wgpu::Buffer,
+    edge_bg: wgpu::BindGroup,
     uniform: wgpu::Buffer,
     lut_name: String,
     lut: wgpu::Texture,
@@ -1519,7 +1524,10 @@ impl Renderer {
         for id in ids {
             let g = &self.nodes[&id];
             let bg = self.make_bind_group(&g.uniform, &g.lut, &g.tex);
-            self.nodes.get_mut(&id).unwrap().bind_group = bg;
+            let ebg = self.make_bind_group(&g.edge_uniform, &g.lut, &self.white);
+            let g = self.nodes.get_mut(&id).unwrap();
+            g.bind_group = bg;
+            g.edge_bg = ebg;
         }
     }
 
@@ -1598,13 +1606,13 @@ impl Renderer {
     }
 
     fn sync_node(&mut self, draw: &NodeDraw) {
-        let ptr = Arc::as_ptr(&draw.mesh) as usize;
-        let needs_mesh = self.nodes.get(&draw.id).map(|g| g.mesh_ptr != ptr).unwrap_or(true);
+        let needs_mesh = self.nodes.get(&draw.id).map(|g| !Arc::ptr_eq(&g.mesh, &draw.mesh)).unwrap_or(true);
         if needs_mesh {
             let volume = draw.mesh.volume.as_ref().map(|v| self.upload_volume(v));
             let tris = self.upload("tris", &draw.mesh.tris, 3);
             let lines = self.upload("lines", &draw.mesh.lines, 2);
             let points = self.upload("points", &draw.mesh.points, 1);
+            let edges = self.upload("edges", &draw.mesh.edges, 2);
             let lic = self.upload_lic(&draw.mesh.lic, &tris);
             match self.nodes.get_mut(&draw.id) {
                 Some(g) => {
@@ -1613,7 +1621,8 @@ impl Renderer {
                     g.tris = tris;
                     g.lines = lines;
                     g.points = points;
-                    g.mesh_ptr = ptr;
+                    g.edges = edges;
+                    g.mesh = draw.mesh.clone();
                 }
                 None => {
                     let uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1625,6 +1634,13 @@ impl Renderer {
                     let lut = self.lut_texture(&draw.display);
                     let tex = self.white.clone();
                     let bind_group = self.make_bind_group(&uniform, &lut, &tex);
+                    let edge_uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("node edge uniform"),
+                        size: std::mem::size_of::<NodeUniform>() as u64,
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    let edge_bg = self.make_bind_group(&edge_uniform, &lut, &self.white);
                     let shadow_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("node shadow"),
                         layout: &self.shadow_bgl,
@@ -1634,10 +1650,13 @@ impl Renderer {
                         draw.id,
                         GpuNode {
                             volume,
-                            mesh_ptr: ptr,
+                            mesh: draw.mesh.clone(),
                             tris,
                             lines,
                             points,
+                            edges,
+                            edge_uniform,
+                            edge_bg,
                             uniform,
                             lut_name: draw.display.colormap_key(),
                             lut,
@@ -1654,8 +1673,10 @@ impl Renderer {
         let key = draw.display.colormap_key();
         if self.nodes[&draw.id].lut_name != key {
             let lut = self.lut_texture(&draw.display);
+            let ebg = self.make_bind_group(&self.nodes[&draw.id].edge_uniform, &lut, &self.white);
             let g = self.nodes.get_mut(&draw.id).unwrap();
             g.lut = lut;
+            g.edge_bg = ebg;
             g.lut_name = key;
             g.tex_key = "\0".into(); // rebuild the bind group below
         }
@@ -2064,6 +2085,17 @@ impl Renderer {
                 sh,
             };
             self.queue.write_buffer(&g.uniform, 0, bytemuck::bytes_of(&u));
+            if !g.edges.is_empty() {
+                let e = d.display.edge_color;
+                let eu = NodeUniform {
+                    color: [e[0], e[1], e[2], d.display.opacity],
+                    range: [0.0, 1.0, 0.0, 0.0],
+                    flags: [0.0, u.flags[1], u.flags[2], u.flags[3]],
+                    env: [u.env[0], u.env[1], u.env[2], 0.0],
+                    ..u
+                };
+                self.queue.write_buffer(&g.edge_uniform, 0, bytemuck::bytes_of(&eu));
+            }
             if let (Some(gv), Some(v)) = (&g.volume, &d.mesh.volume) {
                 let vu = VolumeUniform {
                     box_min: [v.box_min[0], v.box_min[1], v.box_min[2], 0.0],
@@ -2203,6 +2235,15 @@ impl Renderer {
             pass.set_pipeline(pl);
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..*n, 0..1);
+        }
+        if !g.edges.is_empty() {
+            pass.set_bind_group(0, &g.edge_bg, &[]);
+            for (buf, n) in &g.edges {
+                pass.set_pipeline(pl);
+                pass.set_vertex_buffer(0, buf.slice(..));
+                pass.draw(0..*n, 0..1);
+            }
+            pass.set_bind_group(0, &g.bind_group, &[]);
         }
         for (buf, n) in &g.points {
             pass.set_pipeline(pp);

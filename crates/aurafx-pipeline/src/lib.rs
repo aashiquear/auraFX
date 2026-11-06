@@ -10,7 +10,7 @@ pub mod session;
 pub mod state;
 
 pub use animation::{Animation, CameraKey, ParamKey, ParamTrack};
-pub use display::{ColorBy, DisplayProps, DrawOn, Light, Lighting, RayDevice, Representation, ToneMapping};
+pub use display::{ColorBy, DisplayProps, DrawOn, Light, Lighting, MoleculeStyle, RayDevice, Representation, ToneMapping};
 pub use session::{
     reader_options_of, reader_param_specs, stat_of, Annotation, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, RemoteStatus, Selection, Session, SharedSession, WorkItem,
 };

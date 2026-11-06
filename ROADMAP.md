@@ -130,7 +130,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [ ] Cell Grid: Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
-- [ ] Molecules: Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
+- [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
 - [ ] Parallel/distributed: D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
 - [~] Annotation (text, time label and ruler done): Annotate Attribute Data, Annotate Global Data, Annotate Selection, Annotate Time Filter, Environment Annotation, Python Annotation, Programmable Annotation, Text, 3D Text, Logo, Ruler, Protractor
@@ -770,8 +770,19 @@ Checked against ParaView 6.1.1: counts, leaf order (OriginalIds), depth sums, li
 fields, coarse operators, both sources. Also fixed: pixel cells were drawn and surfaced with
 their corners out of order (bow-ties); they now become quads.
 
+Done in iteration 35: **molecules**. The Molecule representation (ball and stick, van der
+Waals, liquorice; atom size, bond radius, bond orders as parallel sticks; bond halves in their
+atoms' colors) built as sphere/cylinder meshes with level of detail, the Elements color map
+(Jmol colors, exact per element over [-0.5, 127.5]), element data from VTK's periodic table
+(`aurafx_data::elements`), molecules opening that way by default (up to 100 000 atoms), the
+CML reader (bond orders) and Compute Molecule Bonds (VTK's simple bond perceiver; existing
+bonds kept, no duplicates). Checked against ParaView 6.1.1: the CML reader (atoms, bonds,
+orders) and the bond sets for absolute and relative tolerances. Protocol 9 (display settings
+and hyper tree grids changed the wire format). Cell grids were moved after molecules: the
+.dg format needs VTK's DG cell framework (HGRAD/HCURL/HDIV bases on eight shapes).
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG To Dual Grid / Geometry / writer / masking random source, cell
+(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG To Dual Grid / Geometry / writer / masking random source, cell grids (.dg, DG bases)
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

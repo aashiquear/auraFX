@@ -674,3 +674,105 @@ pub fn is_vasp_name(path: &Path) -> bool {
         || n.ends_with(".VASP")
         || n.ends_with(".POSCAR")
 }
+
+/// Chemical Markup Language (`.cml`): atoms (elementType, x3/y3/z3, or the array form) and the
+/// file's bonds with their orders (`bond_order` on the bond lines), as ParaView's CML reader
+/// reads them (no bonds are added by distance).
+pub fn read_cml(path: &Path) -> Result<DataSet> {
+    use crate::xdmf::El;
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let root = crate::xdmf::parse_dom(&text).with_context(|| format!("{}: not valid XML", path.display()))?;
+    fn local(n: &str) -> &str {
+        n.rsplit(':').next().unwrap_or(n)
+    }
+    fn find_all<'a>(e: &'a El, name: &str, out: &mut Vec<&'a El>) {
+        for c in &e.children {
+            if local(&c.name) == name {
+                out.push(c);
+            }
+            find_all(c, name, out);
+        }
+    }
+    let words = |s: Option<&str>| -> Vec<String> { s.unwrap_or("").split_whitespace().map(str::to_string).collect() };
+    let mut ids: Vec<String> = Vec::new();
+    let mut z: Vec<usize> = Vec::new();
+    let mut symbols: Vec<String> = Vec::new();
+    let mut pos: Vec<[f64; 3]> = Vec::new();
+    let mut arrays = Vec::new();
+    find_all(&root, "atomArray", &mut arrays);
+    for arr in arrays {
+        let atoms: Vec<&El> = arr.children.iter().filter(|c| local(&c.name) == "atom").collect();
+        if atoms.is_empty() {
+            // Array form: atomID="a1 a2" elementType="C O" x3="..." ...
+            let (aid, el) = (words(arr.attr("atomID")), words(arr.attr("elementType")));
+            let coord = |k: &str| -> Vec<f64> { words(arr.attr(k)).iter().filter_map(|v| v.parse().ok()).collect() };
+            let (x, y, zz) = (coord("x3"), coord("y3"), coord("z3"));
+            for i in 0..el.len() {
+                ids.push(aid.get(i).cloned().unwrap_or_else(|| format!("a{}", i + 1)));
+                symbols.push(el[i].clone());
+                z.push(crate::molecular::element_z(&el[i]));
+                pos.push([x.get(i).copied().unwrap_or(0.0), y.get(i).copied().unwrap_or(0.0), zz.get(i).copied().unwrap_or(0.0)]);
+            }
+            continue;
+        }
+        for a in atoms {
+            let el = a.attr("elementType").unwrap_or("Xx").to_string();
+            let c = |k: &str, k2: &str| a.attr(k).or_else(|| a.attr(k2)).and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(0.0);
+            ids.push(a.attr("id").unwrap_or("").to_string());
+            z.push(element_z(&el));
+            symbols.push(el);
+            pos.push([c("x3", "x2"), c("y3", "y2"), c("z3", "z3")]);
+        }
+    }
+    if pos.is_empty() {
+        bail!("{}: no atoms in the CML file", path.display());
+    }
+    let index = |id: &str| ids.iter().position(|x| x == id);
+    let mut bonds: Vec<(u32, u32, f64)> = Vec::new();
+    let mut barrays = Vec::new();
+    find_all(&root, "bondArray", &mut barrays);
+    let order_of = |o: &str| match o.trim() {
+        "S" | "s" => 1.0,
+        "D" | "d" => 2.0,
+        "T" | "t" => 3.0,
+        "A" | "a" => 1.5,
+        v => v.parse().unwrap_or(1.0),
+    };
+    for arr in barrays {
+        let list: Vec<&El> = arr.children.iter().filter(|c| local(&c.name) == "bond").collect();
+        if list.is_empty() {
+            let (r1, r2, ord) = (words(arr.attr("atomRef1")), words(arr.attr("atomRef2")), words(arr.attr("order")));
+            for i in 0..r1.len().min(r2.len()) {
+                if let (Some(a), Some(b)) = (index(&r1[i]), index(&r2[i])) {
+                    bonds.push((a as u32, b as u32, ord.get(i).map(|o| order_of(o)).unwrap_or(1.0)));
+                }
+            }
+            continue;
+        }
+        for b in list {
+            let refs = words(b.attr("atomRefs2"));
+            if refs.len() == 2 {
+                if let (Some(x), Some(y)) = (index(&refs[0]), index(&refs[1])) {
+                    bonds.push((x as u32, y as u32, b.attr("order").map(order_of).unwrap_or(1.0)));
+                }
+            }
+        }
+    }
+    let n = pos.len();
+    let mut pd = PolyData::from_points(Points::new_f64(pos.iter().flatten().copied().collect()));
+    let mut order = vec![0.0; n];
+    for &(a, b, o) in &bonds {
+        pd.lines.push(CellType::Line, &[a, b]);
+        order.push(o);
+    }
+    pd.point_data.insert(Array::scalars_f64("atomic_number", z.iter().map(|&v| v as f64).collect()));
+    pd.point_data.insert(Array::new("element", 1, ArrayData::String(symbols)));
+    pd.point_data.set_active(AttributeKind::Scalars, "atomic_number");
+    pd.cell_data.insert(Array::scalars_f64("bond_order", order));
+    Ok(DataSet::PolyData(pd))
+}
+
+/// Atomic number of an element symbol (0 if unknown).
+pub fn element_z(symbol: &str) -> usize {
+    aurafx_data::elements::atomic_number(symbol)
+}

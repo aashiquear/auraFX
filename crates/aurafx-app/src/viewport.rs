@@ -102,7 +102,20 @@ pub const SELECTION_NODE_ID: NodeId = u64::MAX;
 const GRID_NODE_ID_BASE: NodeId = 1 << 62;
 
 fn display_key(d: &DisplayProps) -> String {
-    format!("{:?}|{:?}|{:?}|{}|{}|{}", d.representation, d.color_by, d.range, d.lighting, d.nonlinear_subdivision, d.texture.is_some())
+    format!(
+        "{:?}|{:?}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+        d.representation,
+        d.color_by,
+        d.range,
+        d.lighting,
+        d.nonlinear_subdivision,
+        d.texture.is_some(),
+        d.molecule_style,
+        d.atom_scale,
+        d.bond_radius,
+        d.bond_orders,
+        d.colormap == aurafx_pipeline::colormap::ELEMENTS
+    )
 }
 
 impl Viewport {
@@ -856,7 +869,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         painter.text(
             c + Vec2::new(0.0, 30.0),
             egui::Align2::CENTER_CENTER,
-            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), Xdmf, NetCDF (CF, POP, CAM-SE, MPAS), CGNS, EnSight, OpenFOAM, Tecplot, PLOT3D, LAMMPS, VASP, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images, GeoTIFF, Esri ASCII grids, shapefiles, GeoJSON, KML, GeoPackage, AMR (AMReX plotfiles, .vthb), hyper tree grids (.htg)",
+            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), Xdmf, NetCDF (CF, POP, CAM-SE, MPAS), CGNS, EnSight, OpenFOAM, Tecplot, PLOT3D, LAMMPS, VASP, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images, GeoTIFF, Esri ASCII grids, shapefiles, GeoJSON, KML, GeoPackage, AMR (AMReX plotfiles, .vthb), hyper tree grids (.htg), CML molecules",
             egui::FontId::proportional(12.0),
             fg_weak,
         );

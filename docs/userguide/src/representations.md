@@ -13,6 +13,7 @@
 | **Outline** | the bounding box (every box of [AMR data](file-formats.md#amr-data-adaptive-mesh-refinement)) |
 | **Volume** | GPU ray casting of image data (other meshes are resampled first) |
 | **Surface LIC** | a vector field as streaks (see [Lighting](rendering.md)) |
+| **Molecule** | atoms as spheres and bonds as cylinders (see [Molecules](#molecules)) |
 
 **Lighting** can be switched off per object (flat colors, for 2-D data). **Axes grid** draws
 a labelled grid around the object with tick values.
@@ -37,6 +38,47 @@ sized by **Point size**, color them by type, and switch on
 [Eye-Dome Lighting](rendering.md#eye-dome-lighting) to see the structure of a dense cloud.
 The **Glyph** filter draws arrows or spheres scaled by an array; **Tube** gives lines a
 thickness.
+
+## Molecules
+
+Molecules are points (the atoms) with an atomic number array (`atomic_number`, or VTK's `Atomic
+Numbers`), and lines (the bonds). The PDB, XYZ, VASP and CML readers produce them (and the
+atoms block of a Gaussian cube file). A molecule opens in the **Molecule** representation, colored by element with the
+**Elements** color map (Jmol's colors, as in ParaView). Files with more than 100 000 atoms open
+as points instead; switch to Molecule when you need it.
+
+Settings (Properties › Display, or `node.set(...)`):
+
+| Setting | Python | Default | What it does |
+|---|---|---|---|
+| **Style** | `molecule_style` | Ball and Stick | **Ball and Stick**: atoms at a fraction of their van der Waals radius, bonds as thin sticks. **Van der Waals**: atoms at their full radius, no bonds (space filling). **Liquorice**: atoms and bonds as tubes of one width |
+| **Atom size** | `atom_scale` | 0.3 | fraction of the van der Waals radius (Ball and Stick), as ParaView |
+| **Bond radius** | `bond_radius` | 0.075 Å | as ParaView |
+| **Bond orders** | `bond_orders` | on | double and triple bonds (a `bond_order` array, from CML files) drawn as two or three sticks |
+
+Each half of a bond takes the color of its atom. Color by any other atom array (charge,
+residue, B factor...) with **Color by** as usual. The radii and colors come from VTK's
+periodic table, so they match ParaView.
+
+![A test molecule as it opens: balls and sticks colored by element, the double bonds of the ring as two sticks](images/molecule_view.png)
+
+```python
+m = afx.load("molecule.cml")                 # Molecule representation, colored by element
+m.set(molecule_style="Van der Waals")        # or "Liquorice", "Ball and Stick"
+m.set(atom_scale=0.25, bond_radius=0.1, bond_orders=False)
+b = m.compute_molecule_bonds(tolerance=0.45) # bonds from distances
+```
+
+**Filters › Compute Molecule Bonds** finds bonds from distances, as ParaView's filter does: two
+atoms are bonded when they are closer than the sum of their covalent radii, each increased by
+half the **Tolerance** (0.45 Å). With **Absolute tolerance** off, each radius is multiplied
+by the tolerance instead. Bonds already there stay. ParaView adds every bond it finds again
+next to the existing ones; auraFX adds only the new ones. The bonds match ParaView's on a test
+molecule with each tolerance setting.
+
+Large structures (crystals, MD snapshots) draw fastest as **Points** with **spheres**. The
+Molecule representation builds geometry for every atom, which is fine up to a few hundred
+thousand atoms.
 
 ## Curved cells
 

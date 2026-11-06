@@ -174,6 +174,25 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 }
                 s.set_display(id, |d| d.texture = v);
             }
+            "molecule_style" | "atom_scale" | "bond_radius" | "bond_orders" if !is_param => {
+                let k = key.clone();
+                let style = match k.as_str() {
+                    "molecule_style" => Some(
+                        val.as_str()
+                            .and_then(aurafx_pipeline::MoleculeStyle::parse)
+                            .ok_or_else(|| PyValueError::new_err("molecule_style: 'Ball and Stick', 'Van der Waals' or 'Liquorice'"))?,
+                    ),
+                    _ => None,
+                };
+                let x = val.as_f64().unwrap_or(0.0) as f32;
+                let flag = val.as_bool().unwrap_or(true);
+                s.set_display(id, |d| match k.as_str() {
+                    "molecule_style" => d.molecule_style = style.unwrap(),
+                    "atom_scale" => d.atom_scale = x.max(0.0),
+                    "bond_radius" => d.bond_radius = x.max(0.0),
+                    _ => d.bond_orders = flag,
+                });
+            }
             "lic_vectors" => {
                 let v = val.as_str().map(str::to_string);
                 s.set_display(id, |d| d.lic_vectors = v);

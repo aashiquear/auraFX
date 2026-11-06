@@ -77,6 +77,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["xyz", "x", "p3d", "bin"], "PLOT3D grid (+ .q solution)"),
         (&["pdb", "ent"], "Protein Data Bank"),
         (&["cube"], "Gaussian cube"),
+        (&["cml"], "Chemical Markup Language"),
         (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
         (&["tif", "tiff", "asc"], "GIS rasters (GeoTIFF, Esri ASCII grid)"),
@@ -198,6 +199,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         }
         "nc" | "nc4" | "cdf" | "netcdf" => netcdf_cf::open(path)?,
         "cube" => Loaded::Static(Arc::new(molecular::read_cube(path)?)),
+        "cml" => Loaded::Static(Arc::new(molecular::read_cml(path)?)),
         "dat" | "plt" | "szplt" if tecplot::is_binary(path) => Loaded::Static(Arc::new(tecplot::read_binary(path)?)),
         "dat" | "plt" if tecplot::sniff(path) => Loaded::Static(Arc::new(tecplot::read(path)?)),
         "szplt" => bail!("{}: Tecplot SZL (.szplt) files are not supported; save as .plt or ASCII", path.display()),

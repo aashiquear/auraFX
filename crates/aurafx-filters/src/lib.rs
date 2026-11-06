@@ -2,6 +2,7 @@
 //! parameter schemas so the UI, Python and the AI assistant can all drive them.
 
 pub mod interp;
+pub mod molecule;
 pub mod params;
 pub mod registry;
 pub mod simplex;

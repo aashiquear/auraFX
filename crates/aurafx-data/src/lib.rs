@@ -10,6 +10,7 @@ pub mod attributes;
 pub mod bounds;
 pub mod cell;
 pub mod dataset;
+pub mod elements;
 pub mod higher_order;
 pub mod htg;
 pub mod info;

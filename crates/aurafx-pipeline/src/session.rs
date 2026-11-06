@@ -1515,6 +1515,21 @@ impl Session {
                 if let Some(cb) = swapped.filter(|cb| has(cb)) {
                     n.display.color_by = Some(cb);
                 }
+                // Molecules (atoms with atomic numbers, bonds as lines) show as balls and
+                // sticks colored by element the first time they arrive.
+                if !n.auto_colored && n.display.color_by.is_none() && n.display.representation == crate::display::Representation::Surface {
+                    if let DataSet::PolyData(p) = &*ds {
+                        let z = p.point_data.get("atomic_number").map(|_| "atomic_number").or_else(|| p.point_data.get("Atomic Numbers").map(|_| "Atomic Numbers"));
+                        if let Some(z) = z.filter(|_| p.polys.is_empty() && p.strips.is_empty() && p.points.len() <= 100_000) {
+                            n.display.representation = crate::display::Representation::Molecule;
+                            n.display.color_by = Some(ColorBy { assoc: aurafx_filters::Association::Points, name: z.to_string(), component: None });
+                            n.display.colormap = crate::colormap::ELEMENTS.to_string();
+                            n.display.range = None;
+                            // A bar of 128 element colors says nothing.
+                            n.display.show_scalar_bar = false;
+                        }
+                    }
+                }
                 let needs_default = match &n.display.color_by {
                     None => !n.auto_colored,
                     Some(cb) => !has(cb),

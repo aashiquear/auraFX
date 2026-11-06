@@ -26,6 +26,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | XYZ / extended XYZ | `.xyz .extxyz` | multi-frame; properties and lattice from the comment line |
 | PDB | `.pdb .ent` | all atoms (hydrogens kept), MODELs as time steps, CONECT and distance bonds, residues and chains |
 | Gaussian cube | `.cube` | the density as a volume in Å, plus the atoms with bonds |
+| Chemical Markup Language | `.cml` | the atoms and the file's bonds with their orders (`bond_order`), as ParaView's CML reader |
 | VASP | `POSCAR`, `CONTCAR`, `CHGCAR`, `LOCPOT`, `ELFCAR`, `PARCHG` (by name), `.vasp` | atoms with bonds and the lattice; volumes on the cell's axes (charge per Å³) |
 | Images | `.png .jpg .bmp .tif` | as image data; multi-page TIFFs and `img_*.png` wildcards as volumes |
 | GIS rasters | GeoTIFF `.tif`, Esri ASCII grid `.asc` | at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below |

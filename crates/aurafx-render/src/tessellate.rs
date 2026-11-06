@@ -471,6 +471,10 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
             mesh.scalar_range = Some(r);
         }
     }
+    // Element colors: each atomic number owns its own entries of the color map.
+    if display.colormap == aurafx_pipeline::colormap::ELEMENTS && display.colormap_stops.is_none() && mesh.has_scalars && display.range.is_none() {
+        mesh.scalar_range = Some((-0.5, 127.5));
+    }
 
     for leaf in leaves(ds, display.representation, display.nonlinear_subdivision.min(6)) {
         let pd = &leaf.pd;
@@ -513,8 +517,134 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
                 }
             }
             Representation::Points => emit_points(pd, origin, ps, cs, &mut mesh.points),
+            // Blocks without atoms (the volume next to the atoms of a cube file) stay surfaces.
+            Representation::Molecule if aurafx_filters::molecule::atomic_numbers(&pd.point_data, None).is_some() => {
+                emit_molecule(pd, origin, ps, display, &cell_ids, &mut mesh.tris)
+            }
+            Representation::Molecule => {
+                emit_triangles(pd, origin, ps, cs, poly_cell_base, crease, &cell_ids, &mut mesh.tris);
+                emit_lines(pd, origin, ps, cs, pd.verts.len(), &mut mesh.lines);
+            }
             Representation::Outline | Representation::Volume => unreachable!(),
         }
     }
     mesh
+}
+
+/// Unit sphere triangles (normals = positions) with `rings` latitude bands.
+fn unit_sphere(rings: usize) -> Vec<[f32; 3]> {
+    let segs = 2 * rings;
+    let p = |i: usize, j: usize| {
+        let (t, f) = (std::f32::consts::PI * i as f32 / rings as f32, 2.0 * std::f32::consts::PI * j as f32 / segs as f32);
+        [t.sin() * f.cos(), t.sin() * f.sin(), t.cos()]
+    };
+    let mut out = Vec::with_capacity(rings * segs * 6);
+    for i in 0..rings {
+        for j in 0..segs {
+            let (a, b, c, d) = (p(i, j), p(i + 1, j), p(i + 1, j + 1), p(i, j + 1));
+            if i > 0 {
+                out.extend_from_slice(&[a, b, d]);
+            }
+            if i + 1 < rings {
+                out.extend_from_slice(&[d, b, c]);
+            }
+        }
+    }
+    out
+}
+
+/// Molecule representation: a sphere per atom (point with an atomic number) and a cylinder
+/// per bond (two-point line), each half of a bond in its atom's color, as ParaView draws
+/// molecules. Detail drops for large molecules.
+fn emit_molecule(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, display: &DisplayProps, cell_ids: &(dyn Fn(usize) -> u32 + Sync), out: &mut Vec<Vertex>) {
+    use aurafx_pipeline::MoleculeStyle;
+    let n = pd.points.len();
+    let z = aurafx_filters::molecule::atomic_numbers(&pd.point_data, None);
+    let pos = |i: usize| {
+        let p = pd.points.get(i);
+        [(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32]
+    };
+    let scalar = |i: usize| pscal.and_then(|s| s.get(i).copied()).unwrap_or(0.0);
+    let style = display.molecule_style;
+    let bond_r = match style {
+        MoleculeStyle::Liquorice => 2.0 * display.bond_radius,
+        _ => display.bond_radius,
+    };
+    let radius = |i: usize| -> f32 {
+        let vdw = z.map(|a| aurafx_data::elements::element(a.get(i, 0).round() as i64).vdw_radius).unwrap_or(1.5) as f32;
+        match style {
+            MoleculeStyle::BallAndStick => vdw * display.atom_scale,
+            MoleculeStyle::VanDerWaals => vdw,
+            MoleculeStyle::Liquorice => bond_r,
+        }
+    };
+    let rings = if n <= 2_000 {
+        10
+    } else if n <= 50_000 {
+        5
+    } else {
+        3
+    };
+    let sphere = unit_sphere(rings);
+    out.reserve(n * sphere.len());
+    let nv = pd.verts.len();
+    for i in 0..n {
+        let (c, r, s) = (pos(i), radius(i), scalar(i));
+        let id = f32::from_bits(cell_ids(if i < nv { i } else { 0 }));
+        for v in &sphere {
+            out.push(Vertex { pos: [c[0] + r * v[0], c[1] + r * v[1], c[2] + r * v[2]], scalar: s, normal: *v, _pad: id });
+        }
+    }
+    if style == MoleculeStyle::VanDerWaals {
+        return;
+    }
+    let sides = if pd.lines.len() <= 20_000 { 12 } else { 6 };
+    let order = pd.cell_data.get("bond_order").or_else(|| pd.cell_data.get("Bond Orders"));
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let norm = |a: [f32; 3]| {
+        let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt().max(1e-20);
+        [a[0] / l, a[1] / l, a[2] / l]
+    };
+    let cylinder = |a: [f32; 3], b: [f32; 3], r: f32, s: f32, id: f32, out: &mut Vec<Vertex>| {
+        let d = norm(sub(b, a));
+        let helper = if d[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+        let u = norm(cross(d, helper));
+        let w = cross(d, u);
+        for k in 0..sides {
+            let (t0, t1) = (2.0 * std::f32::consts::PI * k as f32 / sides as f32, 2.0 * std::f32::consts::PI * (k + 1) as f32 / sides as f32);
+            let n0 = [u[0] * t0.cos() + w[0] * t0.sin(), u[1] * t0.cos() + w[1] * t0.sin(), u[2] * t0.cos() + w[2] * t0.sin()];
+            let n1 = [u[0] * t1.cos() + w[0] * t1.sin(), u[1] * t1.cos() + w[1] * t1.sin(), u[2] * t1.cos() + w[2] * t1.sin()];
+            let p = |c: [f32; 3], n: [f32; 3]| [c[0] + r * n[0], c[1] + r * n[1], c[2] + r * n[2]];
+            let v = |c: [f32; 3], n: [f32; 3]| Vertex { pos: p(c, n), scalar: s, normal: n, _pad: id };
+            out.extend_from_slice(&[v(a, n0), v(b, n0), v(b, n1), v(a, n0), v(b, n1), v(a, n1)]);
+        }
+    };
+    for c in 0..pd.lines.len() {
+        let l = pd.lines.cell(c);
+        if l.len() != 2 {
+            continue;
+        }
+        let (i, j) = (l[0] as usize, l[1] as usize);
+        let (a, b) = (pos(i), pos(j));
+        let mid = [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, (a[2] + b[2]) / 2.0];
+        let id = f32::from_bits(cell_ids(nv + c));
+        let k = if display.bond_orders && style == MoleculeStyle::BallAndStick {
+            order.map(|o| o.get(nv + c, 0).round().clamp(1.0, 3.0) as usize).unwrap_or(1)
+        } else {
+            1
+        };
+        // Several bonds side by side, spread across the bond.
+        let r = if k == 1 { bond_r } else { bond_r * 0.6 };
+        let d = norm(sub(b, a));
+        let helper = if d[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+        let side = norm(cross(d, helper));
+        for m in 0..k {
+            let off = (m as f32 - (k - 1) as f32 / 2.0) * 3.5 * r;
+            let o = [side[0] * off, side[1] * off, side[2] * off];
+            let sh = |p: [f32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
+            cylinder(sh(a), sh(mid), r, scalar(i), id, out);
+            cylinder(sh(mid), sh(b), r, scalar(j), id, out);
+        }
+    }
 }

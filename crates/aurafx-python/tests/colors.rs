@@ -213,4 +213,18 @@ def sneaky(data):
     ));
     assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
     assert_eq!(out.stdout.trim(), "12\nTrue\n68\nTrue 59 68\nTrue 1", "{}", out.stdout);
+
+    // Molecules (the user guide's examples): opened as balls and sticks colored by element.
+    let cml = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/molecules/test.cml");
+    let out = rt.run(&format!(
+        "m = afx.load({cml:?})\nm.info()\nm.set(molecule_style='Van der Waals')\nm.set(atom_scale=0.25, bond_radius=0.1, bond_orders=False)\nb = m.compute_molecule_bonds(tolerance=0.45)\nprint(b.info()['n_cells'])"
+    ));
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "39", "{}", out.stdout); // 20 atoms + 17 file bonds + 2 found
+    let s = session.lock();
+    let m = s.nodes.values().find(|n| n.name == "test.cml").unwrap();
+    assert_eq!(m.display.representation, aurafx_pipeline::Representation::Molecule);
+    assert_eq!(m.display.colormap, "Elements");
+    assert_eq!(m.display.molecule_style, aurafx_pipeline::MoleculeStyle::VanDerWaals);
+    assert_eq!((m.display.atom_scale, m.display.bond_radius, m.display.bond_orders), (0.25, 0.1, false));
 }

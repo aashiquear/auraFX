@@ -97,3 +97,38 @@ fn edges_use_the_edge_color() {
     d.representation = aurafx_pipeline::Representation::Surface;
     assert_eq!(reds(&mut r, &d), 0, "no edges once the representation changes");
 }
+
+/// The Molecule representation: spheres and cylinders colored by element (Jmol colors).
+#[test]
+fn molecules_in_element_colors() {
+    let (w, h) = (240u32, 240u32);
+    let Ok(mut r) = headless(w, h) else {
+        eprintln!("no GPU adapter");
+        return;
+    };
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/molecules/test.cml");
+    let m = match aurafx_io::read_file(&path).unwrap() {
+        aurafx_io::Loaded::Static(d) => (*d).clone(),
+        _ => panic!(),
+    };
+    let mut d = DisplayProps::default();
+    d.representation = aurafx_pipeline::Representation::Molecule;
+    d.color_by = Some(aurafx_pipeline::ColorBy { assoc: aurafx_filters::Association::Points, name: "atomic_number".into(), component: None });
+    d.colormap = aurafx_pipeline::colormap::ELEMENTS.into();
+    d.lighting = false;
+    let mesh = Arc::new(tessellate::tessellate(&m, &d));
+    assert_eq!(mesh.scalar_range, Some((-0.5, 127.5)));
+    assert!(mesh.tris.len() > 20 * 300, "{} vertices", mesh.tris.len());
+    let mut cam = Camera::default();
+    cam.set_view([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], &m.bounds());
+    cam.update_clip(&m.bounds());
+    r.render(&cam, &[NodeDraw { id: 1, mesh, display: d.clone(), overlay: false }], &RenderSettings::default());
+    let (_, _, img) = r.read_pixels().unwrap();
+    let count = |want: [u8; 3]| img.chunks(4).filter(|p| (0..3).all(|k| (p[k] as i32 - want[k] as i32).abs() < 12)).count();
+    // Jmol colors: chlorine (0.12, 0.94, 0.12), oxygen (1, 0.05, 0.05), nitrogen (0.05, 0.05, 1).
+    let srgb = |c: [f32; 3]| c.map(|v| (v * 255.0) as u8);
+    for (name, c) in [("Cl", [0.12, 0.94, 0.12]), ("O", [1.0, 0.05, 0.05]), ("N", [0.05, 0.05, 1.0])] {
+        let n = count(srgb(c));
+        assert!(n > 20, "{name}: {n} pixels in its color");
+    }
+}

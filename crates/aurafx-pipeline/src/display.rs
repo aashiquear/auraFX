@@ -15,10 +15,40 @@ pub enum Representation {
     Volume,
     /// Surface with a vector field drawn as streaks (line integral convolution).
     SurfaceLic,
+    /// Atoms as spheres and bonds as cylinders (molecules: points with atomic numbers, bonds
+    /// as lines).
+    Molecule,
+}
+
+/// How the Molecule representation draws atoms and bonds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MoleculeStyle {
+    /// Atoms at a fraction of their van der Waals radius, bonds as thin cylinders.
+    #[default]
+    BallAndStick,
+    /// Atoms at their full van der Waals radius, no bonds.
+    VanDerWaals,
+    /// Atoms and bonds as tubes of one width.
+    Liquorice,
+}
+
+impl MoleculeStyle {
+    pub const ALL: [MoleculeStyle; 3] = [MoleculeStyle::BallAndStick, MoleculeStyle::VanDerWaals, MoleculeStyle::Liquorice];
+    pub fn label(self) -> &'static str {
+        match self {
+            MoleculeStyle::BallAndStick => "Ball and Stick",
+            MoleculeStyle::VanDerWaals => "Van der Waals",
+            MoleculeStyle::Liquorice => "Liquorice",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        let l = s.to_ascii_lowercase().replace(['_', '-'], " ");
+        Self::ALL.into_iter().find(|m| m.label().to_ascii_lowercase() == l || (l == "vdw" && *m == MoleculeStyle::VanDerWaals))
+    }
 }
 
 impl Representation {
-    pub const ALL: [Representation; 7] = [
+    pub const ALL: [Representation; 8] = [
         Representation::Surface,
         Representation::SurfaceWithEdges,
         Representation::Wireframe,
@@ -26,6 +56,7 @@ impl Representation {
         Representation::Outline,
         Representation::Volume,
         Representation::SurfaceLic,
+        Representation::Molecule,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -36,6 +67,7 @@ impl Representation {
             Representation::Outline => "Outline",
             Representation::Volume => "Volume",
             Representation::SurfaceLic => "Surface LIC",
+            Representation::Molecule => "Molecule",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -101,6 +133,12 @@ pub struct DisplayProps {
     pub specular: f32,
     /// Image file (PNG, JPEG) shown on the surface through its texture coordinates.
     pub texture: Option<String>,
+    /// Molecule representation: style, atom size factor (of the van der Waals radius, ball and
+    /// stick), bond radius (Å) and bond orders drawn as parallel cylinders.
+    pub molecule_style: MoleculeStyle,
+    pub atom_scale: f32,
+    pub bond_radius: f32,
+    pub bond_orders: bool,
 }
 
 /// Roughness whose highlights match the classic shading (Blinn-Phong power 60).
@@ -149,6 +187,10 @@ impl Default for DisplayProps {
             draw_on: DrawOn::Auto,
             lic_vectors: None,
             texture: None,
+            molecule_style: MoleculeStyle::BallAndStick,
+            atom_scale: 0.3,
+            bond_radius: 0.075,
+            bond_orders: true,
             lic_strength: 0.8,
             lic_length: 20,
             metallic: 0.0,

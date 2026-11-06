@@ -936,6 +936,30 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
 
+                if d.representation == Representation::Molecule {
+                    ui.label("Style");
+                    egui::ComboBox::from_id_salt("molecule style").selected_text(d.molecule_style.label()).show_ui(ui, |ui| {
+                        for m in aurafx_pipeline::MoleculeStyle::ALL {
+                            ui.selectable_value(&mut d.molecule_style, m, m.label());
+                        }
+                    });
+                    ui.end_row();
+                    if d.molecule_style == aurafx_pipeline::MoleculeStyle::BallAndStick {
+                        ui.label("Atom size");
+                        ui.add(egui::Slider::new(&mut d.atom_scale, 0.05..=1.0)).on_hover_text("Fraction of each atom's van der Waals radius");
+                        ui.end_row();
+                    }
+                    if d.molecule_style != aurafx_pipeline::MoleculeStyle::VanDerWaals {
+                        ui.label("Bond radius");
+                        ui.add(egui::Slider::new(&mut d.bond_radius, 0.01..=0.5).suffix(" Å"));
+                        ui.end_row();
+                    }
+                    if d.molecule_style == aurafx_pipeline::MoleculeStyle::BallAndStick {
+                        ui.label("Bond orders");
+                        ui.checkbox(&mut d.bond_orders, "double and triple bonds as parallel sticks");
+                        ui.end_row();
+                    }
+                }
                 if d.representation == Representation::SurfaceWithEdges {
                     ui.label("Edge color");
                     ui.color_edit_button_rgb(&mut d.edge_color).on_hover_text("Color of the cell edges");

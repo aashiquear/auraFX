@@ -121,7 +121,23 @@ fn build() -> Vec<ColorMap> {
         evenly("Reds", &["fff5f0", "fee0d2", "fcbba1", "fc9272", "fb6a4a", "ef3b2c", "cb181d", "a50f15", "67000d"].map(hex)),
         evenly("Greens", &["f7fcf5", "e5f5e0", "c7e9c0", "a1d99b", "74c476", "41ab5d", "238b45", "006d2c", "00441b"].map(hex)),
         evenly("YlOrRd", &["ffffcc", "ffeda0", "fed976", "feb24c", "fd8d3c", "fc4e2a", "e31a1c", "bd0026", "800026"].map(hex)),
+        elements(),
     ]
+}
+
+/// Name of the color map that colors atoms by element (atomic number over the range
+/// [-0.5, 127.5]: each element owns two of the 256 lookup entries).
+pub const ELEMENTS: &str = "Elements";
+
+/// Element colors (Jmol, as VTK's periodic table) by atomic number, flat per element.
+fn elements() -> ColorMap {
+    let mut stops = Vec::with_capacity(256);
+    for z in 0..128usize {
+        let c = aurafx_data::elements::ELEMENTS.get(z).map(|e| e.color).unwrap_or([0.5, 0.5, 0.5]);
+        stops.push((z as f32 / 128.0, c));
+        stops.push(((z + 1) as f32 / 128.0 - 1e-6, c));
+    }
+    ColorMap { name: ELEMENTS.into(), stops }
 }
 
 static MAPS: OnceLock<Vec<ColorMap>> = OnceLock::new();

@@ -1117,3 +1117,39 @@ fn hyper_tree_grids_match_paraview() {
     }
 }
 
+
+/// Molecules: the CML reader and Compute Molecule Bonds against ParaView 6.1.1 (its CML
+/// reader and bond perceiver on testdata/molecules/test.cml).
+#[test]
+fn molecule_bonds_match_paraview() {
+    use serde_json::json;
+    let m = td("molecules/test.cml");
+    let DataSet::PolyData(pd) = &m else { panic!() };
+    let z: Vec<i64> = (0..20).map(|i| pd.point_data.get("atomic_number").unwrap().get(i, 0) as i64).collect();
+    assert_eq!(z, vec![6, 6, 6, 6, 6, 6, 17, 1, 1, 1, 7, 1, 1, 16, 1, 35, 8, 1, 1, 11]);
+    assert_eq!(pd.lines.len(), 17);
+    let orders: Vec<f64> = (20..37).map(|i| pd.cell_data.get("bond_order").unwrap().get(i, 0)).collect();
+    assert_eq!(orders, vec![2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+    let bonds = |d: &DataSet| -> Vec<(u32, u32)> {
+        let DataSet::PolyData(p) = d else { panic!() };
+        let mut v: Vec<(u32, u32)> = (0..p.lines.len()).map(|c| (p.lines.cell(c)[0].min(p.lines.cell(c)[1]), p.lines.cell(c)[0].max(p.lines.cell(c)[1]))).collect();
+        v.sort();
+        v
+    };
+    let file_bonds = bonds(&m);
+    // The atoms alone: bonds perceived from distances only, as ParaView's filter computes them.
+    let mut atoms = pd.clone();
+    atoms.lines = Cells::new();
+    atoms.cell_data = Attributes::new();
+    let atoms = DataSet::PolyData(atoms);
+    let mut with_extra = file_bonds.clone();
+    with_extra.extend([(11, 12), (16, 19)]);
+    with_extra.sort();
+    for (set, want) in [(vec![], with_extra.clone()), (vec![("tolerance", json!(0.1))], file_bonds.clone()), (vec![("absolute", json!(false)), ("tolerance", json!(1.1))], file_bonds.clone())] {
+        assert_eq!(bonds(&run("compute_molecule_bonds", Some(&atoms), &set)), want, "{set:?}");
+    }
+    // On the file's molecule the file's bonds stay and only the new ones are added (with order 1).
+    let b = run("compute_molecule_bonds", Some(&m), &[]);
+    assert_eq!(bonds(&b), with_extra);
+    assert_eq!(b.cell_data().unwrap().get("bond_order").unwrap().len(), 20 + 19);
+}

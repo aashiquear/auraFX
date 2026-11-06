@@ -1797,6 +1797,26 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| per_leaf(input.unwrap(), &|d| crate::htg::evaluate_coarse(d, &p.str("operator"), p.f64("default", 0.0))),
         },
         FilterDef {
+            id: "compute_molecule_bonds",
+            label: "Compute Molecule Bonds",
+            category: "Data",
+            description: "Bonds between atoms closer than the sum of their covalent radii plus a tolerance (as ParaView's Compute Molecule Bonds).",
+            keywords: &["molecule", "bonds", "atoms", "chemistry", "covalent", "connect atoms"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Atomic numbers").help("Leave empty for atomic_number (or VTK's Atomic Numbers)."),
+                f("tolerance", "Tolerance", 0.45, 0.0, f64::INFINITY).help("Absolute: Å added to the radii sum. Relative: factor on each radius."),
+                b("absolute", "Absolute tolerance", true),
+            ],
+            apply: |input, p| {
+                let name = p.array("array").map(|(_, n)| n).filter(|n| !n.is_empty());
+                per_leaf(input.unwrap(), &|d| crate::molecule::compute_bonds(d, name.as_deref(), p.f64("tolerance", 0.45), p.bool("absolute", true)))
+            },
+        },
+        FilterDef {
             id: "overlapping_amr_level_ids",
             label: "Overlapping AMR Level Ids",
             category: "Data",

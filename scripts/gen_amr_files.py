@@ -26,6 +26,7 @@ chombo3d.hdf5               Chombo (cell-centered): two levels, three boxes, com
 chombo2d.hdf5               Chombo 2-D: three levels, one ghost cell around every box
     (outputGhost), prob_lo and vec_dx as compound attributes.
 chombo3d_node.hdf5          Chombo 3-D node-centered (data_centering 7): values at the nodes.
+chombo4d.hdf5               Chombo 4-D (x, y, vpar, mu): one level, five boxes, components f, g.
 chombo2d_particles.hdf5     Chombo 2-D with 30 particles (/particles: position_x, position_y,
     mass, particle_id).
 """
@@ -241,6 +242,48 @@ chombo(os.path.join(out, "chombo2d_particles.hdf5"), 2, [(0.125, [((0, 0), (7, 7
        particles={"position_x": pp[:, 0], "position_y": pp[:, 1], "mass": 1 + pr.random(30), "particle_id": np.arange(30, dtype="<i4")})
 chombo(os.path.join(out, "chombo2d.hdf5"), 2,
        [(0.125, [((0, 0), (7, 7))]), (0.0625, [((2, 2), (9, 7)), ((8, 10), (13, 15))]), (0.03125, [((6, 6), (13, 11))])], 1, prob_lo=[-0.5, 0.25], vec_dx=True)
+
+# 4-D Chombo (two configuration and two velocity axes, as gyrokinetic codes write it): one
+# level, five boxes; two (i, j) boxes each split in velocity, the second not covering k = 3.
+box4 = np.dtype([(n, "<i4") for n in ("lo_i", "lo_j", "lo_k", "lo_l", "hi_i", "hi_j", "hi_k", "hi_l")])
+iv4 = np.dtype([(n, "<i4") for n in ("intvecti", "intvectj", "intvectk", "intvectl")])
+dv4 = np.dtype([(n, "<f8") for n in ("x", "y", "z", "u")])
+dx4 = (0.25, 0.5, 0.1, 0.2)
+comps4 = [("f", lambda x, y, v, m: 1 + x + 10 * y + 100 * v + 1000 * m), ("g", lambda x, y, v, m: x * y - v + m * m)]
+boxes4 = [((0, 0, 0, 0), (3, 5, 1, 2)), ((0, 0, 2, 0), (3, 5, 3, 2)),
+          ((4, 0, 0, 0), (7, 5, 1, 1)), ((4, 0, 0, 2), (7, 5, 2, 2)), ((4, 0, 2, 0), (7, 5, 2, 1))]
+with h5py.File(os.path.join(out, "chombo4d.hdf5"), "w") as f:
+    f.attrs["num_levels"] = np.int32(1)
+    f.attrs["max_level"] = np.int32(0)
+    f.attrs["num_components"] = np.int32(len(comps4))
+    for i, (n, _) in enumerate(comps4):
+        f.attrs[f"component_{i}"] = np.bytes_(n)
+    f.attrs["time"] = 2.5
+    f.attrs["iteration"] = np.int32(3)
+    g = f.create_group("Chombo_global")
+    g.attrs["SpaceDim"] = np.int32(4)
+    g.attrs["testReal"] = 0.0
+    L = f.create_group("level_0")
+    L.attrs["vec_dx"] = np.array(dx4, dtype=dv4)
+    L.attrs["dt"] = 0.01
+    L.attrs["time"] = 2.5
+    L.attrs["ref_ratio"] = np.int32(2)
+    L.attrs["prob_domain"] = np.array((0, 0, 0, 0, 7, 5, 3, 2), dtype=box4)
+    L["boxes"] = np.array([tuple(lo) + tuple(hi) for lo, hi in boxes4], dtype=box4)
+    data, offs = [], [0]
+    for lo, hi in boxes4:
+        c = [(np.arange(lo[k], hi[k] + 1) + 0.5) * dx4[k] for k in range(4)]
+        m, v, y, x = np.meshgrid(c[3], c[2], c[1], c[0], indexing="ij")
+        for _, fn in comps4:
+            data.append(fn(x, y, v, m).ravel())
+        offs.append(offs[-1] + len(comps4) * x.size)
+    L["data:datatype=0"] = np.concatenate(data)
+    L["data:offsets=0"] = np.array(offs, dtype="<i8")
+    da = L.create_group("data_attributes")
+    da.attrs["comps"] = np.int32(len(comps4))
+    da.attrs["objectType"] = np.bytes_("FArrayBox")
+    da.attrs["outputGhost"] = np.array((0, 0, 0, 0), dtype=iv4)
+    da.attrs["ghost"] = np.array((0, 0, 0, 0), dtype=iv4)
 
 # ------------------------------------------------------------------ particles
 rng = np.random.default_rng(7)

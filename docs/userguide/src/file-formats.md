@@ -318,7 +318,15 @@ auraFX reads:
 - **Chombo** files (`.hdf5`, `.h5`; 1-D to 3-D), as Chombo-based codes write them (`level_0`,
   `level_1`... groups with boxes). The component names become cell arrays, or point arrays in
   node-centered files. Ghost cells stored around each box are dropped, and the boxes are
-  placed from `prob_lo` and the level's `dx` (or `vec_dx`). 4-D files are not read.
+  placed from `prob_lo` and the level's `dx` (or `vec_dx`).
+- **4-D Chombo** files (two space axes and two velocity axes, as gyrokinetic codes such as
+  COGENT write them, single level), as VisIt shows them: a 2-D grid over the space axes,
+  whose every cell holds each component as an array with one value per velocity cell
+  (parallel velocity major, magnetic moment minor). `_vpar` and `_mu` hold those cells'
+  velocity coordinates, and `<component>_sum` the sum over the velocity cells (VisIt's
+  `array_sum`, but leaving out velocity cells no box covers, which are NaN in the arrays).
+  Color by a component of the array to see one velocity cell, or by the sum. ParaView's
+  VisIt reader builds the same 2-D boxes but drops the data.
 
 What you get:
 - One block per level (**Level 0**, **Level 1**, ...), each holding that level's boxes as image
@@ -353,6 +361,8 @@ stars.set(data="Particles")                # the particles instead of the grid
 ![An Enzo dump read twice: its grid as box outlines and its particles as spheres colored by mass](images/amr_particles.png)
 
 ![A 2-D Chombo file read twice: its two levels colored by density, and its particles as spheres colored by mass](images/chombo_particles.png)
+
+![A 4-D Chombo file's space grid (two boxes) colored by the sum of f over velocity space, with its cell edges; the right box's data does not cover the highest parallel velocities, so its sums are lower](images/chombo4d.png)
 
 ![A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells](images/chombo.png)
 

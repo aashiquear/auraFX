@@ -1868,3 +1868,60 @@ fn amr_particles_match_paraview() {
     assert!(matches!(read("flash3d_hdf5_part_0007", &[]), DataSet::MultiBlock(_)));
     assert!(matches!(read("enzo/DD0004/data0004.hierarchy", &[]), DataSet::MultiBlock(_)));
 }
+
+/// A 4-D Chombo file (scripts/gen_amr_files.py: x, y, vpar, mu; one level, five boxes, one
+/// (i, j) box not covering the last vpar cell). ParaView 6.1.1's VisIt reader builds the same
+/// two 2-D boxes (origin, spacing, 4 x 6 cells) but no arrays; auraFX gives VisIt's array
+/// variables: every velocity cell's value (checked against the formulas), NaN where no box
+/// covers it, `_vpar`, `_mu` and the sums.
+#[test]
+fn chombo_4d_reads_velocity_space() {
+    use aurafx_data::DataSet;
+    let d = static_ds("amr/chombo4d.hdf5");
+    let DataSet::MultiBlock(mb) = &*d else { panic!() };
+    let blocks: Vec<aurafx_data::ImageData> = mb
+        .blocks
+        .iter()
+        .flat_map(|(_, b)| match b {
+            Some(DataSet::MultiBlock(level)) => level.blocks.iter().filter_map(|(_, x)| match x {
+                Some(DataSet::ImageData(i)) => Some(i.clone()),
+                _ => None,
+            }).collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .collect();
+    assert_eq!(blocks.len(), 2);
+    let dx = [0.25, 0.5, 0.1, 0.2];
+    let f = |x: f64, y: f64, v: f64, m: f64| 1.0 + x + 10.0 * y + 100.0 * v + 1000.0 * m;
+    for (b, img) in blocks.iter().enumerate() {
+        assert_eq!(img.origin, [b as f64 * 1.0, 0.0, 0.0]);
+        assert_eq!(img.spacing, [0.25, 0.5, 1.0]);
+        assert_eq!(img.extent, [0, 4, 0, 6, 0, 0]);
+        let a = img.cell_data.get("f").unwrap();
+        assert_eq!(a.ncomp, 12);
+        let (vpar, mu) = (img.cell_data.get("_vpar").unwrap(), img.cell_data.get("_mu").unwrap());
+        let sum = img.cell_data.get("f_sum").unwrap();
+        for j in 0..6 {
+            for i in 0..4 {
+                let t = j * 4 + i;
+                let (x, y) = ((4 * b + i) as f64 * dx[0] + 0.125, (j as f64 + 0.5) * dx[1]);
+                let mut total = 0.0;
+                for k in 0..4 {
+                    for l in 0..3 {
+                        let c = k * 3 + l;
+                        let (v, m) = ((k as f64 + 0.5) * dx[2], (l as f64 + 0.5) * dx[3]);
+                        assert!((vpar.get(t, c) - v).abs() < 1e-12 && (mu.get(t, c) - m).abs() < 1e-12);
+                        let got = a.get(t, c);
+                        if b == 1 && k == 3 {
+                            assert!(got.is_nan(), "block 1 k=3 is not covered");
+                        } else {
+                            assert!((got - f(x, y, v, m)).abs() < 1e-9, "block {b} cell ({i},{j}) velocity ({k},{l}): {got}");
+                            total += got;
+                        }
+                    }
+                }
+                assert!((sum.get(t, 0) - total).abs() < 1e-9);
+            }
+        }
+    }
+}

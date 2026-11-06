@@ -1,6 +1,7 @@
-import aurafx as afx, os
-p = os.path.expanduser("~/Downloads/ParaView-6.1.1-MPI-Linux-Python3.12-x86_64/share/paraview-6.1/examples/netCDF/tos_O1_2001-2002.nc")
-if os.path.exists(p):
-    d = afx.load(p); d.set(color_by="tos", cmap="Cool to Warm")
-    afx.view("+x"); afx.reset_camera()
-    afx.screenshot(OUT, width=800)
+# NetCDF CF on the globe: the synthetic sea-surface temperature file
+# (testdata/netcdf/globe_sst.nc, from scripts/gen_netcdf_globe.py) drawn on the sphere, land
+# left out as fill values.
+import aurafx as afx
+d = afx.load(ROOT + "/testdata/netcdf/globe_sst.nc")
+d.set(color_by="sst", cmap="Cool to Warm")
+afx.view([1.0, 0.6, 0.5], up=[0, 0, 1]); afx.reset_camera()

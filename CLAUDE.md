@@ -15,8 +15,30 @@ A feature is not done until the user guide describes it. For every feature added
    in `docs/userguide/book/`, PDF at `docs/userguide/auraFX-user-guide.pdf`) and check the PDF
    opens. The HTML book is published from `docs/userguide/book/`.
 5. Mention the chapter in the commit message.
+6. Screenshot scripts may only use files committed under `testdata/` (or sources that need no
+   file), and `testdata/README.md` must say how every file there was made, so that anyone
+   can regenerate every picture in the guide from the repository alone.
 
 Tooling: `mdbook` (cargo install mdbook) and Google Chrome (headless, for the PDF).
+
+## Every feature is reachable by the AI assistant
+
+The assistant builds its catalog from the filter registry, so a filter or source registered
+with a `FilterDef` (label, description, keywords, parameter help) is covered automatically.
+Everything else a feature adds (readers and their options, writers, Python calls, display
+settings, mesh commands, panels) must be added to the help text in `crates/aurafx-ai/src/lib.rs`
+(a `format!` string: no double quotes inside it) in the same commit. Check it by asking the
+assistant about the feature.
+
+## Naming other software
+
+auraFX is inspired by ParaView, DREAM.3D and Cubit, and that is said once, in the README. Everywhere
+else (user guide, roadmap catalog, help texts, code comments, commit messages) describe what
+auraFX does in its own terms: do not present a feature as a copy, clone or port of another
+program's feature, and do not compare with those programs. The exceptions are file formats
+named after a program (a ParaView `.pvd` collection, DREAM.3D `.dream3d` files, a ParaView
+color-map `.json`), and the test suite and `testdata/README.md`, which may say which reference
+program produced a reference file.
 
 ## Other conventions
 
@@ -26,7 +48,7 @@ Tooling: `mdbook` (cargo install mdbook) and Google Chrome (headless, for the PD
   an empty folder so the user's plugins are untouched; stop it with `pkill -x aurafx`.
 - Back up and restore `~/.config/aurafx/settings.toml` and `~/.local/share/aurafx/app.ron`
   around app runs.
-- Compare readers, writers and filters against ParaView 6.1.1 (`pvpython` in
+- Check readers, writers and filters against a reference implementation where one exists; today that is ParaView 6.1.1 (`pvpython` in
   `~/Downloads/ParaView-6.1.1-MPI-Linux-Python3.12-x86_64/bin`). Do not point ParaView at
   files our writers produced unless the file is small, and always run pvpython with a memory
   cap and a timeout: `(ulimit -v 8000000; timeout 180 pvpython check.py)`. A malformed file

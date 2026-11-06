@@ -76,7 +76,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38), MapInfo .tab/.mif and Esri file geodatabases (iteration 50); other GDAL rasters, SEG-Y todo.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26), ERDAS Imagine .img (iteration 51); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38), MapInfo .tab/.mif and Esri file geodatabases (iteration 50); other GDAL rasters, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32), FLASH and Enzo particles (iteration 42), Chombo particles and node-centered Chombo (iteration 43).
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
@@ -957,8 +957,19 @@ GDAL's organizePolygons; curves as their vertices). Checked against ParaView 6.1
 written geodatabase of six layers (multi types, heights): each layer alone and all together
 (ParaView cannot select a file's last layer alone: its index reads every layer).
 
-Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+Done in iteration 51: **ERDAS Imagine rasters** (.img, GDAL's HFA driver). The file's data
+dictionary is parsed (types of fields: counts, pointers, objects, inline objects, enums,
+BASEDATA) and drives the decoding of the entry tree; every Eimg_Layer of the first one's size
+is a band (u1/u2/u4 to f64, 64 x 64 or other tiles, plain or run-length compressed blocks,
+invalid blocks filled with no-data), placed by Eprj_MapInfo as HFAGetGeoTransform does
+(including arc-second units), with Eimg_NonInitializedValue as no-data and EPSG codes for
+UTM/longitude-latitude on WGS 84. Checked against the GeoTIFFs GDAL copied them from (every
+cell, placement, projection) and ParaView 6.1.1's band sums, plus compressed byte, 1-bit and
+4-bit layers against their formulas. ParaView places .img files at the origin with zero
+spacing (its GCP branch reads GDAL's empty GCP list) and leaves Elevation empty.
+
+Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL rasters
+(NetCDF through GDAL, JPEG 2000...), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)

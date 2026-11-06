@@ -147,7 +147,8 @@ Some things differ from ParaView:
 
 A GeoTIFF is a TIFF that also records where it lies on the map. auraFX notices these tags and
 reads the file as a map raster instead of as a picture. Esri ASCII grids (`.asc`), a common
-text format for elevation models, are read the same way. Open them with **File › Open** or
+text format for elevation models, and ERDAS Imagine files (`.img`, common in remote sensing)
+are read the same way. Open them with **File › Open** or
 `afx.load("dem.tif")`.
 
 - The raster becomes image data with one cell per pixel, placed at its map coordinates
@@ -164,19 +165,35 @@ text format for elevation models, are read the same way. Open them with **File �
 - 8- to 64-bit integer and floating-point bands are read, compressed or not, in strips or
   tiles, with the bands stored together or one after another. A pixel-is-point GeoTIFF is
   moved half a pixel to its corner, as GDAL does.
+- ERDAS Imagine: every layer of the same size is a band (1-, 2- and 4-bit, 8- to 32-bit
+  integer and 32- and 64-bit floating-point layers, in tiles, plain or run-length
+  compressed), placed by its map information as GDAL does. The no-data value is the layer's
+  "non-initialized" value. `MAP_PROJECTION` is the EPSG code for UTM and longitude/latitude
+  on WGS 84, and the projection's name otherwise. The layers are bands as above: an RGB
+  `.img` gives `Elevation`, `Band 2` and `Band 3` (it does not say which layer is which
+  color). Data kept in a separate `.ige` file (very large images) is not read.
 
 To see an elevation model as terrain, move the values to the points with **Cell Data to
 Point Data**, then raise them with **Warp By Scalar**:
 
 ```python
-dem = afx.load("dem.tif")
+dem = afx.load("dem.tif")                    # or dem.img (ERDAS Imagine)
 terrain = dem.cell_data_to_point_data().warp_by_scalar(array="Elevation", scale=1.0)
 terrain.set(color_by="Elevation")
 ```
 
-Other GDAL raster formats (Erdas `.img`, NetCDF through GDAL, JPEG 2000…) are not read yet.
+Checked against ParaView 6.1.1's GDAL raster reader and against the GeoTIFFs the `.img`
+files were copied from: a compressed float elevation model with no-data, RGB and four-band
+images, and run-length compressed byte, 1-bit and 4-bit layers give the same values in every
+cell, the same placement and the same coordinate system. ParaView itself places `.img` files
+at the origin with zero spacing (it mistakes GDAL's empty list of control points for corner
+points). It also leaves its `Elevation` array empty and lists every layer as `Band 1`, `Band 2`…
+
+Other GDAL raster formats (NetCDF through GDAL, JPEG 2000…) are not read yet.
 
 ![A GeoTIFF elevation model raised into terrain (heights doubled); the missing far corner has no data](images/geotiff_terrain.png)
+
+![The same elevation model read from a run-length compressed ERDAS Imagine file, raised into terrain and colored by height](images/erdas_img.png)
 
 ### GIS vectors
 

@@ -9,6 +9,11 @@ bundled with ParaView (through ctypes; ParaView's Python has no osgeo module):
 - bands.tif: Int16, 4 bands (not colors), band-interleaved (planar) and tiled.
 - point.tif: Float32 with AREA_OR_POINT=Point (the tie point is a pixel center).
 - dem.asc: the same elevations as an Esri ASCII grid (6 significant digits).
+- dem.img, rgb.img, bands.img: the GeoTIFFs copied to ERDAS Imagine (HFA) by GDAL; dem.img
+  run-length compressed (COMPRESSED=YES), all in 64 x 64 blocks (dem.img: four, two of them
+  partly outside the image).
+- classes.img: Byte classes in long runs, 100 x 70, run-length compressed; bits1.img and
+  bits4.img: 1-bit and 4-bit layers (NBITS), compressed.
 """
 import ctypes, os, sys, math
 from ctypes import c_char_p, c_int, c_double, c_void_p, POINTER
@@ -96,3 +101,44 @@ with open(f"{out}/dem.asc", "w") as f:
     for j in range(80):
         f.write(" ".join(f"{elev(i, j):.6g}" for i in range(120)) + "\n")
 print(f"{out}/dem.asc", os.path.getsize(f"{out}/dem.asc"))
+
+# ERDAS Imagine copies of the GeoTIFFs.
+lib.GDALOpen.restype = c_void_p
+lib.GDALOpen.argtypes = [c_char_p, c_int]
+hfa = lib.GDALGetDriverByName(b"HFA")
+for name, o in (("dem", ("COMPRESSED=YES",)), ("rgb", ()), ("bands", ())):
+    src = lib.GDALOpen(f"{out}/{name}.tif".encode(), 0)
+    for ext in ("img", "rrd", "aux.xml"):
+        if os.path.exists(f"{out}/{name}.{ext}"):
+            os.remove(f"{out}/{name}.{ext}")
+    dst = lib.GDALCreateCopy(hfa, f"{out}/{name}.img".encode(), src, 0, opts(*o), None, None)
+    assert dst, name
+    lib.GDALClose(dst)
+    lib.GDALClose(src)
+    if os.path.exists(f"{out}/{name}.img.aux.xml"):  # (GDAL's notes from the copy)
+        os.remove(f"{out}/{name}.img.aux.xml")
+    print(f"{out}/{name}.img", os.path.getsize(f"{out}/{name}.img"))
+
+# Images that run-length coding shrinks (GDAL stores a block plainly when it does not), and
+# sub-byte layers.
+mem = lib.GDALGetDriverByName(b"MEM")
+for name, nbits, f in (("classes", None, lambda i, j: (i // 13 + 3 * (j // 9)) % 7 * 30),
+                       ("bits1", "1", lambda i, j: 1 if (i // 7 + j // 5) % 2 else 0),
+                       ("bits4", "4", lambda i, j: (i // 9 + j // 4) % 16)):
+    w, h = 100, 70
+    src = lib.GDALCreate(mem, b"", w, h, 1, 1, None)
+    lib.GDALSetGeoTransform(src, (c_double * 6)(*[300000.0, 10.0, 0, 4100000.0, 0, -10.0]))
+    lib.GDALSetProjection(src, wkt(32633))
+    band = lib.GDALGetRasterBand(src, 1)
+    buf = (ctypes.c_uint8 * (w * h))(*[f(i, j) for j in range(h) for i in range(w)])
+    assert lib.GDALRasterIO(band, 1, 0, 0, w, h, buf, w, h, 1, 0, 0) == 0
+    o = ["COMPRESSED=YES"] + ([f"NBITS={nbits}"] if nbits else [])
+    if os.path.exists(f"{out}/{name}.img"):
+        os.remove(f"{out}/{name}.img")
+    dst = lib.GDALCreateCopy(hfa, f"{out}/{name}.img".encode(), src, 0, opts(*o), None, None)
+    assert dst, name
+    lib.GDALClose(dst)
+    lib.GDALClose(src)
+    if os.path.exists(f"{out}/{name}.img.aux.xml"):
+        os.remove(f"{out}/{name}.img.aux.xml")
+    print(f"{out}/{name}.img", os.path.getsize(f"{out}/{name}.img"))

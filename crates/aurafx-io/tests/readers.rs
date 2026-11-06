@@ -1057,7 +1057,7 @@ fn writers_share_static_geometry() {
 /// raster reader: image data with a cell per pixel, origin and spacing from the geo-transform,
 /// rows north-up, bands named as ParaView names them; first/last cell values and sums match
 /// (no-data cells are NaN here, hidden cells holding -9999 in ParaView). The Esri ASCII grid
-/// holds the same elevations to 6 digits.
+/// holds the same elevations to 6 digits, and the ERDAS Imagine copies the same data.
 #[test]
 fn rasters_match_paraview() {
     use aurafx_data::DataSet;
@@ -1112,6 +1112,42 @@ fn rasters_match_paraview() {
     let a = comp0(&asc, "Elevation");
     for (x, y) in a.iter().zip(&e) {
         assert!(x.is_nan() == y.is_nan() && (x.is_nan() || (x - y).abs() <= 1e-5 * y.abs()), "{x} vs {y}");
+    }
+
+    // ERDAS Imagine copies (GDAL's HFA driver; dem.img run-length compressed): the same
+    // placement, values, no-data and projection as the GeoTIFFs. ParaView 6.1.1 places .img
+    // files at the origin with zero spacing (it takes GDAL's empty GCP list for corner points);
+    // its band sums are those below.
+    let dem_img = check("rasters/dem.img", [0, 120, 0, 80, 0, 0], [500000.0, 4197600.0, 0.0], [30.0, 30.0, 1.0]);
+    let ei = comp0(&dem_img, "Elevation");
+    assert!(ei.iter().zip(&e).all(|(x, y)| x.is_nan() == y.is_nan() && (x.is_nan() || x == y)));
+    assert_eq!(dem_img.field_data.get("MAP_PROJECTION").map(|a| a.data.clone()), dem.field_data.get("MAP_PROJECTION").map(|a| a.data.clone()));
+    assert_eq!(dem_img.field_data.get("NO_DATA_VALUE").unwrap().data.to_f64_vec(), vec![-9999.0]);
+    let rgb_img = check("rasters/rgb.img", [0, 64, 0, 48, 0, 0], [10.0, 38.0, 0.0], [0.25, 0.25, 1.0]);
+    let rgb_tif = rgb.cell_data.get("Elevation").unwrap().data.to_f64_vec();
+    for (k, (name, total)) in [("Elevation", 387072.0), ("Band 2", 360960.0), ("Band 3", 354304.0)].into_iter().enumerate() {
+        let v = comp0(&rgb_img, name);
+        assert_eq!(sum(&v), total, "rgb.img {name}");
+        assert!(v.iter().enumerate().all(|(i, &x)| x == rgb_tif[3 * i + k]), "rgb.img {name}");
+    }
+    assert_eq!(rgb_img.field_data.get("MAP_PROJECTION").map(|a| a.data.clone()), Some(aurafx_data::ArrayData::String(vec!["EPSG:4326".into()])));
+    let bands_img = check("rasters/bands.img", [0, 40, 0, 30, 0, 0], [-1000.0, 500.0, 0.0], [50.0, 50.0, 1.0]);
+    for name in ["Elevation", "Band 2", "Band 3", "Band 4"] {
+        assert_eq!(comp0(&bands_img, name), comp0(&bands, name), "bands.img {name}");
+    }
+    // Run-length compressed bytes, 1-bit and 4-bit layers: every cell from the formula that
+    // made it (ParaView's sums: 624330, 3500, 51236).
+    let formulas: [(&str, fn(usize, usize) -> f64, f64); 3] = [
+        ("classes", |i, j| ((i / 13 + 3 * (j / 9)) % 7 * 30) as f64, 624330.0),
+        ("bits1", |i, j| if (i / 7 + j / 5) % 2 == 1 { 1.0 } else { 0.0 }, 3500.0),
+        ("bits4", |i, j| ((i / 9 + j / 4) % 16) as f64, 51236.0),
+    ];
+    for (name, f, total) in formulas {
+        let im = check(&format!("rasters/{name}.img"), [0, 100, 0, 70, 0, 0], [300000.0, 4099300.0, 0.0], [10.0, 10.0, 1.0]);
+        let v = comp0(&im, "Elevation");
+        assert_eq!(sum(&v), total, "{name}");
+        // Rows are stored north-up from the bottom; the formula counts rows from the top.
+        assert!((0..70).all(|j| (0..100).all(|i| v[(69 - j) * 100 + i] == f(i, j))), "{name}");
     }
 }
 

@@ -87,7 +87,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["cml"], "Chemical Markup Language"),
         (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
-        (&["tif", "tiff", "asc"], "GIS rasters (GeoTIFF, Esri ASCII grid)"),
+        (&["tif", "tiff", "asc", "img"], "GIS rasters (GeoTIFF, Esri ASCII grid, ERDAS Imagine)"),
         (&["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml", "tab", "mif"], "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML, MapInfo; file geodatabases: open the .gdb folder or a file in it)"),
     ]
 }
@@ -180,6 +180,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
         "tif" | "tiff" if rasters::is_geotiff(path) => Loaded::Static(Arc::new(rasters::read_geotiff(path)?)),
         "asc" => Loaded::Static(Arc::new(rasters::read_ascii_grid(path)?)),
+        "img" => Loaded::Static(Arc::new(rasters::read_hfa(path)?)),
         "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif" => Loaded::Static(Arc::new(vectors::read(path)?)),
         "json" if vectors::is_geojson(path) => Loaded::Static(Arc::new(vectors::read(path)?)),
         "png" | "jpg" | "jpeg" | "bmp" | "tif" | "tiff" => Loaded::Static(Arc::new(images::read(path)?)),

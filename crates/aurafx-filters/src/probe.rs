@@ -63,7 +63,7 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 
 impl Locator {
     pub fn new(ds: &DataSet) -> Result<(Self, std::borrow::Cow<'_, DataSet>)> {
-        if let Some(axes) = grid_axes(ds) {
+        if let Some(axes) = grid_axes(ds).filter(|_| !aurafx_data::amr::has_hidden_cells(ds)) {
             let b = ds.bounds();
             let tol = b.diagonal().max(1e-30) * 1e-6;
             let loc = Self { pts: Vec::new(), simplices: Vec::new(), bins: Vec::new(), dims: [1; 3], lo: b.min, size: b.size(), tol, grid: Some(axes) };
@@ -74,7 +74,12 @@ impl Locator {
         let pts: Vec<[f64; 3]> = (0..points.len()).map(|i| points.get(i)).collect();
         let mut tets = Vec::new();
         let mut tris = Vec::new();
+        // Hidden cells (AMR cells under finer ones) are not found: the finer cells answer.
+        let hidden = parts(&ds).and_then(|(_, _, cd, _)| aurafx_data::amr::hidden_cells(cd));
         for_each_cell(&ds, |cid, ty, ids, faces| {
+            if hidden.as_ref().is_some_and(|h| h[cid]) {
+                return;
+            }
             decompose(points, ty, ids, faces, |s| match s {
                 Simplex::Tet(t) => tets.push((t, cid as u32, 4u8)),
                 Simplex::Tri(t) => tris.push(([t[0], t[1], t[2], 0], cid as u32, 3u8)),

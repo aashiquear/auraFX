@@ -1526,3 +1526,73 @@ fn polygon_fill_covers_the_area() {
         (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0.0
     }), "all triangles counter-clockwise (no overlaps)");
 }
+
+/// AMR files: VTK's .vthb (written by ParaView from its AMR Gaussian Pulse source) and AMReX
+/// plotfiles (scripts/gen_amrex.py), against ParaView 6.1.1: per box the origin, size, array
+/// sums, first values and the covered-cell marks. In 2-D, ParaView fills a vector's missing z
+/// with the plotfile's first variable; auraFX uses 0, so only x and y are compared there.
+#[test]
+fn amr_files_match_paraview() {
+    use aurafx_data::DataSet;
+    let leaves = |d: &DataSet| -> Vec<aurafx_data::ImageData> {
+        assert!(aurafx_data::amr::is_amr(d), "not AMR");
+        let DataSet::MultiBlock(mb) = d else { panic!() };
+        mb.leaves().into_iter().map(|(_, l)| match l {
+            DataSet::ImageData(i) => i.clone(),
+            _ => panic!("not image data"),
+        }).collect()
+    };
+    let sum = |i: &aurafx_data::ImageData, name: &str, c: usize| -> f64 {
+        let a = i.cell_data.get(name).unwrap_or_else(|| panic!("no {name}"));
+        (0..a.len()).map(|k| a.get(k, c)).sum()
+    };
+    let close = |a: f64, b: f64, tol: f64, tag: &str| assert!((a - b).abs() <= tol * (1.0 + b.abs()), "{tag}: {a} vs ParaView {b}");
+
+    // .vthb: the Gaussian pulse.
+    let p = static_ds("amr/pulse.vthb");
+    let l = leaves(&p);
+    assert_eq!(l.len(), 3);
+    assert_eq!(p.n_cells(), 605);
+    close(l.iter().map(|i| sum(i, "Gaussian-Pulse", 0)).sum(), 9.989747547467575, 1e-12, "pulse");
+    close(sum(&l[0], "vtkGhostType", 0), 480.0, 0.0, "pulse ghosts");
+    let p2 = static_ds("amr/pulse2d.vthb");
+    assert_eq!(p2.n_cells(), 73);
+    close(leaves(&p2).iter().map(|i| sum(i, "Gaussian-Pulse", 0)).sum(), 6.329186193165329, 1e-12, "2D pulse");
+    close(sum(&leaves(&p2)[0], "vtkGhostType", 0), 8.0 * 12.0, 0.0, "2D pulse ghosts");
+
+    // AMReX plotfiles: (origin, points per axis, density, temperature, velocity x/y/z sums,
+    // first density, ghost sum) per box, as ParaView reads them.
+    type Box = ([f64; 3], [usize; 3], f64, f64, [f64; 3], f64, f64);
+    let b3: [Box; 3] = [
+        ([-1.0, -1.0, 0.0], [9, 17, 17], 175.809597882, 583255.213718562, [0.0, -1024.0, 204.8], 2.6275464e-05, 1536.0),
+        ([0.0, -1.0, 0.0], [9, 17, 17], 175.809597882, 645544.786281438, [0.0, 1024.0, 204.8], 0.00087012385, 2560.0),
+        ([-0.375, -0.5, 0.25], [17, 17, 17], 1461.685601489, 1270864.143292565, [0.0, 512.0, 307.2], 0.032778949604, 0.0),
+    ];
+    let b2: [Box; 3] = [
+        ([-1.0, -1.0, 0.0], [9, 17, 1], 0.456219448, 36453.45085741, [0.0, -64.0, f64::NAN], 1.6187843e-05, 192.0),
+        ([0.0, -1.0, 0.0], [9, 17, 1], 0.456219448, 40346.54914259, [0.0, 64.0, f64::NAN], 0.000536067753, 320.0),
+        ([-0.375, -0.5, 0.0], [17, 17, 1], 2.538693629, 79429.008955785, [0.0, 32.0, f64::NAN], 0.004740737807, 0.0),
+    ];
+    for (file, want, tol) in [("amr/plt_3d", &b3, 1e-9), ("amr/plt_2d/Header", &b2, 1e-9), ("amr/plt_3d_f32", &b3, 2e-6)] {
+        let d = static_ds(file);
+        let l = leaves(&d);
+        assert_eq!(l.len(), 3, "{file}");
+        for (i, (img, w)) in l.iter().zip(want.iter()).enumerate() {
+            let tag = format!("{file} box {i}");
+            assert_eq!(img.origin, w.0, "{tag} origin");
+            assert_eq!(img.dims(), w.1, "{tag} dims");
+            close(sum(img, "density", 0), w.2, tol, &format!("{tag} density"));
+            close(sum(img, "temperature", 0), w.3, tol, &format!("{tag} temperature"));
+            for c in 0..3 {
+                if !w.4[c].is_nan() {
+                    close(sum(img, "velocity", c), w.4[c], tol, &format!("{tag} velocity {c}"));
+                }
+            }
+            close(img.cell_data.get("density").unwrap().get(0, 0), w.5, 1e-7, &format!("{tag} first density"));
+            close(sum(img, "vtkGhostType", 0), w.6, 0.0, &format!("{tag} ghosts"));
+        }
+        if file.ends_with("f32") {
+            assert_eq!(l[0].cell_data.get("density").unwrap().scalar_type(), aurafx_data::ScalarType::F32);
+        }
+    }
+}

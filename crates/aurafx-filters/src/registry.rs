@@ -328,7 +328,20 @@ const PROGRAMMABLE_FILTER_TEMPLATE: &str = "# inputs[0] is the input, output sta
 const PROGRAMMABLE_SOURCE_TEMPLATE: &str = "# Assign output, e.g. a random point cloud:\nxyz = np.random.default_rng(0).random((1000, 3))\noutput = afx.make_points(xyz)\noutput.point_data['height'] = xyz[:, 2]\n";
 
 fn array_or_default(ds: &DataSet, p: &Params, key: &str, vector: bool) -> Result<(Association, String)> {
-    p.array(key).or_else(|| default_array(ds, vector)).ok_or_else(|| anyhow!("no suitable array for '{key}'"))
+    match p.array(key) {
+        // A name given without its association (a plain string from Python) may be on the
+        // other side: cell data of AMR blocks and most simulation files.
+        Some((a, n)) => {
+            let has = |a: Association| match a {
+                Association::Points => ds.point_data(),
+                Association::Cells => ds.cell_data(),
+            }
+            .is_some_and(|x| x.get(&n).is_some());
+            let other = if a == Association::Points { Association::Cells } else { Association::Points };
+            Ok(if !has(a) && has(other) { (other, n) } else { (a, n) })
+        }
+        None => default_array(ds, vector).ok_or_else(|| anyhow!("no suitable array for '{key}'")),
+    }
 }
 
 /// Apply a per-leaf operation over multi-block inputs.
@@ -902,7 +915,8 @@ fn build() -> Vec<FilterDef> {
                 .advanced()],
             apply: |input, p| {
                 let level = p.i64("nonlinear_subdivision_level", 1).clamp(0, 6) as u32;
-                Ok(DataSet::PolyData(crate::surface::extract_surface_level(input.unwrap(), level)?))
+                // Block by block, as ParaView does, so each block keeps its cell data.
+                per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface::extract_surface_level(d, level)?)))
             },
         },
         FilterDef {
@@ -1627,6 +1641,19 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "overlapping_amr_level_ids",
+            label: "Overlapping AMR Level Ids",
+            category: "Data",
+            description: "Cell array LevelIdScalars with the refinement level of every cell of AMR data.",
+            keywords: &["amr", "level", "refinement level", "adaptive mesh"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| crate::geometry::amr_level_ids(input.unwrap()),
+        },
+        FilterDef {
             id: "cell_size",
             label: "Cell Size",
             category: "Data",
@@ -1979,6 +2006,35 @@ fn build() -> Vec<FilterDef> {
                     .help("The source's time steps (default: one period of the first wave in 20 steps)."),
             ],
             apply: |_, p| harmonics_grid(p, p.floats("time_steps").first().copied().unwrap_or(0.0)),
+        },
+        FilterDef {
+            id: "amr_gaussian_pulse",
+            label: "AMR Gaussian Pulse",
+            category: "Sources",
+            description: "A small AMR test dataset: a coarse box and two finer boxes holding a Gaussian pulse.",
+            keywords: &["amr", "adaptive mesh refinement", "levels", "test data", "overlapping amr"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("dimension", "Dimension", &["2D", "3D"], "3D"),
+                f("root_spacing", "Root spacing", 0.5, 1e-9, f64::INFINITY),
+                choice("refinement_ratio", "Refinement ratio", &["2", "3", "4"], "2"),
+                v3("pulse_origin", "Pulse origin", [0.0; 3]),
+                v3("pulse_width", "Pulse width", [0.5; 3]),
+                f("pulse_amplitude", "Pulse amplitude", 0.5, f64::NEG_INFINITY, f64::INFINITY),
+            ],
+            apply: |_, p| {
+                Ok(crate::sources::amr_gaussian_pulse(
+                    if p.str("dimension") == "2D" { 2 } else { 3 },
+                    p.f64("root_spacing", 0.5),
+                    p.str("refinement_ratio").parse().unwrap_or(2),
+                    p.vec3("pulse_origin", [0.0; 3]),
+                    p.vec3("pulse_width", [0.5; 3]),
+                    p.f64("pulse_amplitude", 0.5),
+                ))
+            },
         },
         FilterDef {
             id: "wavelet",

@@ -23,11 +23,13 @@ pub fn threshold(
 ) -> Result<UnstructuredGrid> {
     let ds = as_explicit(ds);
     let (points, pd, cd, fd) = parts(&ds).ok_or_else(|| anyhow!("threshold: unsupported dataset"))?;
-    let arr = match assoc {
-        Association::Points => pd.get(array),
-        Association::Cells => cd.get(array),
-    }
-    .ok_or_else(|| anyhow!("threshold: no {:?} array {array:?}", assoc))?;
+    // A name given without its association is looked up on the other side too.
+    let on = |a: Association| match a {
+        Association::Points => pd.get(array).map(|x| (a, x)),
+        Association::Cells => cd.get(array).map(|x| (a, x)),
+    };
+    let other = if assoc == Association::Points { Association::Cells } else { Association::Points };
+    let (assoc, arr) = on(assoc).or_else(|| on(other)).ok_or_else(|| anyhow!("threshold: no array {array:?}"))?;
     let val = |i: usize| match comp {
         Some(c) => arr.get(i, c),
         None => arr.magnitude(i),

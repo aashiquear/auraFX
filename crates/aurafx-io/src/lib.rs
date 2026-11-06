@@ -4,6 +4,7 @@
 //! magic bytes) and returns either a single dataset or a lazily-loaded time series.
 
 pub(crate) mod adf;
+pub mod amrex;
 pub mod cam;
 pub mod cgns;
 pub mod cgns_writer;
@@ -55,6 +56,8 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vtu", "vtp", "vti", "vtr", "vts", "vtt"], "VTK XML"),
         (&["pvtu", "pvtp", "pvti", "pvtr", "pvts"], "VTK XML (parallel)"),
         (&["vtm", "vtmb"], "VTK multi-block"),
+        (&["vthb", "vth"], "VTK AMR (overlapping, hierarchical box)"),
+        (&["Header"], "AMReX / BoxLib plotfile (its Header file, or the folder)"),
         (&["pvd"], "ParaView data collection"),
         (&["dump", "lammpstrj", "dump.gz", "lammpstrj.gz"], "LAMMPS dump"),
         (&["xyz", "extxyz"], "XYZ / extended XYZ"),
@@ -137,6 +140,10 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         let ds = (r.read)(path).with_context(|| format!("{} reader ({})", r.label, r.plugin))?;
         return Ok(Loaded::Static(Arc::new(ds)));
     }
+    // AMReX plotfiles are directories (or their Header file).
+    if amrex::plotfile_dir(path).is_some() {
+        return Ok(Loaded::Static(Arc::new(amrex::read(path)?)));
+    }
     // VASP files are known by name (POSCAR, CHGCAR, ...).
     if molecular::is_vasp_name(path) {
         return Ok(Loaded::Static(Arc::new(molecular::read_vasp(path)?)));
@@ -154,7 +161,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "json" if vectors::is_geojson(path) => Loaded::Static(Arc::new(vectors::read(path)?)),
         "png" | "jpg" | "jpeg" | "bmp" | "tif" | "tiff" => Loaded::Static(Arc::new(images::read(path)?)),
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),
-        "vtu" | "vtp" | "vti" | "vtr" | "vts" | "vtt" | "pvtu" | "pvtp" | "pvti" | "pvtr" | "pvts" | "vtm" | "vtmb" => {
+        "vtu" | "vtp" | "vti" | "vtr" | "vts" | "vtt" | "pvtu" | "pvtp" | "pvti" | "pvtr" | "pvts" | "vtm" | "vtmb" | "vthb" | "vth" => {
             Loaded::Static(Arc::new(xml_vtk::read(path)?))
         }
         "pvd" => Loaded::Series(xml_vtk::read_pvd(path)?),

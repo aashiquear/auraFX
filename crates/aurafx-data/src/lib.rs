@@ -4,6 +4,7 @@
 //! rendering or I/O dependencies so it can be shared between the pipeline, the Python
 //! bindings, readers, filters and the renderer.
 
+pub mod amr;
 pub mod array;
 pub mod attributes;
 pub mod bounds;

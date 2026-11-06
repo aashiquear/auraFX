@@ -859,3 +859,77 @@ fn texture_maps_noise_and_harmonics_match_paraview() {
     let (s, f, l) = summary(&v, "SpatioTemporalHarmonics");
     close_all("harmonics source t3", &[s[0], f[0], l[0]], &[358.824287, 1.621371, 1.621274], 1e-6);
 }
+
+/// AMR: ParaView's AMR Gaussian Pulse source, and filters skipping the coarse cells finer
+/// boxes cover (vtkGhostType REFINEDCELL), against ParaView 6.1.1.
+#[test]
+fn amr_gaussian_pulse_matches_paraview() {
+    use serde_json::json;
+    let cell_sum = |d: &DataSet, name: &str| -> f64 {
+        match d {
+            DataSet::MultiBlock(mb) => mb.leaves().iter().map(|(_, l)| l.cell_data().and_then(|c| c.get(name)).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum::<f64>()).unwrap_or(0.0)).sum(),
+            d => d.cell_data().and_then(|c| c.get(name)).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum()).unwrap_or(0.0),
+        }
+    };
+    let close = |a: f64, b: f64, tag: &str| assert!((a - b).abs() <= 1e-9 * (1.0 + b.abs()), "{tag}: {a} vs ParaView {b}");
+    let col = |d: &DataSet, name: &str| -> f64 {
+        let DataSet::Table(t) = d else { panic!("not a table") };
+        t.column(name).unwrap_or_else(|| panic!("no column {name}")).get(0, 0)
+    };
+    let amr = run("amr_gaussian_pulse", None, &[]);
+    assert!(aurafx_data::amr::is_amr(&amr));
+    assert_eq!((amr.n_cells(), amr.n_points()), (605, 986));
+    close(cell_sum(&amr, "Gaussian-Pulse"), 9.989747547467575, "pulse sum");
+    // 60 of the 125 root cells are covered by the finer boxes.
+    let DataSet::MultiBlock(mb) = &amr else { panic!() };
+    let root = &mb.leaves()[0].1;
+    let ghosts = root.cell_data().unwrap().get("vtkGhostType").unwrap();
+    assert_eq!((0..ghosts.len()).filter(|&i| ghosts.get(i, 0) == 8.0).count(), 60);
+    let two_d = run("amr_gaussian_pulse", None, &[("dimension", json!("2D"))]);
+    assert_eq!(two_d.n_cells(), 73);
+    close(cell_sum(&two_d, "Gaussian-Pulse"), 6.329186193165329, "2D pulse sum");
+
+    // Integrals count each place once: the volume is the root box's.
+    let iv = run("integrate_variables", Some(&amr), &[]);
+    close(col(&iv, "Volume"), 15.625, "volume");
+    close(col(&iv, "Gaussian-Pulse (cell)"), 0.14695209681902666, "pulse integral");
+    // Slices through both levels: the area of the domain, the integral as ParaView's.
+    for (origin, normal, want) in [([0.0, 0.0, 1.1], [0.0, 0.0, 1.0], 0.001999357733375088), ([-0.3, 0.0, 0.0], [1.0, 0.0, 0.0], 0.1035181663512717)] {
+        let sl = run("slice", Some(&amr), &[("origin", json!(origin)), ("normal", json!(normal))]);
+        let iv = run("integrate_variables", Some(&sl), &[]);
+        close(col(&iv, "Area"), 6.25, "slice area");
+        close(col(&iv, "Gaussian-Pulse (cell)"), want, "slice integral");
+    }
+    let th = run("threshold", Some(&amr), &[("array", json!("Gaussian-Pulse")), ("lower", json!(0.01)), ("upper", json!(1.0))]);
+    assert_eq!(th.n_cells(), 80);
+    close(cell_sum(&th, "Gaussian-Pulse"), 8.711454370986036, "threshold sum");
+    // The surface: visible cells' outer faces per block (ParaView: 622 faces, area 62.5,
+    // including the faces where coarse and fine boxes meet), with no faces of covered cells.
+    let surf = aurafx_filters::surface::extract_surface(&amr).unwrap();
+    assert_eq!(surf.polys.len(), 622);
+    let sv = run("extract_surface", Some(&amr), &[]);
+    close(col(&run("integrate_variables", Some(&sv), &[]), "Gaussian-Pulse (cell)"), 0.6484506420945171, "surface integral");
+    let area: f64 = (0..surf.polys.len())
+        .map(|c| {
+            let q = surf.polys.cell(c);
+            let (a, b, d) = (surf.points.get(q[0] as usize), surf.points.get(q[1] as usize), surf.points.get(q[3] as usize));
+            let (u, v) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [d[0] - a[0], d[1] - a[1], d[2] - a[2]]);
+            ((u[1] * v[2] - u[2] * v[1]).powi(2) + (u[2] * v[0] - u[0] * v[2]).powi(2) + (u[0] * v[1] - u[1] * v[0]).powi(2)).sqrt()
+        })
+        .sum();
+    close(area, 62.5, "surface area");
+    // Resampling takes the finest cell at each sample (no sample sits on a cell face).
+    let img = run("resample_to_image", Some(&amr), &[("nx", json!(14)), ("ny", json!(14)), ("nz", json!(14))]);
+    let g = img.point_data().unwrap().get("Gaussian-Pulse").unwrap();
+    close((0..g.len()).map(|i| g.get(i, 0)).sum(), 26.763096558880346, "resampled sum");
+    // Cell to point data averages within each box (covered cells included), as ParaView.
+    let pts = run("cell_data_to_point_data", Some(&amr), &[]);
+    let psum: f64 = match &pts {
+        DataSet::MultiBlock(mb) => mb.leaves().iter().map(|(_, l)| l.point_data().and_then(|p| p.get("Gaussian-Pulse")).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum::<f64>()).unwrap_or(0.0)).sum(),
+        _ => panic!(),
+    };
+    close(psum, 17.109011619129443, "cell to point sum");
+    // Level ids.
+    let ids = run("overlapping_amr_level_ids", Some(&amr), &[]);
+    close(cell_sum(&ids, "LevelIdScalars"), 480.0, "level ids"); // 2 fine boxes × 240 cells at level 1
+}

@@ -432,6 +432,7 @@ pub fn read_bytes(bytes: &[u8], path: &Path) -> Result<DataSet> {
         "UnstructuredGrid" => read_unstructured(&ctx, body)?,
         "Table" => read_table(&ctx, body)?,
         "vtkMultiBlockDataSet" => read_multiblock(path, body)?,
+        "vtkOverlappingAMR" | "vtkHierarchicalBoxDataSet" | "vtkNonOverlappingAMR" => read_amr(path, body, ty != "vtkNonOverlappingAMR")?,
         "PImageData" | "PRectilinearGrid" | "PStructuredGrid" | "PPolyData" | "PUnstructuredGrid" => read_parallel(path, body)?,
         other => bail!("unsupported VTK XML type {other}"),
     };
@@ -635,6 +636,51 @@ fn read_multiblock(path: &Path, body: &Node) -> Result<DataSet> {
         Ok(mb)
     }
     Ok(DataSet::MultiBlock(walk(path, body)?))
+}
+
+/// VTK's AMR files (`.vthb`, `.vth`): levels of image boxes in `.vti` files, as AMR data
+/// (levels of blocks, covered coarse cells marked in `vtkGhostType`).
+fn read_amr(path: &Path, body: &Node, overlapping: bool) -> Result<DataSet> {
+    use aurafx_data::amr::{Amr, AmrBlock, AmrLevel};
+    let nums = |s: Option<&str>| -> Vec<f64> { s.unwrap_or("").split_whitespace().filter_map(|x| x.parse().ok()).collect() };
+    let o = nums(body.attr("origin"));
+    let origin = if o.len() == 3 { [o[0], o[1], o[2]] } else { [0.0; 3] };
+    let mut amr = Amr { origin, levels: Vec::new() };
+    for b in body.children_named("Block") {
+        let level: usize = b.attr("level").and_then(|l| l.parse().ok()).unwrap_or(amr.levels.len());
+        while amr.levels.len() <= level {
+            amr.levels.push(AmrLevel::default());
+        }
+        let sp = nums(b.attr("spacing"));
+        if sp.len() == 3 {
+            amr.levels[level].spacing = [sp[0], sp[1], sp[2]];
+        }
+        for d in b.children_named("DataSet") {
+            let Some(f) = d.attr("file") else { continue };
+            let data = match crate::read_file(crate::sibling(path, f))? {
+                crate::Loaded::Static(ds) => match &*ds {
+                    DataSet::ImageData(i) => i.clone(),
+                    other => bail!("{f}: AMR blocks must be image data, not {}", other.type_name()),
+                },
+                _ => bail!("{f}: AMR blocks cannot have time steps"),
+            };
+            if amr.levels[level].spacing == [0.0; 3] {
+                amr.levels[level].spacing = data.spacing;
+            }
+            let bx: Vec<i64> = nums(d.attr("amr_box")).into_iter().map(|v| v as i64).collect();
+            let blk = if bx.len() == 6 {
+                // An empty range (2-D data: "0 -1") is one cell layer.
+                AmrBlock { lo: [bx[0], bx[2], bx[4]], hi: [bx[1].max(bx[0]), bx[3].max(bx[2]), bx[5].max(bx[4])], data }
+            } else {
+                AmrBlock::locate(origin, amr.levels[level].spacing, data)
+            };
+            amr.levels[level].blocks.push(blk);
+        }
+    }
+    if overlapping {
+        amr.blank();
+    }
+    Ok(amr.into_dataset())
 }
 
 fn read_parallel(path: &Path, body: &Node) -> Result<DataSet> {

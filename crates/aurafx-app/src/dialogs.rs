@@ -140,7 +140,9 @@ pub fn file_browser_ui(fb: &mut FileBrowser, ctx: &egui::Context) -> Option<Path
         entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (name, is_dir) in entries {
-                let readable = name.ends_with(".afx") || exts.iter().any(|e| name.to_lowercase().ends_with(&format!(".{e}")));
+                let readable = name.ends_with(".afx")
+                    || exts.iter().any(|e| name.to_lowercase().ends_with(&format!(".{e}")))
+                    || (name == "Header" && aurafx_io::amrex::plotfile_dir(&fb.dir.join(&name)).is_some());
                 let label = if is_dir { format!("{} {name}", crate::icons::FOLDER_OPEN) } else { name.clone() };
                 let text = if is_dir || readable { egui::RichText::new(label) } else { egui::RichText::new(label).weak() };
                 if ui.selectable_label(false, text).clicked() {

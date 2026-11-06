@@ -694,3 +694,24 @@ pub fn extract_subset(ds: &DataSet, voi_min: [f64; 3], voi_max: [f64; 3], rate: 
         _ => unreachable!(),
     })
 }
+
+/// Overlapping AMR Level Ids: `LevelIdScalars` (unsigned char) on every cell, the level of its
+/// block. Also accepts any multi-block of levels.
+pub fn amr_level_ids(ds: &DataSet) -> Result<DataSet> {
+    let DataSet::MultiBlock(mb) = ds else { bail!("Overlapping AMR Level Ids needs AMR data (levels of blocks)") };
+    let mut out = mb.clone();
+    for (l, (_, lev)) in out.blocks.iter_mut().enumerate() {
+        let tag = |d: &mut DataSet| {
+            let n = d.n_cells();
+            if let Some(cd) = d.cell_data_mut() {
+                cd.insert(Array::new("LevelIdScalars", 1, ArrayData::U8(vec![l.min(255) as u8; n])));
+            }
+        };
+        match lev {
+            Some(DataSet::MultiBlock(m)) => m.blocks.iter_mut().filter_map(|(_, b)| b.as_mut()).for_each(tag),
+            Some(d) => tag(d),
+            None => {}
+        }
+    }
+    Ok(DataSet::MultiBlock(out))
+}

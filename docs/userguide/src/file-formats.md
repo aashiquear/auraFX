@@ -10,6 +10,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | Exodus II | `.e .exo .ex2 .g .gen` | NetCDF-3 and NetCDF-4; blocks, side and node sets, nodal/element/global variables, time steps, displacements |
 | VTK legacy | `.vtk` | ASCII and binary, all dataset types |
 | VTK XML | `.vtu .vtp .vti .vtr .vts .vtt`, parallel `.pvtu …`, `.vtm`, `.pvd` | inline, appended, base64; zlib and LZ4; curved (Lagrange/Bezier) cells |
+| AMR (adaptive mesh refinement) | VTK `.vthb .vth`, AMReX/BoxLib plotfiles (the folder, or its `Header`) | levels of boxes with cell data; coarse cells under finer boxes are left out; see below |
 | VTKHDF | `.vtkhdf .hdf` | image data, unstructured grids, poly data, partitioned collections with their assembly, time steps; chunked and gzip storage; no HDF5 library needed |
 | OpenFOAM | `.foam` | ASCII/binary/gzip, decomposed and reconstructed cases, time directories, boundary patches |
 | EnSight Gold | `.case .encas` | ASCII and C binary, all element types, structured blocks, time sets, wildcard file names |
@@ -228,6 +229,53 @@ Not read yet: KMZ (zipped KML), GML, FlatGeobuf, MapInfo, file geodatabases, and
 geometry (arcs). Shapefile multipatches (3-D surfaces) are skipped, as ParaView does.
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
+
+### AMR data (adaptive mesh refinement)
+
+AMR simulations (AMReX, BoxLib, Castro, MAESTRO, Nyx, WarpX…) store their domain as levels of
+boxes: a coarse level everywhere and finer boxes where more detail was needed. auraFX reads:
+
+- **AMReX / BoxLib plotfiles**: a folder like `plt00100` with a `Header` file. Open the
+  `Header` file in **File › Open** (choose "All files"), drop the folder on the window, or
+  `afx.load("plt00100")`.
+- **VTK AMR files** (`.vthb`, `.vth`), as ParaView writes them.
+
+What you get:
+- One block per level (**Level 0**, **Level 1**, ...), each holding that level's boxes as image
+  data with the variables as cell data. The **Information** panel lists them.
+- Coarse cells that a finer box covers are marked as hidden in `vtkGhostType`, as in ParaView.
+  Surfaces, slices, clips, contours, thresholds, Integrate Variables, Resample To Image and
+  probing skip them, so every place is shown and counted once, at its finest level.
+- AMReX vector variables written as `amrexvec_<name>_x`, `_y`, `_z` become one vector
+  `<name>`. In 2-D files the missing z is 0. ParaView puts the file's first variable there
+  instead.
+- The plotfile's time is in the field data (`TimeValue`). Single- and double-precision
+  plotfiles are read.
+- **Outline** draws the outline of every box, which shows where the refinement is.
+
+![An AMReX plotfile: the outlines of its two coarse boxes and one finer box, and a slice through both levels colored by density](images/amr_view.png)
+
+```python
+amr = afx.load("plt00100")                 # the plotfile folder
+amr.set(representation="Outline")          # where the refinement is
+s = amr.slice(normal=(0, 0, 1))            # finest data on the cut
+s.set(color_by="density")
+lev = amr.overlapping_amr_level_ids()      # LevelIdScalars: each cell's level
+```
+
+**Sources › AMR Gaussian Pulse** makes ParaView's small AMR test dataset: a coarse box and
+two finer boxes holding a Gaussian pulse, in 2-D or 3-D. **Filters › Overlapping AMR Level
+Ids** adds the cell array `LevelIdScalars` with each cell's level.
+
+Checked against ParaView 6.1.1: the AMR Gaussian Pulse source (cells, values, covered cells),
+the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
+(`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), and on the AMR data
+Integrate Variables (the volume counts each place once), slices, Threshold, Extract Surface,
+Cell Data to Point Data and Resample To Image.
+
+Not read yet: plotfiles without FAB headers (the "NoFabHeader" variants), AMReX particles,
+Enzo, FLASH and Chombo files. Not available yet: ParaView's AMR-specific filters (AMR Contour,
+Dual Clip, Fragments, Resample AMR).
 
 ## Writers
 

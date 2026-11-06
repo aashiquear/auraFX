@@ -128,7 +128,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [ ] Hyper Tree Grid: Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
-- [ ] AMR: Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
+- [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [ ] Cell Grid: Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [ ] Molecules: Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
@@ -733,8 +733,21 @@ GeoJSON and GeoPackage. Also fixed: `node.set` now handles the documented displa
 (`solid_color`, `range`, `log_scale`, `component`, `line_width`, `lighting`, ...; before they
 were silently stored as parameters) and `color_by=None` sticks when set before the data loads.
 
+Done in iteration 32: **AMR foundations**. Overlapping AMR is a multi-block of levels of image
+boxes (`aurafx_data::amr`: boxes in level index space, refinement ratios from spacings,
+blanking of covered coarse cells as `vtkGhostType` REFINEDCELL, a root marker). Cells VTK
+treats as invisible (REFINED|HIDDEN) are skipped by the shared cell loop (slice, contour,
+clip, threshold, integrate, surface) and by the probe locator (Resample To Image, probes), and
+image data with hidden cells takes the general surface path; Extract Surface now works block
+by block (cell data kept). Readers: VTK `.vthb`/`.vth` and AMReX plotfiles (Version_v1 FABs,
+float/double, either byte order, `amrexvec_` vectors). Source: AMR Gaussian Pulse (2-D/3-D);
+filter: Overlapping AMR Level Ids; Outline draws every box. Checked against ParaView 6.1.1:
+source (cells, sums, covered cells), both readers (per-box origin, size, sums), Integrate
+Variables, slices, Threshold, Extract Surface, Cell Data to Point Data, Resample To Image.
+Array parameters given by name now find cell arrays too (shared `array_or_default`).
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (AMR, hyper tree grids, cell
+(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (AMR-specific filters: AMR Contour/Dual Clip/Fragments/Resample AMR; Enzo/FLASH/Chombo readers; hyper tree grids, cell
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

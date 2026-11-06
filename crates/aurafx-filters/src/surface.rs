@@ -17,7 +17,7 @@ pub fn extract_surface(ds: &DataSet) -> Result<PolyData> {
 /// evaluated on the curved cell.
 pub fn extract_surface_level(ds: &DataSet, level: u32) -> Result<PolyData> {
     match ds {
-        DataSet::ImageData(_) | DataSet::RectilinearGrid(_) | DataSet::StructuredGrid(_) => structured_surface(ds),
+        DataSet::ImageData(_) | DataSet::RectilinearGrid(_) | DataSet::StructuredGrid(_) if !aurafx_data::amr::has_hidden_cells(ds) => structured_surface(ds),
         DataSet::MultiBlock(mb) => {
             let mut out: Option<PolyData> = None;
             for (_, leaf) in mb.leaves() {
@@ -216,7 +216,16 @@ fn linear_surface(ds: &DataSet) -> Option<Result<PolyData>> {
         k.sort_unstable();
         k
     };
-    let faces_of = |cid: usize| if cells.types[cid].dimension() == 3 { cells.types[cid].faces().len() } else { 0 };
+    // Hidden cells (AMR cells under finer ones) have no faces: the visible cells beside them
+    // show theirs.
+    let hidden = aurafx_data::amr::hidden_cells(&ug.cell_data);
+    let faces_of = |cid: usize| {
+        if cells.types[cid].dimension() == 3 && !hidden.as_ref().is_some_and(|h| h[cid]) {
+            cells.types[cid].faces().len()
+        } else {
+            0
+        }
+    };
     // 1. Faces per smallest point.
     let counts: Vec<AtomicU32> = (0..n_pts + 1).map(|_| AtomicU32::new(0)).collect();
     (0..n_cells).into_par_iter().with_min_len(4096).for_each(|cid| {

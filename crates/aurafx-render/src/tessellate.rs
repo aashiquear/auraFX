@@ -415,8 +415,15 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         return mesh;
     }
     if display.representation == Representation::Outline {
-        let pd = aurafx_filters::outline::outline(ds);
-        emit_lines(&pd, origin, None, None, 0, &mut mesh.lines);
+        // AMR data shows the outline of every box (the refinement), as in ParaView.
+        let boxes: Vec<&DataSet> = match ds {
+            DataSet::MultiBlock(mb) if aurafx_data::amr::is_amr(ds) => mb.leaves().into_iter().map(|(_, d)| d).collect(),
+            d => vec![d],
+        };
+        for b in boxes {
+            let pd = aurafx_filters::outline::outline(b);
+            emit_lines(&pd, origin, None, None, 0, &mut mesh.lines);
+        }
         return mesh;
     }
     // An image on the surface replaces the array colors where there are texture coordinates.

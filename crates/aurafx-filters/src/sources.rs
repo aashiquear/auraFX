@@ -342,3 +342,64 @@ pub fn unstructured_cell_types(ty: CellType, dims: [usize; 3], order: usize) -> 
     ug.point_data.insert_active(AttributeKind::Scalars, Array::scalars_f64("Polynomial", poly));
     ug
 }
+
+/// ParaView's AMR Gaussian Pulse source (vtkAMRGaussianPulseSource): a 5×5(×5)-cell root box
+/// at `root_spacing` from (-2, -2, 0) and two refined patches, with cell arrays `Centroid` and
+/// `Gaussian-Pulse` = amplitude · exp(-Σ ((x - origin)/width)²) over the first `dim` axes.
+pub fn amr_gaussian_pulse(dim: usize, root_spacing: f64, ratio: i64, origin: [f64; 3], width: [f64; 3], amplitude: f64) -> DataSet {
+    use aurafx_data::amr::{Amr, AmrBlock, AmrLevel};
+    let dim = dim.clamp(2, 3);
+    let pulse = |c: [f64; 3]| -> f64 {
+        let r: f64 = (0..dim).map(|i| ((c[i] - origin[i]) / width[i]).powi(2)).sum();
+        amplitude * (-r).exp()
+    };
+    let grid = |o: [f64; 3], h: [f64; 3], n: [usize; 3]| -> ImageData {
+        let mut img = ImageData { extent: [0, n[0] as i64 - 1, 0, n[1] as i64 - 1, 0, n[2] as i64 - 1], origin: o, spacing: h, ..Default::default() };
+        let c = [n[0].saturating_sub(1).max(1), n[1].saturating_sub(1).max(1), n[2].saturating_sub(1).max(1)];
+        let (mut cent, mut val) = (Vec::with_capacity(3 * c[0] * c[1] * c[2]), Vec::with_capacity(c[0] * c[1] * c[2]));
+        for k in 0..c[2] {
+            for j in 0..c[1] {
+                for i in 0..c[0] {
+                    let half = |axis: usize, idx: usize| o[axis] + h[axis] * (idx as f64 + if n[axis] > 1 { 0.5 } else { 0.0 });
+                    let p = [half(0, i), half(1, j), half(2, k)];
+                    cent.extend_from_slice(&p);
+                    val.push(pulse(p));
+                }
+            }
+        }
+        img.cell_data.insert(Array::new("Centroid", 3, ArrayData::F64(cent)));
+        img.cell_data.insert_active(AttributeKind::Scalars, Array::new("Gaussian-Pulse", 1, ArrayData::F64(val)));
+        img
+    };
+    let h0 = [root_spacing; 3];
+    let o0 = [-2.0, -2.0, 0.0];
+    let n0 = if dim == 3 { [6, 6, 6] } else { [6, 6, 1] };
+    let root = grid(o0, h0, n0);
+    let patches: [[i64; 6]; 2] = if dim == 3 { [[0, 2, 0, 3, 0, 5], [3, 5, 2, 5, 0, 5]] } else { [[0, 2, 0, 3, 0, 0], [3, 5, 2, 5, 0, 0]] };
+    let r = ratio.max(1) as f64;
+    let mut h1 = [0.5; 3];
+    for i in 0..dim {
+        h1[i] = h0[i] / r;
+    }
+    let fine: Vec<ImageData> = patches
+        .iter()
+        .map(|p| {
+            let min = [o0[0] + p[0] as f64 * h0[0], o0[1] + p[2] as f64 * h0[1], o0[2] + p[4] as f64 * h0[2]];
+            let mut n = [1usize; 3];
+            for i in 0..dim {
+                let pd = (p[2 * i + 1] - p[2 * i] + 1) as usize;
+                n[i] = ratio.max(1) as usize * pd - (ratio.max(1) as usize - 1);
+            }
+            grid(min, h1, n)
+        })
+        .collect();
+    let mut amr = Amr {
+        origin: o0,
+        levels: vec![
+            AmrLevel { spacing: h0, blocks: vec![AmrBlock::locate(o0, h0, root)] },
+            AmrLevel { spacing: h1, blocks: fine.into_iter().map(|g| AmrBlock::locate(o0, h1, g)).collect() },
+        ],
+    };
+    amr.blank();
+    amr.into_dataset()
+}

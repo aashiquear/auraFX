@@ -19,5 +19,7 @@ Small files are committed. Larger ones are ignored by git and can be recreated:
 | `images/planet.jpg` | `python3 scripts/gen_texture.py`: a made-up planet map (equirectangular, 1024 × 512, wraps without a seam) for texture tests and the user guide, committed |
 | `vectors/*.geojson`, `*.shp/.shx/.dbf/.prj`, `world.kml`, `world.gpkg` | `pvpython scripts/gen_vectors.py`: three small layers (countries with a hole and a multipolygon, rivers, cities) written as GeoJSON and converted by the GDAL library inside ParaView to shapefiles, KML and a GeoPackage; `vectors/paraview_reference.json` from `pvpython scripts/vectors_reference.py` holds ParaView's reading of them, committed |
 | `vectors/pages.sqlite` | `python3 scripts/gen_sqlite_pages.py`: an SQLite file with 512-byte pages, interior pages and overflow blobs, for the SQLite reader under GeoPackage, committed |
+| `amr/pulse.vthb`, `amr/pulse2d.vthb` (+ folders) | ParaView 6.1.1's AMR Gaussian Pulse source (3-D and 2-D) saved with its XMLUniformGridAMRWriter, committed |
+| `amr/plt_3d`, `amr/plt_2d`, `amr/plt_3d_f32` | `python3 scripts/gen_amrex.py`: AMReX plotfiles with two levels (two coarse boxes, one finer), scalar and `amrexvec_` vector variables, double and single precision; ParaView reference values in `amr_files_match_paraview`, committed |
 
 Tests that need a missing file skip themselves.

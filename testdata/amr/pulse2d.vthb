@@ -1,0 +1,11 @@
+<VTKFile type="vtkOverlappingAMR" version="1.1" byte_order="LittleEndian" header_type="UInt64">
+  <vtkOverlappingAMR origin="-2 -2 0" grid_description="XY">
+    <Block level="0" spacing="0.5 0.5 0.5">
+      <DataSet index="0" amr_box="0 4 0 4 0 -1" file="pulse2d/pulse2d_0.vti"/>
+    </Block>
+    <Block level="1" spacing="0.25 0.25 0.5">
+      <DataSet index="0" amr_box="0 3 0 5 0 -1" file="pulse2d/pulse2d_1.vti"/>
+      <DataSet index="1" amr_box="6 9 4 9 0 -1" file="pulse2d/pulse2d_2.vti"/>
+    </Block>
+  </vtkOverlappingAMR>
+</VTKFile>

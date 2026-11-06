@@ -328,7 +328,7 @@ impl<'a> PointBuilder<'a> {
 /// of threads).
 pub const CHUNK: usize = 16384;
 
-/// Run `body` over every cell of an explicit dataset in parallel chunks, each with its own
+/// Run `body` over every visible cell of an explicit dataset in parallel chunks, each with its own
 /// state from `make`; the states come back in cell order.
 pub fn par_cell_chunks<T: Send>(
     ds: &DataSet,
@@ -338,11 +338,19 @@ pub fn par_cell_chunks<T: Send>(
     use rayon::prelude::*;
     let n = ds.n_cells();
     let chunks = n.div_ceil(CHUNK).max(1);
+    // Cells hidden by the ghost array (AMR cells covered by finer ones, blanked cells) are
+    // skipped, as VTK's filters skip invisible cells.
+    let hidden = crate::simplex::parts(ds).and_then(|(_, _, cd, _)| aurafx_data::amr::hidden_cells(cd));
     (0..chunks)
         .into_par_iter()
         .map(|c| {
             let mut st = make();
-            crate::simplex::for_each_cell_in(ds, c * CHUNK..((c + 1) * CHUNK).min(n), |cid, ty, pts, faces| body(&mut st, cid, ty, pts, faces));
+            crate::simplex::for_each_cell_in(ds, c * CHUNK..((c + 1) * CHUNK).min(n), |cid, ty, pts, faces| {
+                if hidden.as_ref().is_some_and(|h| h.get(cid).copied().unwrap_or(false)) {
+                    return;
+                }
+                body(&mut st, cid, ty, pts, faces)
+            });
             st
         })
         .collect()

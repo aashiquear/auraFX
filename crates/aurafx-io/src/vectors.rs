@@ -1,5 +1,5 @@
-//! GIS vector files without GDAL: ESRI Shapefiles (.shp + .dbf + .prj), GeoJSON, KML and
-//! GeoPackage, laid out as ParaView's GDAL vector reader does: polygonal data with points as
+//! GIS vector files without GDAL: ESRI Shapefiles (.shp + .dbf + .prj), GeoJSON, KML and KMZ,
+//! GeoPackage, FlatGeobuf and GML, laid out as ParaView's GDAL vector reader does: polygonal data with points as
 //! vertices, lines as polylines and polygon rings as closed polylines, the attributes as cell
 //! data (integers as Int32, reals as Double, text as strings). Reader options choose one block
 //! per layer (default) or per feature (ParaView's default), which layers, and filled polygons.
@@ -56,7 +56,7 @@ pub struct Layer {
 }
 
 pub fn is_vector_ext(ext: &str) -> bool {
-    matches!(ext, "shp" | "geojson" | "kml" | "gpkg")
+    matches!(ext, "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml")
 }
 
 /// A `.json` file that holds GeoJSON.
@@ -75,7 +75,10 @@ pub fn read_layers(path: &Path) -> Result<Vec<Layer>> {
         "shp" => Ok(vec![read_shapefile(path)?]),
         "geojson" | "json" => Ok(vec![read_geojson(path)?]),
         "kml" => read_kml(path),
+        "kmz" => read_kmz(path),
         "gpkg" => read_gpkg(path),
+        "fgb" => Ok(vec![read_flatgeobuf(path)?]),
+        "gml" => read_gml(path),
         _ => bail!("{}: not a vector file", path.display()),
     }
 }
@@ -84,7 +87,7 @@ fn layer_names(path: &Path) -> Vec<String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
         "gpkg" => gpkg_tables(path).map(|t| t.into_iter().map(|(n, _)| n).collect()).unwrap_or_default(),
-        "kml" => read_kml(path).map(|l| l.into_iter().map(|l| l.name).collect()).unwrap_or_default(),
+        "kml" | "kmz" | "gml" => read_layers(path).map(|l| l.into_iter().map(|l| l.name).collect()).unwrap_or_default(),
         _ => Vec::new(),
     }
 }
@@ -744,9 +747,72 @@ pub fn read_geojson(path: &Path) -> Result<Layer> {
 /// KML: a layer per Folder (placemarks outside folders form a layer named after the file),
 /// fields Name and Description plus the extended data (typed by the document's Schemas).
 pub fn read_kml(path: &Path) -> Result<Vec<Layer>> {
-    use crate::xdmf::El;
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let root = crate::xdmf::parse_dom(&text).with_context(|| format!("{}: not valid XML", path.display()))?;
+    kml_layers(&text, path)
+}
+
+/// KMZ: a zip archive holding a KML document (doc.kml, or the first .kml in it).
+pub fn read_kmz(path: &Path) -> Result<Vec<Layer>> {
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let entries = zip_entries(&bytes).with_context(|| format!("{}: not a zip archive", path.display()))?;
+    let pick = entries
+        .iter()
+        .find(|e| e.0.eq_ignore_ascii_case("doc.kml"))
+        .or_else(|| entries.iter().find(|e| e.0.to_ascii_lowercase().ends_with(".kml")))
+        .ok_or_else(|| anyhow!("{}: no .kml document in the archive", path.display()))?;
+    let data = zip_extract(&bytes, pick).with_context(|| format!("{}: {}", path.display(), pick.0))?;
+    let text = String::from_utf8(data).map_err(|_| anyhow!("{}: {} is not UTF-8 text", path.display(), pick.0))?;
+    kml_layers(&text, path)
+}
+
+/// A zip entry: name, compression method, compressed size, offset of its local header.
+type ZipEntry = (String, u16, usize, usize);
+
+/// The entries of a zip archive (from its central directory).
+fn zip_entries(b: &[u8]) -> Result<Vec<ZipEntry>> {
+    let u16_at = |i: usize| -> Result<u16> { Ok(u16::from_le_bytes(b.get(i..i + 2).ok_or_else(|| anyhow!("truncated"))?.try_into().unwrap())) };
+    let u32_at = |i: usize| -> Result<u32> { Ok(u32::from_le_bytes(b.get(i..i + 4).ok_or_else(|| anyhow!("truncated"))?.try_into().unwrap())) };
+    let eocd = (0..b.len().saturating_sub(21)).rev().take(65557).find(|&i| b[i..i + 4] == [0x50, 0x4b, 0x05, 0x06]).ok_or_else(|| anyhow!("no end of central directory"))?;
+    let count = u16_at(eocd + 10)? as usize;
+    let mut at = u32_at(eocd + 16)? as usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        if u32_at(at)? != 0x0201_4b50 {
+            bail!("bad central directory entry");
+        }
+        let method = u16_at(at + 10)?;
+        let size = u32_at(at + 20)? as usize;
+        let (n, e, c) = (u16_at(at + 28)? as usize, u16_at(at + 30)? as usize, u16_at(at + 32)? as usize);
+        let local = u32_at(at + 42)? as usize;
+        let name = String::from_utf8_lossy(b.get(at + 46..at + 46 + n).ok_or_else(|| anyhow!("truncated"))?).into_owned();
+        out.push((name, method, size, local));
+        at += 46 + n + e + c;
+    }
+    Ok(out)
+}
+
+fn zip_extract(b: &[u8], e: &ZipEntry) -> Result<Vec<u8>> {
+    let (_, method, size, local) = e;
+    let le16 = |i: usize| b.get(i..i + 2).map(|x| u16::from_le_bytes([x[0], x[1]]) as usize).ok_or_else(|| anyhow!("truncated"));
+    if b.get(*local..local + 4) != Some(&[0x50, 0x4b, 0x03, 0x04][..]) {
+        bail!("bad local header");
+    }
+    let start = local + 30 + le16(local + 26)? + le16(local + 28)?;
+    let data = b.get(start..start + size).ok_or_else(|| anyhow!("truncated entry"))?;
+    match method {
+        0 => Ok(data.to_vec()),
+        8 => {
+            let mut out = Vec::new();
+            std::io::Read::read_to_end(&mut flate2::read::DeflateDecoder::new(data), &mut out)?;
+            Ok(out)
+        }
+        m => bail!("compression method {m} is not supported (stored and deflate are)"),
+    }
+}
+
+fn kml_layers(text: &str, path: &Path) -> Result<Vec<Layer>> {
+    use crate::xdmf::El;
+    let root = crate::xdmf::parse_dom(text).with_context(|| format!("{}: not valid XML", path.display()))?;
     fn local(n: &str) -> &str {
         n.rsplit(':').next().unwrap_or(n)
     }
@@ -1064,4 +1130,528 @@ pub fn wkb(b: &[u8], at: &mut usize) -> Result<Geom> {
         }
         t => bail!("WKB geometry type {t} is not supported"),
     })
+}
+
+// ------------------------------------------------------------------ FlatGeobuf
+
+/// A FlatBuffers table: the buffer and the table's position.
+#[derive(Clone, Copy)]
+struct Fb<'a> {
+    b: &'a [u8],
+    t: usize,
+}
+
+impl<'a> Fb<'a> {
+    fn u32_at(b: &[u8], i: usize) -> Result<u32> {
+        Ok(u32::from_le_bytes(b.get(i..i + 4).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap()))
+    }
+    fn root(b: &'a [u8]) -> Result<Self> {
+        Ok(Fb { b, t: Self::u32_at(b, 0)? as usize })
+    }
+    /// Position of field `i`, if present.
+    fn field(&self, i: usize) -> Result<Option<usize>> {
+        let soff = i32::from_le_bytes(self.b.get(self.t..self.t + 4).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap());
+        let vt = (self.t as i64 - soff as i64) as usize;
+        let le16 = |i: usize| -> Result<usize> { Ok(u16::from_le_bytes(self.b.get(i..i + 2).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap()) as usize) };
+        let vsize = le16(vt)?;
+        if 4 + 2 * i + 2 > vsize {
+            return Ok(None);
+        }
+        let off = le16(vt + 4 + 2 * i)?;
+        Ok((off != 0).then_some(self.t + off))
+    }
+    fn u8(&self, i: usize, default: u8) -> Result<u8> {
+        Ok(match self.field(i)? {
+            Some(p) => *self.b.get(p).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?,
+            None => default,
+        })
+    }
+    fn u16(&self, i: usize, default: u16) -> Result<u16> {
+        Ok(match self.field(i)? {
+            Some(p) => u16::from_le_bytes(self.b.get(p..p + 2).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap()),
+            None => default,
+        })
+    }
+    fn i32(&self, i: usize, default: i32) -> Result<i32> {
+        Ok(match self.field(i)? {
+            Some(p) => Self::u32_at(self.b, p)? as i32,
+            None => default,
+        })
+    }
+    fn u64(&self, i: usize) -> Result<u64> {
+        Ok(match self.field(i)? {
+            Some(p) => u64::from_le_bytes(self.b.get(p..p + 8).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap()),
+            None => 0,
+        })
+    }
+    /// Start and length of a vector (or string) field.
+    fn vector(&self, i: usize) -> Result<Option<(usize, usize)>> {
+        let Some(p) = self.field(i)? else { return Ok(None) };
+        let v = p + Self::u32_at(self.b, p)? as usize;
+        Ok(Some((v + 4, Self::u32_at(self.b, v)? as usize)))
+    }
+    fn string(&self, i: usize) -> Result<Option<String>> {
+        Ok(match self.vector(i)? {
+            Some((s, n)) => Some(String::from_utf8_lossy(self.b.get(s..s + n).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?).into_owned()),
+            None => None,
+        })
+    }
+    fn f64s(&self, i: usize) -> Result<Vec<f64>> {
+        let Some((s, n)) = self.vector(i)? else { return Ok(Vec::new()) };
+        let d = self.b.get(s..s + 8 * n).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?;
+        Ok(d.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap())).collect())
+    }
+    fn u32s(&self, i: usize) -> Result<Vec<u32>> {
+        let Some((s, n)) = self.vector(i)? else { return Ok(Vec::new()) };
+        let d = self.b.get(s..s + 4 * n).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?;
+        Ok(d.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect())
+    }
+    fn bytes(&self, i: usize) -> Result<&'a [u8]> {
+        let Some((s, n)) = self.vector(i)? else { return Ok(&[]) };
+        self.b.get(s..s + n).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))
+    }
+    fn tables(&self, i: usize) -> Result<Vec<Fb<'a>>> {
+        let Some((s, n)) = self.vector(i)? else { return Ok(Vec::new()) };
+        (0..n).map(|k| Ok(Fb { b: self.b, t: s + 4 * k + Self::u32_at(self.b, s + 4 * k)? as usize })).collect()
+    }
+    fn table(&self, i: usize) -> Result<Option<Fb<'a>>> {
+        let Some(p) = self.field(i)? else { return Ok(None) };
+        Ok(Some(Fb { b: self.b, t: p + Self::u32_at(self.b, p)? as usize }))
+    }
+}
+
+/// A FlatGeobuf geometry of type `ty` (GeometryType: 1 point ... 7 collection).
+fn fgb_geometry(g: &Fb, ty: u8, has_z: bool) -> Result<Option<Geom>> {
+    let ty = match g.u8(6, 0)? {
+        0 => ty,
+        t => t,
+    };
+    let xy = g.f64s(1)?;
+    let z = if has_z { g.f64s(2)? } else { Vec::new() };
+    let pts: Vec<[f64; 3]> = (0..xy.len() / 2).map(|k| [xy[2 * k], xy[2 * k + 1], z.get(k).copied().unwrap_or(0.0)]).collect();
+    let ends = g.u32s(0)?;
+    let split = |pts: &[[f64; 3]]| -> Vec<Vec<[f64; 3]>> {
+        if ends.is_empty() {
+            return vec![pts.to_vec()];
+        }
+        let mut start = 0;
+        ends.iter()
+            .map(|&e| {
+                let r = pts[start.min(pts.len())..(e as usize).min(pts.len())].to_vec();
+                start = e as usize;
+                r
+            })
+            .collect()
+    };
+    Ok(Some(match ty {
+        1 => match pts.first() {
+            Some(&p) => Geom::Point(p),
+            None => return Ok(None),
+        },
+        2 => Geom::Line(pts),
+        3 => Geom::Polygon(split(&pts)),
+        4 => Geom::Collection(pts.into_iter().map(Geom::Point).collect()),
+        5 => Geom::Collection(split(&pts).into_iter().map(Geom::Line).collect()),
+        6 => Geom::Collection(g.tables(7)?.iter().map(|p| fgb_geometry(p, 3, has_z)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect()),
+        7 => Geom::Collection(g.tables(7)?.iter().map(|p| fgb_geometry(p, 0, has_z)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect()),
+        t => bail!("FlatGeobuf geometry type {t} is not supported (points, lines, polygons and their collections are)"),
+    }))
+}
+
+/// FlatGeobuf (`.fgb`): one layer; the header's columns as fields, features in file order
+/// (as GDAL reads them; the spatial index is skipped).
+pub fn read_flatgeobuf(path: &Path) -> Result<Layer> {
+    let b = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    if b.len() < 12 || &b[0..3] != b"fgb" || &b[4..7] != b"fgb" {
+        bail!("{}: not a FlatGeobuf file", path.display());
+    }
+    let hsize = Fb::u32_at(&b, 8)? as usize;
+    let hb = b.get(12..12 + hsize).ok_or_else(|| anyhow!("{}: truncated header", path.display()))?;
+    let h = Fb::root(hb)?;
+    let name = h.string(0)?.filter(|n| !n.is_empty()).unwrap_or_else(|| path.file_stem().and_then(|s| s.to_str()).unwrap_or("layer").to_string());
+    let gtype = h.u8(2, 0)?;
+    let has_z = h.u8(3, 0)? != 0;
+    let columns: Vec<(String, u8)> = h.tables(7)?.iter().map(|c| Ok((c.string(0)?.unwrap_or_default(), c.u8(1, 0)?))).collect::<Result<_>>()?;
+    let count = h.u64(8)? as usize;
+    let node_size = h.u16(9, 16)? as usize;
+    let projection = match h.table(10)? {
+        Some(c) => {
+            let code = c.i32(1, 0)?;
+            let org = c.string(0)?.unwrap_or_else(|| "EPSG".into());
+            if code != 0 {
+                Some(format!("{org}:{code}"))
+            } else {
+                c.string(4)?
+            }
+        }
+        None => None,
+    };
+    // Packed Hilbert R-tree: 40-byte nodes on every level.
+    let index_size = if node_size > 0 && count > 0 {
+        let ns = node_size.clamp(2, 65535);
+        let (mut n, mut nodes) = (count, count);
+        loop {
+            n = n.div_ceil(ns);
+            nodes += n;
+            if n == 1 {
+                break;
+            }
+        }
+        nodes * 40
+    } else {
+        0
+    };
+    let fields: Vec<(String, FieldType)> = columns
+        .iter()
+        .map(|(n, t)| {
+            (
+                n.clone(),
+                match t {
+                    0..=2 | 3 | 4 | 5 => FieldType::Int,
+                    6 | 7 | 8 => FieldType::Int64,
+                    9 | 10 => FieldType::Real,
+                    _ => FieldType::Text,
+                },
+            )
+        })
+        .collect();
+    let mut at = 12 + hsize + index_size;
+    let mut features = Vec::new();
+    while at + 4 <= b.len() {
+        let size = Fb::u32_at(&b, at)? as usize;
+        let fbuf = b.get(at + 4..at + 4 + size).ok_or_else(|| anyhow!("{}: truncated feature {}", path.display(), features.len()))?;
+        at += 4 + size;
+        let f = Fb::root(fbuf)?;
+        let geom = match f.table(0)? {
+            Some(g) => fgb_geometry(&g, gtype, has_z)?,
+            None => None,
+        };
+        let mut values = vec![Value::Null; fields.len()];
+        let props = f.bytes(1)?;
+        let mut p = 0;
+        while p + 2 <= props.len() {
+            let col = u16::from_le_bytes([props[p], props[p + 1]]) as usize;
+            p += 2;
+            let ty = columns.get(col).map(|c| c.1).ok_or_else(|| anyhow!("{}: property of unknown column {col}", path.display()))?;
+            let take = |p: &mut usize, n: usize| -> Result<&[u8]> {
+                let s = props.get(*p..*p + n).ok_or_else(|| anyhow!("truncated properties"))?;
+                *p += n;
+                Ok(s)
+            };
+            let v = match ty {
+                0 => Value::Int(take(&mut p, 1)?[0] as i8 as i64),
+                1 | 2 => Value::Int(take(&mut p, 1)?[0] as i64),
+                3 => Value::Int(i16::from_le_bytes(take(&mut p, 2)?.try_into().unwrap()) as i64),
+                4 => Value::Int(u16::from_le_bytes(take(&mut p, 2)?.try_into().unwrap()) as i64),
+                5 => Value::Int(i32::from_le_bytes(take(&mut p, 4)?.try_into().unwrap()) as i64),
+                6 => Value::Int(u32::from_le_bytes(take(&mut p, 4)?.try_into().unwrap()) as i64),
+                7 | 8 => Value::Int(i64::from_le_bytes(take(&mut p, 8)?.try_into().unwrap())),
+                9 => Value::Real(f32::from_le_bytes(take(&mut p, 4)?.try_into().unwrap()) as f64),
+                10 => Value::Real(f64::from_le_bytes(take(&mut p, 8)?.try_into().unwrap())),
+                _ => {
+                    let n = u32::from_le_bytes(take(&mut p, 4)?.try_into().unwrap()) as usize;
+                    Value::Text(String::from_utf8_lossy(take(&mut p, n)?).into_owned())
+                }
+            };
+            values[col] = v;
+        }
+        features.push(Feature { fid: features.len() as i64, geom, values });
+    }
+    Ok(Layer { name, fields, features, projection })
+}
+
+// ------------------------------------------------------------------ GML
+
+/// Geographic CRSs whose EPSG definition puts latitude first: GML in the URN/URI forms
+/// (urn:ogc:def:crs:EPSG::4326, http://www.opengis.net/def/crs/EPSG/0/4326) follows it, and
+/// coordinates are swapped back to longitude, latitude (as GDAL does).
+const LAT_FIRST: &[u32] = &[4326, 4258, 4269, 4267, 4283, 4230, 4277, 4612, 6318, 4171, 4674, 4019, 4979, 4937, 4617, 4148, 4152, 4170, 4189, 4190, 4167, 4314, 4807];
+
+fn gml_srs(name: &str) -> (Option<String>, bool) {
+    let code = |s: &str| s.trim().parse::<u32>().ok();
+    if let Some(c) = name.rsplit_once("EPSG::").and_then(|(_, c)| code(c)).or_else(|| name.split("/EPSG/").nth(1).and_then(|r| r.rsplit('/').next()).and_then(code)) {
+        return (Some(format!("EPSG:{c}")), LAT_FIRST.contains(&c));
+    }
+    if let Some(c) = name.rsplit_once("EPSG:").and_then(|(_, c)| code(c)).or_else(|| name.rsplit_once('#').and_then(|(_, c)| code(c))) {
+        return (Some(format!("EPSG:{c}")), false);
+    }
+    (None, false)
+}
+
+/// GML (`.gml`, versions 2 to 3.2 as GDAL writes and reads simple features): a layer per
+/// feature type in the collection; fields typed from the `.xsd` schema beside the file when
+/// there is one, else from the values. Coordinates in a latitude-first CRS are swapped.
+pub fn read_gml(path: &Path) -> Result<Vec<Layer>> {
+    use crate::xdmf::El;
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let root = crate::xdmf::parse_dom(&text).with_context(|| format!("{}: not valid XML", path.display()))?;
+    fn local(n: &str) -> &str {
+        n.rsplit(':').next().unwrap_or(n)
+    }
+    const GEOMS: &[&str] = &[
+        "Point", "LineString", "LinearRing", "Polygon", "MultiPoint", "MultiLineString", "MultiCurve", "MultiPolygon", "MultiSurface", "MultiGeometry", "Curve", "Surface", "CompositeCurve", "CompositeSurface",
+    ];
+    // Field types from the schema: element name -> type, per feature type.
+    let mut schema: std::collections::HashMap<String, Vec<(String, FieldType)>> = std::collections::HashMap::new();
+    if let Some(xsd) = sibling(path, "xsd").and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| crate::xdmf::parse_dom(&t).ok()) {
+        for ct in xsd.children.iter().filter(|c| local(&c.name) == "complexType") {
+            let Some(tname) = ct.attr("name") else { continue };
+            let mut fields = Vec::new();
+            fn elements<'a>(e: &'a El, out: &mut Vec<&'a El>) {
+                for c in &e.children {
+                    if c.name.rsplit(':').next() == Some("element") {
+                        out.push(c);
+                    } else {
+                        elements(c, out);
+                    }
+                }
+            }
+            let mut els = Vec::new();
+            elements(ct, &mut els);
+            for el in els {
+                let Some(n) = el.attr("name") else { continue };
+                if el.attr("type").is_some_and(|t| t.starts_with("gml:")) {
+                    continue;
+                }
+                let mut base = el.attr("type").map(|t| local(t).to_string()).unwrap_or_default();
+                let mut digits = None;
+                fn find<'a>(e: &'a El, name: &str) -> Option<&'a El> {
+                    e.children.iter().find_map(|c| if c.name.rsplit(':').next() == Some(name) { Some(c) } else { find(c, name) })
+                }
+                if let Some(r) = find(el, "restriction") {
+                    base = r.attr("base").map(|t| local(t).to_string()).unwrap_or_default();
+                    digits = find(r, "totalDigits").and_then(|d| d.attr("value")).and_then(|v| v.parse::<u32>().ok());
+                }
+                let ty = match base.as_str() {
+                    "integer" | "int" | "short" | "byte" | "long" | "boolean" => {
+                        if base == "long" || digits.is_some_and(|d| d >= 10) {
+                            FieldType::Int64
+                        } else {
+                            FieldType::Int
+                        }
+                    }
+                    "decimal" | "double" | "float" => FieldType::Real,
+                    _ => FieldType::Text,
+                };
+                fields.push((n.to_string(), ty));
+            }
+            schema.insert(tname.trim_end_matches("_Type").trim_end_matches("Type").to_string(), fields);
+        }
+    }
+    // Feature members (featureMember / featureMembers / member of a collection).
+    let mut members: Vec<&El> = Vec::new();
+    fn collect<'a>(e: &'a El, out: &mut Vec<&'a El>) {
+        for c in &e.children {
+            match c.name.rsplit(':').next().unwrap_or("") {
+                "featureMember" | "member" => out.extend(c.children.iter()),
+                "featureMembers" => out.extend(c.children.iter()),
+                "boundedBy" => {}
+                _ => collect(c, out),
+            }
+        }
+    }
+    collect(&root, &mut members);
+    let mut projection = None;
+    let mut swap_all = None;
+    if let Some(srs) = root.children.iter().find(|c| local(&c.name) == "boundedBy").and_then(|b| b.children.first()).and_then(|e| e.attr("srsName")) {
+        let (p, s) = gml_srs(srs);
+        projection = p;
+        swap_all = Some(s);
+    }
+    fn coords(e: &El, dim: usize, swap: bool) -> Vec<[f64; 3]> {
+        let mut out = Vec::new();
+        let mk = |v: &[f64]| -> [f64; 3] {
+            let (x, y) = if swap { (v[1], v[0]) } else { (v[0], v[1]) };
+            [x, y, v.get(2).copied().unwrap_or(0.0)]
+        };
+        for c in &e.children {
+            match c.name.rsplit(':').next().unwrap_or("") {
+                "posList" | "pos" => {
+                    let d = c.attr("srsDimension").or_else(|| c.attr("dimension")).and_then(|d| d.parse().ok()).unwrap_or(if c.name.ends_with("pos") { 0 } else { dim });
+                    let v: Vec<f64> = c.text.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+                    let d = if d == 0 { v.len().clamp(2, 3) } else { d.max(2) };
+                    out.extend(v.chunks_exact(d).map(mk));
+                }
+                "coordinates" => {
+                    let (cs, ts) = (c.attr("cs").unwrap_or(","), c.attr("ts").unwrap_or(" "));
+                    for t in c.text.split(|ch: char| ts.contains(ch) || ch.is_whitespace()).filter(|t| !t.is_empty()) {
+                        let v: Vec<f64> = t.split(cs).filter_map(|x| x.trim().parse().ok()).collect();
+                        if v.len() >= 2 {
+                            out.push(mk(&v));
+                        }
+                    }
+                }
+                "coord" => {
+                    let g = |n: &str| c.children.iter().find(|x| x.name.rsplit(':').next() == Some(n)).and_then(|x| x.text.trim().parse::<f64>().ok());
+                    if let (Some(x), Some(y)) = (g("X"), g("Y")) {
+                        out.push(mk(&[x, y, g("Z").unwrap_or(0.0)]));
+                    }
+                }
+                "Point" => out.extend(coords(c, dim, swap)),
+                _ => {}
+            }
+        }
+        out
+    }
+    fn rings(e: &El, dim: usize, swap: bool) -> Vec<Vec<[f64; 3]>> {
+        // LinearRing, or a Ring of curve members.
+        let mut r = Vec::new();
+        for c in &e.children {
+            match c.name.rsplit(':').next().unwrap_or("") {
+                "LinearRing" => r.push(coords(c, dim, swap)),
+                "Ring" => {
+                    let mut pts = Vec::new();
+                    fn lines(e: &El, dim: usize, swap: bool, out: &mut Vec<[f64; 3]>) {
+                        let p = coords(e, dim, swap);
+                        if !p.is_empty() {
+                            out.extend(p);
+                        }
+                        for c in &e.children {
+                            lines(c, dim, swap, out);
+                        }
+                    }
+                    lines(c, dim, swap, &mut pts);
+                    pts.dedup();
+                    r.push(pts);
+                }
+                _ => {}
+            }
+        }
+        r
+    }
+    fn geom(e: &El, dim: usize, swap: Option<bool>) -> Option<Geom> {
+        let (dim, swap) = {
+            let d = e.attr("srsDimension").and_then(|d| d.parse().ok()).unwrap_or(dim);
+            let s = e.attr("srsName").map(|s| gml_srs(s).1).or(swap).unwrap_or(false);
+            (d, s)
+        };
+        let kids = |names: &[&str]| -> Vec<&El> {
+            let mut v = Vec::new();
+            for c in &e.children {
+                let n = c.name.rsplit(':').next().unwrap_or("");
+                if names.contains(&n) {
+                    // A member holds geometries; a members element holds several.
+                    if n.ends_with("Members") {
+                        v.extend(c.children.iter());
+                    } else {
+                        v.extend(c.children.iter());
+                    }
+                }
+            }
+            v
+        };
+        let swap_o = Some(swap);
+        match e.name.rsplit(':').next().unwrap_or("") {
+            "Point" => coords(e, dim, swap).first().map(|&p| Geom::Point(p)),
+            "LineString" | "LinearRing" => Some(Geom::Line(coords(e, dim, swap))),
+            "Curve" => {
+                let mut pts = Vec::new();
+                for seg in kids(&["segments"]) {
+                    let p = coords(seg, dim, swap);
+                    if pts.last().is_some() && p.first() == pts.last() {
+                        pts.extend_from_slice(&p[1..]);
+                    } else {
+                        pts.extend(p);
+                    }
+                }
+                Some(Geom::Line(pts))
+            }
+            "Polygon" | "PolygonPatch" => {
+                let mut r = Vec::new();
+                for b in ["exterior", "outerBoundaryIs", "interior", "innerBoundaryIs"] {
+                    for bound in e.children.iter().filter(|c| c.name.rsplit(':').next() == Some(b)) {
+                        r.extend(rings(bound, dim, swap));
+                    }
+                }
+                Some(Geom::Polygon(r))
+            }
+            "Surface" => {
+                let p: Vec<Geom> = kids(&["patches"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect();
+                if p.len() == 1 { p.into_iter().next() } else { Some(Geom::Collection(p)) }
+            }
+            "MultiPoint" => Some(Geom::Collection(kids(&["pointMember", "pointMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
+            "MultiLineString" | "MultiCurve" | "CompositeCurve" => Some(Geom::Collection(kids(&["lineStringMember", "curveMember", "curveMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
+            "MultiPolygon" | "MultiSurface" | "CompositeSurface" => Some(Geom::Collection(kids(&["polygonMember", "surfaceMember", "surfaceMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
+            "MultiGeometry" => Some(Geom::Collection(kids(&["geometryMember", "geometryMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
+            _ => None,
+        }
+    }
+    // Features grouped by type, in order of first appearance.
+    let mut order: Vec<String> = Vec::new();
+    let mut by_type: std::collections::HashMap<String, Vec<&El>> = std::collections::HashMap::new();
+    for m in members {
+        let t = local(&m.name).to_string();
+        if !by_type.contains_key(&t) {
+            order.push(t.clone());
+        }
+        by_type.entry(t).or_default().push(m);
+    }
+    let mut out = Vec::new();
+    for t in order {
+        let items = &by_type[&t];
+        // Attributes: child elements that are not geometry properties or GML metadata.
+        let is_geom_prop = |c: &El| c.children.iter().any(|g| GEOMS.contains(&local(&g.name)));
+        let skip = |c: &El| c.name.starts_with("gml:") || is_geom_prop(c);
+        let mut fields: Vec<(String, FieldType)> = schema.get(&t).cloned().unwrap_or_default();
+        if fields.is_empty() {
+            let mut names: Vec<String> = Vec::new();
+            let mut seen: Vec<Seen> = Vec::new();
+            for f in items {
+                for c in f.children.iter().filter(|c| !skip(c)) {
+                    let n = local(&c.name).to_string();
+                    let i = names.iter().position(|x| *x == n).unwrap_or_else(|| {
+                        names.push(n.clone());
+                        seen.push(Seen::default());
+                        names.len() - 1
+                    });
+                    let v = c.text.trim();
+                    if v.is_empty() {
+                        continue;
+                    }
+                    if let Ok(x) = v.parse::<i64>() {
+                        if i32::try_from(x).is_ok() {
+                            seen[i].int32 = true
+                        } else {
+                            seen[i].int64 = true
+                        }
+                    } else if v.parse::<f64>().is_ok() {
+                        seen[i].real = true
+                    } else {
+                        seen[i].text = true
+                    }
+                }
+            }
+            fields = names.into_iter().zip(seen.into_iter().map(|s| s.ty())).collect();
+        }
+        let features = items
+            .iter()
+            .enumerate()
+            .map(|(k, f)| {
+                let values = fields
+                    .iter()
+                    .map(|(n, ty)| match f.children.iter().find(|c| local(&c.name) == n && !skip(c)).map(|c| c.text.trim().to_string()) {
+                        None => Value::Null,
+                        Some(s) if s.is_empty() && *ty != FieldType::Text => Value::Null,
+                        Some(s) => match ty {
+                            FieldType::Int | FieldType::Int64 => s.parse().map(Value::Int).unwrap_or(Value::Null),
+                            FieldType::Real => s.parse().map(Value::Real).unwrap_or(Value::Null),
+                            FieldType::Text => Value::Text(s),
+                        },
+                    })
+                    .collect();
+                let gs: Vec<Geom> = f.children.iter().filter(|c| is_geom_prop(c)).flat_map(|c| c.children.iter()).filter_map(|g| geom(g, 2, swap_all)).collect();
+                let geom = match gs.len() {
+                    0 => None,
+                    1 => gs.into_iter().next(),
+                    _ => Some(Geom::Collection(gs)),
+                };
+                Feature { fid: k as i64, geom, values }
+            })
+            .collect();
+        out.push(Layer { name: t, fields, features, projection: projection.clone() });
+    }
+    if out.is_empty() {
+        bail!("{}: no features found in the GML file", path.display());
+    }
+    Ok(out)
 }

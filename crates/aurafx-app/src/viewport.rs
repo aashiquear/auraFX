@@ -869,7 +869,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         painter.text(
             c + Vec2::new(0.0, 30.0),
             egui::Align2::CENTER_CENTER,
-            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), Xdmf, NetCDF (CF, POP, CAM-SE, MPAS), CGNS, EnSight, OpenFOAM, Tecplot, PLOT3D, LAMMPS, VASP, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images, GeoTIFF, Esri ASCII grids, shapefiles, GeoJSON, KML, GeoPackage, AMR (AMReX plotfiles, .vthb), hyper tree grids (.htg), cell grids (.dg), CML molecules",
+            "Supported: Exodus, VTK (.vtk .vtu .vtp .vti .vtr .vts .vtm .pvd .vtkhdf), Xdmf, NetCDF (CF, POP, CAM-SE, MPAS), CGNS, EnSight, OpenFOAM, Tecplot, PLOT3D, LAMMPS, VASP, XYZ, PDB, cube, STL, PLY, OBJ, CSV, images, GeoTIFF, Esri ASCII grids, shapefiles, GeoJSON, KML/KMZ, GeoPackage, FlatGeobuf, GML, AMR (AMReX plotfiles, .vthb), hyper tree grids (.htg), cell grids (.dg), CML molecules",
             egui::FontId::proportional(12.0),
             fg_weak,
         );

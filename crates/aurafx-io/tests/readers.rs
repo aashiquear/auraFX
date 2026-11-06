@@ -1364,10 +1364,10 @@ fn cgns_writer_round_trip() {
     }
 }
 
-/// GIS vector files (Shapefile, GeoJSON, GeoPackage) against ParaView 6.1.1's GDAL vector
-/// reader (testdata/vectors/paraview_reference.json from scripts/vectors_reference.py): with
-/// one block per feature, every point, cell size and attribute matches. KML (which ParaView's
-/// GDAL cannot read) carries the same data as the GeoJSON files.
+/// GIS vector files (Shapefile, GeoJSON, GeoPackage, FlatGeobuf) against ParaView 6.1.1's GDAL
+/// vector reader (testdata/vectors/paraview_reference.json from scripts/vectors_reference.py):
+/// with one block per feature, every point, cell size and attribute matches. KML, KMZ and GML
+/// (which ParaView's GDAL cannot read) carry the same data as the GeoJSON files.
 #[test]
 fn gis_vectors_match_paraview() {
     use aurafx_data::DataSet;
@@ -1444,6 +1444,35 @@ fn gis_vectors_match_paraview() {
         assert_eq!((0..gj.points.len()).map(|i| gj.points.get(i)).collect::<Vec<_>>(), (0..kml[k].points.len()).map(|i| kml[k].points.get(i)).collect::<Vec<_>>());
         assert_eq!(kml[k].cell_data.get("Name").unwrap().data, gj.cell_data.get("name").unwrap().data);
     }
+    // KMZ is the KML zipped: the same blocks.
+    let kmz = blocks(&read("world.kmz", &[]));
+    assert_eq!(kmz.len(), kml.len());
+    for (a, b) in kmz.iter().zip(&kml) {
+        assert_eq!(a, b, "KMZ and KML");
+    }
+    // GML (which ParaView's GDAL cannot read; written by GDAL from the GeoPackage, latitude
+    // first as EPSG:4326 asks): the same features as the GeoJSON files, typed by its schema.
+    let gml = blocks(&read("world.gml", &[]));
+    assert_eq!(gml.len(), 3);
+    for (k, layer) in ["countries", "rivers", "cities"].iter().enumerate() {
+        let gj = &blocks(&read(&format!("{layer}.geojson"), &[]))[0];
+        let g = &gml[k];
+        assert_eq!((0..g.points.len()).map(|i| g.points.get(i)).collect::<Vec<_>>(), (0..gj.points.len()).map(|i| gj.points.get(i)).collect::<Vec<_>>(), "{layer} points");
+        for (a, b) in [(&g.verts, &gj.verts), (&g.lines, &gj.lines)] {
+            assert_eq!((0..a.len()).map(|i| a.cell(i).to_vec()).collect::<Vec<_>>(), (0..b.len()).map(|i| b.cell(i).to_vec()).collect::<Vec<_>>(), "{layer} cells");
+        }
+        for arr in gj.cell_data.iter() {
+            let x = g.cell_data.get(&arr.name).unwrap_or_else(|| panic!("GML {layer}: no {}", arr.name));
+            match (&arr.data, &x.data) {
+                (ArrayData::String(a), ArrayData::String(b)) => assert_eq!(a, b, "{layer} {}", arr.name),
+                (a, b) => assert_eq!(a.to_f64_vec(), b.to_f64_vec(), "{layer} {}", arr.name),
+            }
+        }
+        assert_eq!(g.field_data, gj.field_data, "{layer} projection");
+    }
+    // GML 2 (coordinate tuples, outer/innerBoundaryIs, longitude first): the same blocks.
+    let gml2 = blocks(&read("world2.gml", &[]));
+    assert_eq!(gml2, gml, "GML 2 and GML 3.2");
     // Filled polygons: triangles covering each polygon's area (Westland has a hole).
     let filled = blocks(&read("countries.shp", &[("polygons", aurafx_io::vectors::FILLED), ("feature_ids", "true")]))[0].clone();
     let area_of = |fid: i64| -> f64 {

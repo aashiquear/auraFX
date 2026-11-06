@@ -8,11 +8,16 @@ Three layers written as GeoJSON by hand (lon/lat degrees, WGS 84):
   cities:    points (one with a height) and a multipoint;
 with string, integer and real attributes. The GDAL library inside ParaView then converts them
 (GDALVectorTranslate through ctypes) to ESRI Shapefiles (one per layer, with .dbf and .prj),
-one KML file (a folder per layer) and one GeoPackage holding all three layers.
+one KML file (a folder per layer) and one GeoPackage holding all three layers; then FlatGeobuf
+(one .fgb per layer), GML (world.gml with its .xsd, all three layers; world2.gml in GML 2) and KMZ (world.kml zipped).
+
+    pvpython scripts/gen_vectors.py [outdir] --only fgb,gml,kmz   (just those formats)
 """
 import ctypes, glob, json, os, sys
 
-out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testdata", "vectors")
+args = [a for a in sys.argv[1:] if not a.startswith("--") and "," not in a and a not in ("fgb", "gml", "kmz")]
+only = set(sys.argv[sys.argv.index("--only") + 1].split(",")) if "--only" in sys.argv else None
+out = args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testdata", "vectors")
 os.makedirs(out, exist_ok=True)
 
 def fc(features):
@@ -67,33 +72,69 @@ def translate(src, dst, *args, into=None):
         g.GDALClose(r)
     g.GDALClose(ds)
 
-for n in layers:
-    shp = os.path.join(out, n + ".shp")
-    for ext in ("shp", "shx", "dbf", "prj", "cpg"):
-        p = os.path.join(out, f"{n}.{ext}")
+def old():
+    for n in layers:
+        shp = os.path.join(out, n + ".shp")
+        for ext in ("shp", "shx", "dbf", "prj", "cpg"):
+            p = os.path.join(out, f"{n}.{ext}")
+            if os.path.exists(p):
+                os.remove(p)
+        # A shapefile holds one shape type: the cities become multipoints.
+        translate(os.path.join(out, n + ".geojson"), shp, "-f", "ESRI Shapefile", *(["-nlt", "PROMOTE_TO_MULTI"] if n == "cities" else []))
+    for p in ("world.kml", "world.gpkg"):
+        if os.path.exists(os.path.join(out, p)):
+            os.remove(os.path.join(out, p))
+    for i, n in enumerate(layers):
+        translate(os.path.join(out, n + ".geojson"), os.path.join(out, "world.gpkg"), "-f", "GPKG", *(["-update", "-append"] if i else []), "-nln", n)
+    # KML: the driver writes one file per call, so each layer is written alone and the folders
+    # (one per layer) are put into one document.
+    import re
+    parts = []
+    for n in layers:
+        tmp = os.path.join(out, f"_{n}.kml")
+        translate(os.path.join(out, n + ".geojson"), tmp, "-f", "KML", "-nln", n)
+        parts.append(open(tmp).read())
+        os.remove(tmp)
+    head = parts[0][: parts[0].index("<Folder>")]
+    schemas = "".join(re.findall(r"<Schema.*?</Schema>\n", p, re.S)[0] for p in parts)
+    head = re.sub(r"<Schema.*?</Schema>\n", "", head, flags=re.S)
+    head = head.replace("<Document id=\"root_doc\">\n", "<Document id=\"root_doc\">\n" + schemas)
+    folders = "".join(p[p.index("<Folder>"): p.rindex("</Folder>") + len("</Folder>\n")] for p in parts)
+    open(os.path.join(out, "world.kml"), "w").write(head + folders + "</Document></kml>\n")
+
+def new():
+    if only is None or "fgb" in only:
+        for n in layers:
+            p = os.path.join(out, n + ".fgb")
+            if os.path.exists(p):
+                os.remove(p)
+            translate(os.path.join(out, n + ".geojson"), p, "-f", "FlatGeobuf")
+        # 300 points: a spatial index of three levels (GDAL sorts the features along a
+        # Hilbert curve).
+        pts = fc([({"id": k, "value": k * 0.5, "label": f"p{k}"}, {"type": "Point", "coordinates": [(k * 37) % 101 - 50.0, (k * 53) % 89 - 44.0]}) for k in range(300)])
+        tmp = os.path.join(out, "_points.geojson")
+        json.dump(pts, open(tmp, "w"))
+        p = os.path.join(out, "points.fgb")
         if os.path.exists(p):
             os.remove(p)
-    # A shapefile holds one shape type: the cities become multipoints.
-    translate(os.path.join(out, n + ".geojson"), shp, "-f", "ESRI Shapefile", *(["-nlt", "PROMOTE_TO_MULTI"] if n == "cities" else []))
-for p in ("world.kml", "world.gpkg"):
-    if os.path.exists(os.path.join(out, p)):
-        os.remove(os.path.join(out, p))
-for i, n in enumerate(layers):
-    translate(os.path.join(out, n + ".geojson"), os.path.join(out, "world.gpkg"), "-f", "GPKG", *(["-update", "-append"] if i else []), "-nln", n)
-# KML: the driver writes one file per call, so each layer is written alone and the folders
-# (one per layer) are put into one document.
-import re
-parts = []
-for n in layers:
-    tmp = os.path.join(out, f"_{n}.kml")
-    translate(os.path.join(out, n + ".geojson"), tmp, "-f", "KML", "-nln", n)
-    parts.append(open(tmp).read())
-    os.remove(tmp)
-head = parts[0][: parts[0].index("<Folder>")]
-schemas = "".join(re.findall(r"<Schema.*?</Schema>\n", p, re.S)[0] for p in parts)
-head = re.sub(r"<Schema.*?</Schema>\n", "", head, flags=re.S)
-head = head.replace("<Document id=\"root_doc\">\n", "<Document id=\"root_doc\">\n" + schemas)
-folders = "".join(p[p.index("<Folder>"): p.rindex("</Folder>") + len("</Folder>\n")] for p in parts)
-open(os.path.join(out, "world.kml"), "w").write(head + folders + "</Document></kml>\n")
+        translate(tmp, p, "-f", "FlatGeobuf")
+        os.remove(tmp)
+    if only is None or "gml" in only:
+        for ext in ("gml", "xsd"):
+            if os.path.exists(os.path.join(out, "world." + ext)):
+                os.remove(os.path.join(out, "world." + ext))
+        translate(os.path.join(out, "world.gpkg"), os.path.join(out, "world.gml"), "-f", "GML")
+        # GML 2 (coordinates as "x,y" tuples, outer/innerBoundaryIs, longitude first).
+        for ext in ("gml", "xsd"):
+            if os.path.exists(os.path.join(out, "world2." + ext)):
+                os.remove(os.path.join(out, "world2." + ext))
+        translate(os.path.join(out, "world.gpkg"), os.path.join(out, "world2.gml"), "-f", "GML", "-dsco", "FORMAT=GML2")
+    if only is None or "kmz" in only:
+        import zipfile
+        with zipfile.ZipFile(os.path.join(out, "world.kmz"), "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(os.path.join(out, "world.kml"), "doc.kml")
+if only is None:
+    old()
+new()
 for f in sorted(os.listdir(out)):
     print(f, os.path.getsize(os.path.join(out, f)))

@@ -83,7 +83,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
         (&["tif", "tiff", "asc"], "GIS rasters (GeoTIFF, Esri ASCII grid)"),
-        (&["shp", "geojson", "json", "kml", "gpkg"], "GIS vectors (Shapefile, GeoJSON, KML, GeoPackage)"),
+        (&["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml"], "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML)"),
     ]
 }
 
@@ -161,7 +161,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
         "tif" | "tiff" if rasters::is_geotiff(path) => Loaded::Static(Arc::new(rasters::read_geotiff(path)?)),
         "asc" => Loaded::Static(Arc::new(rasters::read_ascii_grid(path)?)),
-        "shp" | "geojson" | "kml" | "gpkg" => Loaded::Static(Arc::new(vectors::read(path)?)),
+        "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" => Loaded::Static(Arc::new(vectors::read(path)?)),
         "json" if vectors::is_geojson(path) => Loaded::Static(Arc::new(vectors::read(path)?)),
         "png" | "jpg" | "jpeg" | "bmp" | "tif" | "tiff" => Loaded::Static(Arc::new(images::read(path)?)),
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),
@@ -266,7 +266,7 @@ pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
         "nc" | "nc4" | "cdf" | "netcdf" if mpas::is_mpas_file(path) => mpas::options(path),
         "nc" | "nc4" | "cdf" | "netcdf" if cam::is_cam_file(path) => cam::options(path),
         "nc" | "nc4" | "cdf" | "netcdf" if !netcdf_cf::is_exodus(path) => netcdf_cf::options(path),
-        "shp" | "geojson" | "kml" | "gpkg" => vectors::options(path),
+        "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" => vectors::options(path),
         "json" if vectors::is_geojson(path) => vectors::options(path),
         _ => Vec::new(),
     }

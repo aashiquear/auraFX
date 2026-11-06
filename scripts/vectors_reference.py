@@ -12,12 +12,20 @@ from vtk.util.numpy_support import vtk_to_numpy as v2n
 
 here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testdata", "vectors")
 cases = [("countries.shp", 0), ("rivers.shp", 0), ("cities.shp", 0), ("countries.geojson", 0), ("rivers.geojson", 0), ("cities.geojson", 0),
-         ("world.gpkg", 0), ("world.gpkg", 1)]
+         ("world.gpkg", 0), ("world.gpkg", 1),
+         ("countries.fgb", 0), ("rivers.fgb", 0), ("cities.fgb", 0), ("points.fgb", 0), ("world.gml", 0), ("world.gml", 1), ("world.gml", 2), ("world.kmz", 0)]
 out = {}
 for f, layer in cases:
     r = GDALVectorReader(FileName=os.path.join(here, f), ActiveLayer=layer)
-    r.UpdatePipeline()
+    try:
+        r.UpdatePipeline()
+    except Exception as e:
+        print(f, "unreadable:", e)
+        continue
     d = r.GetClientSideObject().GetOutputDataObject(0)
+    if d is None or d.GetNumberOfBlocks() == 0:
+        print(f, layer, "unreadable (no blocks)")
+        continue
     blocks = []
     for b in range(d.GetNumberOfBlocks()):
         p = d.GetBlock(b)

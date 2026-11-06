@@ -31,7 +31,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | VASP | `POSCAR`, `CONTCAR`, `CHGCAR`, `LOCPOT`, `ELFCAR`, `PARCHG` (by name), `.vasp` | atoms with bonds and the lattice; volumes on the cell's axes (charge per Å³) |
 | Images | `.png .jpg .bmp .tif` | as image data; multi-page TIFFs and `img_*.png` wildcards as volumes |
 | GIS rasters | GeoTIFF `.tif`, Esri ASCII grid `.asc` | at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below |
-| GIS vectors | Shapefile `.shp`, GeoJSON `.geojson .json`, KML `.kml`, GeoPackage `.gpkg` | points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below |
+| GIS vectors | Shapefile `.shp`, GeoJSON `.geojson .json`, KML `.kml`, KMZ `.kmz`, GeoPackage `.gpkg`, FlatGeobuf `.fgb`, GML `.gml` | points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below |
 | Surfaces | `.stl .ply .obj` | |
 | CSV / TSV | `.csv .tsv .txt` | delimiter and header detection; tables with x, y, z columns become points |
 
@@ -188,7 +188,10 @@ like any other file:
 | ESRI Shapefile | `name.shp` with `name.dbf` (attributes) and `name.prj` (coordinate system) beside it; open the `.shp` |
 | GeoJSON | `.geojson`, or a `.json` file that holds GeoJSON |
 | KML (Google Earth) | `.kml`; each folder is a layer |
+| KMZ | `.kmz`: a zipped KML (Google Earth's usual download); the KML document inside is read |
 | GeoPackage | `.gpkg`; each feature table is a layer |
+| FlatGeobuf | `.fgb`: a fast binary format for large vector data; one layer |
+| GML | `.gml` (GML 2, 3 and 3.2, as GDAL and most web feature services write it); each feature type is a layer, typed by the `.xsd` schema beside the file when there is one |
 
 What you get:
 - The coordinates stay as stored: longitude and latitude in degrees for most GeoJSON and KML
@@ -201,7 +204,11 @@ What you get:
   decimals as doubles, and anything else (names, dates) as text. 64-bit integers stay
   numbers; ParaView turns them into text.
 - `MAP_PROJECTION` in the field data holds the coordinate system: the `.prj` text, the EPSG
-  code of a GeoPackage layer, or `EPSG:4326` (longitude/latitude) for GeoJSON and KML.
+  code of a GeoPackage, FlatGeobuf or GML layer, or `EPSG:4326` (longitude/latitude) for
+  GeoJSON and KML.
+- GML in a geographic coordinate system named the long way (`urn:ogc:def:crs:EPSG::4326`)
+  stores latitude first. auraFX swaps it back to longitude, latitude, as GDAL does, so GML
+  lines up with the other formats.
 
 **Reader options** (Properties › Reader options, or `node.set(...)`):
 
@@ -220,16 +227,22 @@ countries.set(polygons="Filled")
 countries.set(color_by="pop", log_scale=True)
 roads = afx.load("world.gpkg")
 roads.set(layer="roads")                      # one layer of a GeoPackage
+sites = afx.load("sites.fgb")                 # FlatGeobuf
+rivers = afx.load("hydro.gml")                # GML, a block per feature type
+places = afx.load("trip.kmz")                 # Google Earth KMZ
 ```
 
-Checked against ParaView 6.1.1's GDAL vector reader on shapefiles, GeoJSON and GeoPackage
-files written by GDAL: with one block per feature, every point, cell and attribute is the
-same. ParaView reads only the first layer of a file unless told otherwise; auraFX reads all of
-them. ParaView's GDAL cannot read KML, so the KML reader was checked against the same data
-saved as GeoJSON.
+![Countries (filled, colored by area), rivers and cities from a GML file, with 300 points from a FlatGeobuf file colored by their value](images/gis_formats.png)
 
-Not read yet: KMZ (zipped KML), GML, FlatGeobuf, MapInfo, file geodatabases, and curved
-geometry (arcs). Shapefile multipatches (3-D surfaces) are skipped, as ParaView does.
+Checked against ParaView 6.1.1's GDAL vector reader on shapefiles, GeoJSON, GeoPackage and
+FlatGeobuf files written by GDAL (FlatGeobuf also with 300 features, whose index has three
+levels): with one block per feature, every point, cell and attribute is the same. ParaView
+reads only the first layer of a file unless told otherwise; auraFX reads all of them.
+ParaView's GDAL cannot read KML, KMZ or GML (it is built without an XML parser), so those were
+checked against the same data saved as GeoJSON: GML 3.2 and GML 2 files written by GDAL, and
+the KML file zipped as KMZ.
+
+Not read yet: MapInfo, file geodatabases, and curved geometry (arcs). Shapefile multipatches (3-D surfaces) are skipped, as ParaView does.
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
 

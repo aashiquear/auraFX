@@ -31,8 +31,12 @@
 * `Attributes` is an ordered map of arrays plus "active" designations (scalars, vectors,
   normals, …).
 * Datasets mirror VTK: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`,
-  `UnstructuredGrid`, `Table`, `MultiBlock`. Cells use VTK 9's offsets + connectivity layout
-  and VTK cell type ids, so higher-order and polyhedral cells round-trip.
+  `UnstructuredGrid`, `Table`, `MultiBlock`, `HyperTreeGrid` and `CellGrid`. Cells use VTK 9's
+  offsets + connectivity layout and VTK cell type ids, so higher-order and polyhedral cells
+  round-trip. Overlapping AMR is a `MultiBlock` of levels of image boxes with a `vtkGhostType`
+  array hiding covered cells (`amr.rs`); molecules are poly data with an atomic-number array
+  and bonds as lines. Hyper tree grids and cell grids carry a cached mesh of their visible
+  leaves / linear cells, so every filter and the renderer see them as ordinary cells.
 * `TimeSeries` holds per-step references (`File`, `FileFrame`, or an already loaded dataset);
   steps load lazily.
 
@@ -73,6 +77,14 @@ The interpreter runs on its own thread (`worker.rs` in the app). The `aurafx` mo
 to the same `Session` behind a mutex, so scripts and the UI see one pipeline. Arrays
 cross the boundary as NumPy arrays.
 
+## Server (`aurafx-server`)
+
+The app can run a `Session` on another machine: `aurafx-server --stdio` over SSH speaks a
+versioned postcard protocol (`aurafx_pipeline::remote`, protocol 11). Reader and filter nodes
+marked remote execute there; the client receives surfaces, pictures drawn by the server's
+GPU (`aurafx_render::server`), or the data itself when it is small. `--workers N` splits the
+data into pieces over processes or hosts and merges the results (`cluster.rs`, `pieces.rs`).
+
 ## Jobs (`aurafx-jobs`)
 
 A `JobSpec` describes what to run, where (`Host`: local or SSH target), with which GPUs
@@ -80,3 +92,11 @@ A `JobSpec` describes what to run, where (`Host`: local or SSH target), with whi
 through the system `ssh`/`scp` so user configuration just works. Logs stream into a ring
 buffer; finished jobs can fetch result files into `~/.cache/aurafx` and ask the app to open
 them.
+
+## Planned crates
+
+`aurafx-crystal` (orientation mathematics, crystal symmetries, slip systems; no dependency
+on the rest of auraFX) and `aurafx-mesh` (implicit geometry, structured and overlay-grid hex
+meshing, quality metrics) are the two libraries behind the grain workbench and the mesh
+generator; their filters and sources register in `aurafx-filters` like every other one. See
+`docs/design/grains-and-meshing.md`.

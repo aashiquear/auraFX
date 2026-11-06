@@ -129,7 +129,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
 - [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source; iteration 44: Geometry, Feature Edges): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
-- [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer): Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
+- [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer; iteration 46: Probe): Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp; Compute Sides not done
 - [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
 - [ ] Parallel/distributed: D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
@@ -885,9 +885,21 @@ back exactly and open in ParaView with the same values. Also fixed: Transform ro
 wrong order (now ParaView's Rz Rx Ry; checked on a point), and serde_json now parses floats
 exactly (float_roundtrip). Cell Grid Probe not done.
 
+Done in iteration 46: **Cell Grid Probe**. ParaView's CellGridPointProbe: for each cell, the
+probe points within the sphere around its corners and behind every bounding side's plane
+(VTK's half-spaces, quirks kept: a quad face's test corner taken from the cell, a 2-D cell's
+edges as directions), then Newton steps from the parametric origin (20, to 1e-7) and VTK's
+IsInside; a vertex per (point, cell) with CellType, ContainingCellID, ParametricCoordinates
+(NaN when outside) and the attribute's value. Checked against ParaView 6.1.1 with its SMP
+backend sequential (its parallel interpolation races on a shared cache) on eight of VTK's DG
+files (a lattice plus cell centers): the same hits, and coordinates and values (HCURL/HDIV
+too) wherever ParaView has them. ParaView gives NaN on 2-D and 1-D cells (singular Jacobian),
+reads undefined memory for edges and crashes on quadratic shapes; auraFX solves them (checked
+by the cell centers of the quadratic files). Edge Jacobians are now completed like 2-D ones.
+Compute Sides not done.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces, Cell Grid Probe
-grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces, Cell Grid Compute Sides); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)

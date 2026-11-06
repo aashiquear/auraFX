@@ -523,6 +523,7 @@ face field whose first coefficient is 1). A vertex gets a `constant` field.
 | **Cell Grid Elevation** | adds a field: the distance from **Origin** along **Axis** (or, with Spherical distance, from Origin) |
 | **Cell Grid Transform** | moves, rotates (degrees) and scales the cells, as **Transform** does, or another 3-D attribute shared at points or stored per cell. Edge and face fields follow the new shape |
 | **Cell Grid Warp** | moves the cells' points by **Scale** times a vector attribute shared at the points (the same basis and order as the shape) |
+| **Cell Grid Probe** | finds the cells holding the points of a second dataset (the **Probe points**): a point for every cell each one is in, with `ContainingCellID` (the cell's number within its type), `CellType` (the VTK cell type number), `ParametricCoordinates` (where in the cell, in the cell's own coordinates) and, when **Attribute** names a field, the field's exact value there. Points in no cell are left out. A point on a face shared by two cells is listed twice |
 | **Convert To Cell Grid** | makes a cell grid from a mesh of vertices, lines, triangles, quads, tetrahedra, hexahedra, wedges and pyramids (other cells are skipped): point data becomes fields shared at the points, cell data constant fields (renamed "(cell)" when point data has the same name; ParaView drops one of the two) |
 
 ![VTK's two-hexahedron cell grid, see-through and colored by a field, with its cell centers as spheres colored by an edge field](images/cell_grid.png)
@@ -538,9 +539,23 @@ mesh = g.cell_grid_to_unstructured_grid()
 turned = g.cell_grid_transform(rotate=(0, 0, 30), scale=(1, 1, 2))
 grid = afx.load("mesh.vtu").convert_to_cell_grid()
 grid.save("mesh.dg")
+cloud = afx.point_source(center=(1, 0.6, 0.5), radius=0.75, count=4000)
+found = g.cell_grid_probe(cloud, attribute="quadratic")
 ```
 
 ![VTK's two-hexahedron cell grid (left) and a copy turned, stretched and moved with Cell Grid Transform (right), both colored by the same field](images/cell_grid_transform.png)
+
+**Cell Grid Probe** works like ParaView's. Select the cell grid, Ctrl+click the dataset whose
+points you want to look up (any dataset: its points are used), then choose Filters › Data ›
+Cell Grid Probe. In Properties, **Probe points** picks the second input and **Attribute** the
+field to sample (empty: only find the cells). A cell is searched with ParaView's quick test:
+the point must lie behind each of the cell's faces, taken as flat planes through the corners.
+Then the point's coordinates in the cell are found step by step from the cell's middle. On a
+cell with curved faces a point just outside can pass the quick test; it is kept, with empty
+(NaN) coordinates and values, as in ParaView. The grey points in the picture are such points,
+next to the curved face the two cells share.
+
+![VTK's two-hexahedron cell grid as a wireframe, probed with a cloud of random points: the points found in the cells as spheres colored by the quadratic field, grey ones near the shared curved face](images/cell_grid_probe.png)
 
 Checked against ParaView 6.1.1 on VTK's ten DG test files (hexahedra, tetrahedra, wedges,
 pyramids including 19-node ones, quadrilaterals, quadratic quadrilaterals, triangles, edges,
@@ -551,7 +566,10 @@ mixed types):
 - Elevation, and the source's edge and face fields;
 - Cell Grid Transform (the edge and face fields follow the transformed cells), Cell Grid Warp
   and Convert To Cell Grid, every corner point and value;
-- `.dg` files auraFX writes open in ParaView with the same values, and read back unchanged.
+- `.dg` files auraFX writes open in ParaView with the same values, and read back unchanged;
+- Cell Grid Probe on a lattice of points around each file and the cell centers: the same
+  cells for every point, and the coordinates and every field's value (edge and face fields
+  too) wherever ParaView gives them.
 
 Where auraFX differs from ParaView:
 - ParaView keeps the extra nodes of quadratic cells as points, but evaluates the fields there
@@ -563,9 +581,26 @@ Where auraFX differs from ParaView:
   the cell's unit normal, so both are in the cell's plane.
 - ParaView's Cell Grid Centers gives one point for a file with several cell types; auraFX
   gives one per cell.
+- Cell Grid Probe:
+  - On quadrilaterals, triangles and edges, ParaView's search for a point's coordinates
+    divides by zero (the same flat-cell Jacobian), so it gives NaN unless the point is at the
+    cell's parametric origin. auraFX gives the coordinates.
+  - For edges, ParaView's quick test reads undefined memory, so its results change from run
+    to run. auraFX keeps points between the two end planes, within the sphere around the
+    edge, and then keeps only the points on the edge.
+  - ParaView's quick test for a flat cell uses the edges' directions rather than their
+    normals. auraFX does the same, so the same points are listed (with NaN coordinates when
+    outside).
+  - ParaView samples the field in parallel with a shared cache, which mixes values between
+    points (the reference was made with ParaView's threads off). It also crashes on cells
+    with a quadratic shape. Its `CellType` array is always 0; auraFX gives the cell's VTK
+    type number.
+  - Points come out in single precision, as in ParaView.
+  - With several cell types, ParaView lists them in an order of its own; auraFX lists them
+    in the file's order.
 
-Not available yet: Cell Grid Probe and the cell grid filters ParaView 6.1.1 does not offer
-either (sides, range, copy). Slicing or clipping works on the corner mesh, so curved cells come
+Not available yet: Compute Sides (ParaView's ComputeCellGridSides) and the cell grid filters
+ParaView 6.1.1 does not offer either (range, copy). Slicing or clipping works on the corner mesh, so curved cells come
 out straight.
 
 ## Writers

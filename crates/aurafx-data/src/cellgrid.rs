@@ -105,6 +105,44 @@ impl Shape {
             Shape::Pyramid => &[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         }
     }
+    /// The sides one dimension down that bound the cell, as corner indices in VTK's order
+    /// (vtkDG*::Sides, the first side types), used to tell whether a point is inside.
+    pub fn bounding_sides(self) -> &'static [&'static [usize]] {
+        match self {
+            Shape::Vertex => &[],
+            Shape::Edge => &[&[0], &[1]],
+            Shape::Triangle => &[&[0, 1], &[1, 2], &[2, 0]],
+            Shape::Quadrilateral => &[&[0, 1], &[1, 2], &[3, 2], &[0, 3]],
+            Shape::Tetrahedron => &[&[0, 1, 3], &[1, 2, 3], &[2, 0, 3], &[0, 2, 1]],
+            Shape::Hexahedron => &[&[0, 1, 5, 4], &[1, 2, 6, 5], &[3, 7, 6, 2], &[0, 4, 7, 3], &[0, 3, 2, 1], &[4, 5, 6, 7]],
+            Shape::Wedge => &[&[0, 1, 4, 3], &[1, 2, 5, 4], &[0, 3, 5, 2], &[0, 2, 1], &[3, 4, 5]],
+            Shape::Pyramid => &[&[0, 1, 4], &[1, 2, 4], &[2, 3, 4], &[3, 0, 4], &[0, 3, 2, 1]],
+        }
+    }
+    /// Whether parametric point `r` lies in the cell (VTK's vtkDG*::IsInside).
+    pub fn is_inside(self, r: [f64; 3], tol: f64) -> bool {
+        let (pb, nb) = (1.0 + tol, -1.0 - tol);
+        let flat = |v: f64| v.abs() < tol;
+        match self {
+            Shape::Vertex => flat(r[0]) && flat(r[1]) && flat(r[2]),
+            Shape::Edge => r[0] >= nb && r[0] <= pb && flat(r[1]) && flat(r[2]),
+            Shape::Triangle => {
+                let u = 1.0 - r[0] - r[1];
+                [r[0], r[1], u].iter().all(|&v| v >= -tol && v <= pb) && flat(r[2])
+            }
+            Shape::Quadrilateral => r[0] >= nb && r[0] <= pb && r[1] >= nb && r[1] <= pb && flat(r[2]),
+            Shape::Tetrahedron => {
+                let u = 1.0 - r[0] - r[1] - r[2];
+                [r[0], r[1], r[2], u].iter().all(|&v| v >= -tol && v <= pb)
+            }
+            Shape::Hexahedron => r.iter().all(|&v| v >= nb && v <= pb),
+            Shape::Wedge => {
+                let u = 1.0 - r[0] - r[1];
+                [r[0], r[1], u].iter().all(|&v| v >= -tol && v <= pb) && r[2] >= nb && r[2] <= pb
+            }
+            Shape::Pyramid => r[0] >= nb && r[0] <= pb && r[1] >= nb && r[1] <= pb && r[2] >= -tol && r[2] <= pb,
+        }
+    }
     /// Parametric center: the mean of the corners (as VTK).
     pub fn center(self) -> [f64; 3] {
         let c = self.corners();
@@ -164,6 +202,18 @@ pub struct CellGrid {
     /// first use. Call `invalidate` after changing the grid.
     #[serde(skip)]
     mesh: std::sync::OnceLock<UnstructuredGrid>,
+}
+
+/// A probe point found in a cell (see `CellGrid::locate`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProbeHit {
+    /// Index of the probe point.
+    pub point: usize,
+    pub cell_type: String,
+    /// Cell index within its type.
+    pub cell: usize,
+    /// Parametric coordinates, or None where the point is near the cell but not in it.
+    pub params: Option<[f64; 3]>,
 }
 
 /// A basis function and its number of functions.
@@ -316,6 +366,18 @@ impl CellGrid {
         if t.shape.dimension() == 2 {
             let n = unit(cross(col(&j, 0), col(&j, 1)));
             (0..3).for_each(|i| j[i][2] = n[i]);
+        } else if t.shape.dimension() == 1 {
+            let a = col(&j, 0);
+            // The axis least along the edge, made perpendicular to it.
+            let k = (0..3).min_by(|&x, &y| a[x].abs().total_cmp(&a[y].abs())).unwrap_or(0);
+            let mut e = [0.0; 3];
+            e[k] = 1.0;
+            let b = unit(cross(a, e));
+            let c = unit(cross(a, b));
+            (0..3).for_each(|i| {
+                j[i][1] = b[i];
+                j[i][2] = c[i];
+            });
         }
         Some(j)
     }
@@ -435,6 +497,101 @@ impl CellGrid {
             point_data.insert(Array::new(att.name.clone(), nc, ArrayData::F64(sum)));
         }
         UnstructuredGrid { points: Points::new_f64(pts), cells, point_data, cell_data: Attributes::new(), field_data: self.field_data.clone() }
+    }
+
+    /// The cells holding each of `points`, as ParaView's Cell Grid Probe (vtkDGEvaluator)
+    /// finds them: for every cell, the points within the sphere around its corners (their mean,
+    /// out to the farthest) that are behind every bounding side's plane (VTK's half-spaces,
+    /// through the corners; for 2-D cells the edges' directions, for edges their end points)
+    /// are taken; then Newton steps from the parametric origin find their parametric
+    /// coordinates (none where they do not converge or fall outside the cell). The hits come by
+    /// cell type, then by point, then by cell; a point in several cells is listed for each.
+    pub fn locate(&self, points: &[[f64; 3]]) -> Vec<ProbeHit> {
+        let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let cross = |a: [f64; 3], b: [f64; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        let normalize = |a: [f64; 3]| {
+            let n = dot(a, a).sqrt();
+            if n == 0.0 {
+                a
+            } else {
+                a.map(|v| v * (1.0 / n))
+            }
+        };
+        let mut hits = Vec::new();
+        for (tname, t) in &self.cell_types {
+            let (n, _) = self.cell_count(t);
+            let nc = t.shape.corners().len();
+            let sides = t.shape.bounding_sides();
+            // point -> cells holding it, in point order.
+            let mut found: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
+            for c in 0..n {
+                let Some(cc) = (0..nc).map(|k| self.corner_position(tname, c, k)).collect::<Option<Vec<_>>>() else { continue };
+                let mut center = [0.0; 3];
+                for x in &cc {
+                    (0..3).for_each(|k| center[k] += x[k]);
+                }
+                center = center.map(|v| (1.0 / nc as f64) * v);
+                let radius = cc.iter().map(|x| dot(sub(*x, center), sub(*x, center)).sqrt()).fold(-1.0, f64::max);
+                let planes: Vec<([f64; 3], [f64; 3])> = sides
+                    .iter()
+                    .map(|sd| match sd.len() {
+                        // An edge's end point: the plane across the edge there.
+                        1 => (cc[sd[0]], normalize(sub(cc[sd[0]], cc[1 - sd[0]]))),
+                        // VTK's "half-space" of a 2-D cell's edge is along the edge.
+                        2 => (cc[sd[1]], normalize(sub(cc[sd[1]], cc[sd[0]]))),
+                        3 => (cc[sd[1]], normalize(cross(sub(cc[sd[1]], cc[sd[0]]), sub(cc[sd[2]], cc[sd[1]])))),
+                        _ => {
+                            let (mut o, mut nrm) = ([0.0; 3], [0.0; 3]);
+                            for ii in 0..4 {
+                                o = cc[sd[(ii + 1) % 4]];
+                                nrm = cross(sub(o, cc[sd[ii]]), sub(cc[sd[(ii + 2) % 4]], o));
+                                // VTK tests the cell's corner (ii + 3) % 4 here, not the side's.
+                                if dot(sub(cc[(ii + 3) % 4], o), nrm) < 0.0 {
+                                    break;
+                                }
+                            }
+                            (o, normalize(nrm))
+                        }
+                    })
+                    .collect();
+                for (i, p) in points.iter().enumerate() {
+                    let d = sub(*p, center);
+                    if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > radius * radius {
+                        continue;
+                    }
+                    if planes.iter().all(|(o, nrm)| dot(sub(*p, *o), *nrm) <= 0.0) {
+                        found.entry(i).or_default().push(c);
+                    }
+                }
+            }
+            for (i, cells) in found {
+                for c in cells {
+                    hits.push(ProbeHit { point: i, cell_type: tname.clone(), cell: c, params: self.parametric(tname, c, points[i]) });
+                }
+            }
+        }
+        hits
+    }
+
+    /// The parametric coordinates of `p` in cell `c` by Newton's method from the parametric
+    /// origin (at most 20 steps, to within 1e-7), or None when that fails or lands outside.
+    pub fn parametric(&self, tname: &str, c: usize, p: [f64; 3]) -> Option<[f64; 3]> {
+        let shape = self.cell_types.get(tname)?.shape;
+        let mut r = [0.0; 3];
+        for _ in 0..20 {
+            let x = self.position(tname, c, r)?;
+            let d = [x[0] - p[0], x[1] - p[1], x[2] - p[2]];
+            if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() < 1e-7 {
+                return shape.is_inside(r, 1e-6).then_some(r);
+            }
+            let j = self.jacobian(tname, c, r)?;
+            let inv = inverse3(&j)?;
+            for (i, v) in r.iter_mut().enumerate() {
+                *v -= (0..3).map(|k| inv[i][k] * d[k]).sum::<f64>();
+            }
+        }
+        None
     }
 
     /// Points at the cells' parametric centers with every attribute's value there.

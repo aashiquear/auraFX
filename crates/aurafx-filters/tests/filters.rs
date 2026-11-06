@@ -1568,3 +1568,83 @@ fn cell_grid_filters_match_paraview() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn cell_grid_probe_matches_paraview() {
+    use serde_json::{json, Value};
+    // ParaView 6.1.1's vtkCellGridPointProbe (scripts/cellgrid_probe_reference.py) on VTK's DG
+    // test files: a lattice over each grid's bounds plus the cell centers. ParaView finds the
+    // same cells; its Newton step fails on 2-D cells (a singular Jacobian: NaN parameters
+    // unless the point is the parametric origin) and reads uninitialized memory for edges,
+    // so there auraFX's coordinates are checked against the points instead.
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/probe_reference.json")).unwrap()).unwrap();
+    let nums = |v: &Value| -> Vec<f64> { v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect() };
+    let mut checked = 0;
+    for (file, r) in reference.as_object().unwrap() {
+        let grid = td(&format!("cellgrid/{file}.dg"));
+        let pts: Vec<f64> = r["points"].as_array().unwrap().iter().flat_map(|p| nums(p)).collect();
+        let probe_pts = DataSet::PolyData(PolyData::from_points(Points::new_f64(pts)));
+        let DataSet::CellGrid(g) = &grid else { panic!("{file}: not a cell grid") };
+        let flat = g.cell_types.values().all(|t| t.shape.dimension() < 3);
+        for (att, want) in r["probes"].as_object().unwrap() {
+            // The cell grid first or second: the same result.
+            let out = multi("cell_grid_probe", &[&probe_pts, &grid], &[("attribute", json!(att))]).unwrap();
+            let pd = out.point_data().unwrap();
+            let op = out.points().unwrap();
+            let cell = pd.get("ContainingCellID").unwrap();
+            let par = pd.get("ParametricCoordinates").unwrap();
+            let val = (!att.is_empty()).then(|| pd.get(att).unwrap());
+            let n = op.len();
+            if file == "dgEdges" {
+                // ParaView's classification of edges is not repeatable; check ours alone.
+                for i in 0..n {
+                    if let Some(v) = val.filter(|_| att == "shape" && par.get(i, 0).is_finite()) {
+                        (0..3).for_each(|k| assert!((v.get(i, k) - op.get(i)[k]).abs() < 1e-5, "{file}: edge value {i}"));
+                    }
+                }
+                continue;
+            }
+            let wp = want["points"].as_array().unwrap();
+            assert_eq!(n, wp.len(), "{file} {att:?}: probe hits");
+            let mut used = vec![false; n];
+            for (wi, w) in wp.iter().enumerate() {
+                let w = nums(w);
+                let wc = want["cell"][wi].as_u64().unwrap();
+                let wpar = nums(&want["params"][wi]);
+                let same = |i: usize| !used[i] && cell.get(i, 0) as u64 == wc && (0..3).all(|k| (op.get(i)[k] - w[k]).abs() <= 1e-6 * (1.0 + w[k].abs()));
+                let close = |i: usize| (0..3).all(|k| (par.get(i, k) - wpar[k]).abs() < 1e-6);
+                let i = (0..n).find(|&i| same(i) && (wpar[0].is_nan() || close(i))).unwrap_or_else(|| panic!("{file} {att:?}: no hit at {w:?} in cell {wc}"));
+                used[i] = true;
+                if wpar[0].is_finite() {
+                    if let Some(v) = val {
+                        for (c, x) in nums(&want["values"][wi]).iter().enumerate() {
+                            assert!((v.get(i, c) - x).abs() <= 1e-6 * (1.0 + x.abs()), "{file} {att}[{c}] at {w:?}: {} vs ParaView {x}", v.get(i, c));
+                        }
+                    }
+                } else if par.get(i, 0).is_finite() {
+                    // Only where ParaView's Newton step cannot work (2-D cells).
+                    assert!(flat, "{file} {att:?}: parameters at {w:?} where ParaView has none");
+                    if att == "shape" {
+                        (0..3).for_each(|k| assert!((val.unwrap().get(i, k) - w[k]).abs() < 1e-5, "{file}: shape at {w:?}"));
+                    }
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 1000, "{checked}");
+    // ParaView crashes probing the higher-order files (heap corruption); there the cells'
+    // parametric centers must be found in their cells with the shape giving back the point.
+    for file in ["dgQuadraticQuadrilaterals", "dgPyramid19"] {
+        let grid = td(&format!("cellgrid/{file}.dg"));
+        let centers = run("cell_grid_centers", Some(&grid), &[]);
+        let out = multi("cell_grid_probe", &[&grid, &centers], &[("attribute", json!("shape"))]).unwrap();
+        let pd = out.point_data().unwrap();
+        let (op, cell, shape) = (out.points().unwrap(), pd.get("ContainingCellID").unwrap(), pd.get("shape").unwrap());
+        let cp = centers.points().unwrap();
+        for c in 0..cp.len() {
+            let i = (0..op.len()).find(|&i| cell.get(i, 0) as usize == c && (0..3).all(|k| (op.get(i)[k] - cp.get(c)[k]).abs() < 1e-5)).unwrap_or_else(|| panic!("{file}: center {c} not found"));
+            (0..3).for_each(|k| assert!((shape.get(i, k) - cp.get(c)[k]).abs() < 1e-5, "{file}: center {c}"));
+        }
+    }
+}

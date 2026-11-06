@@ -111,12 +111,13 @@ impl FilterDef {
     pub fn run_multi(&self, inputs: &[&DataSet], params: &Params) -> Result<DataSet> {
         let converted: Vec<DataSet>;
         let refs: Vec<&DataSet>;
-        let inputs: &[&DataSet] = if inputs.iter().any(|d| matches!(d, DataSet::HyperTreeGrid(_) | DataSet::CellGrid(_))) {
+        let keep_cell_grids = self.id.starts_with("cell_grid");
+        let inputs: &[&DataSet] = if inputs.iter().any(|d| matches!(d, DataSet::HyperTreeGrid(_)) || (matches!(d, DataSet::CellGrid(_)) && !keep_cell_grids)) {
             converted = inputs
                 .iter()
                 .map(|d| match d {
                     DataSet::HyperTreeGrid(h) => DataSet::UnstructuredGrid(h.leaves_mesh().0),
-                    DataSet::CellGrid(g) => DataSet::UnstructuredGrid(g.to_unstructured()),
+                    DataSet::CellGrid(g) if !keep_cell_grids => DataSet::UnstructuredGrid(g.to_unstructured()),
                     d => (*d).clone(),
                 })
                 .collect();
@@ -1960,6 +1961,28 @@ fn build() -> Vec<FilterDef> {
             multi: None,
             params: vec![s("attribute", "Deformation attribute", ""), f("scale", "Scale", 1.0, f64::NEG_INFINITY, f64::INFINITY)],
             apply: |input, p| per_leaf(input.unwrap(), &|d| crate::cellgrid::warp(d, &p.str("attribute"), p.f64("scale", 1.0))),
+        },
+        FilterDef {
+            id: "cell_grid_probe",
+            label: "Cell Grid Probe",
+            category: "Data",
+            description: "Find the cells of a cell grid holding the points of another dataset: each point's cell, parametric coordinates and an attribute's value there.",
+            keywords: &["cell grid", "dg", "probe", "sample", "locate", "parametric coordinates"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: Some(MultiInput {
+                label: "Probe points",
+                min: 2,
+                max: Some(2),
+                apply: |inputs, p| {
+                    // The cell grid is the pipeline input; the points may come either way round.
+                    let (grid, pts) = if matches!(inputs[0], DataSet::CellGrid(_)) || !matches!(inputs[1], DataSet::CellGrid(_)) { (inputs[0], inputs[1]) } else { (inputs[1], inputs[0]) };
+                    Ok(DataSet::PolyData(crate::cellgrid::probe(grid, pts, &p.str("attribute"))?))
+                },
+            }),
+            params: vec![s("attribute", "Attribute", "").help("The attribute to sample at the points; empty to only find the cells.")],
+            apply: |_, _| Err(anyhow!("Cell Grid Probe needs probe points; choose them in Properties")),
         },
         FilterDef {
             id: "convert_to_cell_grid",

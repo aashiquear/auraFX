@@ -292,3 +292,41 @@ pub fn convert(ds: &DataSet) -> Result<DataSet> {
     g.field_data = ds.field_data().clone();
     Ok(DataSet::CellGrid(g))
 }
+
+/// Cell Grid Probe (vtkCellGridPointProbe): a vertex for every cell of the grid holding each
+/// point of `probe` (a point in several cells is listed for each; points in none are left
+/// out), with CellType (the VTK cell type of the cell), ContainingCellID (the cell's index
+/// within its type), ParametricCoordinates (NaN where the point is near the cell but not in
+/// it) and, when `attribute` is set, that attribute's value there.
+pub fn probe(ds: &DataSet, probe: &DataSet, attribute: &str) -> Result<PolyData> {
+    let g = grid_of(ds)?;
+    let att = if attribute.is_empty() { None } else { Some(&g.attributes[attribute_index(g, attribute)?]) };
+    let pts = probe.points().ok_or_else(|| anyhow!("the probe input has no points"))?;
+    let input: Vec<[f64; 3]> = (0..pts.len()).map(|i| pts.get(i)).collect();
+    let hits = g.locate(&input);
+    let mut xyz = Vec::with_capacity(3 * hits.len());
+    let mut types = Vec::with_capacity(hits.len());
+    let mut ids = Vec::with_capacity(hits.len());
+    let mut params = Vec::with_capacity(3 * hits.len());
+    let mut values = Vec::new();
+    for h in &hits {
+        // ParaView keeps the points in single precision.
+        xyz.extend(input[h.point].map(|v| v as f32));
+        types.push(g.cell_types[&h.cell_type].shape.vtk_type() as u32);
+        ids.push(h.cell as u64);
+        let r = h.params.unwrap_or([f64::NAN; 3]);
+        params.extend_from_slice(&r);
+        if let Some(a) = att {
+            let v = h.params.and_then(|r| g.evaluate(a, &h.cell_type, h.cell, r));
+            values.extend(v.unwrap_or_else(|| vec![f64::NAN; a.components]));
+        }
+    }
+    let mut pd = PolyData::from_points(Points::new_f32(xyz));
+    pd.point_data.insert(Array::new("CellType", 1, ArrayData::U32(types)));
+    pd.point_data.insert(Array::new("ContainingCellID", 1, ArrayData::U64(ids)));
+    pd.point_data.insert(Array::new("ParametricCoordinates", 3, ArrayData::F64(params)));
+    if let Some(a) = att {
+        pd.point_data.insert(Array::new(a.name.clone(), a.components, ArrayData::F64(values)));
+    }
+    Ok(pd)
+}

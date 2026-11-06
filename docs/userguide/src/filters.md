@@ -129,8 +129,8 @@ to keep across sessions, write a [plugin](plugins.md).
 
 ## Filters with several inputs
 
-Append Datasets, Append Geometry, Append Attributes and Resample With Dataset take several
-inputs. Ctrl+click the inputs in the Pipeline, then choose the filter; the Properties panel
+Append Datasets, Append Geometry, Append Attributes, Resample With Dataset and Cell Grid Probe
+take several inputs. Ctrl+click the inputs in the Pipeline, then choose the filter; the Properties panel
 gets an **Inputs** section where the order can be changed.
 
 ```python

@@ -20,6 +20,7 @@ aurafx-python = { path = "crates/aurafx-python" }
 aurafx-ai = { path = "crates/aurafx-ai" }
 aurafx-jobs = { path = "crates/aurafx-jobs" }
 aurafx-crystal = { path = "crates/aurafx-crystal" }
+aurafx-mesh = { path = "crates/aurafx-mesh" }
 
 anyhow = "1"
 thiserror = "2"

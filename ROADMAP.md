@@ -290,7 +290,7 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
 Implicit geometry, structured hex meshing (hexaform's methods) and an overlay-grid mesher for
 arbitrary and voxel geometry, with a command language, quality tables and sets. Design: `docs/design/grains-and-meshing.md`.
 
-- [ ] M1 Geometry kernel: implicit primitives, transforms, CSG, 2-D outlines extruded/revolved/swept, STL and existing surfaces as signed distance fields, named faces; the Geometry source and the `afx.mesh` command language (journals through the trace).
+- [x] M1 Geometry kernel: implicit primitives, transforms, CSG, 2-D outlines extruded/revolved/swept, STL and existing surfaces as signed distance fields, named faces; the Geometry source and the `afx.mesh` command language (journals through the trace).
 - [ ] M2 Structured hex: box, mapped blocks, cube with packed inclusions (cubed-sphere O-grid macro-blocks, transfinite cores, graded shells, weld), plate with hole, dog-bone, 2-D sweep, Elevate to HEX20/27, blocks/side sets/node sets, periodic pairs; Mesh Quality with the full metric set and acceptable ranges; Exodus, VTK, Abaqus `.inp`, Gmsh `.msh` writers.
 - [ ] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
 - [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
@@ -353,6 +353,19 @@ hill-climbing search per slice pair, in parallel). Orientation Colors agrees wit
 stored IPF colors within 1/255 on a window of NIST's AM Bench IN718 volume
 (`testdata/dream3d/am_bench_subset.dream3d`); the full 3.5 GB volume reads in 3 s and aligns in
 7 s. Next: M1.
+
+Done in iteration 55 (M1, the first stage of P9): the `aurafx-mesh` crate with implicit solids
+(brick, sphere, cylinder, cone, torus, prism, superquadric, spherical-harmonic shape), moves,
+rotations and scaling, unite/subtract/intersect, 2-D outlines (polylines, rectangles, circles,
+ellipses, regular polygons, splines, appended lines and arcs, fillets) extruded, revolved
+(full or partial) or swept along a path, closed surfaces (STL, PLY, OBJ, VTK) as signed
+distance fields (bounding-box tree, pseudonormal sign), named faces that survive booleans,
+and the geometry command language with its journal. The Geometry source (Properties: command
+box and a Bodies tree) draws each body by contouring its distance field and snapping the
+points onto the surface; Signed Distance Field turns any closed surface into a distance grid.
+`afx.mesh.geometry()` builds and checks commands from Python; command-box edits go into the
+trace. Volumes and areas match closed forms (0.5 % / 1 %); STL round trip. Guide chapter:
+Geometry and meshing. Next: G2.
 
 ## Status (2026-11-05)
 

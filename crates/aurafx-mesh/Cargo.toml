@@ -1,0 +1,12 @@
+[package]
+name = "aurafx-mesh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Geometry kernel and meshers for auraFX: implicit shapes, CSG, outlines, signed distance fields, the geometry command language"
+
+[dependencies]
+aurafx-data.workspace = true
+aurafx-io.workspace = true
+anyhow.workspace = true
+rayon.workspace = true

@@ -1422,6 +1422,56 @@ fn define_colormap(name: String, points: Vec<[f64; 4]>) -> PyResult<String> {
     Ok(name)
 }
 
+/// Check geometry commands: the bodies they make (id, name, history lines, faces as
+/// (id, name), bounds), or the error with the line it is on.
+#[pyfunction]
+fn _mesh_check<'py>(py: Python<'py>, commands: String) -> PyResult<Bound<'py, PyList>> {
+    let m = aurafx_mesh::Model::from_commands(&commands, None).map_err(|e| PyValueError::new_err(format!("{e:#}")))?;
+    let out = PyList::empty(py);
+    for (id, name, history, faces) in m.describe() {
+        let d = PyDict::new(py);
+        d.set_item("id", id)?;
+        d.set_item("name", name)?;
+        d.set_item("history", history)?;
+        d.set_item("faces", faces)?;
+        let (lo, hi) = m.bodies[&id].shape.bounds();
+        d.set_item("bounds", (lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]))?;
+        out.append(d)?;
+    }
+    Ok(out)
+}
+
+/// `afx.mesh`: geometry built command by command, checked as it goes.
+const MESH_API: &str = r#"
+class _MeshGeometry:
+    """Geometry built from commands. g.cmd('brick x 2 y 1 z 1') adds commands (checked at once),
+    g.bodies() lists the bodies and their faces, g.journal() returns every command,
+    g.result(resolution=64, output='Surface') adds the Geometry source to the pipeline."""
+    def __init__(self, commands=""):
+        self._cmds = []
+        if commands:
+            self.cmd(commands)
+    def cmd(self, text):
+        _mesh_check("\n".join(self._cmds + [text]))
+        self._cmds.append(text)
+        return self
+    def journal(self):
+        return "\n".join(self._cmds)
+    def bodies(self):
+        return _mesh_check(self.journal())
+    def result(self, resolution=64, output="Surface"):
+        return apply("geometry", None, commands=self.journal(), resolution=resolution, output=output)
+    def __repr__(self):
+        return "<geometry: %d bodies, %d commands>" % (len(self.bodies()), len(self._cmds))
+
+class _MeshModule:
+    """Geometry and meshing. afx.mesh.geometry() starts geometry built from commands."""
+    def geometry(self, commands=""):
+        return _MeshGeometry(commands)
+
+mesh = _MeshModule()
+"#;
+
 /// Build a source function for each registered source so `afx.sphere(radius=2)` works.
 fn make_source_fn(py: Python<'_>, id: &'static str) -> PyResult<Py<PyAny>> {
     let code = format!("def {id}(**kw):\n    import aurafx\n    return aurafx.apply('{id}', None, **kw)\n{id}.__doc__ = aurafx_doc\n");
@@ -1708,8 +1758,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::plugins::load_plugin, m)?)?;
     m.add_function(wrap_pyfunction!(_filter_kind, m)?)?;
     m.add_function(wrap_pyfunction!(plugins, m)?)?;
+    m.add_function(wrap_pyfunction!(_mesh_check, m)?)?;
     // Decorators (@afx.filter, @afx.source, @afx.reader) and helpers are plain Python.
     m.py().run(&std::ffi::CString::new(crate::plugins::PY_API).unwrap(), Some(&m.dict()), None)?;
+    m.py().run(&std::ffi::CString::new(MESH_API).unwrap(), Some(&m.dict()), None)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__doc__", "auraFX scripting: afx.load(path), node.slice(...), node.color_by('T'), afx.screenshot('out.png'). See afx.filters().")?;
     let _ = PyTuple::empty(py);

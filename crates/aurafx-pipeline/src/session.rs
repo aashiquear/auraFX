@@ -893,6 +893,18 @@ impl Session {
                 self.checkpoint(label.unwrap_or_default());
             }
         }
+        // Edits of command and code boxes (applied explicitly) go into the trace, so the
+        // journal of a Geometry source replays.
+        let code = self.nodes.get(&id).and_then(|n| match &n.kind {
+            NodeKind::Source { def } | NodeKind::Filter { def } => def.params.iter().find(|p| p.key == key).map(|p| matches!(p.kind, aurafx_filters::ParamKind::Code)),
+            _ => None,
+        });
+        let changed = self.nodes.get(&id).is_some_and(|n| n.params.get(key) != Some(&value));
+        if changed && code == Some(true) {
+            if let Some(s) = value.as_str() {
+                self.trace.push(format!("{}.set({key}={})", self.py_var(id), py_str(s)));
+            }
+        }
         if let Some(n) = self.nodes.get_mut(&id) {
             if n.params.get(key) != Some(&value) {
                 n.params.set(key, value);
@@ -1940,4 +1952,24 @@ pub fn option_specs(options: Vec<aurafx_io::ReaderOption>) -> Vec<aurafx_filters
             ParamSpec::new(&o.key, &o.label, kind, default).help(&o.help)
         })
         .collect()
+}
+
+/// A Python string literal for `s` (triple-quoted when it spans lines).
+pub fn py_str(s: &str) -> String {
+    if s.contains('\n') && !s.contains("\"\"\"") && !s.contains('\\') && !s.ends_with('"') {
+        format!("\"\"\"{s}\"\"\"")
+    } else {
+        let mut out = String::from("'");
+        for c in s.chars() {
+            match c {
+                '\\' => out.push_str("\\\\"),
+                '\'' => out.push_str("\\'"),
+                '\n' => out.push_str("\\n"),
+                '\t' => out.push_str("\\t"),
+                c => out.push(c),
+            }
+        }
+        out.push('\'');
+        out
+    }
 }

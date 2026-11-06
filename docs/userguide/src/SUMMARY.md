@@ -29,6 +29,7 @@
 - [Running simulations](simulations.md)
 - [Data on another machine](client-server.md)
 - [Grains and crystals](grains.md)
+- [Geometry and meshing](geometry.md)
 
 # Reference
 

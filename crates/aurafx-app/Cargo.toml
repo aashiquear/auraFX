@@ -30,6 +30,7 @@ linux-desktop = ["eframe/x11", "eframe/wayland"]
 aurafx-data.workspace = true
 aurafx-io.workspace = true
 aurafx-filters.workspace = true
+aurafx-mesh.workspace = true
 aurafx-pipeline.workspace = true
 aurafx-render.workspace = true
 aurafx-python = { workspace = true, optional = true }

@@ -1994,3 +1994,68 @@ fn grains_volume_filters() {
     let DataSet::ImageData(ri) = &r else { panic!() };
     assert_eq!((ri.extent, r.n_cells()), ([0, 40, 0, 30, 0, 0], 1200));
 }
+
+/// The Geometry source: surfaces with the closed-form volume and area, named faces, an STL
+/// round trip and the Signed Distance Field of the written file.
+#[test]
+fn geometry_source_and_distance_fields() {
+    use std::f64::consts::PI;
+    let cmds = "brick 2; cylinder radius 0.5 height 4; subtract body 2 from body 1; sphere radius 0.6; move body 3 x 3";
+    let g = run("geometry", None, &[("commands", cmds.into()), ("resolution", 96.into())]);
+    let fd = g.field_data();
+    let (v, a) = (fd.get("Volume").unwrap(), fd.get("SurfaceArea").unwrap());
+    let rel = |got: f64, want: f64| ((got - want) / want).abs();
+    assert!(rel(v.get(0, 0), 8.0 - PI * 0.5) < 0.005, "brick V {}", v.get(0, 0));
+    assert!(rel(a.get(0, 0), 24.0 - PI * 0.5 + 2.0 * PI) < 0.01, "brick A {}", a.get(0, 0));
+    assert!(rel(v.get(1, 0), 4.0 / 3.0 * PI * 0.216) < 0.005, "sphere V {}", v.get(1, 0));
+    assert!(rel(a.get(1, 0), 4.0 * PI * 0.36) < 0.005, "sphere A {}", a.get(1, 0));
+    // Faces: the top of the brick, the hole and the sphere all appear, with their names.
+    let names = match &fd.get("FaceNames").unwrap().data {
+        ArrayData::String(s) => s.clone(),
+        _ => panic!(),
+    };
+    let fid = g.cell_data().unwrap().get("FaceId").unwrap();
+    let seen: std::collections::BTreeSet<String> = (0..fid.len()).map(|k| names[fid.get(k, 0) as usize].clone()).collect();
+    for n in ["brick 1 z+", "brick 1 x-", "cylinder 2 side", "sphere 3 surface"] {
+        assert!(seen.contains(n), "{n} missing from {seen:?}");
+    }
+    // The cylinder's caps lie outside the brick: never drawn.
+    assert!(!seen.contains("cylinder 2 top"));
+    // STL round trip: write the sphere, read it back as a body, same volume.
+    let dir = std::env::temp_dir().join(format!("aurafx_geom_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ball = run("geometry", None, &[("commands", "sphere radius 1".into()), ("resolution", 64.into())]);
+    let stl = dir.join("ball.stl");
+    aurafx_io::writers::write_file(&ball, &stl).unwrap();
+    let back = run("geometry", None, &[("commands", format!("import '{}'", stl.display()).into()), ("resolution", 64.into())]);
+    let (v0, v1) = (ball.field_data().get("Volume").unwrap().get(0, 0), back.field_data().get("Volume").unwrap().get(0, 0));
+    assert!(rel(v1, v0) < 0.005, "{v0} {v1}");
+    assert!(rel(v0, 4.0 / 3.0 * PI) < 0.005);
+    // Signed Distance Field of the read surface: -1 at the centre, 0.5 half a unit outside.
+    let s = td_path(&stl);
+    let sdf = run("signed_distance", Some(&s), &[("resolution", 20.into()), ("margin", 0.25.into())]);
+    let DataSet::ImageData(img) = &sdf else { panic!() };
+    let d = img.point_data.get("Distance").unwrap();
+    let e = img.extent;
+    let (nx, ny) = ((e[1] + 1) as usize, (e[3] + 1) as usize);
+    let at = |p: [f64; 3]| {
+        let ijk: [usize; 3] = std::array::from_fn(|k| ((p[k] - img.origin[k]) / img.spacing[k]).round() as usize);
+        let q: [f64; 3] = std::array::from_fn(|k| img.origin[k] + ijk[k] as f64 * img.spacing[k]);
+        (d.get((ijk[2] * ny + ijk[1]) * nx + ijk[0], 0), (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt() - 1.0)
+    };
+    for p in [[0.0, 0.0, 0.0], [1.4, 0.0, 0.0], [0.0, -0.5, 0.3], [0.9, 0.9, 0.9]] {
+        let (got, want) = at(p);
+        assert!((got - want).abs() < 0.01, "{p:?}: {got} vs {want}");
+    }
+    // The distance-field output of the source.
+    let df = run("geometry", None, &[("commands", "sphere radius 1".into()), ("output", "Distance field".into()), ("resolution", 16.into())]);
+    assert!(df.point_data().unwrap().get("Distance").is_some());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn td_path(p: &std::path::Path) -> DataSet {
+    match aurafx_io::read_file(p).unwrap() {
+        aurafx_io::Loaded::Static(d) => (*d).clone(),
+        _ => panic!(),
+    }
+}

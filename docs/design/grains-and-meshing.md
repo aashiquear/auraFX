@@ -149,6 +149,15 @@ mesh.save("part.e")
 The same commands come out of the Properties panel through the trace, as filter parameters
 do today, so the journal is always reproducible.
 
+As built in M1, `afx.mesh.geometry()` returns a builder (`cmd`, `bodies`, `journal`,
+`result`) and the Geometry source takes the whole command list as one parameter edited in a
+command box; edits of command boxes are traced as `node.set(commands=...)`. Bodies are
+implicit (signed distance) solids, so the source draws them by contouring the distance field
+per body and snapping smooth parts onto the exact surface; sharp edges are rounded over a
+cell in the drawing (the meshers of M2/M3 work on the exact geometry). Faces are tagged by
+the primitive feature nearest each point and keep their names through booleans. Mesh
+commands (`mesh volume`, `block`, `sideset`) come with M2.
+
 ## 3. Development stages
 
 Each stage follows the existing rule: a user-guide entry with a screenshot, tests against a

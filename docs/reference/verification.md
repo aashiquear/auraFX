@@ -270,6 +270,22 @@ implementations (`testdata/crystal/reference.json`, `scripts/crystal_reference.p
 - The `.ang` and `.ctf` readers are checked against the angles, phases and quality values
   `scripts/gen_ebsd.py` wrote, including the +30° on φ2 of hexagonal Oxford phases.
 
+## Geometry
+
+The geometry kernel is checked against closed forms (`crates/aurafx-mesh/tests/geometry.rs`,
+volumes and areas integrated from the distance field on cells 1/100 of the body's size):
+- sphere, brick, cylinder, frustum, torus, hexagonal prism, ellipsoid and superellipsoid
+  (volume from the Beta-function formula), and a spherical-harmonic shape (volume by
+  quadrature of r³/3 over the sphere): volumes within 0.5 % (1 % for the superellipsoid and
+  the harmonic shape), areas within 1 %;
+- a brick with a through hole, two overlapping spheres (union and lens intersection),
+  rotated and scaled bricks;
+- extruded, filleted, revolved (full and partial), swept and arc-built outlines.
+The Geometry source's drawn surfaces give the volume within 0.5 % and the area within 1 % of
+the closed forms at a resolution of 96. An STL file written from a drawn sphere and imported
+back encloses the same volume within 0.5 %. The Signed Distance Field of that file is within
+0.01 of the exact distance to the sphere.
+
 ## Writers
 
 The `.htg` writer produces XML version 2, as ParaView 5.10 and later write it. Files written

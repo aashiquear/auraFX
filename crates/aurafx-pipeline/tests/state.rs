@@ -478,3 +478,20 @@ fn source_with_time_steps() {
     let _ = std::fs::remove_file(&path);
     assert_eq!(t.times, vec![0.0, 0.5]);
 }
+
+/// Geometry commands edited in the command box go into the trace as a line that replays.
+#[test]
+fn geometry_commands_are_traced() {
+    let mut s = Session::new();
+    let g = s.add_source("geometry").unwrap();
+    s.set_param(g, "commands", ParamValue::Str("brick 1\nsphere radius 0.4; move body 2 x 1".into()));
+    s.set_param(g, "resolution", ParamValue::Int(32));
+    let t = s.trace.join("\n");
+    assert!(t.contains("= afx.geometry()"), "{t}");
+    assert!(t.contains(".set(commands=\"\"\"brick 1\nsphere radius 0.4; move body 2 x 1\"\"\")"), "{t}");
+    // Other parameters are not traced as they change.
+    assert!(!t.contains("resolution"), "{t}");
+    s.update_blocking();
+    assert!(s.nodes[&g].error.is_none(), "{:?}", s.nodes[&g].error);
+    assert_eq!(aurafx_pipeline::session::py_str("it's"), "'it\\'s'");
+}

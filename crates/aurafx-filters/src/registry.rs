@@ -2727,8 +2727,46 @@ fn build() -> Vec<FilterDef> {
             ],
             apply: |_, p| Ok(DataSet::PolyData(crate::crystal::ipf_key(&p.str("structure"), p.i64("resolution", 60).max(4) as usize)?)),
         },
+        FilterDef {
+            id: "geometry",
+            label: "Geometry",
+            category: "Sources",
+            description: "Solids built from geometry commands (primitives, booleans, extruded, revolved or swept outlines, imported surfaces), with named faces.",
+            keywords: &["cad", "csg", "solid", "brick", "cylinder", "boolean", "extrude", "revolve", "sweep", "implicit", "mesh geometry", "model"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                ParamSpec::new("commands", "Commands", ParamKind::Code, ParamValue::Str(GEOMETRY_TEMPLATE.into()))
+                    .help("One command per line (or separated by ;). See the Geometry and meshing chapter of the user guide, or ask the assistant."),
+                i("resolution", "Resolution", 64, 8, 1024).help("Cells along the longest side of each body when drawing its surface."),
+                choice("output", "Output", &[crate::geometry_model::OUT_SURFACE, crate::geometry_model::OUT_DISTANCE], crate::geometry_model::OUT_SURFACE)
+                    .help("Surface: the bodies' surfaces with BodyId and FaceId. Distance field: the signed distance to the nearest body on a grid."),
+                b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface.").advanced(),
+            ],
+            apply: |_, p| crate::geometry_model::geometry(&p.str("commands"), p.i64("resolution", 64).max(2) as usize, &p.str("output"), p.bool("project", true)),
+        },
+        FilterDef {
+            id: "signed_distance",
+            label: "Signed Distance Field",
+            category: "Mesh",
+            description: "The distance to a closed surface (negative inside) on an image grid around it.",
+            keywords: &["sdf", "distance field", "implicit", "level set", "inside outside", "voxelize", "stl"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                i("resolution", "Resolution", 64, 4, 1024).help("Cells along the longest side of the surface."),
+                f("margin", "Margin", 0.1, 0.0, 10.0).help("Space added around the surface on every side, as a fraction of its size."),
+            ],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| crate::geometry_model::signed_distance(d, p.i64("resolution", 64).max(2) as usize, p.f64("margin", 0.1))),
+        },
     ]
 }
+
+const GEOMETRY_TEMPLATE: &str = "# A block with a hole and a rounded boss.\nbrick x 4 y 2 z 1\ncylinder radius 0.5 height 2\nsubtract body 2 from body 1\noutline 1 rectangle x 1 y 1\noutline 1 fillet radius 0.3\nextrude outline 1 height 1\nmove body 3 x 1.4 z 0.5\nunite body 1 3\n";
 
 /// Patches of the OpenFOAM case an internal mesh was read from, at the mesh's time.
 fn openfoam_patches(input: &DataSet, names: &str) -> Result<DataSet> {

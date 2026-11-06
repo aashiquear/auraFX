@@ -804,6 +804,10 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                             state.session.lock().set_param(id, &spec.key, ParamValue::Str(nv));
                         }
                     }
+                    if def.id == "geometry" {
+                        let cmds = params.get("commands").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
+                        geometry_tree(ui, &cmds);
+                    }
                     if def.params.iter().any(|p| p.advanced) {
                         if ui.checkbox(&mut adv, "Show advanced").changed() {
                             ui.data_mut(|d| d.insert_temp(show_adv, adv));
@@ -1366,5 +1370,41 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
                 });
             }
         });
+    });
+}
+
+/// Bodies of geometry commands: (id, name, history lines, faces).
+type BodyList = Vec<(u32, String, Vec<String>, Vec<(u32, String)>)>;
+
+/// The bodies a Geometry source's commands make, how each was built and its faces, as a tree.
+fn geometry_tree(ui: &mut egui::Ui, commands: &str) {
+    static CACHE: std::sync::Mutex<Option<(String, Result<BodyList, String>)>> = std::sync::Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap();
+    if cache.as_ref().is_none_or(|(c, _)| c != commands) {
+        let r = aurafx_mesh::Model::from_commands(commands, None).map(|m| m.describe()).map_err(|e| format!("{e:#}"));
+        *cache = Some((commands.to_string(), r));
+    }
+    let Some((_, result)) = cache.as_ref() else { return };
+    egui::CollapsingHeader::new(RichText::new("Bodies").strong()).default_open(true).show(ui, |ui| match result {
+        Err(e) => {
+            ui.label(RichText::new(e).color(crate::theme::ERROR));
+        }
+        Ok(bodies) if bodies.is_empty() => {
+            ui.label(RichText::new("No body yet.").weak());
+        }
+        Ok(bodies) => {
+            for (id, name, history, faces) in bodies {
+                egui::CollapsingHeader::new(format!("body {id}: {name}")).id_salt(("geometry body", id)).default_open(bodies.len() <= 3).show(ui, |ui| {
+                    for line in history {
+                        ui.label(RichText::new(line).monospace().small());
+                    }
+                    egui::CollapsingHeader::new(format!("{} faces", faces.len())).id_salt(("geometry faces", id)).show(ui, |ui| {
+                        for (fid, fname) in faces {
+                            ui.label(RichText::new(format!("face {fid}  {fname}")).small()).on_hover_text("Rename with: face N name 'new name'");
+                        }
+                    });
+                });
+            }
+        }
     });
 }

@@ -9,6 +9,7 @@ description = "Geometry and data filters for auraFX"
 aurafx-data.workspace = true
 aurafx-io.workspace = true
 aurafx-crystal.workspace = true
+aurafx-mesh.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 indexmap.workspace = true

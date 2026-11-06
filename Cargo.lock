@@ -197,6 +197,7 @@ dependencies = [
  "aurafx-filters",
  "aurafx-io",
  "aurafx-jobs",
+ "aurafx-mesh",
  "aurafx-pipeline",
  "aurafx-python",
  "aurafx-render",
@@ -250,6 +251,7 @@ dependencies = [
  "aurafx-crystal",
  "aurafx-data",
  "aurafx-io",
+ "aurafx-mesh",
  "indexmap",
  "rayon",
  "serde",
@@ -297,6 +299,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aurafx-mesh"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aurafx-data",
+ "aurafx-io",
+ "rayon",
+]
+
+[[package]]
 name = "aurafx-pipeline"
 version = "0.1.0"
 dependencies = [
@@ -324,6 +336,7 @@ dependencies = [
  "aurafx-filters",
  "aurafx-io",
  "aurafx-jobs",
+ "aurafx-mesh",
  "aurafx-pipeline",
  "directories",
  "numpy",

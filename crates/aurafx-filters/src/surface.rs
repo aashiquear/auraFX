@@ -34,6 +34,16 @@ pub fn extract_surface_level(ds: &DataSet, level: u32) -> Result<PolyData> {
     }
 }
 
+/// A 2-D cell as a surface polygon: pixels (corners in VTK's x-then-y order) become quads with
+/// their corners around the edge.
+fn push_face(polys: &mut Cells, ty: CellType, pts: &[u32]) {
+    if ty == CellType::Pixel && pts.len() == 4 {
+        polys.push(CellType::Quad, &[pts[0], pts[1], pts[3], pts[2]]);
+    } else {
+        polys.push(ty, pts);
+    }
+}
+
 fn append_poly(a: &mut PolyData, b: &PolyData) {
     let off = a.points.len() as u32;
     a.points.append(&b.points);
@@ -285,7 +295,7 @@ fn linear_surface(ds: &DataSet) -> Option<Result<PolyData>> {
                 pl.push(cid);
             }
             2 => {
-                p.push(ty, pts);
+                push_face(p, ty, pts);
                 pp.push(cid);
             }
             _ => {
@@ -433,7 +443,7 @@ fn explicit_surface(ds: &DataSet, level: u32) -> Result<PolyData> {
                     }
                 }
                 _ => {
-                    polys.push(ty, pts);
+                    push_face(&mut polys, ty, pts);
                     parent_p.push(cid);
                 }
             },

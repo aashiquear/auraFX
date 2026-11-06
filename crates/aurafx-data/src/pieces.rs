@@ -14,6 +14,18 @@ pub fn split(ds: &DataSet, k: usize, n: usize) -> DataSet {
         return ds.clone();
     }
     match ds {
+        // A hyper tree grid splits by trees (cell data stays indexed globally).
+        DataSet::HyperTreeGrid(h) => {
+            let t = h.trees.len();
+            let (lo, hi) = (t * k / n, t * (k + 1) / n);
+            let mut out = h.clone();
+            for (i, tree) in out.trees.iter_mut().enumerate() {
+                if i < lo || i >= hi {
+                    *tree = None;
+                }
+            }
+            DataSet::HyperTreeGrid(out)
+        }
         DataSet::ImageData(d) => match slab(d.extent, k, n) {
             Some((ext, pidx, cidx)) => {
                 DataSet::ImageData(ImageData { extent: ext, point_data: d.point_data.gather(&pidx), cell_data: d.cell_data.gather(&cidx), ..d.clone() })

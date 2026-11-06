@@ -1005,3 +1005,115 @@ fn amr_contour_is_closed_across_levels() {
     let dg = run("amr_dual_grid", Some(&amr), &[]);
     assert!(dg.point_data().unwrap().get("velocity").is_some());
 }
+
+/// Hyper tree grids against ParaView 6.1.1: the descriptor source, files written by ParaView
+/// (testdata/htg), To Unstructured Grid (leaves, their order and cell data), Depth Limiter,
+/// Generate Fields, Evaluate Coarse and Cell Centers.
+#[test]
+fn hyper_tree_grids_match_paraview() {
+    use serde_json::json;
+    let sum = |d: &DataSet, name: &str, cells: bool| -> f64 {
+        let a = if cells { d.cell_data() } else { d.point_data() }.and_then(|x| x.get(name)).unwrap_or_else(|| panic!("no {name}"));
+        (0..a.len()).map(|i| (0..a.ncomp).map(|c| a.get(i, c)).sum::<f64>()).sum()
+    };
+    let close = |a: f64, b: f64, tag: &str| assert!((a - b).abs() <= 1e-9 * (1.0 + b.abs()), "{tag}: {a} vs ParaView {b}");
+    let leaves = |d: &DataSet| match d {
+        DataSet::HyperTreeGrid(h) => h.n_leaves(),
+        _ => panic!("not a hyper tree grid"),
+    };
+    // (file, cells, visible leaves, Depth sum, leaf Depth sum, bounds max, depth-1 leaves, their Depth sum)
+    let cases = [
+        ("htg/tree3d.htg", 76, 68, 104.0, 99.0, [4.5, 2.0, 1.4], 33, 24.0),
+        ("htg/tree2d.htg", 72, 65, 90.0, 87.0, [3.0, 6.0, 0.0], 41, 36.0),
+        ("htg/tree3d_mask.htg", 76, 61, 104.0, 90.0, [4.5, 2.0, 1.4], 0, 0.0),
+    ];
+    for (file, cells, nleaves, dsum, lsum, bmax, d1, d1sum) in cases {
+        let h = td(file);
+        assert_eq!((h.n_cells(), leaves(&h)), (cells, nleaves), "{file}");
+        close(sum(&h, "Depth", true), dsum, file);
+        let ug = run("hyper_tree_grid_to_unstructured_grid", Some(&h), &[]);
+        assert_eq!(ug.n_cells(), nleaves);
+        close(sum(&ug, "Depth", true), lsum, file);
+        assert_eq!(ug.bounds().max, bmax, "{file}");
+        if d1 > 0 {
+            let lim = run("hyper_tree_grid_depth_limiter", Some(&h), &[("depth", json!(1))]);
+            let lug = run("hyper_tree_grid_to_unstructured_grid", Some(&lim), &[]);
+            assert_eq!(lug.n_cells(), d1, "{file} depth 1");
+            close(sum(&lug, "Depth", true), d1sum, file);
+        }
+        // Cell Centers on the leaves (ParaView: one point per visible leaf, Depth kept).
+        let cc = run("cell_centers", Some(&h), &[]);
+        assert_eq!(cc.n_points(), nleaves, "{file} centers");
+    }
+    // 2-D leaves are pixels; their surface is quads with corners around the edge (area 18).
+    let surf = run("extract_surface", Some(&td("htg/tree2d.htg")), &[]);
+    let DataSet::PolyData(sp) = &surf else { panic!() };
+    assert!(sp.polys.types.iter().all(|t| *t == CellType::Quad));
+    let area: f64 = (0..sp.polys.len())
+        .map(|c| {
+            let q = sp.polys.cell(c);
+            let p: Vec<[f64; 3]> = q.iter().map(|&i| sp.points.get(i as usize)).collect();
+            0.5 * ((p[0][0] * p[1][1] - p[1][0] * p[0][1]) + (p[1][0] * p[2][1] - p[2][0] * p[1][1]) + (p[2][0] * p[3][1] - p[3][0] * p[2][1]) + (p[3][0] * p[0][1] - p[0][0] * p[3][1])).abs()
+        })
+        .sum();
+    assert!((area - 18.0).abs() < 1e-9, "area {area}");
+    // The leaves in ParaView's order: their cell indices (OriginalIds) on the masked file.
+    let ug = run("hyper_tree_grid_to_unstructured_grid", Some(&td("htg/tree3d_mask.htg")), &[]);
+    let ids: Vec<i64> = (0..61).map(|i| ug.cell_data().unwrap().get("OriginalIds").unwrap().get(i, 0) as i64).collect();
+    assert_eq!(
+        ids,
+        vec![
+            2, 3, 9, 10, 14, 15, 16, 5, 6, 7, 8, 17, 27, 28, 29, 30, 31, 32, 33, 34, 20, 21, 22, 23, 24, 35, 36, 37, 38, 39, 40, 42, 26, 44, 45, 55, 56, 57, 58, 59, 60, 61, 62, 48, 49, 50,
+            51, 52, 53, 63, 64, 65, 66, 67, 68, 69, 70, 72, 73, 74, 75
+        ]
+    );
+    // Generate Fields: (file, CellSize, ValidCell, CellCenter sums, TotalVisibleVolume).
+    for (file, size, valid, center, total) in
+        [("htg/tree3d.htg", 16.40625, 68.0, 236.2, 12.6), ("htg/tree2d.htg", 26.666666667, 65.0, 315.0, 18.0), ("htg/tree3d_mask.htg", 16.40625, 61.0, 218.325, 10.303125)]
+    {
+        let g = run("hyper_tree_grid_generate_fields", Some(&td(file)), &[]);
+        assert!((sum(&g, "CellSize", true) - size).abs() < 1e-8, "{file} CellSize {}", sum(&g, "CellSize", true));
+        close(sum(&g, "ValidCell", true), valid, file);
+        close(sum(&g, "CellCenter", true), center, file);
+        close(g.field_data().get("TotalVisibleVolume").unwrap().get(0, 0), total, file);
+    }
+    // Evaluate Coarse on the masked file (default 0.5), Depth sums.
+    let m = td("htg/tree3d_mask.htg");
+    for (op, want) in [("Min", 106.0), ("Max", 115.0), ("Sum", 261.0), ("Average", 111.375), ("Unmasked Average", 111.375), ("Elder Child", 113.0), ("Splatting Average", 126.0)] {
+        let e = run("hyper_tree_grid_evaluate_coarse", Some(&m), &[("operator", json!(op)), ("default", json!(0.5))]);
+        close(sum(&e, "Depth", true), want, op);
+    }
+    // The descriptor source builds the same grids as the files ParaView wrote from it.
+    let d3 = "R.R. ..R. .... | ...R .... R... ..R. R... ...R | .... .... .... .... .... .... .... .... .... ....";
+    let s = run("hyper_tree_grid", None, &[("dimensions", json!([4, 3, 3])), ("max_depth", json!(4)), ("descriptor", json!(d3)), ("grid_scale", json!([1.5, 1.0, 0.7]))]);
+    assert_eq!((s.n_cells(), leaves(&s)), (76, 68));
+    close(sum(&s, "Depth", true), 104.0, "source");
+    let sug = run("hyper_tree_grid_to_unstructured_grid", Some(&s), &[]);
+    let fug = run("hyper_tree_grid_to_unstructured_grid", Some(&td("htg/tree3d.htg")), &[]);
+    let pts = |d: &DataSet| d.points().unwrap();
+    assert_eq!((0..pts(&sug).len()).map(|i| pts(&sug).get(i)).collect::<Vec<_>>(), (0..pts(&fug).len()).map(|i| pts(&fug).get(i)).collect::<Vec<_>>());
+    let d2 = "R..R.R..R | .R....... ......... R........ ..R...... | ......... ......... .........";
+    let s2 = run("hyper_tree_grid", None, &[("dimensions", json!([4, 4, 1])), ("branch_factor", json!("3")), ("max_depth", json!(3)), ("descriptor", json!(d2)), ("grid_scale", json!([1.0, 2.0, 1.0]))]);
+    assert_eq!((s2.n_cells(), leaves(&s2)), (72, 65));
+    // The random source with VTK's random sequence: ParaView's defaults and one other setting.
+    for (set, cells, nleaves, dsum, leaf_sum, first_ids) in [
+        (vec![], 65354, 57191, 305288.0, 275290.0, vec![0i64, 14571, 14587, 14588, 14589, 14595, 14596, 14603, 14604, 14605, 14606, 14607, 14608, 14609, 14610]),
+        (
+            vec![("seed", json!(7)), ("max_depth", json!(3)), ("split_fraction", json!(0.4)), ("dimensions", json!([4, 3, 1]))],
+            34,
+            27,
+            52.0,
+            46.0,
+            vec![1, 2, 5, 6, 7, 8, 4, 10, 17, 18, 19, 25, 26, 27, 28],
+        ),
+    ] {
+        let r = run("random_hyper_tree_grid", None, &set);
+        assert_eq!((r.n_cells(), leaves(&r)), (cells, nleaves));
+        close(sum(&r, "Depth", true), dsum, "random depth");
+        let ug = run("hyper_tree_grid_to_unstructured_grid", Some(&r), &[]);
+        close(sum(&ug, "Depth", true), leaf_sum, "random leaves depth");
+        let ids: Vec<i64> = (0..15).map(|i| ug.cell_data().unwrap().get("OriginalIds").unwrap().get(i, 0) as i64).collect();
+        assert_eq!(ids, first_ids);
+    }
+}
+

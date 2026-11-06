@@ -75,6 +75,15 @@ impl FilterDef {
         if !self.is_source && input.is_none() {
             return Err(anyhow!("{} needs an input", self.label));
         }
+        // Filters that are not about hyper tree grids work on their visible leaves.
+        let leaves;
+        let input = match input {
+            Some(DataSet::HyperTreeGrid(h)) if !self.id.starts_with("hyper_tree_grid") => {
+                leaves = DataSet::UnstructuredGrid(h.leaves_mesh().0);
+                Some(&leaves)
+            }
+            other => other,
+        };
         if let Some(e) = &self.ext {
             return (e.apply)(&input.into_iter().collect::<Vec<_>>(), params);
         }
@@ -95,6 +104,21 @@ impl FilterDef {
     }
 
     pub fn run_multi(&self, inputs: &[&DataSet], params: &Params) -> Result<DataSet> {
+        let converted: Vec<DataSet>;
+        let refs: Vec<&DataSet>;
+        let inputs: &[&DataSet] = if !self.id.starts_with("hyper_tree_grid") && inputs.iter().any(|d| matches!(d, DataSet::HyperTreeGrid(_))) {
+            converted = inputs
+                .iter()
+                .map(|d| match d {
+                    DataSet::HyperTreeGrid(h) => DataSet::UnstructuredGrid(h.leaves_mesh().0),
+                    d => (*d).clone(),
+                })
+                .collect();
+            refs = converted.iter().collect();
+            &refs
+        } else {
+            inputs
+        };
         if let Some(e) = &self.ext {
             if !self.is_source && inputs.is_empty() {
                 return Err(anyhow!("{} needs an input", self.label));
@@ -1718,6 +1742,61 @@ fn build() -> Vec<FilterDef> {
             apply: |input, _| Ok(DataSet::UnstructuredGrid(crate::amr::dual_grid(input.unwrap())?)),
         },
         FilterDef {
+            id: "hyper_tree_grid_to_unstructured_grid",
+            label: "Hyper Tree Grid To Unstructured Grid",
+            category: "Data",
+            description: "The visible leaves of a hyper tree grid as an unstructured grid (voxels, pixels or lines), with OriginalIds.",
+            keywords: &["htg", "hyper tree grid", "leaves", "convert", "unstructured"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::htg::to_unstructured(d)?))),
+        },
+        FilterDef {
+            id: "hyper_tree_grid_depth_limiter",
+            label: "Hyper Tree Grid Depth Limiter",
+            category: "Data",
+            description: "Cut the trees of a hyper tree grid at a depth: cells at that depth become leaves.",
+            keywords: &["htg", "hyper tree grid", "depth", "level", "coarsen", "limit"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("depth", "Depth", 0, 0, 64)],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| crate::htg::depth_limiter(d, p.i64("depth", 0).max(0) as usize)),
+        },
+        FilterDef {
+            id: "hyper_tree_grid_generate_fields",
+            label: "Hyper Tree Grid Generate Fields",
+            category: "Data",
+            description: "Cell arrays CellSize, ValidCell and CellCenter, and TotalVisibleVolume in field data.",
+            keywords: &["htg", "hyper tree grid", "cell size", "volume", "visible leaves size", "cell center"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &crate::htg::generate_fields),
+        },
+        FilterDef {
+            id: "hyper_tree_grid_evaluate_coarse",
+            label: "Hyper Tree Grid Evaluate Coarse",
+            category: "Data",
+            description: "Values of refined (coarse) cells computed from their children: min, max, sum, average...",
+            keywords: &["htg", "hyper tree grid", "coarse", "average", "aggregate", "parent values"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("operator", "Operator", &crate::htg::COARSE_OPERATORS, "Average"),
+                f("default", "Default", 0.0, f64::NEG_INFINITY, f64::INFINITY).help("Value counted for missing children (Average, Splatting Average)."),
+            ],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| crate::htg::evaluate_coarse(d, &p.str("operator"), p.f64("default", 0.0))),
+        },
+        FilterDef {
             id: "overlapping_amr_level_ids",
             label: "Overlapping AMR Level Ids",
             category: "Data",
@@ -2111,6 +2190,62 @@ fn build() -> Vec<FilterDef> {
                     p.vec3("pulse_width", [0.5; 3]),
                     p.f64("pulse_amplitude", 0.5),
                 ))
+            },
+        },
+        FilterDef {
+            id: "hyper_tree_grid",
+            label: "Hyper Tree Grid",
+            category: "Sources",
+            description: "A hyper tree grid (tree-based refinement) from a text descriptor, as ParaView's Hyper Tree Grid source.",
+            keywords: &["htg", "hyper tree grid", "octree", "quadtree", "adaptive", "refinement", "test data"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("dimensions", "Dimensions", [2.0, 2.0, 2.0]).help("Points of the root grid along x, y, z (1 makes an axis flat)."),
+                choice("branch_factor", "Branch factor", &["2", "3"], "2"),
+                i("max_depth", "Max depth", 1, 1, 64),
+                s("descriptor", "Descriptor", ".").help("Levels separated by |; per level, R = refined and . = leaf for every vertex of all trees in order (spaces are ignored)."),
+                v3("grid_scale", "Grid scale", [1.0; 3]),
+                b("use_mask", "Use mask", false),
+                s("mask", "Mask", "1").help("Same layout as the descriptor: 0 hides a leaf, 1 keeps it."),
+            ],
+            apply: |_, p| {
+                let d = p.vec3("dimensions", [2.0; 3]).map(|v| v.round().max(1.0) as usize);
+                let mask = p.str("mask");
+                Ok(DataSet::HyperTreeGrid(crate::htg::from_descriptor(
+                    d,
+                    p.str("branch_factor").parse().unwrap_or(2),
+                    p.i64("max_depth", 1).max(1) as usize,
+                    &p.str("descriptor"),
+                    p.vec3("grid_scale", [1.0; 3]),
+                    p.bool("use_mask", false).then_some(mask.as_str()),
+                )?))
+            },
+        },
+        FilterDef {
+            id: "random_hyper_tree_grid",
+            label: "Random Hyper Tree Grid",
+            category: "Sources",
+            description: "A hyper tree grid refined at random (ParaView's Random Hyper Tree Grid source).",
+            keywords: &["htg", "hyper tree grid", "random", "octree", "adaptive", "test data"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("dimensions", "Dimensions", [6.0, 6.0, 3.0]).help("Points of the root grid along x, y, z (1 makes an axis flat)."),
+                ParamSpec::new("bounds", "Output bounds", ParamKind::Floats, ParamValue::Floats(vec![-10.0, 10.0, -10.0, 10.0, -10.0, 10.0])),
+                i("seed", "Seed", 0, i64::from(i32::MIN), i64::from(i32::MAX)),
+                i("max_depth", "Max depth", 5, 0, 30),
+                f("split_fraction", "Split fraction", 0.5, 0.0, 1.0).help("Chance that a cell is refined."),
+            ],
+            apply: |_, p| {
+                let d = p.vec3("dimensions", [6.0, 6.0, 3.0]).map(|v| v.round().max(1.0) as usize);
+                let b = p.floats("bounds");
+                let b: [f64; 6] = if b.len() == 6 { std::array::from_fn(|k| b[k]) } else { [-10.0, 10.0, -10.0, 10.0, -10.0, 10.0] };
+                Ok(DataSet::HyperTreeGrid(crate::htg::random(d, b, p.i64("seed", 0) as i32, p.i64("max_depth", 5).max(0) as usize, p.f64("split_fraction", 0.5))?))
             },
         },
         FilterDef {

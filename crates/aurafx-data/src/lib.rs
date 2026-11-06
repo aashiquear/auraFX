@@ -11,6 +11,7 @@ pub mod bounds;
 pub mod cell;
 pub mod dataset;
 pub mod higher_order;
+pub mod htg;
 pub mod info;
 pub mod pieces;
 
@@ -19,4 +20,5 @@ pub use attributes::{AttributeKind, Attributes};
 pub use bounds::Bounds;
 pub use cell::{CellType, Cells};
 pub use dataset::{DataSet, ImageData, MultiBlock, Points, PolyData, RectilinearGrid, StructuredGrid, Table, TimeSeries, TimeStepRef, UnstructuredGrid};
+pub use htg::{HyperTree, HyperTreeGrid};
 pub use info::DataSetInfo;

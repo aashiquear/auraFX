@@ -127,7 +127,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR, Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
 - [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
-- [ ] Hyper Tree Grid: Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
+- [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [ ] Cell Grid: Centers, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [ ] Molecules: Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
@@ -758,8 +758,20 @@ Also fixed: Surface With Edges drew the edges from the color map (now the edge c
 Properties control), and the renderer could keep a stale mesh when a new mesh reused a freed
 one's address (it now holds the mesh it uploaded).
 
+Done in iteration 34: **hyper tree grids**. A new dataset type (`aurafx_data::HyperTreeGrid`:
+root grid coordinates, branch factor, per tree a breadth-first refinement list with the cell
+index of each vertex, mask, cell data for every vertex), read from VTK `.htg` (XML version 2,
+bit arrays MSB first) and made by ParaView's Hyper Tree Grid source (string descriptor, VTK's
+level-major numbering) and Random Hyper Tree Grid source (VTK's minimal-standard random
+sequence per tree, creation-order numbering; no masking). Filters: To Unstructured Grid
+(leaves with shared corners, `OriginalIds`), Depth Limiter, Generate Fields, Evaluate Coarse
+(all operators); every other filter (and drawing, writing) works on the visible leaves.
+Checked against ParaView 6.1.1: counts, leaf order (OriginalIds), depth sums, limiter,
+fields, coarse operators, both sources. Also fixed: pixel cells were drawn and surfaced with
+their corners out of order (bow-ties); they now become quads.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; hyper tree grids, cell
+(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG To Dual Grid / Geometry / writer / masking random source, cell
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

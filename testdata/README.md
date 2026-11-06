@@ -21,5 +21,6 @@ Small files are committed. Larger ones are ignored by git and can be recreated:
 | `vectors/pages.sqlite` | `python3 scripts/gen_sqlite_pages.py`: an SQLite file with 512-byte pages, interior pages and overflow blobs, for the SQLite reader under GeoPackage, committed |
 | `amr/pulse.vthb`, `amr/pulse2d.vthb` (+ folders) | ParaView 6.1.1's AMR Gaussian Pulse source (3-D and 2-D) saved with its XMLUniformGridAMRWriter, committed |
 | `amr/plt_3d`, `amr/plt_2d`, `amr/plt_3d_f32` | `python3 scripts/gen_amrex.py`: AMReX plotfiles with two levels (two coarse boxes, one finer), scalar and `amrexvec_` vector variables, double and single precision; ParaView reference values in `amr_files_match_paraview`, committed |
+| `htg/tree3d.htg`, `htg/tree2d.htg`, `htg/tree3d_mask.htg` | ParaView 6.1.1's Hyper Tree Grid source (3-D branch factor 2; 2-D branch factor 3; 3-D with a mask) saved with its HyperTreeGridWriter (XML version 2); the descriptors are in `hyper_tree_grids_match_paraview`, committed |
 
 Tests that need a missing file skip themselves.

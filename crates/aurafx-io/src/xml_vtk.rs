@@ -432,6 +432,7 @@ pub fn read_bytes(bytes: &[u8], path: &Path) -> Result<DataSet> {
         "UnstructuredGrid" => read_unstructured(&ctx, body)?,
         "Table" => read_table(&ctx, body)?,
         "vtkMultiBlockDataSet" => read_multiblock(path, body)?,
+        "HyperTreeGrid" => read_htg(&ctx, body, vtkfile.attr("version").unwrap_or("2.0"))?,
         "vtkOverlappingAMR" | "vtkHierarchicalBoxDataSet" | "vtkNonOverlappingAMR" => read_amr(path, body, ty != "vtkNonOverlappingAMR")?,
         "PImageData" | "PRectilinearGrid" | "PStructuredGrid" | "PPolyData" | "PUnstructuredGrid" => read_parallel(path, body)?,
         other => bail!("unsupported VTK XML type {other}"),
@@ -447,6 +448,7 @@ pub fn read_bytes(bytes: &[u8], path: &Path) -> Result<DataSet> {
             DataSet::UnstructuredGrid(d) => d.field_data = fd,
             DataSet::Table(d) => d.field_data = fd,
             DataSet::MultiBlock(d) => d.field_data = fd,
+            DataSet::HyperTreeGrid(d) => d.field_data = fd,
         }
     }
     Ok(ds)
@@ -636,6 +638,111 @@ fn read_multiblock(path: &Path, body: &Node) -> Result<DataSet> {
         Ok(mb)
     }
     Ok(DataSet::MultiBlock(walk(path, body)?))
+}
+
+/// The values of a `type="Bit"` array (VTK packs bits most significant first).
+fn read_bits(ctx: &FileCtx, node: &Node, n: usize) -> Result<Vec<bool>> {
+    let raw: Vec<u8> = match node.attr("format").unwrap_or("ascii") {
+        "ascii" => return Ok(node.text.split_whitespace().take(n).map(|t| t != "0").collect()),
+        "binary" => decode_base64_payload(ctx, node.text.as_bytes())?,
+        "appended" => {
+            let offset: usize = node.attr("offset").ok_or_else(|| anyhow!("appended bit array lacks offset"))?.parse()?;
+            let blob = ctx.appended.ok_or_else(|| anyhow!("bit array is appended but the file has no AppendedData"))?;
+            if offset >= blob.len() {
+                bail!("appended offset {offset} beyond data");
+            }
+            if ctx.appended_base64 {
+                decode_base64_payload(ctx, &blob[offset..])?
+            } else {
+                decode_binary_payload(ctx, &blob[offset..])?
+            }
+        }
+        f => bail!("unknown DataArray format {f:?}"),
+    };
+    Ok((0..n).map(|i| raw.get(i / 8).is_some_and(|b| b & (0x80 >> (i % 8)) != 0)).collect())
+}
+
+/// VTK hyper tree grid files (`.htg`, XML format version 2): the root grid's coordinates, per
+/// tree a breadth-first refinement descriptor, the mask and the cell data.
+fn read_htg(ctx: &FileCtx, body: &Node, version: &str) -> Result<DataSet> {
+    if !version.starts_with('2') {
+        bail!("hyper tree grid file version {version} is not supported (version 2 is)");
+    }
+    let nums = |s: Option<&str>| -> Vec<f64> { s.unwrap_or("").split_whitespace().filter_map(|x| x.parse().ok()).collect() };
+    let branch_factor = body.attr("BranchFactor").and_then(|b| b.parse().ok()).unwrap_or(2);
+    let transposed = body.attr("TransposedRootIndexing").is_some_and(|t| t == "1");
+    let dims = nums(body.attr("Dimensions"));
+    let grid = body.child("Grid").ok_or_else(|| anyhow!("no <Grid> in the hyper tree grid"))?;
+    let mut coords: [Vec<f64>; 3] = Default::default();
+    for (k, name) in ["XCoordinates", "YCoordinates", "ZCoordinates"].iter().enumerate() {
+        let arr = grid.children_named("DataArray").find(|a| a.attr("Name") == Some(name)).ok_or_else(|| anyhow!("no {name}"))?;
+        let a = read_array(ctx, arr)?;
+        coords[k] = (0..a.len()).map(|i| a.get(i, 0)).collect();
+        if coords[k].is_empty() {
+            coords[k] = vec![0.0];
+        }
+    }
+    if dims.len() == 3 {
+        for k in 0..3 {
+            if dims[k] as usize != coords[k].len() && !(dims[k] <= 1.0 && coords[k].len() == 1) {
+                bail!("Dimensions and coordinates disagree along axis {k}");
+            }
+        }
+    }
+    let mut htg = aurafx_data::HyperTreeGrid { coords, branch_factor, transposed, ..Default::default() };
+    let n_roots: usize = htg.cell_dims().iter().product();
+    htg.trees = vec![None; n_roots];
+    let trees = body.child("Trees").ok_or_else(|| anyhow!("no <Trees> in the hyper tree grid"))?;
+    let find = |name: &str| trees.children_named("DataArray").find(|a| a.attr("Name") == Some(name));
+    let ints = |name: &str| -> Result<Vec<i64>> {
+        match find(name) {
+            Some(a) => {
+                let a = read_array(ctx, a)?;
+                Ok((0..a.len()).map(|i| a.get(i, 0) as i64).collect())
+            }
+            None => Ok(Vec::new()),
+        }
+    };
+    let tree_ids = ints("TreeIds")?;
+    let depth_per_tree = ints("DepthPerTree")?;
+    let per_depth = ints("NumberOfVerticesPerDepth")?;
+    let total: usize = per_depth.iter().map(|&v| v.max(0) as usize).sum();
+    let desc_len: usize = {
+        let mut at = 0;
+        let mut n = 0;
+        for &d in &depth_per_tree {
+            let d = d.max(0) as usize;
+            let sizes = &per_depth[at..(at + d).min(per_depth.len())];
+            n += sizes.iter().sum::<i64>() as usize - sizes.last().copied().unwrap_or(0) as usize;
+            at += d;
+        }
+        n
+    };
+    let descriptor = match find("Descriptors") {
+        Some(a) => read_bits(ctx, a, desc_len)?,
+        None => Vec::new(),
+    };
+    let mask = match find("Mask") {
+        Some(a) => Some(read_bits(ctx, a, total)?),
+        None => None,
+    };
+    let (mut at, mut doff, mut goff) = (0usize, 0usize, 0usize);
+    for (t, &id) in tree_ids.iter().enumerate() {
+        let d = depth_per_tree.get(t).copied().unwrap_or(0).max(0) as usize;
+        let sizes: Vec<usize> = per_depth[at..(at + d).min(per_depth.len())].iter().map(|&v| v.max(0) as usize).collect();
+        at += d;
+        let size: usize = sizes.iter().sum();
+        let dsize = size - sizes.last().copied().unwrap_or(0);
+        let refined: Vec<bool> = (0..size).map(|v| v < dsize && descriptor.get(doff + v).copied().unwrap_or(false)).collect();
+        let global: Vec<usize> = (goff..goff + size).collect();
+        doff += dsize;
+        goff += size;
+        let slot = htg.trees.get_mut(id.max(0) as usize).ok_or_else(|| anyhow!("tree id {id} outside the grid"))?;
+        *slot = Some(aurafx_data::HyperTree { refined, global });
+    }
+    htg.mask = mask;
+    htg.cell_data = read_attributes(ctx, body.child("CellData"))?;
+    Ok(DataSet::HyperTreeGrid(htg))
 }
 
 /// VTK's AMR files (`.vthb`, `.vth`): levels of image boxes in `.vti` files, as AMR data

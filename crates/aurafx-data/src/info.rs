@@ -84,7 +84,12 @@ impl DataSetInfo {
         let mut ct: Vec<(u8, usize)> = counts.into_iter().collect();
         ct.sort_by(|a, b| b.1.cmp(&a.1));
         Self {
-            kind: ds.type_name().to_string(),
+            kind: match ds {
+                DataSet::HyperTreeGrid(h) => {
+                    format!("Hyper Tree Grid ({}-D, branch factor {}, {} visible leaves, depth {})", h.dimension(), h.branch_factor, h.n_leaves(), h.max_depth())
+                }
+                _ => ds.type_name().to_string(),
+            },
             n_points: ds.n_points(),
             n_cells: ds.n_cells(),
             bounds: ds.bounds(),

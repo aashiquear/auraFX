@@ -168,6 +168,12 @@ fn triangulate(pd: &PolyData, cell_base: usize) -> Vec<([u32; 3], usize)> {
     let mut tris = Vec::with_capacity(pd.polys.len() * 2);
     for i in 0..pd.polys.len() {
         let c = pd.polys.cell(i);
+        // Pixels list their corners x first, then y: split along the diagonal 1-2.
+        if pd.polys.types.get(i) == Some(&CellType::Pixel) && c.len() == 4 {
+            tris.push(([c[0], c[1], c[3]], cell_base + i));
+            tris.push(([c[0], c[3], c[2]], cell_base + i));
+            continue;
+        }
         for k in 1..c.len().saturating_sub(1) {
             tris.push(([c[0], c[k], c[k + 1]], cell_base + i));
         }

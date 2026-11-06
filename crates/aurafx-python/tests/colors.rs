@@ -200,4 +200,17 @@ def sneaky(data):
     ));
     assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
     assert_eq!(out.stdout.trim(), "True\nTrue\nTrue\n73", "{}", out.stdout);
+
+    // Hyper tree grids (the user guide's examples and the filters it says work on them).
+    let htg = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/htg/tree3d.htg");
+    let out = rt.run(&format!(
+        "h = afx.random_hyper_tree_grid(dimensions=(7, 5, 1), max_depth=5, split_fraction=0.45, seed=3)\nh.set(color_by='Depth', representation='Surface With Edges')\n\
+         t = afx.hyper_tree_grid(dimensions=(3, 3, 1), max_depth=3, descriptor='R... | .R.. | ....')\nprint(t.info()['n_cells'])\n\
+         coarse = h.hyper_tree_grid_evaluate_coarse(operator='Max')\ntop = h.hyper_tree_grid_depth_limiter(depth=2)\nprint(top.info()['n_cells'] < h.info()['n_cells'])\n\
+         f = afx.load({htg:?})\nleaves = f.hyper_tree_grid_to_unstructured_grid()\nprint(leaves.info()['n_cells'])\n\
+         print(f.slice(normal=(0, 0, 1)).info()['n_cells'] > 0, f.threshold(array='Depth', lower=1, upper=2).info()['n_cells'], f.cell_centers().info()['n_points'])\n\
+         c = f.cell_data_to_point_data().contour(array='Depth', values=[0.5])\nprint(c.info()['n_cells'] > 0, round(f.integrate_variables().info()['n_rows'] if 'n_rows' in f.integrate_variables().info() else 1))"
+    ));
+    assert!(out.error.is_none(), "{:?}\n{}", out.error, out.stdout);
+    assert_eq!(out.stdout.trim(), "12\nTrue\n68\nTrue 59 68\nTrue 1", "{}", out.stdout);
 }

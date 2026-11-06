@@ -11,6 +11,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | VTK legacy | `.vtk` | ASCII and binary, all dataset types |
 | VTK XML | `.vtu .vtp .vti .vtr .vts .vtt`, parallel `.pvtu …`, `.vtm`, `.pvd` | inline, appended, base64; zlib and LZ4; curved (Lagrange/Bezier) cells |
 | AMR (adaptive mesh refinement) | VTK `.vthb .vth`, AMReX/BoxLib plotfiles (the folder, or its `Header`) | levels of boxes with cell data; coarse cells under finer boxes are left out; see below |
+| Hyper tree grids | VTK `.htg` (XML version 2) | trees of refined cells; drawn as their leaves; see below |
 | VTKHDF | `.vtkhdf .hdf` | image data, unstructured grids, poly data, partitioned collections with their assembly, time steps; chunked and gzip storage; no HDF5 library needed |
 | OpenFOAM | `.foam` | ASCII/binary/gzip, decomposed and reconstructed cases, time directories, boundary patches |
 | EnSight Gold | `.case .encas` | ASCII and C binary, all element types, structured blocks, time sets, wildcard file names |
@@ -307,6 +308,69 @@ refuse this kind of AMR data, so there is no ParaView result to compare with.
 Not read yet: plotfiles without FAB headers (the "NoFabHeader" variants), AMReX particles,
 Enzo, FLASH and Chombo files. Not available yet: ParaView's CTH material filters (AMR
 Fragments, Material Interface) and Resample AMR (Resample To Image does the same job).
+
+### Hyper tree grids
+
+A *hyper tree grid* (HTG) starts from a grid of root cells. Each root cell is the top of a
+tree: a refined cell splits into 2×2×2 children (3×3×3 with branch factor 3; 2×2 or 3×3 in
+2-D), and so on down to the leaves. Every cell of every tree, coarse or leaf, can hold values.
+A *mask* can hide cells. It is VTK's tree-based format for adaptive meshes. auraFX reads VTK's
+`.htg` files (XML version 2, as ParaView 5.10 and later write them).
+
+What you get:
+- The grid is drawn as its visible leaves. Every filter that works on cells (Slice, Clip,
+  Threshold, Contour after Cell Data to Point Data, Cell Centers, Integrate Variables...) sees
+  those leaves as voxels (pixels in 2-D) with their values.
+- **Information** shows the dimension, branch factor, number of visible leaves and depth.
+  The cell count is the number of all cells (coarse ones included), as in ParaView.
+- Saving writes the leaves as an unstructured grid (`.vtu` and the other formats). `.htg`
+  files cannot be written yet.
+
+**Sources:**
+- **Hyper Tree Grid** builds a grid from a text descriptor, as ParaView's source does.
+  Levels are separated by `|`. Each level lists `R` (refined) or `.` (leaf) for every cell
+  of that level, all trees in order; spaces are ignored. **Dimensions** (points per axis; 1
+  makes an axis flat), **Branch factor**, **Max depth**, **Grid scale**, and **Use mask** with
+  a **Mask** string of the same layout (`0` hides a leaf).
+- **Random Hyper Tree Grid** refines cells at random. **Split fraction** is each cell's
+  chance of being refined, down to **Max depth**. It uses ParaView's random sequence, so the
+  same **Seed** gives the same grid as in ParaView. ParaView's masking option is not
+  available yet.
+
+**Filters** (Filters › Data):
+
+| Filter | What it does |
+|---|---|
+| **Hyper Tree Grid To Unstructured Grid** | the visible leaves as an unstructured grid, with `OriginalIds` (each leaf's cell index) |
+| **Hyper Tree Grid Depth Limiter** | cuts every tree at a depth: cells at that depth become leaves (Depth 0 keeps only the root cells) |
+| **Hyper Tree Grid Generate Fields** | `CellSize` (volume, area or length of every cell), `ValidCell` (1 on visible leaves), `CellCenter`, and `TotalVisibleVolume` in the field data |
+| **Hyper Tree Grid Evaluate Coarse** | fills the values of refined cells from their children: Min, Max, Sum, Average, Unmasked Average, Elder Child (the first child) or Splatting Average |
+
+![A random 2-D hyper tree grid (a quadtree) drawn with its cell edges, colored by depth](images/hyper_tree_grid.png)
+
+```python
+h = afx.random_hyper_tree_grid(dimensions=(7, 5, 1), max_depth=5, split_fraction=0.45, seed=3)
+h.set(color_by="Depth", representation="Surface With Edges")
+t = afx.hyper_tree_grid(dimensions=(3, 3, 1), max_depth=3, descriptor="R... | .R.. | ....")
+coarse = h.hyper_tree_grid_evaluate_coarse(operator="Max")
+top = h.hyper_tree_grid_depth_limiter(depth=2)
+leaves = afx.load("tree.htg").hyper_tree_grid_to_unstructured_grid()
+```
+
+Checked against ParaView 6.1.1 on `.htg` files it wrote (3-D, 2-D with branch factor 3,
+masked):
+- the cell and visible-leaf counts, and the leaves in the same order (their `OriginalIds`
+  are ParaView's);
+- Depth Limiter, Generate Fields and all seven Evaluate Coarse operators;
+- both sources, which build the same grids as ParaView from the same settings.
+
+ParaView's To Unstructured Grid leaves the `OriginalIds` of masked files partly unfilled (zeros
+at the end); auraFX gives every leaf its index. ParaView deprecates its HTG Cell Centers and
+Axis Reflection filters in 6.0: Cell Centers works on hyper tree grids directly, and Axis
+Reflection is not provided.
+
+Not available yet: writing `.htg`, version 1 `.htg` files, HTG To Dual Grid, HTG Geometry
+(drawing gives the same picture), Ghost Cells and Feature Edges.
 
 ## Writers
 

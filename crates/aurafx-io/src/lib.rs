@@ -57,6 +57,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["pvtu", "pvtp", "pvti", "pvtr", "pvts"], "VTK XML (parallel)"),
         (&["vtm", "vtmb"], "VTK multi-block"),
         (&["vthb", "vth"], "VTK AMR (overlapping, hierarchical box)"),
+        (&["htg"], "VTK hyper tree grid"),
         (&["Header"], "AMReX / BoxLib plotfile (its Header file, or the folder)"),
         (&["pvd"], "ParaView data collection"),
         (&["dump", "lammpstrj", "dump.gz", "lammpstrj.gz"], "LAMMPS dump"),
@@ -161,7 +162,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "json" if vectors::is_geojson(path) => Loaded::Static(Arc::new(vectors::read(path)?)),
         "png" | "jpg" | "jpeg" | "bmp" | "tif" | "tiff" => Loaded::Static(Arc::new(images::read(path)?)),
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),
-        "vtu" | "vtp" | "vti" | "vtr" | "vts" | "vtt" | "pvtu" | "pvtp" | "pvti" | "pvtr" | "pvts" | "vtm" | "vtmb" | "vthb" | "vth" => {
+        "vtu" | "vtp" | "vti" | "vtr" | "vts" | "vtt" | "pvtu" | "pvtp" | "pvti" | "pvtr" | "pvts" | "vtm" | "vtmb" | "vthb" | "vth" | "htg" => {
             Loaded::Static(Arc::new(xml_vtk::read(path)?))
         }
         "pvd" => Loaded::Series(xml_vtk::read_pvd(path)?),

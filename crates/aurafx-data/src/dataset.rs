@@ -345,6 +345,7 @@ pub enum DataSet {
     UnstructuredGrid(UnstructuredGrid),
     Table(Table),
     MultiBlock(MultiBlock),
+    HyperTreeGrid(crate::htg::HyperTreeGrid),
 }
 
 impl DataSet {
@@ -357,6 +358,7 @@ impl DataSet {
             DataSet::UnstructuredGrid(_) => "Unstructured Grid",
             DataSet::Table(_) => "Table",
             DataSet::MultiBlock(_) => "Multi-block Dataset",
+            DataSet::HyperTreeGrid(_) => "Hyper Tree Grid",
         }
     }
 
@@ -369,6 +371,8 @@ impl DataSet {
             DataSet::UnstructuredGrid(d) => d.points.len(),
             DataSet::Table(_) => 0,
             DataSet::MultiBlock(m) => m.leaves().iter().map(|(_, d)| d.n_points()).sum(),
+            // Like VTK: a hyper tree grid has cells (tree vertices) but no points.
+            DataSet::HyperTreeGrid(_) => 0,
         }
     }
 
@@ -387,6 +391,7 @@ impl DataSet {
             DataSet::UnstructuredGrid(d) => d.cells.len(),
             DataSet::Table(t) => t.n_rows(),
             DataSet::MultiBlock(m) => m.leaves().iter().map(|(_, d)| d.n_cells()).sum(),
+            DataSet::HyperTreeGrid(h) => h.n_vertices(),
         }
     }
 
@@ -399,6 +404,7 @@ impl DataSet {
             DataSet::UnstructuredGrid(d) => d.points.bounds(),
             DataSet::Table(_) => Bounds::EMPTY,
             DataSet::MultiBlock(m) => m.leaves().iter().fold(Bounds::EMPTY, |b, (_, d)| b.union(&d.bounds())),
+            DataSet::HyperTreeGrid(h) => h.bounds(),
         }
     }
 
@@ -409,7 +415,7 @@ impl DataSet {
             DataSet::StructuredGrid(d) => Some(&d.point_data),
             DataSet::PolyData(d) => Some(&d.point_data),
             DataSet::UnstructuredGrid(d) => Some(&d.point_data),
-            DataSet::Table(_) | DataSet::MultiBlock(_) => None,
+            DataSet::Table(_) | DataSet::MultiBlock(_) | DataSet::HyperTreeGrid(_) => None,
         }
     }
 
@@ -420,7 +426,7 @@ impl DataSet {
             DataSet::StructuredGrid(d) => Some(&mut d.point_data),
             DataSet::PolyData(d) => Some(&mut d.point_data),
             DataSet::UnstructuredGrid(d) => Some(&mut d.point_data),
-            DataSet::Table(_) | DataSet::MultiBlock(_) => None,
+            DataSet::Table(_) | DataSet::MultiBlock(_) | DataSet::HyperTreeGrid(_) => None,
         }
     }
 
@@ -431,6 +437,7 @@ impl DataSet {
             DataSet::StructuredGrid(d) => Some(&d.cell_data),
             DataSet::PolyData(d) => Some(&d.cell_data),
             DataSet::UnstructuredGrid(d) => Some(&d.cell_data),
+            DataSet::HyperTreeGrid(h) => Some(&h.cell_data),
             DataSet::Table(_) | DataSet::MultiBlock(_) => None,
         }
     }
@@ -442,6 +449,7 @@ impl DataSet {
             DataSet::StructuredGrid(d) => Some(&mut d.cell_data),
             DataSet::PolyData(d) => Some(&mut d.cell_data),
             DataSet::UnstructuredGrid(d) => Some(&mut d.cell_data),
+            DataSet::HyperTreeGrid(h) => Some(&mut h.cell_data),
             DataSet::Table(_) | DataSet::MultiBlock(_) => None,
         }
     }
@@ -455,6 +463,7 @@ impl DataSet {
             DataSet::UnstructuredGrid(d) => &d.field_data,
             DataSet::Table(t) => &t.field_data,
             DataSet::MultiBlock(m) => &m.field_data,
+            DataSet::HyperTreeGrid(h) => &h.field_data,
         }
     }
 
@@ -491,6 +500,7 @@ impl DataSet {
             }
             DataSet::Table(t) => attrs(&t.columns),
             DataSet::MultiBlock(m) => m.leaves().iter().map(|(_, d)| d.n_bytes()).sum(),
+            DataSet::HyperTreeGrid(h) => attrs(&h.cell_data) + h.trees.iter().flatten().map(|t| t.refined.len() * 9).sum::<usize>(),
         }
     }
 
@@ -501,6 +511,8 @@ impl DataSet {
             DataSet::RectilinearGrid(d) => (d.dims(), d.points(), d.point_data.clone(), d.cell_data.clone(), d.field_data.clone()),
             DataSet::StructuredGrid(d) => (d.dims(), d.points.clone(), d.point_data.clone(), d.cell_data.clone(), d.field_data.clone()),
             DataSet::UnstructuredGrid(d) => return Some(d.clone()),
+            // The visible leaves.
+            DataSet::HyperTreeGrid(h) => return Some(h.leaves_mesh().0),
             DataSet::PolyData(p) => {
                 let mut cells = Cells::new();
                 for c in [&p.verts, &p.lines, &p.polys, &p.strips] {

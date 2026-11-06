@@ -1010,5 +1010,247 @@
     }
    ]
   ]
+ },
+ "chombo3d.hdf5": {
+  "levels": [
+   [
+    {
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      0.125
+     ],
+     "dims": [
+      9,
+      9,
+      9
+     ],
+     "arrays": {
+      "density": [
+       "vtkDoubleArray",
+       2048.0
+      ],
+      "energy": [
+       "vtkDoubleArray",
+       128.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       256.0
+      ]
+     },
+     "covered": 32
+    }
+   ],
+   [
+    {
+     "origin": [
+      0.25,
+      0.25,
+      0.25
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      9,
+      7,
+      5
+     ],
+     "arrays": {
+      "density": [
+       "vtkDoubleArray",
+       672.0
+      ],
+      "energy": [
+       "vtkDoubleArray",
+       66.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    },
+    {
+     "origin": [
+      0.625,
+      0.625,
+      0.5
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      0.0625
+     ],
+     "dims": [
+      5,
+      5,
+      5
+     ],
+     "arrays": {
+      "density": [
+       "vtkDoubleArray",
+       328.0
+      ],
+      "energy": [
+       "vtkDoubleArray",
+       28.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ]
+  ]
+ },
+ "chombo2d.hdf5": {
+  "levels": [
+   [
+    {
+     "origin": [
+      -0.625,
+      0.125,
+      0.0
+     ],
+     "spacing": [
+      0.125,
+      0.125,
+      1.0
+     ],
+     "dims": [
+      11,
+      11,
+      1
+     ],
+     "arrays": {
+      "density": [
+       "vtkDoubleArray",
+       250.0
+      ],
+      "energy": [
+       "vtkDoubleArray",
+       50.0
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       168.0
+      ]
+     },
+     "covered": 21
+    }
+   ],
+   [
+    {
+     "origin": [
+      -0.375,
+      0.375,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      1.0
+     ],
+     "dims": [
+      9,
+      7,
+      1
+     ],
+     "arrays": {
+      "density": [
+       "vtkDoubleArray",
+       96.0
+      ],
+      "energy": [
+       "vtkDoubleArray",
+       20.625
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       96.0
+      ]
+     },
+     "covered": 12
+    },
+    {
+     "origin": [
+      0.0,
+      0.875,
+      0.0
+     ],
+     "spacing": [
+      0.0625,
+      0.0625,
+      1.0
+     ],
+     "dims": [
+      7,
+      7,
+      1
+     ],
+     "arrays": {
+      "density": [
+       "vtkDoubleArray",
+       119.25
+      ],
+      "energy": [
+       "vtkDoubleArray",
+       25.171875
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ],
+   [
+    {
+     "origin": [
+      -0.3125,
+      0.4375,
+      0.0
+     ],
+     "spacing": [
+      0.03125,
+      0.03125,
+      1.0
+     ],
+     "dims": [
+      9,
+      7,
+      1
+     ],
+     "arrays": {
+      "density": [
+       "vtkDoubleArray",
+       90.0
+      ],
+      "energy": [
+       "vtkDoubleArray",
+       19.21875
+      ],
+      "vtkGhostType": [
+       "vtkUnsignedCharArray",
+       0.0
+      ]
+     },
+     "covered": 0
+    }
+   ]
+  ]
  }
 }

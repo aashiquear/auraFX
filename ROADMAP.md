@@ -78,7 +78,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38); other GDAL rasters, MapInfo, file geodatabases, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
-- [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), AMReX plotfiles (iteration 32); Chombo, particles todo.
+- [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32); AMR particles, node-centered Chombo todo.
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
 - [ ] Point clouds: LAS/LAZ (PDAL), PTS, H5Part.
 - [ ] CAD: STEP, IGES (via OpenCASCADE feature), VRML, Alembic, USD, OpenVDB.
@@ -832,8 +832,18 @@ with and without CGS): every block's origin, spacing, size, array types and sums
 cells. ParaView 6.1.1 cannot read 2-D FLASH files ("Inconsistent types of vtkCartesianGrid",
 segfault with several levels); the 2-D file is checked against its analytic values.
 
+Done in iteration 40: **Chombo AMR reader**. Chombo HDF5 files (cell-centered, 1-D to 3-D):
+`Chombo_global/SpaceDim`, component names, `level_N` groups with compound `boxes`, dx or
+`vec_dx`, `prob_lo` and `aspect_ratio` (compound or array attributes, decoded from their raw
+bytes), every box's components from `data:datatype=0` with the `outputGhost` ghost cells
+dropped. Overlapping AMR with covered cells hidden. Checked against ParaView 6.1.1's VisIt
+Chombo reader on two files from scripts/gen_amr_files.py (3-D; 2-D with ghosts, prob_lo,
+vec_dx and three levels): every block's origin, spacing, dimensions, array sums and covered
+cells, and the 2-D values against the functions they were written from. ParaView keeps level
+0's ghost cells as ordinary cells (and drops the finer levels'); auraFX drops them everywhere.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters and Resample AMR; Chombo reader, FLASH/Enzo particles; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters and Resample AMR; AMR particles (FLASH/Enzo/Chombo), node-centered Chombo; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

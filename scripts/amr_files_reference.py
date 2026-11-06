@@ -4,12 +4,13 @@
 
 Every level and block: origin, spacing, dimensions, the sum of each cell array, and the cells
 marked covered in vtkGhostType. All levels and arrays are loaded (ParaView's defaults load one
-level and no arrays); Enzo is read with and without ConvertToCGS. ParaView 6.1.1 cannot read 2-D FLASH files
+level and no arrays); Enzo is read with and without ConvertToCGS; Chombo through ParaView's VisIt Chombo reader
+(which keeps level 0's ghost cells as ordinary cells and drops the other levels'). ParaView 6.1.1 cannot read 2-D FLASH files
 ("Inconsistent types of vtkCartesianGrid", or a crash with several levels), so the 2-D file
 is checked against the values it was written with.
 """
 import json, os
-from paraview.simple import FlashReader, EnzoReader
+from paraview.simple import FlashReader, EnzoReader, VisItChomboReader
 from vtk.util.numpy_support import vtk_to_numpy as v2n
 
 td = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testdata", "amr")
@@ -18,11 +19,15 @@ cases = {
     "flash3d_ffv7_hdf5_chk_0007": (FlashReader, ["dens", "pres", "velx"], {}),
     "enzo/DD0003/data0003.hierarchy": (EnzoReader, ["Density", "TotalEnergy"], {"ConvertToCGS": 0}),
     "enzo/DD0003/data0003.hierarchy#cgs": (EnzoReader, ["Density", "TotalEnergy"], {"ConvertToCGS": 1}),
+    "chombo3d.hdf5": (VisItChomboReader, ["density", "energy"], {}),
+    "chombo2d.hdf5": (VisItChomboReader, ["density", "energy"], {}),
 }
 out = {}
 for key, (Reader, arrays, props) in cases.items():
-    r = Reader(FileNames=[os.path.join(td, key.split("#")[0])])
-    r.Level = 10
+    fn = os.path.join(td, key.split("#")[0])
+    r = VisItChomboReader(FileName=fn) if Reader is VisItChomboReader else Reader(FileNames=[fn])
+    if Reader is not VisItChomboReader:
+        r.Level = 10
     r.CellArrayStatus = arrays
     for k, v in props.items():
         setattr(r, k, v)

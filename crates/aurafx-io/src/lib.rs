@@ -7,6 +7,7 @@ pub(crate) mod adf;
 pub mod amrex;
 pub mod cam;
 pub mod cellgrid;
+pub mod chombo;
 pub mod cgns;
 pub mod cgns_writer;
 pub mod csv;
@@ -62,7 +63,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vthb", "vth"], "VTK AMR (overlapping, hierarchical box)"),
         (&["htg"], "VTK hyper tree grid"),
         (&["hierarchy", "boundary"], "Enzo AMR (open the .hierarchy file)"),
-        (&["hdf5", "h5"], "FLASH AMR (HDF5 plot and checkpoint files; also without an extension, e.g. run_hdf5_plt_cnt_0007)"),
+        (&["hdf5", "h5"], "FLASH and Chombo AMR (HDF5; FLASH files also without an extension, e.g. run_hdf5_plt_cnt_0007)"),
         (&["dg"], "VTK cell grid (DG fields)"),
         (&["Header"], "AMReX / BoxLib plotfile (its Header file, or the folder)"),
         (&["pvd"], "ParaView data collection"),
@@ -156,6 +157,9 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     // rarely have an extension).
     if enzo::is_enzo(path) {
         return Ok(Loaded::Static(Arc::new(enzo::read(path)?)));
+    }
+    if chombo::is_chombo(path) {
+        return Ok(Loaded::Static(Arc::new(chombo::read(path)?)));
     }
     if flash::is_flash(path) {
         return Ok(Loaded::Static(Arc::new(flash::read(path)?)));

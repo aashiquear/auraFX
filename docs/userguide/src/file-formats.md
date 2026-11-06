@@ -10,7 +10,7 @@ ranges on the same files. Where auraFX differs on purpose, the table says so.
 | Exodus II | `.e .exo .ex2 .g .gen` | NetCDF-3 and NetCDF-4; blocks, side and node sets, nodal/element/global variables, time steps, displacements |
 | VTK legacy | `.vtk` | ASCII and binary, all dataset types |
 | VTK XML | `.vtu .vtp .vti .vtr .vts .vtt`, parallel `.pvtu …`, `.vtm`, `.pvd` | inline, appended, base64; zlib and LZ4; curved (Lagrange/Bezier) cells |
-| AMR (adaptive mesh refinement) | VTK `.vthb .vth`, AMReX/BoxLib plotfiles (the folder, or its `Header`), FLASH HDF5 files, Enzo (`.hierarchy`) | levels of boxes with cell data; coarse cells under finer boxes are left out; see below |
+| AMR (adaptive mesh refinement) | VTK `.vthb .vth`, AMReX/BoxLib plotfiles (the folder, or its `Header`), FLASH and Chombo HDF5 files, Enzo (`.hierarchy`) | levels of boxes with cell data; coarse cells under finer boxes are left out; see below |
 | Hyper tree grids | VTK `.htg` (XML version 2) | trees of refined cells; drawn as their leaves; see below |
 | Cell grids (discontinuous Galerkin fields) | VTK `.dg` | cells whose fields are polynomials; drawn with the fields at the corners; see below |
 | VTKHDF | `.vtkhdf .hdf` | image data, unstructured grids, poly data, partitioned collections with their assembly, time steps; chunked and gzip storage; no HDF5 library needed |
@@ -266,6 +266,10 @@ auraFX reads:
   Each grid is a box on its level; fields keep their stored type (usually single precision).
   Reader option **Convert to CGS** multiplies each field by its `#DataCGSConversionFactor`
   from the parameter file. It is off by default, as in ParaView. Particles are not read yet.
+- **Chombo** files (`.hdf5`, `.h5`; cell-centered, 1-D to 3-D), as Chombo-based codes write them
+  (`level_0`, `level_1`... groups with boxes). The component names become cell arrays. Ghost
+  cells stored around each box are dropped, and the boxes are placed from `prob_lo` and the
+  level's `dx` (or `vec_dx`). Node-centered and 4-D files are not read yet.
 
 What you get:
 - One block per level (**Level 0**, **Level 1**, ...), each holding that level's boxes as image
@@ -292,7 +296,10 @@ lev = amr.overlapping_amr_level_ids()      # LevelIdScalars: each cell's level
 flash = afx.load("sedov_hdf5_plt_cnt_0010")  # FLASH
 enzo = afx.load("DD0010/data0010.hierarchy")  # Enzo
 enzo.set(cgs=True)                         # fields in CGS units
+chombo = afx.load("plot.0010.2d.hdf5")      # Chombo
 ```
+
+![A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells](images/chombo.png)
 
 ![A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way](images/flash_enzo.png)
 
@@ -305,11 +312,15 @@ the `.vthb` reader on files ParaView wrote, the AMReX reader on test plotfiles
 (`scripts/gen_amrex.py`; every box's origin, size, sums and covered cells), the FLASH reader
 (FLASH 3 and FLASH 2 layouts) and the Enzo reader (with and without Convert to CGS) on test
 files (`scripts/gen_amr_files.py`; every block's origin, spacing, size, array types and sums
-and covered cells), and on the AMR data
+and covered cells), the Chombo reader against ParaView's VisIt Chombo reader (3-D and a 2-D
+file with ghost cells and three levels), and on the AMR data
 Integrate Variables (the volume counts each place once), slices, Threshold, Extract Surface,
 Cell Data to Point Data and Resample To Image. ParaView 6.1.1 cannot read 2-D FLASH files
 (it reports "Inconsistent types of vtkCartesianGrid", and crashes with several levels); auraFX
-reads them, checked against the values the test file was written with.
+reads them, checked against the values the test file was written with. ParaView's Chombo
+reader keeps the ghost cells of level 0 as ordinary cells, so its level 0 reaches one ghost
+layer past the problem domain, while it drops them on the finer levels; auraFX drops them on
+every level.
 
 #### Contours of AMR data
 

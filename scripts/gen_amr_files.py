@@ -16,6 +16,10 @@ enzo/DD0003/data0003       Enzo: parameter file (TopGridRank 3, InitialTime, Dat
     CGS conversion factor for Density), .hierarchy (a 8^3 root grid, two level-1 grids, one
     level-2 grid inside the first), .boundary, and data0003.cpu0000 (Grid0000000N groups with
     float32 Density and TotalEnergy over the active cells, z slowest).
+chombo3d.hdf5               Chombo (cell-centered): two levels, three boxes, components density
+    and energy (functions of x, y, z).
+chombo2d.hdf5               Chombo 2-D: three levels, one ghost cell around every box
+    (outputGhost), prob_lo and vec_dx as compound attributes.
 """
 import os, sys
 import numpy as np
@@ -157,7 +161,68 @@ with h5py.File(os.path.join(d, "data0003.cpu0000"), "w") as f:
         x, y, z = cells(l, r, c)
         for v in ("Density", "TotalEnergy"):
             g[v] = field(v, x, y, z).astype("<f4")
+# ------------------------------------------------------------------ Chombo
+box3 = np.dtype([("lo_i", "<i4"), ("lo_j", "<i4"), ("lo_k", "<i4"), ("hi_i", "<i4"), ("hi_j", "<i4"), ("hi_k", "<i4")])
+box2 = np.dtype([("lo_i", "<i4"), ("lo_j", "<i4"), ("hi_i", "<i4"), ("hi_j", "<i4")])
+iv3 = np.dtype([("intvecti", "<i4"), ("intvectj", "<i4"), ("intvectk", "<i4")])
+iv2 = np.dtype([("intvecti", "<i4"), ("intvectj", "<i4")])
+dv2 = np.dtype([("x", "<f8"), ("y", "<f8")])
+
+def chombo(path, dim, levels, ghost, prob_lo=None, vec_dx=False):
+    """levels: [(dx, [(lo, hi), ...]), ...] with lo/hi cell indices of length dim."""
+    comps = [("density", lambda x, y, z: 1 + x + 2 * y + 3 * z), ("energy", lambda x, y, z: x * y - z + 0.5)]
+    lo0 = prob_lo or [0.0] * dim
+    with h5py.File(path, "w") as f:
+        f.attrs["num_levels"] = np.int32(len(levels))
+        f.attrs["max_level"] = np.int32(len(levels) - 1)
+        f.attrs["num_components"] = np.int32(len(comps))
+        for i, (n, _) in enumerate(comps):
+            f.attrs[f"component_{i}"] = np.bytes_(n)
+        f.attrs["time"] = 0.75
+        f.attrs["iteration"] = np.int32(12)
+        if prob_lo:
+            f.attrs["prob_lo"] = np.array(tuple(prob_lo), dtype=dv2)
+        g = f.create_group("Chombo_global")
+        g.attrs["SpaceDim"] = np.int32(dim)
+        g.attrs["testReal"] = 0.0
+        bt, it = (box3, iv3) if dim == 3 else (box2, iv2)
+        n0 = None
+        for l, (dx, boxes) in enumerate(levels):
+            L = f.create_group(f"level_{l}")
+            if vec_dx:
+                L.attrs["vec_dx"] = np.array((dx, dx), dtype=dv2)
+            else:
+                L.attrs["dx"] = dx
+            L.attrs["dt"] = 0.01
+            L.attrs["time"] = 0.75
+            L.attrs["ref_ratio"] = np.int32(2)
+            n = int(round(1.0 / dx)) - 1
+            L.attrs["prob_domain"] = np.array(tuple([0] * dim + [n] * dim), dtype=bt)
+            L["boxes"] = np.array([tuple(lo) + tuple(hi) for lo, hi in boxes], dtype=bt)
+            data, offs = [], [0]
+            for lo, hi in boxes:
+                c = [lo0[k] + (np.arange(lo[k] - ghost, hi[k] + ghost + 1) + 0.5) * dx for k in range(dim)]
+                if dim == 2:
+                    y, x = np.meshgrid(c[1], c[0], indexing="ij")
+                    z = 0 * x
+                else:
+                    z, y, x = np.meshgrid(c[2], c[1], c[0], indexing="ij")
+                for _, fn in comps:
+                    data.append(fn(x, y, z).ravel())
+                offs.append(offs[-1] + len(comps) * x.size)
+            L["data:datatype=0"] = np.concatenate(data)
+            L["data:offsets=0"] = np.array(offs, dtype="<i8")
+            da = L.create_group("data_attributes")
+            da.attrs["comps"] = np.int32(len(comps))
+            da.attrs["objectType"] = np.bytes_("FArrayBox")
+            da.attrs["outputGhost"] = np.array(tuple([ghost] * dim), dtype=it)
+            da.attrs["ghost"] = np.array(tuple([ghost] * dim), dtype=it)
+
+chombo(os.path.join(out, "chombo3d.hdf5"), 3, [(0.125, [((0, 0, 0), (7, 7, 7))]), (0.0625, [((4, 4, 4), (11, 9, 7)), ((10, 10, 8), (13, 13, 11))])], 0)
+chombo(os.path.join(out, "chombo2d.hdf5"), 2,
+       [(0.125, [((0, 0), (7, 7))]), (0.0625, [((2, 2), (9, 7)), ((8, 10), (13, 15))]), (0.03125, [((6, 6), (13, 11))])], 1, prob_lo=[-0.5, 0.25], vec_dx=True)
+
 for root, _, files in os.walk(out):
     for fn in sorted(files):
-        if "flash" in fn or "enzo" in root:
+        if "flash" in fn or "enzo" in root or "chombo" in fn:
             print(os.path.join(root, fn), os.path.getsize(os.path.join(root, fn)))

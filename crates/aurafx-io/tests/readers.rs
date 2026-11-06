@@ -1626,7 +1626,7 @@ fn amr_files_match_paraview() {
     }
 }
 
-/// FLASH (FLASH 3 and FLASH 2 layouts) and Enzo AMR files against ParaView 6.1.1
+/// FLASH (FLASH 3 and FLASH 2 layouts), Enzo and Chombo AMR files against ParaView 6.1.1
 /// (testdata/amr/flash_enzo_reference.json from scripts/amr_files_reference.py; files from
 /// scripts/gen_amr_files.py): every level and block, its origin, spacing and dimensions, each
 /// cell array's type and sum, and the cells marked covered. The 2-D FLASH file, which ParaView
@@ -1659,10 +1659,17 @@ fn flash_and_enzo_match_paraview() {
                 let Some(DataSet::ImageData(img)) = img else { panic!("{key}: block {l}/{b}") };
                 let tag = format!("{key} level {l} block {b}");
                 let f3 = |v: &serde_json::Value| -> [f64; 3] { std::array::from_fn(|k| v[k].as_f64().unwrap()) };
-                assert_eq!(img.origin, f3(&w["origin"]), "{tag} origin");
+                // ParaView's VisIt Chombo reader keeps level 0's ghost cells (one ring here) as
+                // ordinary cells; auraFX drops ghost cells on every level.
+                let ghosted = key == "chombo2d.hdf5" && l == 0;
+                let g = if ghosted { 1.0 } else { 0.0 };
+                assert_eq!(img.origin, std::array::from_fn(|k| f3(&w["origin"])[k] + if k < 2 { g * img.spacing[k] } else { 0.0 }), "{tag} origin");
                 assert_eq!(img.spacing, f3(&w["spacing"]), "{tag} spacing");
-                assert_eq!(img.dims().map(|x| x as f64), f3(&w["dims"]), "{tag} dims");
+                assert_eq!(img.dims().map(|x| x as f64), std::array::from_fn(|k| f3(&w["dims"])[k] - if k < 2 { 2.0 * g } else { 0.0 }), "{tag} dims");
                 for (name, v) in w["arrays"].as_object().unwrap() {
+                    if ghosted && name != "vtkGhostType" {
+                        continue;
+                    }
                     let a = img.cell_data.get(name).unwrap_or_else(|| panic!("{tag}: no {name}"));
                     let (class, sum) = (v[0].as_str().unwrap(), v[1].as_f64().unwrap());
                     if name == "vtkGhostType" {
@@ -1711,4 +1718,24 @@ fn flash_and_enzo_match_paraview() {
     // The root block is fully covered (64 cells); one level-1 block too (64 cells).
     assert_eq!(covered, 128);
     assert_eq!(d.field_data().get("TimeValue").unwrap().get(0, 0), 1.5);
+
+    // Chombo 2-D (ghost cells around every box, prob_lo = (-0.5, 0.25)): density = 1 + x + 2y
+    // and energy = xy + 0.5 at every cell center of every level.
+    let d = read("chombo2d.hdf5", &[]);
+    let DataSet::MultiBlock(mb) = &d else { panic!() };
+    for (_, lev) in &mb.blocks {
+        let Some(DataSet::MultiBlock(lev)) = lev else { panic!() };
+        for (_, img) in &lev.blocks {
+            let Some(DataSet::ImageData(img)) = img else { panic!() };
+            let (dens, en) = (img.cell_data.get("density").unwrap(), img.cell_data.get("energy").unwrap());
+            let nx = img.dims()[0] - 1;
+            for c in 0..dens.len() {
+                let x = img.origin[0] + ((c % nx) as f64 + 0.5) * img.spacing[0];
+                let y = img.origin[1] + ((c / nx) as f64 + 0.5) * img.spacing[1];
+                assert!((dens.get(c, 0) - (1.0 + x + 2.0 * y)).abs() < 1e-12, "density at ({x}, {y})");
+                assert!((en.get(c, 0) - (x * y + 0.5)).abs() < 1e-12, "energy at ({x}, {y})");
+            }
+        }
+    }
+    assert_eq!(d.field_data().get("TimeValue").unwrap().get(0, 0), 0.75);
 }

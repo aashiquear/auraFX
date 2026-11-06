@@ -1229,3 +1229,157 @@ fn cell_grids_match_paraview() {
         assert!(close(sum("hgrad", 0), 1.0));
     }
 }
+
+/// Hyper tree grids written to `.htg` and read back: the same visible leaves, in the same
+/// order, with the same cell data (files from ParaView, both sources with and without a mask,
+/// a 2-D branch factor 3 grid, and a grid whose cells are numbered level by level).
+#[test]
+fn hyper_tree_grid_files_round_trip() {
+    use serde_json::json;
+    let dir = std::env::temp_dir().join(format!("aurafx_htg_rt_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut grids = vec![
+        ("tree3d", td("htg/tree3d.htg")),
+        ("tree2d", td("htg/tree2d.htg")),
+        ("tree3d_mask", td("htg/tree3d_mask.htg")),
+        ("random", run("random_hyper_tree_grid", None, &[("seed", json!(7)), ("max_depth", json!(4)), ("split_fraction", json!(0.4))])),
+        ("descriptor", run("hyper_tree_grid", None, &[("dimensions", json!([4, 3, 1])), ("max_depth", json!(3)), ("descriptor", json!("R..R.. | .R.. R... | ........"))])),
+    ];
+    // The descriptor source with a mask against ParaView 6.1.1: (cells, visible leaves, Depth sum).
+    for (k, (dims, depth, desc, mask, want)) in [
+        ([3, 3, 1], 2, "R..R | ........", "1101 | 11110111", (12, 8, 7.0)),
+        ([3, 3, 1], 3, "R.R. | .R...... | ....", "1111 | 01111111 | 1101", (16, 11, 12.0)),
+        ([3, 3, 3], 2, "R....R.. | ................", "10111111 | 1111111111111110", (24, 20, 15.0)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let g = run("hyper_tree_grid", None, &[("dimensions", json!(dims)), ("max_depth", json!(depth)), ("descriptor", json!(desc)), ("use_mask", json!(true)), ("mask", json!(mask))]);
+        let DataSet::HyperTreeGrid(h) = &g else { panic!() };
+        let u = run("hyper_tree_grid_to_unstructured_grid", Some(&g), &[]);
+        let d = u.cell_data().unwrap().get("Depth").unwrap();
+        assert_eq!((h.n_vertices(), h.n_leaves(), (0..d.len()).map(|i| d.get(i, 0)).sum::<f64>()), want, "masked source {k}");
+        grids.push((["mask0", "mask1", "mask2"][k], g));
+    }
+    for (name, g) in grids {
+        let DataSet::HyperTreeGrid(h) = &g else { panic!("{name}") };
+        let path = dir.join(format!("{name}.htg"));
+        aurafx_io::writers::write_file(&g, &path).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let back = match aurafx_io::read_file(&path).unwrap() {
+            aurafx_io::Loaded::Static(d) => (*d).clone(),
+            _ => panic!(),
+        };
+        let DataSet::HyperTreeGrid(b) = &back else { panic!("{name}: read back as {}", back.type_name()) };
+        assert_eq!((b.n_vertices(), b.n_leaves(), b.max_depth(), b.branch_factor, b.coords.clone()), (h.n_vertices(), h.n_leaves(), h.max_depth(), h.branch_factor, h.coords.clone()), "{name}");
+        // What ParaView 6.1.1 reads from our files: (cells, visible leaves, leaf Depth sum).
+        let pv = match name {
+            "descriptor" => Some((22, 18, 22.0)),
+            "random" => Some((8226, 7204, 26635.0)),
+            _ => None,
+        };
+        let (m0, _) = h.leaves_mesh();
+        let (m1, _) = b.leaves_mesh();
+        if let Some(want) = pv {
+            let d = m1.cell_data.get("Depth").unwrap();
+            assert_eq!((b.n_vertices(), b.n_leaves(), (0..d.len()).map(|i| d.get(i, 0)).sum::<f64>()), want, "{name} as ParaView reads it");
+        }
+        assert_eq!(m0.points, m1.points, "{name} points");
+        assert_eq!(m0.cells, m1.cells, "{name} cells");
+        for a in h.cell_data.iter() {
+            let x0 = m0.cell_data.get(&a.name).unwrap();
+            let x1 = m1.cell_data.get(&a.name).unwrap_or_else(|| panic!("{name}: lost {}", a.name));
+            assert_eq!(x0.data, x1.data, "{name} {}", a.name);
+        }
+    }
+    // Keep the files for a check in ParaView: AURAFX_KEEP_HTG=folder.
+    if let Ok(keep) = std::env::var("AURAFX_KEEP_HTG") {
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            std::fs::copy(e.path(), std::path::Path::new(&keep).join(e.file_name())).unwrap();
+        }
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Hyper Tree Grid To Dual Grid against ParaView 6.1.1 (testdata/htg/dual_reference.json from
+/// scripts/htg_dual_reference.py): every dual cell in order, its type, the places of its
+/// points and the Depth there, on ParaView's files and on sources in 1-D, 2-D and 3-D, with
+/// and without masks.
+#[test]
+fn hyper_tree_grid_dual_matches_paraview() {
+    use serde_json::{json, Value};
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/dual_reference.json")).unwrap()).unwrap();
+    let source = |dims: [i64; 3], depth: i64, desc: &str, mask: Option<&str>| {
+        let mut p = vec![("dimensions", json!(dims)), ("max_depth", json!(depth)), ("descriptor", json!(desc))];
+        if let Some(m) = mask {
+            p.push(("use_mask", json!(true)));
+            p.push(("mask", json!(m)));
+        }
+        run("hyper_tree_grid", None, &p)
+    };
+    let inputs: Vec<(&str, DataSet)> = vec![
+        ("tree3d.htg", td("htg/tree3d.htg")),
+        ("tree2d.htg", td("htg/tree2d.htg")),
+        ("tree3d_mask.htg", td("htg/tree3d_mask.htg")),
+        ("line", source([6, 1, 1], 3, "R.R.R | .R.... | ..", None)),
+        ("plane", source([4, 3, 1], 3, "R..R.. | .R.. R... | ........", None)),
+        ("plane_mask", source([3, 3, 1], 3, "R.R. | .R...... | ....", Some("1111 | 01111111 | 1101"))),
+        ("plane_mask2", source([4, 4, 1], 2, "R...R.... | ........", Some("111011111 | 11111011"))),
+        ("box_mask", source([3, 3, 3], 2, "R....R.. | ................", Some("10111111 | 1111111111111110"))),
+        ("box_mask2", source([3, 3, 3], 3, "R......R | .......R ........ | ........", Some("11101111 | 11111111 11011111 | 11111110"))),
+        ("random_mask2d", run("random_hyper_tree_grid", None, &[("dimensions", json!([5, 5, 1])), ("seed", json!(3)), ("max_depth", json!(3)), ("split_fraction", json!(0.5)), ("masked_fraction", json!(0.4))])),
+        ("random_mask3d", run("random_hyper_tree_grid", None, &[("dimensions", json!([3, 3, 3])), ("seed", json!(5)), ("max_depth", json!(3)), ("split_fraction", json!(0.5)), ("masked_fraction", json!(0.4))])),
+    ];
+    for (name, g) in inputs {
+        let want = reference[name]["cells"].as_array().unwrap();
+        let d = run("hyper_tree_grid_to_dual_grid", Some(&g), &[]);
+        let DataSet::UnstructuredGrid(u) = &d else { panic!("{name}") };
+        if u.cells.len() != want.len() {
+            for c in 0..u.cells.len() {
+                let p: Vec<[f64; 3]> = u.cells.cell(c).iter().map(|&i| u.points.get(i as usize)).collect();
+                eprintln!("ours {c}: {p:?} depth {:?}", u.cells.cell(c).iter().map(|&i| u.point_data.get("Depth").unwrap().get(i as usize, 0)).collect::<Vec<_>>());
+            }
+            for (c, w) in want.iter().enumerate() {
+                eprintln!("pv {c}: {} depth {}", w["points"], w["depth"]);
+            }
+        }
+        assert_eq!(u.cells.len(), want.len(), "{name}: dual cells");
+        let depth = u.point_data.get("Depth").unwrap_or_else(|| panic!("{name}: no Depth"));
+        for (c, w) in want.iter().enumerate() {
+            let (ty, ids) = (u.cells.cell_type(c), u.cells.cell(c));
+            assert_eq!(ty.vtk_id() as u64, w["type"].as_u64().unwrap(), "{name} cell {c} type");
+            let wp = w["points"].as_array().unwrap();
+            assert_eq!(ids.len(), wp.len(), "{name} cell {c}");
+            for (k, (&id, p)) in ids.iter().zip(wp).enumerate() {
+                let p: Vec<f64> = p.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
+                let q = u.points.get(id as usize);
+                // ParaView keeps the dual points in single precision.
+                assert!((0..3).all(|a| (q[a] - p[a]).abs() < 1e-6 * (1.0 + p[a].abs())), "{name} cell {c} point {k}: {q:?} vs ParaView {p:?}");
+                assert_eq!(depth.get(id as usize, 0), w["depth"][k].as_f64().unwrap(), "{name} cell {c} point {k} Depth");
+            }
+        }
+    }
+}
+
+/// The Random Hyper Tree Grid source's Masked fraction against ParaView 6.1.1: (cells, visible
+/// leaves, their Depth sum, masked cells) for 3-D and 2-D grids and a fully masked one.
+#[test]
+fn random_hyper_tree_grid_mask_matches_paraview() {
+    use serde_json::json;
+    for (dims, seed, depth, split, frac, want) in [
+        ([6, 6, 3], 0, 5, 0.5, 0.3, (65354, 18320, 87348.0, 43117)),
+        ([7, 5, 1], 3, 4, 0.45, 0.5, (408, 61, 152.0, 323)),
+        ([4, 4, 4], 11, 3, 0.6, 0.7, (4019, 602, 1701.0, 3317)),
+        ([5, 5, 1], 2, 3, 0.5, 1.0, (152, 0, 0.0, 16)),
+    ] {
+        let g = run(
+            "random_hyper_tree_grid",
+            None,
+            &[("dimensions", json!(dims)), ("seed", json!(seed)), ("max_depth", json!(depth)), ("split_fraction", json!(split)), ("masked_fraction", json!(frac))],
+        );
+        let DataSet::HyperTreeGrid(h) = &g else { panic!() };
+        let u = run("hyper_tree_grid_to_unstructured_grid", Some(&g), &[]);
+        let dsum = u.cell_data().and_then(|c| c.get("Depth")).map(|d| (0..d.len()).map(|i| d.get(i, 0)).sum::<f64>()).unwrap_or(0.0);
+        let masked = h.mask.as_ref().map(|m| m.iter().filter(|b| **b).count()).unwrap_or(0);
+        assert_eq!((h.n_vertices(), h.n_leaves(), dsum, masked), want, "{dims:?} seed {seed} masked {frac}");
+    }
+}

@@ -30,7 +30,11 @@ pub fn from_descriptor(dims: [usize; 3], branch_factor: usize, max_depth: usize,
     if levels.iter().any(|l| l.chars().any(|c| c != 'R' && c != '.')) {
         bail!("the descriptor may only contain R (refined), . (leaf), spaces and | between levels");
     }
-    let masks = mask.map(levels_of);
+    // The mask keeps its digits (0 masks a vertex, 1 keeps it).
+    let masks: Option<Vec<String>> = mask.map(|m| m.split('|').map(|l| l.chars().filter(|c| !c.is_whitespace()).collect()).collect());
+    if masks.as_ref().is_some_and(|m| m.iter().any(|l| l.chars().any(|c| c != '0' && c != '1'))) {
+        bail!("the mask may only contain 0 (hidden), 1 (kept), spaces and | between levels");
+    }
     if let Some(m) = &masks {
         if m.len() != levels.len() || m.iter().zip(&levels).any(|(a, b)| a.len() != b.len()) {
             bail!("the mask must have the same layout as the descriptor");
@@ -269,7 +273,7 @@ impl MinStd {
 /// ParaView's Random Hyper Tree Grid source (vtkRandomHyperTreeGridSource, without masking):
 /// branch factor 2, each cell refined with probability `split` down to `max_depth`, the same
 /// random sequence per tree as VTK (seeded with seed + tree index).
-pub fn random(dims: [usize; 3], bounds: [f64; 6], seed: i32, max_depth: usize, split: f64) -> Result<HyperTreeGrid> {
+pub fn random(dims: [usize; 3], bounds: [f64; 6], seed: i32, max_depth: usize, split: f64, masked_fraction: f64) -> Result<HyperTreeGrid> {
     let dim = dims.iter().filter(|&&n| n > 1).count();
     if dim == 0 {
         bail!("at least one dimension must be larger than 1");
@@ -289,6 +293,8 @@ pub fn random(dims: [usize; 3], bounds: [f64; 6], seed: i32, max_depth: usize, s
     htg.trees = vec![None; c[0] * c[1] * c[2]];
     let mut depth: Vec<f64> = Vec::new();
     let mut offset = 0usize;
+    // Per tree (in generation order): its id, global offset and vertices in creation order.
+    let mut built: Vec<(usize, usize, Vec<(usize, Option<usize>)>)> = Vec::new();
     // Trees in VTK's order (i outermost), each its own random sequence.
     for i in 0..c[0] {
         for j in 0..c[1] {
@@ -331,11 +337,477 @@ pub fn random(dims: [usize; 3], bounds: [f64; 6], seed: i32, max_depth: usize, s
                 for (v, (d, _)) in verts.iter().enumerate() {
                     depth[offset + v] = *d as f64;
                 }
+                built.push((tree_id, offset, verts.clone()));
                 offset += verts.len();
                 htg.trees[tree_id] = Some(tree);
             }
         }
     }
     htg.cell_data.insert(Array::new("Depth", 1, ArrayData::F64(depth)));
+    let masked_fraction = masked_fraction.clamp(0.0, 1.0);
+    if masked_fraction > 0.0 {
+        htg.mask = Some(random_mask(&built, offset, seed, max_depth, nc, masked_fraction));
+    }
     Ok(htg)
+}
+
+/// VTK's shuffle with a minimal standard sequence (the value is read before advancing).
+fn shuffle(a: &mut [usize], rng: &mut MinStd) {
+    for i in (1..a.len()).rev() {
+        let index = (rng.value() * a.len() as f64).floor() as usize;
+        a.swap(i, index % a.len());
+        rng.next();
+    }
+}
+
+/// The Random Hyper Tree Grid source's mask, as VTK makes it: trees in a shuffled order, each
+/// masked depth first (children shuffled) until about `fraction` of the volume is hidden; a
+/// vertex whose children are all masked is masked too.
+fn random_mask(built: &[(usize, usize, Vec<(usize, Option<usize>)>)], total: usize, seed: i32, max_depth: usize, nc: usize, fraction: f64) -> Vec<bool> {
+    let mut mask = vec![false; total];
+    // VTK counts children for three dimensions whatever the grid's dimension.
+    let cost: Vec<f64> = (0..=max_depth).map(|l| 1.0 / 8f64.powi(l as i32)).collect();
+    let should_mask = |siblings: f64, level: usize, margin: f64| -> bool {
+        let weight = ((level * max_depth) as i64).max(1) as f64;
+        siblings * weight <= fraction - margin
+    };
+    let n = built.len();
+    let mut order: Vec<usize> = (0..n).collect();
+    let mut trees_rng = MinStd::new(seed);
+    shuffle(&mut order, &mut trees_rng);
+    let mut tree_siblings = 0.0;
+    let margin = 1.0 / n as f64;
+    #[allow(clippy::too_many_arguments)]
+    fn generate(
+        v: usize,
+        verts: &[(usize, Option<usize>)],
+        off: usize,
+        unmasked: f64,
+        parent_masked: bool,
+        siblings: f64,
+        margin: f64,
+        nc: usize,
+        rng: &mut MinStd,
+        cost: &[f64],
+        should_mask: &dyn Fn(f64, usize, f64) -> bool,
+        mask: &mut [bool],
+    ) -> f64 {
+        let level = verts[v].0;
+        let mut is_masked = false;
+        let mut result = unmasked;
+        if !parent_masked && should_mask(siblings, level, margin) {
+            result -= cost.get(level).copied().unwrap_or(0.0);
+            is_masked = true;
+        }
+        is_masked = is_masked || parent_masked;
+        if let Some(first) = verts[v].1 {
+            let mut n_masked = 0;
+            let mut child_unmasked = unmasked;
+            let mut children: Vec<usize> = (0..nc).collect();
+            shuffle(&mut children, rng);
+            for c in children {
+                let previous = child_unmasked;
+                let frac = n_masked as f64 / nc as f64;
+                child_unmasked = generate(first + c, verts, off, previous, is_masked, frac, 1.0 / nc as f64, nc, rng, cost, should_mask, mask);
+                if child_unmasked < previous {
+                    n_masked += 1;
+                }
+            }
+            if !is_masked {
+                result = child_unmasked;
+            }
+            if n_masked == nc {
+                is_masked = true;
+            }
+        }
+        mask[off + v] = is_masked;
+        result
+    }
+    for t in order {
+        let (tree_id, off, verts) = &built[t];
+        let mut rng = MinStd::new(seed.wrapping_add(*tree_id as i32));
+        let unmasked = if fraction >= 1.0 {
+            mask[*off] = true;
+            0.0
+        } else {
+            generate(0, verts, *off, 1.0, false, tree_siblings, margin, nc, &mut rng, &cost, &should_mask, &mut mask)
+        };
+        tree_siblings += (1.0 - unmasked) / n as f64;
+    }
+    mask
+}
+
+/// A cell next to a leaf, as VTK's Moore super cursor sees it: the cell at the leaf's level
+/// at that place, or the coarser leaf covering it.
+#[derive(Clone, Copy)]
+struct Neighbor {
+    global: usize,
+    level: usize,
+    leaf: bool,
+    /// The cell's size along x, y, z.
+    size: [f64; 3],
+}
+
+/// Leaves around each corner of a 3-D leaf, as indices into the 3x3x3 neighborhood (VTK's
+/// CornerNeighborCursorsTable3D).
+const CORNER_NEIGHBORS_3D: [[usize; 8]; 8] = [
+    [0, 1, 3, 4, 9, 10, 12, 13],
+    [1, 2, 4, 5, 10, 11, 13, 14],
+    [3, 4, 6, 7, 12, 13, 15, 16],
+    [4, 5, 7, 8, 13, 14, 16, 17],
+    [9, 10, 12, 13, 18, 19, 21, 22],
+    [10, 11, 13, 14, 19, 20, 22, 23],
+    [12, 13, 15, 16, 21, 22, 24, 25],
+    [13, 14, 16, 17, 22, 23, 25, 26],
+];
+
+/// Hyper Tree Grid To Dual Grid, as VTK's vtkHyperTreeGridToDualGrid: a point at the center of
+/// every visible leaf (moved onto the grid's boundary, and next to masked leaves, as VTK moves
+/// them) with the leaf's cell data, and a voxel (pixel, line) joining the leaves around every
+/// corner, made by the finest of those leaves. Unlike VTK the output has no points for coarse
+/// or masked cells (VTK leaves them at the origin).
+pub fn dual_grid(h: &HyperTreeGrid) -> Result<UnstructuredGrid> {
+    use std::collections::HashMap;
+    let axes = h.axes();
+    let dim = axes.len();
+    if dim == 0 {
+        bail!("the hyper tree grid has no cells");
+    }
+    let bf = h.branch_factor.max(2) as i64;
+    let nc = h.children_per_vertex();
+    let scale = bf.pow(h.max_depth() as u32);
+    let cd = h.cell_dims();
+    let has_mask = h.mask.is_some();
+    let first: Vec<Vec<usize>> = h
+        .trees
+        .iter()
+        .map(|t| {
+            let Some(t) = t else { return Vec::new() };
+            let mut next = 1;
+            t.refined
+                .iter()
+                .map(|&r| {
+                    let f = next;
+                    if r {
+                        next += nc;
+                    }
+                    f
+                })
+                .collect()
+        })
+        .collect();
+    // A cell of a tree: tree, breadth-first vertex, level, lower corner on the lattice.
+    #[derive(Clone, Copy)]
+    struct Entry {
+        ti: usize,
+        v: usize,
+        level: usize,
+        lo: [i64; 3],
+    }
+    let refined_of = |e: &Entry| {
+        let t = h.trees[e.ti].as_ref().unwrap();
+        t.refined[e.v] && first[e.ti][e.v] + nc <= t.refined.len()
+    };
+    let global_of = |e: &Entry| h.trees[e.ti].as_ref().unwrap().global[e.v];
+    let root_entry = |x: [i64; 3]| -> Option<Entry> {
+        let mut ijk = [0usize; 3];
+        for &k in &axes {
+            if x[k] < 0 || (x[k] / scale) as usize >= cd[k] {
+                return None;
+            }
+            ijk[k] = (x[k] / scale) as usize;
+        }
+        let ti = if h.transposed { ijk[2] + cd[2] * (ijk[1] + cd[1] * ijk[0]) } else { ijk[0] + cd[0] * (ijk[1] + cd[1] * ijk[2]) };
+        h.trees.get(ti)?.as_ref().filter(|t| !t.refined.is_empty())?;
+        Some(Entry { ti, v: 0, level: 0, lo: std::array::from_fn(|k| ijk[k] as i64 * scale) })
+    };
+    let child_containing = |e: &Entry, x: [i64; 3]| -> Entry {
+        let step = scale / bf.pow(e.level as u32 + 1);
+        let (mut c, mut mult) = (0usize, 1usize);
+        let mut lo = e.lo;
+        for &k in &axes {
+            let i = (x[k] - e.lo[k]) / step;
+            c += i as usize * mult;
+            mult *= bf as usize;
+            lo[k] += i * step;
+        }
+        Entry { ti: e.ti, v: first[e.ti][e.v] + c, level: e.level + 1, lo }
+    };
+    let neighbor_of = |e: &Entry| -> Neighbor {
+        let ijk: [usize; 3] = std::array::from_fn(|k| (e.lo[k] / scale) as usize);
+        let f = (bf as f64).powi(e.level as i32);
+        let size = std::array::from_fn(|k| if axes.contains(&k) { (h.coords[k][ijk[k] + 1] - h.coords[k][ijk[k]]) / f } else { 0.0 });
+        Neighbor { global: global_of(e), level: e.level, leaf: !refined_of(e), size }
+    };
+    // The cell at `x` next to the leaf whose ancestors are `chain`, as VTK's Moore super cursor
+    // finds it going down with the leaf: a neighbor in the same parent comes from the parent
+    // (unless the parent is masked); others come from the neighbor one level up, going down
+    // only through refined, unmasked cells.
+    let locate = |chain: &[Entry], x: [i64; 3]| -> Option<Neighbor> {
+        let offset_zero = |k: usize| {
+            let s = scale / bf.pow(k as u32);
+            axes.iter().all(|&a| x[a].div_euclid(s) == chain[k].lo[a] / s)
+        };
+        let mut e: Option<Entry> = if offset_zero(0) { Some(chain[0]) } else { root_entry(x) };
+        for k in 1..chain.len() {
+            if offset_zero(k) {
+                e = Some(chain[k]);
+                continue;
+            }
+            e = if offset_zero(k - 1) {
+                let p = chain[k - 1];
+                Some(if refined_of(&p) && !h.is_masked(global_of(&p)) { child_containing(&p, x) } else { p })
+            } else {
+                e.map(|p| if p.level == k - 1 && refined_of(&p) && !h.is_masked(global_of(&p)) { child_containing(&p, x) } else { p })
+            };
+        }
+        e.map(|e| neighbor_of(&e))
+    };
+    let n3 = 3usize.pow(dim as u32);
+    let center = (n3 - 1) / 2;
+    let mut points: HashMap<usize, [f64; 3]> = HashMap::new();
+    let mut shifts: [HashMap<usize, f64>; 3] = Default::default();
+    let mut shifted_flag: HashMap<usize, bool> = HashMap::new();
+    let mut cells: Vec<Vec<usize>> = Vec::new();
+    let masked = |g: usize| h.is_masked(g);
+    h.walk_structure(|v| {
+        if !v.leaf {
+            return true;
+        }
+        let level = v.depth;
+        let s = scale / bf.pow(level as u32);
+        // The leaf's ancestors, from its root down.
+        let mut chain = vec![root_entry(v.lattice).expect("leaf in a tree")];
+        while chain.len() <= level {
+            let last = *chain.last().unwrap();
+            chain.push(child_containing(&last, v.lattice));
+        }
+        let nb: Vec<Option<Neighbor>> = (0..n3)
+            .map(|n| {
+                let mut lat = v.lattice;
+                for (a, &k) in axes.iter().enumerate() {
+                    lat[k] += ((n / 3usize.pow(a as u32)) % 3) as i64 * s - s;
+                }
+                locate(&chain, lat)
+            })
+            .collect();
+        let has = |n: usize| nb[n].is_some();
+        let leaf = |n: usize| nb[n].is_some_and(|x| x.leaf);
+        let lev = |n: usize| nb[n].map(|x| x.level).unwrap_or(usize::MAX);
+        let gid = |n: usize| nb[n].map(|x| x.global).unwrap_or(0);
+        let id = v.global;
+        let mut pt: [f64; 3] = std::array::from_fn(|k| v.origin[k] + if axes.contains(&k) { 0.5 * v.size[k] } else { 0.0 });
+        let half: [f64; 3] = v.size.map(|x| 0.5 * x);
+        // A masked leaf moves its coarser unmasked neighbors' points towards itself.
+        if has_mask && v.masked {
+            if dim == 2 {
+                let (we, sn) = (axes[0], axes[1]);
+                for (n, ax, sign) in [(1usize, sn, 1.0), (3, we, 1.0), (5, we, -1.0), (7, sn, -1.0)] {
+                    if let Some(x) = nb[n].filter(|x| x.leaf && x.level < level && !masked(x.global)) {
+                        shifted_flag.insert(x.global, true);
+                        shifts[ax].insert(x.global, sign * 0.5 * x.size[ax]);
+                    }
+                }
+                // VTK's signs for the diagonal neighbors.
+                for (n, swe, ssn) in [(2usize, 1.0, 1.0), (0, -1.0, 1.0), (6, 1.0, -1.0), (8, -1.0, -1.0)] {
+                    if let Some(x) = nb[n].filter(|x| x.leaf && x.level < level && !masked(x.global)) {
+                        if !shifted_flag.get(&x.global).copied().unwrap_or(false) {
+                            shifts[we].insert(x.global, swe * 0.5 * x.size[we]);
+                            shifts[sn].insert(x.global, ssn * 0.5 * x.size[sn]);
+                        }
+                    }
+                }
+            } else if dim == 3 {
+                let mut offset = 1usize;
+                for axis in 0..3 {
+                    for (n, sign) in [(13 - offset, 1.0), (13 + offset, -1.0)] {
+                        if let Some(x) = nb[n].filter(|x| x.leaf && x.level < level && !masked(x.global)) {
+                            shifted_flag.insert(x.global, true);
+                            shifts[axis].insert(x.global, sign * 0.5 * x.size[axis]);
+                        }
+                    }
+                    offset *= 3;
+                }
+                let mut i = 1i64;
+                for axis1 in 0..2 {
+                    let mut j = 3 * i;
+                    for axis2 in axis1 + 1..3 {
+                        for o2 in [-1i64, 1] {
+                            for o1 in [-1i64, 1] {
+                                let n = (13 + o1 * (i * o2 + j)) as usize;
+                                if let Some(x) = nb[n].filter(|x| x.leaf && x.level < level && !masked(x.global)) {
+                                    if !shifted_flag.get(&x.global).copied().unwrap_or(false) {
+                                        shifted_flag.insert(x.global, true);
+                                        shifts[axis1].insert(x.global, (-o1 * o2) as f64 * 0.5 * x.size[axis1]);
+                                        shifts[axis2].insert(x.global, -o1 as f64 * 0.5 * x.size[axis2]);
+                                    }
+                                }
+                            }
+                        }
+                        j *= 3;
+                    }
+                    i *= 3;
+                }
+                for o3 in [-1i64, 1] {
+                    for o2 in [-1i64, 1] {
+                        let off = o2 * (o3 + 3) + 9;
+                        for o1 in [-1i64, 1] {
+                            let n = (13 + o1 * off) as usize;
+                            if let Some(x) = nb[n].filter(|x| x.leaf && x.level < level && !masked(x.global)) {
+                                if !shifted_flag.get(&x.global).copied().unwrap_or(false) {
+                                    shifted_flag.insert(x.global, true);
+                                    shifts[0].insert(x.global, (-o1 * o2 * o3) as f64 * 0.5 * x.size[0]);
+                                    shifts[1].insert(x.global, (-o1 * o2) as f64 * 0.5 * x.size[1]);
+                                    shifts[2].insert(x.global, -o1 as f64 * 0.5 * x.size[2]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+        // The point moves onto the boundary (and, with a mask, onto masked neighbors).
+        let gone = |n: usize| !has(n) || (has_mask && leaf(n) && masked(gid(n)));
+        match dim {
+            1 => {
+                let k = axes[0];
+                if !has(0) {
+                    pt[k] -= half[k];
+                }
+                if !has(2) {
+                    pt[k] += half[k];
+                }
+            }
+            2 => {
+                let (we, sn) = (axes[0], axes[1]);
+                let mut shifted = false;
+                for (n, ax, sign) in [(1usize, sn, -1.0), (3, we, -1.0), (5, we, 1.0), (7, sn, 1.0)] {
+                    if gone(n) {
+                        pt[ax] += sign * half[ax];
+                        shifted = true;
+                    }
+                }
+                if has_mask && !shifted {
+                    for (n, swe, ssn) in [(0usize, -1.0, -1.0), (2, 1.0, -1.0), (6, -1.0, 1.0), (8, 1.0, 1.0)] {
+                        if gone(n) {
+                            pt[we] += swe * half[we];
+                            pt[sn] += ssn * half[sn];
+                        }
+                    }
+                }
+            }
+            _ => {
+                let mut shifted = false;
+                let mut offset = 1usize;
+                for axis in 0..3 {
+                    if gone(13 - offset) {
+                        pt[axis] -= half[axis];
+                        shifted = true;
+                    }
+                    if gone(13 + offset) {
+                        pt[axis] += half[axis];
+                        shifted = true;
+                    }
+                    offset *= 3;
+                }
+                if has_mask && !shifted {
+                    let mut i = 1i64;
+                    for axis1 in 0..2 {
+                        let mut j = 3 * i;
+                        for axis2 in axis1 + 1..3 {
+                            for o2 in [-1i64, 1] {
+                                for o1 in [-1i64, 1] {
+                                    if gone((13 + o1 * (i * o2 + j)) as usize) {
+                                        pt[axis1] += (o1 * o2) as f64 * half[axis1];
+                                        pt[axis2] += o1 as f64 * half[axis2];
+                                        shifted = true;
+                                    }
+                                }
+                            }
+                            j *= 3;
+                        }
+                        i *= 3;
+                    }
+                }
+                if has_mask && !shifted {
+                    for o3 in [-1i64, 1] {
+                        for o2 in [-1i64, 1] {
+                            let off = o2 * (o3 + 3) + 9;
+                            for o1 in [-1i64, 1] {
+                                if gone((13 + o1 * off) as usize) {
+                                    pt[0] += (o1 * o2 * o3) as f64 * half[0];
+                                    pt[1] += (o1 * o2) as f64 * half[1];
+                                    pt[2] += o1 as f64 * half[2];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        points.insert(id, pt);
+        // Dual cells: a corner belongs to this leaf when every leaf around it is visible and
+        // none is finer (a tie at the same level goes to the neighbor later in the
+        // neighborhood).
+        let ok = |n: usize| has(n) && leaf(n) && !(has_mask && masked(gid(n)));
+        match dim {
+            // VTK's 1-D case does not look at the mask.
+            1 => {
+                if has(0) && leaf(0) {
+                    cells.push(vec![id, gid(0)]);
+                }
+                if has(2) && leaf(2) && lev(2) != level {
+                    cells.push(vec![id, gid(2)]);
+                }
+            }
+            2 => {
+                // (corner's x neighbor, y neighbor, diagonal, neighbors that must be coarser)
+                for (x, y, dg, coarser) in [(3usize, 1usize, 0usize, &[][..]), (5, 1, 2, &[5usize][..]), (5, 7, 8, &[5, 8, 7][..]), (3, 7, 6, &[6, 7][..])] {
+                    if ok(x) && ok(y) && ok(dg) && coarser.iter().all(|&n| lev(n) != level) {
+                        cells.push(vec![id, gid(x), gid(y), gid(dg)]);
+                    }
+                }
+            }
+            _ => {
+                for corner in CORNER_NEIGHBORS_3D {
+                    let owner = corner.iter().all(|&n| n == center || (ok(n) && !(lev(n) == level && n > center)));
+                    if owner {
+                        cells.push(corner.iter().map(|&n| if n == center { id } else { gid(n) }).collect());
+                    }
+                }
+            }
+        }
+        true
+    });
+    // Moves towards masked leaves, as VTK applies them (over the first `dim` axes).
+    for (d, sh) in shifts.iter().enumerate().take(dim) {
+        for (g, s) in sh {
+            if let Some(p) = points.get_mut(g) {
+                p[d] += s;
+            }
+        }
+    }
+    let mut globals: Vec<usize> = points.keys().copied().collect();
+    globals.sort_unstable();
+    let index: HashMap<usize, u32> = globals.iter().enumerate().map(|(i, &g)| (g, i as u32)).collect();
+    let mut pts = Vec::with_capacity(3 * globals.len());
+    for g in &globals {
+        pts.extend_from_slice(&points[g]);
+    }
+    let ty = match dim {
+        1 => CellType::Line,
+        2 => CellType::Pixel,
+        _ => CellType::Voxel,
+    };
+    let mut out = Cells::new();
+    for c in &cells {
+        let ids: Option<Vec<u32>> = c.iter().map(|g| index.get(g).copied()).collect();
+        if let Some(ids) = ids {
+            out.push(ty, &ids);
+        }
+    }
+    let n_cells = h.cell_data.iter().map(|a| a.len()).min().unwrap_or(0);
+    let point_data = if globals.last().is_none_or(|&g| g < n_cells) { h.cell_data.gather(&globals) } else { Attributes::new() };
+    Ok(UnstructuredGrid { points: Points::new_f64(pts), cells: out, point_data, cell_data: Attributes::new(), field_data: h.field_data.clone() })
 }

@@ -36,7 +36,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Typed arrays: i8..i64, u8..u64, f32, f64, with N components; string arrays.
 - [x] Attribute sets: point data, cell data, field data; active scalars/vectors/normals/tcoords/tensors; global IDs; ghost arrays.
 - [x] Datasets: `ImageData`, `RectilinearGrid`, `StructuredGrid`, `PolyData`, `UnstructuredGrid`, `Table`, `PointCloud`/particles.
-- [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid`, `Molecule`, `CellGrid` (DG cells: HGRAD/HCURL/HDIV/constant fields on eight shapes; read from `.dg`, drawn at the corners; Centers, Elevation, source).
+- [~] Composite (MultiBlock done): `MultiBlock`, `PartitionedDataSet`, `PartitionedDataSetCollection`, overlapping and non-overlapping AMR, `HyperTreeGrid` (read and written as `.htg`; To Unstructured Grid, To Dual Grid, Depth Limiter, Generate Fields, Evaluate Coarse; descriptor and random sources with masks), `Molecule`, `CellGrid` (DG cells: HGRAD/HCURL/HDIV/constant fields on eight shapes; read from `.dg`, drawn at the corners; Centers, Elevation, source).
 - [x] Cell types: all VTK linear types (vertex, line, polyline, tri, quad, polygon, tet, hex, wedge, pyramid, pentagonal/hexagonal prism, polyhedron).
 - [x] Higher-order: Lagrange and Bezier cells of any order (curve, triangle, quad, tet, hex, wedge; per-cell `HigherOrderDegrees`, rational Bezier weights) and quadratic cells (complete, serendipity 8/20/15-node, quadratic-linear, cubic line), drawn curved and cut/integrated through their nodes like VTK (checked against ParaView 6.1.1). Pyramids (quadratic, Lagrange, Bezier) are still cut through their corners only.
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
@@ -797,8 +797,21 @@ nodes but evaluates them at parametric (0,0,0)); flat cells' Jacobians are compl
 unit normal (ParaView: NaN/undefined for face/edge fields); Centers on mixed types gives every
 cell (ParaView one point). Protocol 10.
 
+Done in iteration 37: **hyper tree grid writer, dual grid and masking**. The `.htg` writer (XML
+version 2: per tree its breadth-first descriptor, vertices per depth, mask and cell data in
+that order), Hyper Tree Grid To Dual Grid (VTK's Moore super cursor walk reproduced: neighbors
+found level by level, never below a masked cell; corner ownership by level and neighborhood
+index; boundary and mask point shifts, including VTK's diagonal signs), and the Random Hyper
+Tree Grid source's Masked fraction (VTK's shuffled trees and children, masking cost per level).
+Fixed: the Hyper Tree Grid source's mask string lost its digits, so Use mask always failed.
+Checked against ParaView 6.1.1: our `.htg` files read in ParaView (cells, leaves, Depth sums)
+and back in auraFX (same leaves and values); the dual grid cell by cell on eleven grids (1-D,
+2-D, 3-D, files, masks, masked random grids); the masked descriptor source and the masked
+random source (cells, visible leaves, depth sums, masked counts). auraFX's dual grid leaves out
+VTK's unused points at the origin.
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG To Dual Grid / Geometry / writer / masking random source, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
+(KMZ, GML, FlatGeobuf, other rasters), remaining filter catalog (CTH material AMR filters and Resample AMR; Enzo/FLASH/Chombo readers; HTG Geometry / ghost cells / feature edges, cell grid writer and the other cell grid filters (sides, transform, probe, copy)
 grid, molecules); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 

@@ -96,7 +96,17 @@ impl HyperTreeGrid {
     /// Walk every tree depth first (trees in index order, children in order), calling `f` for
     /// each vertex; a vertex for which `f` returns false is not descended into. Masked vertices
     /// are visited (with `masked`) but not descended into.
-    pub fn walk(&self, mut f: impl FnMut(&Visit) -> bool) {
+    pub fn walk(&self, f: impl FnMut(&Visit) -> bool) {
+        self.walk_impl(false, f)
+    }
+
+    /// As `walk`, but also descending into masked vertices (VTK's cursors follow the trees'
+    /// structure whatever the mask).
+    pub fn walk_structure(&self, f: impl FnMut(&Visit) -> bool) {
+        self.walk_impl(true, f)
+    }
+
+    fn walk_impl(&self, into_masked: bool, mut f: impl FnMut(&Visit) -> bool) {
         let nc = self.children_per_vertex();
         let axes = self.axes();
         let bf = self.branch_factor.max(2) as i64;
@@ -135,7 +145,7 @@ impl HyperTreeGrid {
                 let masked = self.is_masked(global);
                 let refined = tree.refined.get(v).copied().unwrap_or(false) && first_child[v] + nc <= tree.refined.len();
                 let visit = Visit { global, depth, leaf: !refined, masked, origin: o, size: s, lattice: lat };
-                if !f(&visit) || masked || !refined {
+                if !f(&visit) || (masked && !into_masked) || !refined {
                     continue;
                 }
                 let cs: [f64; 3] = std::array::from_fn(|k| if axes.contains(&k) { s[k] / bf as f64 } else { s[k] });

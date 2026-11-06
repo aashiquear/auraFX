@@ -16,7 +16,7 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
         DataSet::StructuredGrid(_) => vec![("vts", "VTK structured grid")],
         DataSet::MultiBlock(_) => vec![("vtm", "VTK multiblock (folder of pieces)")],
         DataSet::Table(_) => vec![],
-        DataSet::HyperTreeGrid(_) => vec![("vtu", "VTK unstructured grid (the leaves)")],
+        DataSet::HyperTreeGrid(_) => vec![("htg", "VTK hyper tree grid"), ("vtu", "VTK unstructured grid (the leaves)")],
         DataSet::CellGrid(_) => vec![("vtu", "VTK unstructured grid (values at the corners)")],
     };
     if !matches!(ds, DataSet::MultiBlock(_) | DataSet::Table(_)) {
@@ -34,7 +34,14 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
 }
 
 pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
-    // Hyper tree grids are written as their visible leaves (an unstructured grid).
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if ext == "htg" {
+        return match ds {
+            DataSet::HyperTreeGrid(h) => write_htg(h, path).with_context(|| format!("writing {}", path.display())),
+            other => bail!(".htg files hold hyper tree grids, not {}", other.type_name()),
+        };
+    }
+    // Other formats get a hyper tree grid's visible leaves (an unstructured grid).
     if let DataSet::HyperTreeGrid(h) = ds {
         return write_file(&DataSet::UnstructuredGrid(h.leaves_mesh().0), path);
     }
@@ -257,6 +264,108 @@ pub fn write_xml(ds: &DataSet, path: &Path) -> Result<()> {
     };
     let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
     write!(f, "<?xml version=\"1.0\"?>\n<VTKFile type=\"{ty}\" version=\"2.2\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n{body}  <AppendedData encoding=\"raw\">\n   _")?;
+    f.write_all(&app.blob)?;
+    write!(f, "\n  </AppendedData>\n</VTKFile>\n")?;
+    Ok(())
+}
+
+/// Bits packed most significant first, as VTK's bit arrays.
+fn pack_bits(bits: &[bool]) -> Vec<u8> {
+    let mut out = vec![0u8; bits.len().div_ceil(8)];
+    for (i, _) in bits.iter().enumerate().filter(|(_, b)| **b) {
+        out[i / 8] |= 0x80 >> (i % 8);
+    }
+    out
+}
+
+/// VTK hyper tree grid file (`.htg`, XML format version 2, as ParaView 5.10 and later write):
+/// the root grid's coordinates; for every tree in index order its breadth-first refinement
+/// descriptor (all levels but the last), its vertices per depth, the mask, and the cell data in
+/// that breadth-first order.
+pub fn write_htg(h: &aurafx_data::HyperTreeGrid, path: &Path) -> Result<()> {
+    let mut app = Appended { blob: Vec::new() };
+    let nc = h.children_per_vertex();
+    let (mut descriptor, mut per_depth, mut tree_ids, mut depth_per_tree, mut mask, mut order) = (Vec::new(), Vec::<i64>::new(), Vec::<i64>::new(), Vec::<u32>::new(), Vec::new(), Vec::new());
+    for (ti, tree) in h.trees.iter().enumerate() {
+        let Some(tree) = tree.as_ref().filter(|t| !t.refined.is_empty()) else { continue };
+        // Level sizes of the breadth-first list.
+        let mut sizes = vec![1usize];
+        let mut start = 0;
+        loop {
+            let n = *sizes.last().unwrap();
+            let refined = tree.refined[start..(start + n).min(tree.refined.len())].iter().filter(|r| **r).count();
+            start += n;
+            if refined == 0 || start >= tree.refined.len() {
+                break;
+            }
+            sizes.push(refined * nc);
+        }
+        let total: usize = sizes.iter().sum();
+        if total != tree.refined.len() {
+            bail!("tree {ti}: {} vertices but its refinement gives {total}", tree.refined.len());
+        }
+        let last = *sizes.last().unwrap();
+        descriptor.extend_from_slice(&tree.refined[..total - last]);
+        tree_ids.push(ti as i64);
+        depth_per_tree.push(sizes.len() as u32);
+        per_depth.extend(sizes.iter().map(|&s| s as i64));
+        mask.extend(tree.global.iter().map(|&g| h.is_masked(g)));
+        order.extend_from_slice(&tree.global);
+    }
+    let mut body = String::new();
+    let dims = h.dims();
+    body += &format!(
+        "  <HyperTreeGrid BranchFactor=\"{}\" TransposedRootIndexing=\"{}\" Dimensions=\"{} {} {}\">\n    <Grid>\n",
+        h.branch_factor,
+        h.transposed as u8,
+        dims[0],
+        dims[1],
+        dims[2]
+    );
+    for (k, name) in ["XCoordinates", "YCoordinates", "ZCoordinates"].iter().enumerate() {
+        let off = app.add(&le_bytes(&ArrayData::F64(h.coords[k].clone())));
+        body += &format!("      <DataArray type=\"Float64\" Name=\"{name}\" NumberOfTuples=\"{}\" format=\"appended\" offset=\"{off}\"/>\n", h.coords[k].len());
+    }
+    body += "    </Grid>\n    <Trees>\n";
+    let bits = |app: &mut Appended, body: &mut String, name: &str, b: &[bool]| {
+        let off = app.add(&pack_bits(b));
+        *body += &format!("      <DataArray type=\"Bit\" Name=\"{name}\" NumberOfTuples=\"{}\" format=\"appended\" offset=\"{off}\"/>\n", b.len());
+    };
+    bits(&mut app, &mut body, "Descriptors", &descriptor);
+    for (name, d) in [("NumberOfVerticesPerDepth", ArrayData::I64(per_depth)), ("TreeIds", ArrayData::I64(tree_ids)), ("DepthPerTree", ArrayData::U32(depth_per_tree))] {
+        let off = app.add(&le_bytes(&d));
+        body += &format!("      <DataArray type=\"{}\" Name=\"{name}\" NumberOfTuples=\"{}\" format=\"appended\" offset=\"{off}\"/>\n", type_name(&d), d.len());
+    }
+    if h.mask.is_some() {
+        bits(&mut app, &mut body, "Mask", &mask);
+    }
+    body += "    </Trees>\n";
+    let n_cells = h.cell_data.iter().map(|a| a.len()).max().unwrap_or(0);
+    let ok: Vec<usize> = order.iter().copied().filter(|&g| g < n_cells).collect();
+    let mut cd = h.cell_data.clone();
+    if ok.len() == order.len() {
+        cd = cd.gather(&order);
+    } else if !cd.is_empty() {
+        bail!("cell data shorter than the trees ({n_cells} values, {} cells)", order.len());
+    }
+    for arr in cd.iter() {
+        let off = app.add(&le_bytes(&arr.data));
+        body += &format!(
+            "      <DataArray type=\"{}\" Name=\"{}\" NumberOfComponents=\"{}\" NumberOfTuples=\"{}\" format=\"appended\" offset=\"{off}\"/>\n",
+            type_name(&arr.data),
+            esc(&arr.name),
+            arr.ncomp,
+            arr.len()
+        );
+    }
+    body = body.replacen("    </Trees>\n", "    </Trees>\n    <CellData>\n", 1);
+    body += "    </CellData>\n";
+    if !h.field_data.is_empty() {
+        attributes(&mut body, &mut app, "FieldData", &h.field_data);
+    }
+    body += "  </HyperTreeGrid>\n";
+    let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
+    write!(f, "<?xml version=\"1.0\"?>\n<VTKFile type=\"HyperTreeGrid\" version=\"2.0\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n{body}  <AppendedData encoding=\"raw\">\n   _")?;
     f.write_all(&app.blob)?;
     write!(f, "\n  </AppendedData>\n</VTKFile>\n")?;
     Ok(())

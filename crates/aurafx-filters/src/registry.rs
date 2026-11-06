@@ -1764,6 +1764,24 @@ fn build() -> Vec<FilterDef> {
             apply: |input, _| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::htg::to_unstructured(d)?))),
         },
         FilterDef {
+            id: "hyper_tree_grid_to_dual_grid",
+            label: "Hyper Tree Grid To Dual Grid",
+            category: "Data",
+            description: "A point at the center of every visible leaf of a hyper tree grid, joined into cells across the leaves (gives smooth contours and point data).",
+            keywords: &["hyper tree grid", "htg", "dual", "cell centers", "unstructured"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| {
+                per_leaf(input.unwrap(), &|d| match d {
+                    DataSet::HyperTreeGrid(h) => Ok(DataSet::UnstructuredGrid(crate::htg::dual_grid(h)?)),
+                    other => Err(anyhow::anyhow!("this filter needs a hyper tree grid, not {}", other.type_name())),
+                })
+            },
+        },
+        FilterDef {
             id: "hyper_tree_grid_depth_limiter",
             label: "Hyper Tree Grid Depth Limiter",
             category: "Data",
@@ -2317,12 +2335,13 @@ fn build() -> Vec<FilterDef> {
                 i("seed", "Seed", 0, i64::from(i32::MIN), i64::from(i32::MAX)),
                 i("max_depth", "Max depth", 5, 0, 30),
                 f("split_fraction", "Split fraction", 0.5, 0.0, 1.0).help("Chance that a cell is refined."),
+                f("masked_fraction", "Masked fraction", 0.0, 0.0, 1.0).help("About this share of the volume is hidden (whole subtrees, as ParaView masks them)."),
             ],
             apply: |_, p| {
                 let d = p.vec3("dimensions", [6.0, 6.0, 3.0]).map(|v| v.round().max(1.0) as usize);
                 let b = p.floats("bounds");
                 let b: [f64; 6] = if b.len() == 6 { std::array::from_fn(|k| b[k]) } else { [-10.0, 10.0, -10.0, 10.0, -10.0, 10.0] };
-                Ok(DataSet::HyperTreeGrid(crate::htg::random(d, b, p.i64("seed", 0) as i32, p.i64("max_depth", 5).max(0) as usize, p.f64("split_fraction", 0.5))?))
+                Ok(DataSet::HyperTreeGrid(crate::htg::random(d, b, p.i64("seed", 0) as i32, p.i64("max_depth", 5).max(0) as usize, p.f64("split_fraction", 0.5), p.f64("masked_fraction", 0.0))?))
             },
         },
         FilterDef {

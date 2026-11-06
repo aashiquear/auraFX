@@ -1,0 +1,18 @@
+Version 300
+Charset "Neutral"
+Delimiter ","
+CoordSys Earth Projection 1, 104
+Columns 3
+  name Char(254)
+  pop Integer
+  elev Float
+Data
+
+Point -9 43
+    Symbol (35,0,12)
+Point 6 44
+    Symbol (35,0,12)
+Point 13 39
+    Symbol (35,0,12)
+Point 16 42
+    Symbol (35,0,12)

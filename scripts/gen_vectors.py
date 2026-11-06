@@ -9,13 +9,16 @@ Three layers written as GeoJSON by hand (lon/lat degrees, WGS 84):
 with string, integer and real attributes. The GDAL library inside ParaView then converts them
 (GDALVectorTranslate through ctypes) to ESRI Shapefiles (one per layer, with .dbf and .prj),
 one KML file (a folder per layer) and one GeoPackage holding all three layers; then FlatGeobuf
-(one .fgb per layer), GML (world.gml with its .xsd, all three layers; world2.gml in GML 2) and KMZ (world.kml zipped).
+(one .fgb per layer), GML (world.gml with its .xsd, all three layers; world2.gml in GML 2), KMZ (world.kml zipped)
+and MapInfo (each layer as a .tab with its .map, .id and .dat, and as .mif with .mid, plus a detailed
+mixed layer, detail.tab and detail.mif), and an Esri file geodatabase (world.gdb: the three layers, and the detail layer's areas, lines
+and points as lots, roads and wells).
 
-    pvpython scripts/gen_vectors.py [outdir] --only fgb,gml,kmz   (just those formats)
+    pvpython scripts/gen_vectors.py [outdir] --only fgb,gml,kmz,mapinfo,gdb   (just those formats)
 """
 import ctypes, glob, json, os, sys
 
-args = [a for a in sys.argv[1:] if not a.startswith("--") and "," not in a and a not in ("fgb", "gml", "kmz")]
+args = [a for a in sys.argv[1:] if not a.startswith("--") and "," not in a and a not in ("fgb", "gml", "kmz", "mapinfo", "gdb")]
 only = set(sys.argv[sys.argv.index("--only") + 1].split(",")) if "--only" in sys.argv else None
 out = args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testdata", "vectors")
 os.makedirs(out, exist_ok=True)
@@ -133,6 +136,63 @@ def new():
         import zipfile
         with zipfile.ZipFile(os.path.join(out, "world.kmz"), "w", zipfile.ZIP_DEFLATED) as z:
             z.write(os.path.join(out, "world.kml"), "doc.kml")
+    if only is None or "mapinfo" in only:
+        # A detailed layer for MapInfo (mixed geometry types at irregular coordinates in a
+        # small area, so MapInfo stores them compressed, rounded to its integer grid; long lines
+        # spanning several coordinate blocks; multipoints; a two-point line; no geometry).
+        import math
+        feats = []
+        x0, y0 = 12.3456789123, 45.6789012345
+        for k in range(40):
+            cx, cy = x0 + (k % 8) * 0.0123457, y0 + (k // 8) * 0.0098765
+            r = 0.003 + 0.0007 * math.sin(k)
+            ring = [[cx + r * math.cos(t * 2 * math.pi / 7 + k), cy + 0.8 * r * math.sin(t * 2 * math.pi / 7 + k)] for t in range(7)]
+            rings = [ring + [ring[0]]]
+            if k % 5 == 0:
+                hole = [[cx + 0.3 * r * math.cos(-t * 2 * math.pi / 5), cy + 0.3 * r * math.sin(-t * 2 * math.pi / 5)] for t in range(5)]
+                rings.append(hole + [hole[0]])
+            feats.append(({"kind": "lot", "id": k, "size": round(r * 1e5, 3)}, {"type": "Polygon", "coordinates": rings}))
+        for k in range(4):
+            line = [[x0 + 0.1 * t / 300, y0 + 0.002 * k + 0.01 * math.sin(t / 17 + k)] for t in range(300)]
+            feats.append(({"kind": "road", "id": 100 + k, "size": 300.0}, {"type": "LineString", "coordinates": line}))
+        feats.append(({"kind": "pair", "id": 200, "size": 2.0}, {"type": "LineString", "coordinates": [[x0, y0], [x0 + 0.0311, y0 + 0.0222]]}))
+        feats.append(({"kind": "forks", "id": 201, "size": 5.0}, {"type": "MultiLineString", "coordinates": [[[x0 + 0.01, y0], [x0 + 0.02, y0 + 0.013]], [[x0 + 0.03, y0 + 0.001], [x0 + 0.025, y0 + 0.007], [x0 + 0.02, y0 + 0.013]]]}))
+        for k in range(3):
+            feats.append(({"kind": "wells", "id": 300 + k, "size": 1.5 * k}, {"type": "MultiPoint", "coordinates": [[x0 + 0.001 * j + 0.0371 * k, y0 + 0.0013 * j * j] for j in range(4 + k)]}))
+        feats.append(({"kind": "marker", "id": 400, "size": 0.25}, {"type": "Point", "coordinates": [x0 + 0.04567, y0 + 0.03456]}))
+        feats.append(({"kind": "none", "id": 500, "size": 0.0}, None))
+        tmp = os.path.join(out, "_detail.geojson")
+        json.dump(fc(feats), open(tmp, "w"))
+        for ext in ("tab", "map", "id", "dat", "mif", "mid"):
+            q = os.path.join(out, f"detail.{ext}")
+            if os.path.exists(q):
+                os.remove(q)
+        translate(tmp, os.path.join(out, "detail.tab"), "-f", "MapInfo File")
+        translate(tmp, os.path.join(out, "detail.mif"), "-f", "MapInfo File", "-dsco", "FORMAT=MIF")
+        os.remove(tmp)
+        for n in layers:
+            for ext in ("tab", "map", "id", "dat", "mif", "mid"):
+                q = os.path.join(out, f"{n}.{ext}")
+                if os.path.exists(q):
+                    os.remove(q)
+            translate(os.path.join(out, n + ".geojson"), os.path.join(out, n + ".tab"), "-f", "MapInfo File")
+            translate(os.path.join(out, n + ".geojson"), os.path.join(out, n + ".mif"), "-f", "MapInfo File", "-dsco", "FORMAT=MIF")
+    if only is None or "gdb" in only:
+        # An Esri file geodatabase (a folder) holding the three layers and the detail layer.
+        import shutil
+        gdb = os.path.join(out, "world.gdb")
+        if os.path.exists(gdb):
+            shutil.rmtree(gdb)
+        # A geodatabase table holds one geometry type: multi types throughout, and the mixed
+        # detail layer split into its areas, lines and points.
+        kinds = {"countries": "MULTIPOLYGON", "rivers": "MULTILINESTRING", "cities": "MULTIPOINTZ"}
+        jobs = [(os.path.join(out, n + ".geojson"), n, kinds[n], []) for n in layers]
+        mif = os.path.join(out, "detail.mif")
+        jobs += [(mif, "lots", "MULTIPOLYGON", ["-where", "OGR_GEOMETRY IN ('POLYGON', 'MULTIPOLYGON')"]),
+                 (mif, "roads", "MULTILINESTRING", ["-where", "OGR_GEOMETRY IN ('LINESTRING', 'MULTILINESTRING')"]),
+                 (mif, "wells", "MULTIPOINT", ["-where", "OGR_GEOMETRY IN ('POINT', 'MULTIPOINT')"])]
+        for i, (src, n, kind, extra) in enumerate(jobs):
+            translate(src, gdb, "-f", "OpenFileGDB", *(["-update"] if i else []), "-nln", n, "-nlt", kind, *extra)
 if only is None:
     old()
 new()

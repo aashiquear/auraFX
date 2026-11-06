@@ -1,0 +1,27 @@
+Version 300
+Charset "Neutral"
+Delimiter ","
+CoordSys Earth Projection 1, 104
+Columns 3
+  name Char(254)
+  length Float
+  order Integer
+Data
+
+Pline 5
+-8 48
+-5 46.5
+-2 44
+1 42.5
+4 41.5
+    Pen (1,2,0)
+PLINE MULTIPLE 2
+  3
+5 45
+6 43.5
+7 42
+  3
+8 46
+7.5 44
+6 43.5
+    Pen (1,2,0)

@@ -88,7 +88,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
         (&["tif", "tiff", "asc"], "GIS rasters (GeoTIFF, Esri ASCII grid)"),
-        (&["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml"], "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML)"),
+        (&["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml", "tab", "mif"], "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML, MapInfo; file geodatabases: open the .gdb folder or a file in it)"),
     ]
 }
 
@@ -153,6 +153,9 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
     if amrex::plotfile_dir(path).is_some() {
         return Ok(Loaded::Static(Arc::new(amrex::read(path)?)));
     }
+    if vectors::gdb_dir(path).is_some() {
+        return Ok(Loaded::Static(Arc::new(vectors::read(path)?)));
+    }
     // Enzo outputs by their hierarchy (or boundary) file; FLASH files by content (their names
     // rarely have an extension).
     if enzo::is_enzo(path) {
@@ -177,7 +180,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
         "tif" | "tiff" if rasters::is_geotiff(path) => Loaded::Static(Arc::new(rasters::read_geotiff(path)?)),
         "asc" => Loaded::Static(Arc::new(rasters::read_ascii_grid(path)?)),
-        "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" => Loaded::Static(Arc::new(vectors::read(path)?)),
+        "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif" => Loaded::Static(Arc::new(vectors::read(path)?)),
         "json" if vectors::is_geojson(path) => Loaded::Static(Arc::new(vectors::read(path)?)),
         "png" | "jpg" | "jpeg" | "bmp" | "tif" | "tiff" => Loaded::Static(Arc::new(images::read(path)?)),
         "vtk" => Loaded::Static(Arc::new(legacy_vtk::read(path)?)),
@@ -278,11 +281,14 @@ pub type ReaderOptions = std::collections::BTreeMap<String, String>;
 /// The options the reader of `path` offers (empty for most formats).
 pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
     let path = path.as_ref();
+    if vectors::gdb_dir(path).is_some() {
+        return vectors::options(path);
+    }
     match ext_of(path).as_str() {
         "nc" | "nc4" | "cdf" | "netcdf" if mpas::is_mpas_file(path) => mpas::options(path),
         "nc" | "nc4" | "cdf" | "netcdf" if cam::is_cam_file(path) => cam::options(path),
         "nc" | "nc4" | "cdf" | "netcdf" if !netcdf_cf::is_exodus(path) => netcdf_cf::options(path),
-        "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" => vectors::options(path),
+        "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif" => vectors::options(path),
         "hierarchy" | "boundary" => enzo::options(path),
         "json" if vectors::is_geojson(path) => vectors::options(path),
         _ if flash::is_flash(path) => flash::options(path),

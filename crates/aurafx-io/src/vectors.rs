@@ -56,7 +56,7 @@ pub struct Layer {
 }
 
 pub fn is_vector_ext(ext: &str) -> bool {
-    matches!(ext, "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml")
+    matches!(ext, "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif")
 }
 
 /// A `.json` file that holds GeoJSON.
@@ -70,6 +70,9 @@ pub fn is_geojson(path: &Path) -> bool {
 
 /// Every layer of a vector file.
 pub fn read_layers(path: &Path) -> Result<Vec<Layer>> {
+    if let Some(dir) = gdb_dir(path) {
+        return read_filegdb(&dir);
+    }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
         "shp" => Ok(vec![read_shapefile(path)?]),
@@ -79,6 +82,8 @@ pub fn read_layers(path: &Path) -> Result<Vec<Layer>> {
         "gpkg" => read_gpkg(path),
         "fgb" => Ok(vec![read_flatgeobuf(path)?]),
         "gml" => read_gml(path),
+        "tab" => Ok(vec![read_mapinfo_tab(path)?]),
+        "mif" => Ok(vec![read_mif(path)?]),
         _ => bail!("{}: not a vector file", path.display()),
     }
 }
@@ -88,6 +93,7 @@ fn layer_names(path: &Path) -> Vec<String> {
     match ext.as_str() {
         "gpkg" => gpkg_tables(path).map(|t| t.into_iter().map(|(n, _)| n).collect()).unwrap_or_default(),
         "kml" | "kmz" | "gml" => read_layers(path).map(|l| l.into_iter().map(|l| l.name).collect()).unwrap_or_default(),
+        _ if gdb_dir(path).is_some() => read_layers(path).map(|l| l.into_iter().map(|l| l.name).collect()).unwrap_or_default(),
         _ => Vec::new(),
     }
 }
@@ -142,11 +148,11 @@ pub fn read(path: &Path) -> Result<DataSet> {
     for layer in &layers {
         if per_feature {
             for f in &layer.features {
-                if let Some(pd) = build(layer, std::slice::from_ref(f), filled, ids) {
+                if let Some(pd) = build(layer, std::slice::from_ref(f), filled, ids, true) {
                     mb.blocks.push((format!("{} {}", layer.name, f.fid), Some(DataSet::PolyData(pd))));
                 }
             }
-        } else if let Some(pd) = build(layer, &layer.features, filled, ids) {
+        } else if let Some(pd) = build(layer, &layer.features, filled, ids, false) {
             mb.blocks.push((layer.name.clone(), Some(DataSet::PolyData(pd))));
         }
     }
@@ -156,8 +162,10 @@ pub fn read(path: &Path) -> Result<DataSet> {
     Ok(DataSet::MultiBlock(mb))
 }
 
-/// Polygonal data for some features of a layer (None when none has geometry).
-fn build(layer: &Layer, features: &[Feature], filled: bool, ids: bool) -> Option<PolyData> {
+/// Polygonal data for some features of a layer (None when none has geometry, unless
+/// `keep_empty`: then an empty block with empty attribute arrays, as ParaView gives a feature
+/// without geometry in its one-block-per-feature output).
+fn build(layer: &Layer, features: &[Feature], filled: bool, ids: bool, keep_empty: bool) -> Option<PolyData> {
     let mut pts: Vec<f64> = Vec::new();
     let (mut verts, mut lines, mut polys) = (Cells::new(), Cells::new(), Cells::new());
     // Feature index of each cell, per kind (cell data is ordered verts, lines, polys).
@@ -223,7 +231,7 @@ fn build(layer: &Layer, features: &[Feature], filled: bool, ids: bool) -> Option
             }
         }
     }
-    if verts.is_empty() && lines.is_empty() && polys.is_empty() {
+    if verts.is_empty() && lines.is_empty() && polys.is_empty() && !keep_empty {
         return None;
     }
     let order: Vec<usize> = fv.into_iter().chain(fl).chain(fp).collect();
@@ -1654,4 +1662,1075 @@ pub fn read_gml(path: &Path) -> Result<Vec<Layer>> {
         bail!("{}: no features found in the GML file", path.display());
     }
     Ok(out)
+}
+
+// ------------------------------------------------------------------ MapInfo
+
+/// Field types of a MapInfo table definition (`Char (n)`, `Integer`, `Float`...).
+fn mapinfo_type(t: &str) -> FieldType {
+    let t = t.trim().to_ascii_lowercase();
+    if t.starts_with("integer") || t.starts_with("smallint") {
+        FieldType::Int
+    } else if t.starts_with("largeint") {
+        FieldType::Int64
+    } else if t.starts_with("float") || t.starts_with("decimal") {
+        FieldType::Real
+    } else {
+        FieldType::Text
+    }
+}
+
+/// Text in a MapInfo charset: Neutral and UTF-8 as they are, the Windows/ISO Latin ones
+/// converted from Latin-1 (as GDAL recodes them).
+fn mapinfo_text(raw: &[u8], latin1: bool) -> String {
+    if latin1 {
+        raw.iter().map(|&b| b as char).collect()
+    } else {
+        String::from_utf8_lossy(raw).into_owned()
+    }
+}
+
+/// The `Fields` of a `.tab` file's table definition: (name, MapInfo type text).
+fn tab_definition(text: &str) -> Result<(Vec<(String, String)>, bool)> {
+    let lines: Vec<&str> = text.lines().map(|l| l.trim()).collect();
+    let latin1 = lines.iter().any(|l| l.to_ascii_lowercase().contains("charset") && l.to_ascii_lowercase().contains("latin"));
+    if let Some(t) = lines.iter().find(|l| l.to_ascii_lowercase().starts_with("type ")) {
+        let kind = t.split_whitespace().nth(1).unwrap_or("").to_ascii_uppercase();
+        if kind != "NATIVE" && kind != "DBF" {
+            bail!("MapInfo {kind} tables are not supported (native ones are)");
+        }
+    }
+    let start = lines.iter().position(|l| l.to_ascii_lowercase().starts_with("fields")).ok_or_else(|| anyhow!("no Fields in the table definition"))?;
+    let n: usize = lines[start].split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut fields = Vec::new();
+    for l in lines.iter().skip(start + 1).take(n) {
+        let l = l.trim_end_matches(';').trim();
+        let (name, ty) = l.split_once(char::is_whitespace).unwrap_or((l, ""));
+        fields.push((name.trim_matches('"').to_string(), ty.trim().to_string()));
+    }
+    Ok((fields, latin1))
+}
+
+/// A byte reader over a `.map` file's chained coordinate blocks (GDAL's TABMAPCoordBlock):
+/// at the end of a block's data the stream continues past the next block's 8-byte header.
+struct CoordStream<'a> {
+    b: &'a [u8],
+    pos: usize,
+    /// Start of the coordinate block being read (None: a plain byte stream).
+    start: Option<usize>,
+}
+
+impl<'a> CoordStream<'a> {
+    fn new(b: &'a [u8], at: usize, block: usize) -> Self {
+        CoordStream { b, pos: at, start: (block != usize::MAX).then(|| at / block * block) }
+    }
+    fn byte(&mut self) -> Result<u8> {
+        if let Some(start) = self.start {
+            let used = self.b.get(start + 2..start + 4).map(|x| i16::from_le_bytes([x[0], x[1]]) as usize).unwrap_or(0) + 8;
+            if self.pos >= start + used {
+                let next = self.b.get(start + 4..start + 8).map(|x| i32::from_le_bytes(x.try_into().unwrap())).unwrap_or(0);
+                if next > 0 {
+                    self.pos = next as usize + 8;
+                    self.start = Some(next as usize);
+                }
+            }
+        }
+        let v = *self.b.get(self.pos).ok_or_else(|| anyhow!("MapInfo coordinates run past the end of the .map file"))?;
+        self.pos += 1;
+        Ok(v)
+    }
+    fn i16(&mut self) -> Result<i32> {
+        Ok(i16::from_le_bytes([self.byte()?, self.byte()?]) as i32)
+    }
+    fn i32(&mut self) -> Result<i32> {
+        Ok(i32::from_le_bytes([self.byte()?, self.byte()?, self.byte()?, self.byte()?]))
+    }
+    /// A coordinate pair, 16-bit relative to `org` when compressed.
+    fn coord(&mut self, compressed: bool, org: (i32, i32)) -> Result<(i32, i32)> {
+        Ok(if compressed { (self.i16()?.saturating_add(org.0), self.i16()?.saturating_add(org.1)) } else { (self.i32()?, self.i32()?) })
+    }
+}
+
+/// The `.map` header's integer-to-coordinate transform (GDAL's TABMAPHeaderBlock::Int2Coordsys,
+/// including its rounding to the scale's power of ten).
+struct MapTransform {
+    scale: [f64; 2],
+    displ: [f64; 2],
+    quadrant: u8,
+    precision: [f64; 2],
+}
+
+impl MapTransform {
+    fn apply(&self, x: i32, y: i32) -> [f64; 3] {
+        let q = self.quadrant;
+        let mut dx = if matches!(q, 2 | 3 | 0) { -(x as f64 + self.displ[0]) / self.scale[0] } else { (x as f64 - self.displ[0]) / self.scale[0] };
+        let mut dy = if matches!(q, 3 | 4 | 0) { -(y as f64 + self.displ[1]) / self.scale[1] } else { (y as f64 - self.displ[1]) / self.scale[1] };
+        if self.precision[0] > 0.0 && self.precision[1] > 0.0 {
+            dx = (dx * self.precision[0]).round() / self.precision[0];
+            dy = (dy * self.precision[1]).round() / self.precision[1];
+        }
+        [dx, dy, 0.0]
+    }
+}
+
+/// One object of a `.map` file at `ptr` (GDAL's TABMAPObjHdr readers and the features'
+/// ReadGeometryFromMAPFile). Text, arcs, rectangles, ellipses and collections give no geometry.
+fn tab_object(b: &[u8], ptr: usize, block: usize, t: &MapTransform) -> Result<Option<Geom>> {
+    let start = ptr / block * block;
+    let hdr = b.get(start..start + 12).ok_or_else(|| anyhow!("MapInfo object outside the .map file"))?;
+    let center = (i32::from_le_bytes(hdr[4..8].try_into().unwrap()), i32::from_le_bytes(hdr[8..12].try_into().unwrap()));
+    let mut s = CoordStream::new(b, ptr, usize::MAX);
+    let ty = s.byte()?;
+    let _id = s.i32()?;
+    let compressed = ty % 3 == 1;
+    let pt = |s: &mut CoordStream, org: (i32, i32)| -> Result<[f64; 3]> {
+        let (x, y) = s.coord(compressed, org)?;
+        Ok(t.apply(x, y))
+    };
+    Ok(match ty {
+        // Points (plain, font and custom symbols).
+        0x01 | 0x02 => Some(Geom::Point(pt(&mut s, center)?)),
+        0x28 | 0x29 => {
+            for _ in 0..12 {
+                s.byte()?;
+            }
+            Some(Geom::Point(pt(&mut s, center)?))
+        }
+        0x2b | 0x2c => {
+            s.byte()?;
+            s.byte()?;
+            Some(Geom::Point(pt(&mut s, center)?))
+        }
+        // Two-point line.
+        0x04 | 0x05 => {
+            let a = pt(&mut s, center)?;
+            let c = pt(&mut s, center)?;
+            Some(Geom::Line(vec![a, c]))
+        }
+        // Polylines, multi-polylines and regions.
+        0x07 | 0x08 | 0x25 | 0x26 | 0x31 | 0x32 | 0x40 | 0x41 | 0x0d | 0x0e | 0x2e | 0x2f | 0x3d | 0x3e => {
+            let coord_ptr = s.i32()? as usize;
+            let data_size = (s.i32()? as u32 & 0x7fff_ffff) as usize;
+            let sections = match ty {
+                0x07 | 0x08 => 1,
+                0x3d | 0x3e | 0x40 | 0x41 => {
+                    let n = s.i32()?;
+                    for _ in 0..33 {
+                        s.byte()?;
+                    }
+                    n
+                }
+                _ => s.i16()?,
+            };
+            let org = if compressed {
+                s.i16()?;
+                s.i16()?;
+                (s.i32()?, s.i32()?)
+            } else {
+                (0, 0)
+            };
+            let version = if ty < 0x2e { 300 } else if ty < 0x34 { 450 } else if ty < 0x3a { 650 } else { 800 };
+            let mut c = CoordStream::new(b, coord_ptr, block);
+            if matches!(ty, 0x07 | 0x08) {
+                let n = data_size / if compressed { 4 } else { 8 };
+                let line = (0..n).map(|_| pt(&mut c, org)).collect::<Result<Vec<_>>>()?;
+                return Ok(Some(Geom::Line(line)));
+            }
+            // Section headers, then every section's vertices.
+            let mut secs = Vec::new();
+            let hdr_size = if version >= 450 { 28 } else { 24 } * sections.max(0) as usize;
+            for _ in 0..sections.max(0) {
+                let nv = if version >= 450 { c.i32()? } else { c.i16()? };
+                let holes = if version >= 800 { c.i32()? } else { c.i16()? };
+                c.coord(compressed, org)?;
+                c.coord(compressed, org)?;
+                let data_off = c.i32()? as usize;
+                secs.push((nv.max(0) as usize, holes.max(0) as usize, data_off.saturating_sub(hdr_size) / 8));
+            }
+            let total: usize = secs.iter().map(|s| s.0).sum();
+            let xy = (0..total).map(|_| pt(&mut c, org)).collect::<Result<Vec<_>>>()?;
+            let ring = |(nv, _, off): (usize, usize, usize)| -> Vec<[f64; 3]> { xy.get(off..off + nv).map(|r| r.to_vec()).unwrap_or_default() };
+            if matches!(ty, 0x0d | 0x0e | 0x2e | 0x2f | 0x3d | 0x3e) {
+                // Each outer ring is followed by its holes.
+                let mut polys: Vec<Vec<Vec<[f64; 3]>>> = Vec::new();
+                let mut holes_left = 0;
+                let mut cur: Vec<Vec<[f64; 3]>> = Vec::new();
+                for &sec in &secs {
+                    if holes_left < 1 {
+                        holes_left = sec.1;
+                    } else {
+                        holes_left -= 1;
+                    }
+                    cur.push(ring(sec));
+                    if holes_left < 1 {
+                        polys.push(std::mem::take(&mut cur));
+                    }
+                }
+                match polys.len() {
+                    0 => None,
+                    1 => polys.pop().map(Geom::Polygon),
+                    _ => Some(Geom::Collection(polys.into_iter().map(Geom::Polygon).collect())),
+                }
+            } else {
+                let mut lines: Vec<Geom> = secs.iter().map(|&sec| Geom::Line(ring(sec))).collect();
+                if lines.len() == 1 {
+                    lines.pop()
+                } else {
+                    Some(Geom::Collection(lines))
+                }
+            }
+        }
+        // Multipoints.
+        0x34 | 0x35 | 0x43 | 0x44 => {
+            let coord_ptr = s.i32()? as usize;
+            let n = s.i32()?.max(0) as usize;
+            for _ in 0..15 {
+                s.byte()?;
+            }
+            if matches!(ty, 0x43 | 0x44) {
+                for _ in 0..33 {
+                    s.byte()?;
+                }
+            }
+            s.byte()?; // symbol
+            s.byte()?;
+            let org = if compressed {
+                s.i16()?;
+                s.i16()?;
+                (s.i32()?, s.i32()?)
+            } else {
+                (0, 0)
+            };
+            let mut c = CoordStream::new(b, coord_ptr, block);
+            Some(Geom::Collection((0..n).map(|_| pt(&mut c, org).map(Geom::Point)).collect::<Result<_>>()?))
+        }
+        _ => None,
+    })
+}
+
+/// A MapInfo `.tab` table (native: `.map` geometry, `.id` index, `.dat` attributes), as GDAL's
+/// MITAB driver reads it: integer coordinates through the header's scale and displacement,
+/// rounded to the scale's power of ten.
+pub fn read_mapinfo_tab(path: &Path) -> Result<Layer> {
+    let text = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let (defs, latin1) = tab_definition(&String::from_utf8_lossy(&text)).with_context(|| path.display().to_string())?;
+    let fields: Vec<(String, FieldType)> = defs.iter().map(|(n, t)| (n.clone(), mapinfo_type(t))).collect();
+    // Attributes (.dat: a dBASE-like header, binary values in native tables).
+    let dat_path = sibling(path, "dat").ok_or_else(|| anyhow!("{}: no .dat file beside it", path.display()))?;
+    let d = std::fs::read(&dat_path)?;
+    if d.len() < 32 {
+        bail!("{}: not a MapInfo .dat file", dat_path.display());
+    }
+    let nrec = u32::from_le_bytes(d[4..8].try_into().unwrap()) as usize;
+    let hlen = u16::from_le_bytes([d[8], d[9]]) as usize;
+    let rlen = u16::from_le_bytes([d[10], d[11]]) as usize;
+    let mut widths = Vec::new();
+    let mut at = 32;
+    while at + 32 <= hlen && d.get(at) != Some(&0x0d) {
+        widths.push(d[at + 16] as usize);
+        at += 32;
+    }
+    let rows: Vec<Option<Vec<Value>>> = (0..nrec)
+        .map(|r| {
+            let rec = d.get(hlen + r * rlen..hlen + (r + 1) * rlen)?;
+            if rec[0] == b'*' {
+                return None;
+            }
+            let mut off = 1;
+            let vals = defs
+                .iter()
+                .zip(&widths)
+                .map(|((_, ty), &w)| {
+                    let raw = rec.get(off..off + w).unwrap_or(&[]);
+                    off += w;
+                    let ty = ty.to_ascii_lowercase();
+                    let num = |n: usize| raw.len() >= n;
+                    if ty.starts_with("integer") && num(4) {
+                        Value::Int(i32::from_le_bytes(raw[..4].try_into().unwrap()) as i64)
+                    } else if ty.starts_with("smallint") && num(2) {
+                        Value::Int(i16::from_le_bytes(raw[..2].try_into().unwrap()) as i64)
+                    } else if ty.starts_with("largeint") && num(8) {
+                        Value::Int(i64::from_le_bytes(raw[..8].try_into().unwrap()))
+                    } else if ty.starts_with("float") && num(8) {
+                        Value::Real(f64::from_le_bytes(raw[..8].try_into().unwrap()))
+                    } else if ty.starts_with("date") && !ty.starts_with("datetime") && num(4) {
+                        let y = i16::from_le_bytes([raw[0], raw[1]]);
+                        if y == 0 {
+                            Value::Null
+                        } else {
+                            Value::Text(format!("{:04}/{:02}/{:02}", y, raw[2], raw[3]))
+                        }
+                    } else {
+                        let end = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+                        let s = mapinfo_text(&raw[..end], latin1);
+                        let s = s.trim_end().to_string();
+                        if ty.starts_with("decimal") {
+                            s.trim().parse().map(Value::Real).unwrap_or(Value::Null)
+                        } else {
+                            Value::Text(s)
+                        }
+                    }
+                })
+                .collect();
+            Some(vals)
+        })
+        .collect();
+    // Geometry (.map objects found through the .id offsets).
+    let map = sibling(path, "map").map(std::fs::read).transpose()?;
+    let ids = sibling(path, "id").map(std::fs::read).transpose()?;
+    let mut tr = MapTransform { scale: [1.0; 2], displ: [0.0; 2], quadrant: 1, precision: [0.0; 2] };
+    let mut block = 512;
+    if let Some(m) = &map {
+        let h = m.get(..512).ok_or_else(|| anyhow!("{}: short .map header", path.display()))?;
+        if i32::from_le_bytes(h[0x100..0x104].try_into().unwrap()) != 42424242 {
+            bail!("{}: not a MapInfo .map file", path.display());
+        }
+        let version = i16::from_le_bytes([h[0x104], h[0x105]]);
+        block = (i16::from_le_bytes([h[0x106], h[0x107]]) as usize).max(512);
+        let f64_at = |o: usize| f64::from_le_bytes(h[o..o + 8].try_into().unwrap());
+        // 0x15e.. : units, index depth, precision, quadrant, ... then datum, ids, then scales.
+        let precision_digits = h[0x160];
+        tr.quadrant = h[0x161];
+        tr.scale = [f64_at(0x170), f64_at(0x178)];
+        tr.displ = [f64_at(0x180), f64_at(0x188)];
+        if version <= 100 {
+            let s = 10f64.powi(precision_digits as i32);
+            tr.scale = [s, s];
+            tr.displ = [0.0, 0.0];
+        }
+        if tr.scale[0] == 0.0 || tr.scale[1] == 0.0 {
+            bail!("{}: the .map header has no scale", path.display());
+        }
+        tr.precision = [10f64.powf(tr.scale[0].log10().round()), 10f64.powf(tr.scale[1].log10().round())];
+    }
+    let mut features = Vec::new();
+    for (k, row) in rows.into_iter().enumerate() {
+        let Some(values) = row else { continue };
+        let ptr = ids.as_ref().and_then(|i| i.get(4 * k..4 * k + 4)).map(|x| i32::from_le_bytes(x.try_into().unwrap())).unwrap_or(0);
+        let geom = match (&map, ptr) {
+            (Some(m), p) if p > 0 => tab_object(m, p as usize, block, &tr)?,
+            _ => None,
+        };
+        features.push(Feature { fid: k as i64 + 1, geom, values });
+    }
+    let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("layer").to_string();
+    Ok(Layer { name, fields, features, projection: None })
+}
+
+/// Rings of a MIF region grouped into polygons as GDAL's organizePolygons does: rings by
+/// decreasing area, each a hole of the smallest larger ring around it (or a new polygon when
+/// that ring is itself a hole or there is none).
+fn organize_rings(rings: Vec<Vec<[f64; 3]>>) -> Option<Geom> {
+    if rings.len() <= 1 {
+        return rings.into_iter().next().map(|r| Geom::Polygon(vec![r]));
+    }
+    let area = |r: &[[f64; 3]]| -> f64 { 0.5 * r.windows(2).map(|w| w[0][0] * w[1][1] - w[1][0] * w[0][1]).sum::<f64>().abs() };
+    let inside = |p: [f64; 3], r: &[[f64; 3]]| -> bool {
+        let mut c = false;
+        for w in r.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0] {
+                c = !c;
+            }
+        }
+        c
+    };
+    let mut order: Vec<usize> = (0..rings.len()).collect();
+    order.sort_by(|&a, &b| area(&rings[b]).total_cmp(&area(&rings[a])));
+    // (outer?, the polygon index it belongs to)
+    let mut role: Vec<(bool, usize)> = Vec::new();
+    let mut polys: Vec<Vec<usize>> = Vec::new();
+    for (i, &ri) in order.iter().enumerate() {
+        let probe = rings[ri].iter().copied().find(|&p| (0..i).all(|j| !rings[order[j]].contains(&p))).unwrap_or(rings[ri][0]);
+        let parent = (0..i).rev().find(|&j| inside(probe, &rings[order[j]]));
+        match parent {
+            Some(j) if role[j].0 => {
+                polys[role[j].1].push(ri);
+                role.push((false, role[j].1));
+            }
+            _ => {
+                polys.push(vec![ri]);
+                role.push((true, polys.len() - 1));
+            }
+        }
+    }
+    let mut rings: Vec<Option<Vec<[f64; 3]>>> = rings.into_iter().map(Some).collect();
+    let mut out: Vec<Geom> = polys.into_iter().map(|p| Geom::Polygon(p.into_iter().filter_map(|i| rings[i].take()).collect())).collect();
+    Some(if out.len() == 1 { out.pop().unwrap() } else { Geom::Collection(out) })
+}
+
+/// Tokens of a MIF data section: words, numbers and quoted strings (with `""` inside).
+fn mif_tokens(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = text.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() || c == ',' || c == '(' || c == ')' {
+            chars.next();
+        } else if c == '"' {
+            chars.next();
+            let mut s = String::from("\"");
+            while let Some(c) = chars.next() {
+                if c == '"' {
+                    if chars.peek() == Some(&'"') {
+                        chars.next();
+                        s.push('"');
+                    } else {
+                        break;
+                    }
+                } else {
+                    s.push(c);
+                }
+            }
+            out.push(s);
+        } else {
+            let mut s = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() || c == ',' || c == '(' || c == ')' || c == '"' {
+                    break;
+                }
+                s.push(c);
+                chars.next();
+            }
+            out.push(s);
+        }
+    }
+    out
+}
+
+/// One `.mid` row split at the delimiter (quoted values may hold it, `""` is a quote).
+fn mid_row(line: &str, delim: char) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if quoted {
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    cur.push('"');
+                } else {
+                    quoted = false;
+                }
+            } else {
+                cur.push(c);
+            }
+        } else if c == '"' {
+            quoted = true;
+        } else if c == delim {
+            out.push(std::mem::take(&mut cur));
+        } else {
+            cur.push(c);
+        }
+    }
+    out.push(cur);
+    out
+}
+
+/// A MapInfo interchange file (`.mif` geometry and header, `.mid` attributes), as GDAL reads it.
+pub fn read_mif(path: &Path) -> Result<Layer> {
+    let raw = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let head_text = String::from_utf8_lossy(&raw);
+    let latin1 = head_text.lines().take(20).any(|l| l.to_ascii_lowercase().starts_with("charset") && l.to_ascii_lowercase().contains("latin"));
+    let text = if latin1 { mapinfo_text(&raw, true) } else { head_text.into_owned() };
+    let lines: Vec<&str> = text.lines().collect();
+    let mut delim = '\t';
+    let mut fields = Vec::new();
+    let mut transform = [1.0, 1.0, 0.0, 0.0];
+    let mut i = 0;
+    while i < lines.len() {
+        let l = lines[i].trim();
+        let low = l.to_ascii_lowercase();
+        if low.starts_with("delimiter") {
+            delim = l.split('"').nth(1).and_then(|d| d.chars().next()).unwrap_or('\t');
+        } else if low.starts_with("transform") {
+            let v: Vec<f64> = l.split(|c: char| c.is_whitespace() || c == ',').skip(1).filter_map(|x| x.parse().ok()).collect();
+            if v.len() == 4 {
+                transform = [v[0], v[1], v[2], v[3]];
+            }
+        } else if low.starts_with("columns") {
+            let n: usize = l.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+            for c in lines.iter().skip(i + 1).take(n) {
+                let c = c.trim();
+                let (name, ty) = c.split_once(char::is_whitespace).unwrap_or((c, ""));
+                fields.push((name.trim_matches('"').to_string(), mapinfo_type(ty)));
+            }
+            i += n;
+        } else if low == "data" {
+            i += 1;
+            break;
+        }
+        i += 1;
+    }
+    let toks = mif_tokens(&lines[i.min(lines.len())..].join("\n"));
+    let num = |t: &str| t.parse::<f64>().ok();
+    let mut geoms: Vec<Option<Geom>> = Vec::new();
+    let mut k = 0;
+    let xy = |toks: &[String], k: &mut usize| -> Result<[f64; 3]> {
+        let x = toks.get(*k).and_then(|t| num(t)).ok_or_else(|| anyhow!("MIF: a coordinate is missing"))?;
+        let y = toks.get(*k + 1).and_then(|t| num(t)).ok_or_else(|| anyhow!("MIF: a coordinate is missing"))?;
+        *k += 2;
+        Ok([x * transform[0] + transform[2], y * transform[1] + transform[3], 0.0])
+    };
+    let count = |toks: &[String], k: &mut usize| -> Result<usize> {
+        let n = toks.get(*k).and_then(|t| t.parse::<usize>().ok()).ok_or_else(|| anyhow!("MIF: a count is missing"))?;
+        *k += 1;
+        Ok(n)
+    };
+    const KEYWORDS: [&str; 12] = ["none", "point", "line", "pline", "region", "multipoint", "collection", "arc", "text", "rect", "roundrect", "ellipse"];
+    while k < toks.len() {
+        let w = toks[k].to_ascii_lowercase();
+        if !KEYWORDS.contains(&w.as_str()) || toks[k].starts_with('"') {
+            k += 1; // styles (Pen, Brush, Symbol, Smooth, Center...) and their values
+            continue;
+        }
+        k += 1;
+        let g = match w.as_str() {
+            "point" => Some(Geom::Point(xy(&toks, &mut k)?)),
+            "line" => Some(Geom::Line(vec![xy(&toks, &mut k)?, xy(&toks, &mut k)?])),
+            "pline" => {
+                if toks.get(k).is_some_and(|t| t.eq_ignore_ascii_case("multiple")) {
+                    k += 1;
+                    let n = count(&toks, &mut k)?;
+                    let mut parts = Vec::new();
+                    for _ in 0..n {
+                        let m = count(&toks, &mut k)?;
+                        parts.push(Geom::Line((0..m).map(|_| xy(&toks, &mut k)).collect::<Result<_>>()?));
+                    }
+                    if parts.len() == 1 {
+                        parts.pop()
+                    } else {
+                        Some(Geom::Collection(parts))
+                    }
+                } else {
+                    let m = count(&toks, &mut k)?;
+                    Some(Geom::Line((0..m).map(|_| xy(&toks, &mut k)).collect::<Result<_>>()?))
+                }
+            }
+            "region" => {
+                let n = count(&toks, &mut k)?;
+                let mut rings = Vec::new();
+                for _ in 0..n {
+                    let m = count(&toks, &mut k)?;
+                    let mut r: Vec<[f64; 3]> = (0..m).map(|_| xy(&toks, &mut k)).collect::<Result<_>>()?;
+                    if r.first() != r.last() {
+                        r.push(r[0]);
+                    }
+                    rings.push(r);
+                }
+                organize_rings(rings)
+            }
+            "multipoint" => {
+                let n = count(&toks, &mut k)?;
+                Some(Geom::Collection((0..n).map(|_| xy(&toks, &mut k).map(Geom::Point)).collect::<Result<_>>()?))
+            }
+            _ => None,
+        };
+        geoms.push(g);
+    }
+    // Attributes.
+    let mid = sibling(path, "mid").map(std::fs::read).transpose()?.map(|b| mapinfo_text(&b, latin1)).unwrap_or_default();
+    let rows: Vec<Vec<String>> = mid.lines().map(|l| mid_row(l, delim)).collect();
+    let features = geoms
+        .into_iter()
+        .enumerate()
+        .map(|(k, geom)| {
+            let row = rows.get(k);
+            let values = fields
+                .iter()
+                .enumerate()
+                .map(|(j, (_, ty))| {
+                    let s = row.and_then(|r| r.get(j)).map(|s| s.trim()).unwrap_or("");
+                    match ty {
+                        _ if s.is_empty() && *ty != FieldType::Text => Value::Null,
+                        FieldType::Int | FieldType::Int64 => s.parse().map(Value::Int).unwrap_or(Value::Null),
+                        FieldType::Real => s.parse().map(Value::Real).unwrap_or(Value::Null),
+                        FieldType::Text => Value::Text(s.to_string()),
+                    }
+                })
+                .collect();
+            Feature { fid: k as i64 + 1, geom, values }
+        })
+        .collect();
+    let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("layer").to_string();
+    Ok(Layer { name, fields, features, projection: None })
+}
+
+// ------------------------------------------------------------------ Esri file geodatabase
+
+/// The `.gdb` folder of a file geodatabase: the folder itself, or a file inside it.
+pub fn gdb_dir(path: &Path) -> Option<PathBuf> {
+    let is_gdb = |p: &Path| p.is_dir() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("gdb")) && p.join("a00000001.gdbtable").is_file();
+    if is_gdb(path) {
+        return Some(path.to_path_buf());
+    }
+    path.parent().filter(|p| is_gdb(p)).map(|p| p.to_path_buf())
+}
+
+/// An unsigned variable-length integer (7 bits per byte, low first).
+fn gdb_varuint(b: &[u8], at: &mut usize) -> Result<u64> {
+    let mut v = 0u64;
+    let mut shift = 0;
+    loop {
+        let c = *b.get(*at).ok_or_else(|| anyhow!("file geodatabase: truncated value"))?;
+        *at += 1;
+        v |= ((c & 0x7f) as u64) << shift;
+        if c & 0x80 == 0 {
+            return Ok(v);
+        }
+        shift += 7;
+        if shift > 63 {
+            bail!("file geodatabase: bad variable-length integer");
+        }
+    }
+}
+
+/// A signed variable-length integer (sign in bit 6 of the first byte, 6 bits then 7 per byte).
+fn gdb_varint(b: &[u8], at: &mut usize) -> Result<i64> {
+    let c = *b.get(*at).ok_or_else(|| anyhow!("file geodatabase: truncated value"))?;
+    *at += 1;
+    let neg = c & 0x40 != 0;
+    let mut v = (c & 0x3f) as u64;
+    if c & 0x80 != 0 {
+        let mut shift = 6;
+        loop {
+            let c = *b.get(*at).ok_or_else(|| anyhow!("file geodatabase: truncated value"))?;
+            *at += 1;
+            v |= ((c & 0x7f) as u64) << shift;
+            if c & 0x80 == 0 {
+                break;
+            }
+            shift += 7;
+            if shift > 63 {
+                bail!("file geodatabase: bad variable-length integer");
+            }
+        }
+    }
+    Ok(if neg { -(v as i64) } else { v as i64 })
+}
+
+fn gdb_utf16(b: &[u8], at: &mut usize, chars: usize) -> Result<String> {
+    let raw = b.get(*at..*at + 2 * chars).ok_or_else(|| anyhow!("file geodatabase: truncated text"))?;
+    *at += 2 * chars;
+    Ok(String::from_utf16_lossy(&raw.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>()))
+}
+
+#[derive(Debug, Clone)]
+struct GdbField {
+    name: String,
+    ty: u8,
+    nullable: bool,
+}
+
+/// The geometry field's origin and scales (x/y, z) and coordinate system.
+#[derive(Debug, Clone, Default)]
+struct GdbGeomField {
+    wkt: String,
+    origin: [f64; 3],
+    scale: [f64; 2],
+}
+
+/// One table of a file geodatabase (`aXXXXXXXX.gdbtable` with its `.gdbtablx` row index), as
+/// GDAL's OpenFileGDB driver reads it: every row with its field values.
+struct GdbTable {
+    fields: Vec<GdbField>,
+    geom: Option<GdbGeomField>,
+    utf8: bool,
+    rows: Vec<Option<Vec<u8>>>,
+}
+
+fn gdb_table(path: &Path) -> Result<GdbTable> {
+    let b = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    if b.len() < 40 {
+        bail!("{}: not a file geodatabase table", path.display());
+    }
+    let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    let desc = u64::from_le_bytes(b[32..40].try_into().unwrap()) as usize;
+    let h = b.get(desc..desc + 14).ok_or_else(|| anyhow!("{}: no field descriptions", path.display()))?;
+    let utf8 = h[9] & 1 != 0;
+    let has_z = h[11] & 0x80 != 0;
+    let has_m = h[11] & 0x40 != 0;
+    let nfields = u16::from_le_bytes([h[12], h[13]]) as usize;
+    let mut at = desc + 14;
+    let mut fields = Vec::new();
+    let mut geom = None;
+    for _ in 0..nfields {
+        let n = *b.get(at).ok_or_else(|| anyhow!("truncated field"))? as usize;
+        at += 1;
+        let name = gdb_utf16(&b, &mut at, n)?;
+        let n = *b.get(at).ok_or_else(|| anyhow!("truncated field"))? as usize;
+        at += 1;
+        gdb_utf16(&b, &mut at, n)?; // alias
+        let ty = *b.get(at).ok_or_else(|| anyhow!("truncated field"))?;
+        at += 1;
+        let flags;
+        match ty {
+            7 | 9 => {
+                flags = b[at + 1];
+                at += 2;
+                if ty == 9 {
+                    let n = b[at] as usize;
+                    at += 1;
+                    gdb_utf16(&b, &mut at, n)?;
+                }
+                let wkt_len = u16::from_le_bytes([b[at], b[at + 1]]) as usize;
+                at += 2;
+                let wkt = gdb_utf16(&b, &mut at, wkt_len / 2)?;
+                let gflags = b[at];
+                at += 1;
+                let (has_mo, has_zo) = (gflags & 2 != 0, gflags & 4 != 0);
+                let f64_at = |o: &mut usize| -> f64 {
+                    let v = f64::from_le_bytes(b[*o..*o + 8].try_into().unwrap());
+                    *o += 8;
+                    v
+                };
+                let mut g = GdbGeomField { wkt, ..Default::default() };
+                if ty == 7 || gflags > 0 {
+                    g.origin[0] = f64_at(&mut at);
+                    g.origin[1] = f64_at(&mut at);
+                    g.scale[0] = f64_at(&mut at);
+                    if has_mo {
+                        f64_at(&mut at);
+                        f64_at(&mut at);
+                    }
+                    if has_zo {
+                        g.origin[2] = f64_at(&mut at);
+                        g.scale[1] = f64_at(&mut at);
+                    }
+                    f64_at(&mut at); // xy tolerance
+                    if has_mo {
+                        f64_at(&mut at);
+                    }
+                    if has_zo {
+                        f64_at(&mut at);
+                    }
+                }
+                if ty == 9 {
+                    at += 1;
+                } else {
+                    at += 32; // extent
+                    if has_z {
+                        at += 16;
+                    }
+                    if has_m {
+                        at += 16;
+                    }
+                    at += 1;
+                    let grids = u32::from_le_bytes(b[at..at + 4].try_into().unwrap()) as usize;
+                    at += 4 + 8 * grids;
+                    geom = Some(g);
+                }
+            }
+            4 => {
+                flags = b[at + 4];
+                at += 5;
+                let dl = gdb_varuint(&b, &mut at)? as usize;
+                if flags & 4 != 0 {
+                    at += dl;
+                }
+            }
+            6 | 8 | 10 | 11 | 12 => {
+                flags = b[at + 1];
+                at += 2;
+            }
+            _ => {
+                flags = b[at + 1];
+                let dl = b[at + 2] as usize;
+                at += 3;
+                if flags & 4 != 0 {
+                    at += dl;
+                }
+            }
+        }
+        fields.push(GdbField { name, ty, nullable: flags & 1 != 0 });
+    }
+    // Row offsets from the .gdbtablx file (with its map of present 1024-row blocks).
+    let x = std::fs::read(path.with_extension("gdbtablx")).unwrap_or_default();
+    let mut rows = Vec::new();
+    if x.len() >= 16 {
+        let blocks = u32::from_le_bytes(x[4..8].try_into().unwrap()) as usize;
+        let total = u32::from_le_bytes(x[8..12].try_into().unwrap()) as usize;
+        let size = u32::from_le_bytes(x[12..16].try_into().unwrap()) as usize;
+        let trailer = 16 + size * 1024 * blocks;
+        let mut map: Option<Vec<u8>> = None;
+        if blocks > 0 && x.len() >= trailer + 16 {
+            let words = u32::from_le_bytes(x[trailer..trailer + 4].try_into().unwrap()) as usize;
+            let bits = u32::from_le_bytes(x[trailer + 4..trailer + 8].try_into().unwrap()) as usize;
+            if words > 0 {
+                map = x.get(trailer + 16..trailer + 16 + bits.div_ceil(8)).map(|m| m.to_vec());
+            }
+        }
+        for r in 0..total {
+            // The row's slot: blocks before it that are present.
+            let slot = match &map {
+                None => Some(r),
+                Some(m) => {
+                    let blk = r / 1024;
+                    if m.get(blk / 8).is_some_and(|v| v >> (blk % 8) & 1 != 0) {
+                        let before = (0..blk).filter(|&k| m.get(k / 8).is_some_and(|v| v >> (k % 8) & 1 != 0)).count();
+                        Some(before * 1024 + r % 1024)
+                    } else {
+                        None
+                    }
+                }
+            };
+            let off = slot.and_then(|s| x.get(16 + s * size..16 + (s + 1) * size)).map(|o| {
+                let mut v = [0u8; 8];
+                v[..size].copy_from_slice(o);
+                u64::from_le_bytes(v) as usize
+            });
+            rows.push(match off {
+                Some(o) if o > 0 && o + 4 <= b.len() => {
+                    let len = u32_at(o) as usize;
+                    b.get(o + 4..o + 4 + len).map(|r| r.to_vec())
+                }
+                _ => None,
+            });
+        }
+    }
+    Ok(GdbTable { fields, geom, utf8, rows })
+}
+
+/// A field value of a row (None for null, the object id and unsupported kinds), the geometry
+/// as its raw blob.
+enum GdbValue {
+    Null,
+    Int(i64),
+    Real(f64),
+    Text(String),
+    Blob(Vec<u8>),
+}
+
+fn gdb_row(t: &GdbTable, row: &[u8]) -> Result<Vec<GdbValue>> {
+    let nullable = t.fields.iter().filter(|f| f.nullable).count();
+    let mut at = nullable.div_ceil(8);
+    let mut k = 0;
+    let mut out = Vec::new();
+    for f in &t.fields {
+        if f.nullable {
+            let null = row.get(k / 8).is_some_and(|v| v >> (k % 8) & 1 != 0);
+            k += 1;
+            if null {
+                out.push(GdbValue::Null);
+                continue;
+            }
+        }
+        let take = |at: &mut usize, n: usize| -> Result<&[u8]> {
+            let s = row.get(*at..*at + n).ok_or_else(|| anyhow!("file geodatabase: truncated row"))?;
+            *at += n;
+            Ok(s)
+        };
+        let v = match f.ty {
+            6 => GdbValue::Null,
+            0 => GdbValue::Int(i16::from_le_bytes(take(&mut at, 2)?.try_into().unwrap()) as i64),
+            1 => GdbValue::Int(i32::from_le_bytes(take(&mut at, 4)?.try_into().unwrap()) as i64),
+            2 => GdbValue::Real(f32::from_le_bytes(take(&mut at, 4)?.try_into().unwrap()) as f64),
+            3 => GdbValue::Real(f64::from_le_bytes(take(&mut at, 8)?.try_into().unwrap())),
+            5 => {
+                // Days since 1899-12-30, as GDAL's date and time text.
+                let d = f64::from_le_bytes(take(&mut at, 8)?.try_into().unwrap());
+                let secs = ((d - 25569.0) * 86400.0 + 0.5).floor() as i64;
+                let (days, rem) = (secs.div_euclid(86400), secs.rem_euclid(86400));
+                let (y, m, dd) = civil_from_days(days);
+                GdbValue::Text(format!("{y:04}/{m:02}/{dd:02} {:02}:{:02}:{:02}", rem / 3600, rem / 60 % 60, rem % 60))
+            }
+            4 | 12 => {
+                let n = gdb_varuint(row, &mut at)? as usize;
+                let s = take(&mut at, n)?;
+                GdbValue::Text(if t.utf8 || f.ty == 12 { String::from_utf8_lossy(s).into_owned() } else { String::from_utf16_lossy(&s.chunks(2).map(|c| u16::from_le_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect::<Vec<_>>()) })
+            }
+            7 | 8 => {
+                let n = gdb_varuint(row, &mut at)? as usize;
+                GdbValue::Blob(take(&mut at, n)?.to_vec())
+            }
+            10 | 11 => {
+                let g = take(&mut at, 16)?;
+                GdbValue::Text(format!(
+                    "{{{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
+                    g[3], g[2], g[1], g[0], g[5], g[4], g[7], g[6], g[8], g[9], g[10], g[11], g[12], g[13], g[14], g[15]
+                ))
+            }
+            _ => bail!("file geodatabase: field type {} is not supported", f.ty),
+        };
+        out.push(v);
+    }
+    Ok(out)
+}
+
+/// Year, month, day of a day count from 1970-01-01.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// A geometry blob (Esri's compressed shape buffer: varint counts, zig-zag deltas on the
+/// field's grid), as GDAL's FileGDBOGRGeometryConverter decodes it. Curves keep only their
+/// vertices.
+fn gdb_geometry(blob: &[u8], g: &GdbGeomField) -> Result<Option<Geom>> {
+    let mut at = 0;
+    let gt = gdb_varuint(blob, &mut at)? as u32;
+    let base = gt & 0xff;
+    let has_z = gt & 0x8000_0000 != 0 || matches!(base, 9 | 11 | 18 | 20 | 10 | 13 | 15 | 19);
+    let xy = |dx: i64, dy: i64| -> [f64; 3] { [dx as f64 / g.scale[0] + g.origin[0], dy as f64 / g.scale[0] + g.origin[1], 0.0] };
+    let zscale = if g.scale[1] == 0.0 { 1.0 } else { g.scale[1] };
+    Ok(match base {
+        0 => None,
+        1 | 9 | 11 | 21 | 52 => {
+            let x = gdb_varuint(blob, &mut at)?;
+            let y = gdb_varuint(blob, &mut at)?;
+            let f = |v: u64, o: f64| if v == 0 { f64::NAN } else { (v - 1) as f64 / g.scale[0] + o };
+            let mut p = [f(x, g.origin[0]), f(y, g.origin[1]), 0.0];
+            if has_z {
+                let z = gdb_varuint(blob, &mut at)?;
+                p[2] = if z == 0 { f64::NAN } else { (z - 1) as f64 / zscale + g.origin[2] };
+            }
+            Some(Geom::Point(p))
+        }
+        8 | 18 | 20 | 28 | 53 => {
+            let n = gdb_varuint(blob, &mut at)? as usize;
+            if n == 0 {
+                return Ok(Some(Geom::Collection(Vec::new())));
+            }
+            for _ in 0..4 {
+                gdb_varuint(blob, &mut at)?;
+            }
+            let (mut dx, mut dy) = (0i64, 0i64);
+            let mut pts: Vec<[f64; 3]> = Vec::with_capacity(n);
+            for _ in 0..n {
+                dx += gdb_varint(blob, &mut at)?;
+                dy += gdb_varint(blob, &mut at)?;
+                pts.push(xy(dx, dy));
+            }
+            if has_z {
+                let mut dz = 0i64;
+                for p in &mut pts {
+                    dz += gdb_varint(blob, &mut at)?;
+                    p[2] = dz as f64 / zscale + g.origin[2];
+                }
+            }
+            Some(Geom::Collection(pts.into_iter().map(Geom::Point).collect()))
+        }
+        3 | 10 | 13 | 23 | 50 | 5 | 15 | 19 | 25 | 51 => {
+            let n = gdb_varuint(blob, &mut at)? as usize;
+            if n == 0 {
+                return Ok(None);
+            }
+            let parts = gdb_varuint(blob, &mut at)? as usize;
+            if gt & 0x2000_0000 != 0 {
+                gdb_varuint(blob, &mut at)?; // number of curves
+            }
+            if parts == 0 {
+                return Ok(None);
+            }
+            for _ in 0..4 {
+                gdb_varuint(blob, &mut at)?;
+            }
+            let mut counts = Vec::with_capacity(parts);
+            let mut sum = 0;
+            for _ in 0..parts - 1 {
+                let c = gdb_varuint(blob, &mut at)? as usize;
+                counts.push(c);
+                sum += c;
+            }
+            counts.push(n.saturating_sub(sum));
+            let (mut dx, mut dy) = (0i64, 0i64);
+            let mut rings: Vec<Vec<[f64; 3]>> = Vec::with_capacity(parts);
+            for &c in &counts {
+                let mut r = Vec::with_capacity(c);
+                for _ in 0..c {
+                    dx += gdb_varint(blob, &mut at)?;
+                    dy += gdb_varint(blob, &mut at)?;
+                    r.push(xy(dx, dy));
+                }
+                rings.push(r);
+            }
+            if has_z {
+                let mut dz = 0i64;
+                for r in &mut rings {
+                    for p in r.iter_mut() {
+                        dz += gdb_varint(blob, &mut at)?;
+                        p[2] = dz as f64 / zscale + g.origin[2];
+                    }
+                }
+            }
+            if matches!(base, 3 | 10 | 13 | 23 | 50) {
+                let mut lines: Vec<Geom> = rings.into_iter().map(Geom::Line).collect();
+                if lines.len() == 1 {
+                    lines.pop()
+                } else {
+                    Some(Geom::Collection(lines))
+                }
+            } else {
+                organize_rings(rings)
+            }
+        }
+        _ => None, // multipatches
+    })
+}
+
+/// The feature classes and tables of a file geodatabase (a `.gdb` folder), in the order the
+/// system catalog lists them, as GDAL's OpenFileGDB driver reads them.
+pub fn read_filegdb(dir: &Path) -> Result<Vec<Layer>> {
+    let catalog = gdb_table(&dir.join("a00000001.gdbtable"))?;
+    let name_col = catalog.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Name")).ok_or_else(|| anyhow!("{}: no catalog", dir.display()))?;
+    let mut layers = Vec::new();
+    for (k, row) in catalog.rows.iter().enumerate() {
+        let Some(row) = row else { continue };
+        let vals = gdb_row(&catalog, row)?;
+        let GdbValue::Text(name) = &vals[name_col] else { continue };
+        if name.starts_with("GDB_") {
+            continue;
+        }
+        let file = dir.join(format!("a{:08x}.gdbtable", k + 1));
+        if !file.is_file() {
+            continue;
+        }
+        let t = gdb_table(&file).with_context(|| format!("{}: table {name}", dir.display()))?;
+        let attr: Vec<usize> = (0..t.fields.len()).filter(|&i| matches!(t.fields[i].ty, 0..=5 | 10..=12)).collect();
+        let fields: Vec<(String, FieldType)> = attr
+            .iter()
+            .map(|&i| {
+                let ty = match t.fields[i].ty {
+                    0 | 1 => FieldType::Int,
+                    2 | 3 => FieldType::Real,
+                    _ => FieldType::Text,
+                };
+                (t.fields[i].name.clone(), ty)
+            })
+            .collect();
+        let gcol = t.fields.iter().position(|f| f.ty == 7);
+        let mut features = Vec::new();
+        for (r, row) in t.rows.iter().enumerate() {
+            let Some(row) = row else { continue };
+            let vals = gdb_row(&t, row)?;
+            let geom = match (gcol.map(|c| &vals[c]), &t.geom) {
+                (Some(GdbValue::Blob(b)), Some(g)) => gdb_geometry(b, g)?,
+                _ => None,
+            };
+            let values = attr
+                .iter()
+                .map(|&i| match &vals[i] {
+                    GdbValue::Int(v) => Value::Int(*v),
+                    GdbValue::Real(v) => Value::Real(*v),
+                    GdbValue::Text(s) => Value::Text(s.clone()),
+                    _ => Value::Null,
+                })
+                .collect();
+            features.push(Feature { fid: r as i64 + 1, geom, values });
+        }
+        let projection = t.geom.as_ref().map(|g| g.wkt.clone()).filter(|w| !w.is_empty() && w != "{B286C06B-0879-11D2-AACA-00C04FA33C20}");
+        layers.push(Layer { name: name.clone(), fields, features, projection });
+    }
+    if layers.is_empty() {
+        bail!("{}: no feature classes or tables in the file geodatabase", dir.display());
+    }
+    Ok(layers)
 }

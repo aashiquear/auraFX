@@ -4,7 +4,8 @@
 
 For every file and layer: ParaView's blocks (one per feature, its default) with each block's
 point coordinates, vertex and line sizes and cell attributes. ParaView reads one layer at a time
-(ActiveLayer); KML is not readable by its GDAL build.
+(ActiveLayer); KML is not readable by its GDAL build. ParaView cannot pick a file's last layer
+alone: that index (world.gdb#5) reads every layer.
 """
 import json, os
 from paraview.simple import GDALVectorReader
@@ -13,7 +14,10 @@ from vtk.util.numpy_support import vtk_to_numpy as v2n
 here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testdata", "vectors")
 cases = [("countries.shp", 0), ("rivers.shp", 0), ("cities.shp", 0), ("countries.geojson", 0), ("rivers.geojson", 0), ("cities.geojson", 0),
          ("world.gpkg", 0), ("world.gpkg", 1),
-         ("countries.fgb", 0), ("rivers.fgb", 0), ("cities.fgb", 0), ("points.fgb", 0), ("world.gml", 0), ("world.gml", 1), ("world.gml", 2), ("world.kmz", 0)]
+         ("countries.fgb", 0), ("rivers.fgb", 0), ("cities.fgb", 0), ("points.fgb", 0), ("world.gml", 0), ("world.gml", 1), ("world.gml", 2), ("world.kmz", 0),
+         ("countries.tab", 0), ("rivers.tab", 0), ("cities.tab", 0), ("countries.mif", 0), ("rivers.mif", 0), ("cities.mif", 0),
+         ("detail.tab", 0), ("detail.mif", 0),
+         ("world.gdb", 0), ("world.gdb", 1), ("world.gdb", 2), ("world.gdb", 3), ("world.gdb", 4), ("world.gdb", 5)]
 out = {}
 for f, layer in cases:
     r = GDALVectorReader(FileName=os.path.join(here, f), ActiveLayer=layer)

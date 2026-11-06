@@ -76,7 +76,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.2 Tier 2 (simulation ecosystem)
 - [x] OpenFOAM (`.foam` case, ASCII/binary, decomposed and reconstructed, time directories, boundary patches with boundary values; verified against ParaView).
 - [~] EnSight Gold (`.case`, ASCII and C binary, all element types, blocks, time sets; iteration 18), Tecplot ASCII (iteration 18) and binary (iteration 20), PLOT3D (iteration 19), Xdmf2/3 (iteration 19), CGNS (HDF5, iteration 20; ADF, iteration 24), Fluent `.cas/.msh`, Nastran/BDF, ANSYS `.inp`, LS-DYNA `d3plot`, Silo, Xdmf2/3, PLOT3D, Nek5000, MFIX, ADIOS2 BP4/BP5, openPMD, Fides, Conduit/Catalyst.
-- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38); other GDAL rasters, MapInfo, file geodatabases, SEG-Y todo.
+- [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38), MapInfo .tab/.mif and Esri file geodatabases (iteration 50); other GDAL rasters, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML, OUTCAR todo.
 - [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32), FLASH and Enzo particles (iteration 42), Chombo particles and node-centered Chombo (iteration 43).
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
@@ -934,8 +934,31 @@ zero normals), Fill Material on and off: every cell's point ids, points (ParaVie
 precision), type and source cell. Client/server protocol 11 (also covers iteration 47's cell
 grid side lists).
 
+Done in iteration 50: **MapInfo**. Native .tab tables (the .tab definition's field types, the
+.dat records with binary values, the .id index into the .map file: its header's integer
+scale, displacement and quadrant with GDAL 3.7's rounding to the scale's power of ten,
+object blocks with compressed and plain coordinates, chained coordinate blocks; points, font
+and custom symbols, lines, polylines, multi-polylines and regions with their holes in all
+versions, multipoints) and .mif/.mid interchange files (Columns, Delimiter, Transform; Point,
+Line, Pline [Multiple], Region with rings grouped by area and containment as GDAL's
+organizePolygons, Multipoint; the .mid rows). Per-feature blocks now include features without
+geometry as empty blocks, as ParaView does. Checked against ParaView 6.1.1's GDAL reader on
+.tab and .mif versions of the three test layers and a 63-feature detail layer (compressed
+regions with holes, 300-vertex roads across coordinate blocks, a two-point line, compressed
+and plain multi-lines, points, no geometry): every point, cell and attribute. Text, arcs,
+rectangles, ellipses and collections keep their attributes but no geometry.
+Also **Esri file geodatabases** (OpenFileGDB): the system catalog's tables in order, each
+.gdbtable's field descriptions (UTF-16 names, types, nullability, defaults, the geometry
+field's origin, scales and coordinate system), rows through the .gdbtablx index (with its
+map of present 1024-row blocks), null bits, every value type (int16/32, float32/64, text in
+UTF-8 or UTF-16, dates as days since 1899-12-30, GUIDs, XML), and the compressed shape
+buffers (varint counts, zig-zag deltas on the field grid, Z after XY; polygon rings grouped as
+GDAL's organizePolygons; curves as their vertices). Checked against ParaView 6.1.1 on a GDAL-
+written geodatabase of six layers (multi types, heights): each layer alone and all together
+(ParaView cannot select a file's last layer alone: its index reads every layer).
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+(other rasters), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)

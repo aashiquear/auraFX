@@ -192,6 +192,9 @@ like any other file:
 | GeoPackage | `.gpkg`; each feature table is a layer |
 | FlatGeobuf | `.fgb`: a fast binary format for large vector data; one layer |
 | GML | `.gml` (GML 2, 3 and 3.2, as GDAL and most web feature services write it); each feature type is a layer, typed by the `.xsd` schema beside the file when there is one |
+| MapInfo table | `name.tab` with `name.map` (geometry), `name.id` (its index) and `name.dat` (attributes) beside it; open the `.tab` |
+| MapInfo interchange | `name.mif` (geometry, in text) with `name.mid` (attributes) beside it; open the `.mif` |
+| Esri file geodatabase | a `name.gdb` folder; open the folder (or any file in it). Each feature class and table is a layer |
 
 What you get:
 - The coordinates stay as stored: longitude and latitude in degrees for most GeoJSON and KML
@@ -204,8 +207,15 @@ What you get:
   decimals as doubles, and anything else (names, dates) as text. 64-bit integers stay
   numbers; ParaView turns them into text.
 - `MAP_PROJECTION` in the field data holds the coordinate system: the `.prj` text, the EPSG
-  code of a GeoPackage, FlatGeobuf or GML layer, or `EPSG:4326` (longitude/latitude) for
-  GeoJSON and KML.
+  code of a GeoPackage, FlatGeobuf or GML layer, the coordinate system text of a file
+  geodatabase layer, or `EPSG:4326` (longitude/latitude) for GeoJSON and KML.
+- File geodatabases store coordinates on a fine grid and add `Shape_Length` and `Shape_Area`
+  attributes to lines and areas; both come through as stored, as in ParaView.
+- MapInfo tables store coordinates as whole numbers on a grid set by the file (a millionth of
+  a degree for longitude and latitude). auraFX converts them as GDAL does, rounding to that
+  grid, so the values are those ParaView shows. A MapInfo region's rings are grouped into
+  areas with holes: a `.tab` file says which rings are holes. In a `.mif` file, a ring inside
+  a larger one is a hole, as GDAL decides it.
 - GML in a geographic coordinate system named the long way (`urn:ogc:def:crs:EPSG::4326`)
   stores latitude first. auraFX swaps it back to longitude, latitude, as GDAL does, so GML
   lines up with the other formats.
@@ -230,19 +240,36 @@ roads.set(layer="roads")                      # one layer of a GeoPackage
 sites = afx.load("sites.fgb")                 # FlatGeobuf
 rivers = afx.load("hydro.gml")                # GML, a block per feature type
 places = afx.load("trip.kmz")                 # Google Earth KMZ
+parcels = afx.load("parcels.tab")             # MapInfo (or parcels.mif)
+lots = afx.load("city.gdb")                   # an Esri file geodatabase folder
+lots.set(layer="lots", polygons="Filled")
 ```
 
 ![Countries (filled, colored by area), rivers and cities from a GML file, with 300 points from a FlatGeobuf file colored by their value](images/gis_formats.png)
 
-Checked against ParaView 6.1.1's GDAL vector reader on shapefiles, GeoJSON, GeoPackage and
-FlatGeobuf files written by GDAL (FlatGeobuf also with 300 features, whose index has three
-levels): with one block per feature, every point, cell and attribute is the same. ParaView
+![A MapInfo table of lots (filled, some with holes, colored by size), roads, wells and a fork, with the same layer from the MapInfo interchange file drawn as outlines on top](images/mapinfo.png)
+
+![Three layers of one file geodatabase: lots filled and colored by size, roads as wide lines and wells as points](images/filegdb.png)
+
+Checked against ParaView 6.1.1's GDAL vector reader on shapefiles, GeoJSON, GeoPackage,
+FlatGeobuf, MapInfo files and a file geodatabase written by GDAL (FlatGeobuf also with 300 features, whose index
+has three levels; MapInfo `.tab` and `.mif` versions of the three layers and of a 63-feature
+layer of lots with holes, 300-point roads spread over several blocks of the file, a two-point
+line, multi-lines, points and a feature without geometry): with one block per feature, every
+point, cell and attribute is the same. A feature without geometry gives an empty block there,
+as in ParaView. The file geodatabase holds six layers (the three above, with heights on the
+cities, and the detail layer's lots, roads and wells); each was checked alone and all six
+together. ParaView cannot pick a file's last layer on its own (choosing it reads every layer);
+auraFX can. ParaView
 reads only the first layer of a file unless told otherwise; auraFX reads all of them.
 ParaView's GDAL cannot read KML, KMZ or GML (it is built without an XML parser), so those were
 checked against the same data saved as GeoJSON: GML 3.2 and GML 2 files written by GDAL, and
 the KML file zipped as KMZ.
 
-Not read yet: MapInfo, file geodatabases, and curved geometry (arcs). Shapefile multipatches (3-D surfaces) are skipped, as ParaView does.
+Not read yet: curved geometry (arcs; a file geodatabase's curves are read as straight lines
+between their vertices) and file geodatabase rasters and multipatches. In MapInfo files, text,
+arcs, rectangles, ellipses and collections are read without their geometry (their attributes
+are kept). Shapefile multipatches (3-D surfaces) are skipped, as ParaView does.
 
 ![Sea surface temperature from a NetCDF CF file, on the globe](images/netcdf_globe_view.png)
 

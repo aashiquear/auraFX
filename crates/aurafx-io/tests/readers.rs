@@ -1391,10 +1391,14 @@ fn gis_vectors_match_paraview() {
     let per_feature = aurafx_io::vectors::PER_FEATURE;
     for (key, want) in reference.as_object().unwrap() {
         let (file, layer) = key.split_once('#').unwrap();
-        let layer_name = ["countries", "rivers", "cities"][layer.parse::<usize>().unwrap()];
+        let layer = layer.parse::<usize>().unwrap();
         let mut opts = vec![("blocks", per_feature)];
         if file.ends_with(".gpkg") {
-            opts.push(("layer", layer_name));
+            opts.push(("layer", ["countries", "rivers", "cities"][layer]));
+        }
+        // ParaView cannot pick a file's last layer alone: world.gdb#5 is every layer.
+        if file.ends_with(".gdb") && layer < 5 {
+            opts.push(("layer", ["countries", "rivers", "cities", "lots", "roads"][layer]));
         }
         let got = blocks(&read(file, &opts));
         let want = want.as_array().unwrap();

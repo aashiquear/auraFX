@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<VTKFile type="HyperTreeGrid" version="2.0" byte_order="LittleEndian" header_type="UInt32" compressor="vtkZLibDataCompressor">
+  <HyperTreeGrid BranchFactor="2" TransposedRootIndexing="0" Dimensions="3 3 1" InterfaceNormalsName="Normals" InterfaceInterceptsName="Intercepts">
+    <Grid>
+      <DataArray type="Float64" Name="XCoordinates" NumberOfTuples="3" format="appended" RangeMin="0"                    RangeMax="2"                    offset="0"                   />
+      <DataArray type="Float64" Name="YCoordinates" NumberOfTuples="3" format="appended" RangeMin="0"                    RangeMax="2"                    offset="48"                  />
+      <DataArray type="Float64" Name="ZCoordinates" NumberOfTuples="1" format="appended" RangeMin="0"                    RangeMax="0"                    offset="96"                  />
+    </Grid>
+    <Trees>
+        <DataArray type="Bit" Name="Descriptors" NumberOfTuples="6" format="appended" RangeMin="0"                    RangeMax="1"                    offset="136"                 />
+        <DataArray type="Int64" Name="NumberOfVerticesPerDepth" NumberOfTuples="7" format="appended" RangeMin="1"                    RangeMax="4"                    offset="172"                 />
+        <DataArray type="Int64" Name="TreeIds" NumberOfTuples="4" format="appended" RangeMin="0"                    RangeMax="3"                    offset="224"                 />
+        <DataArray type="UInt32" Name="DepthPerTree" NumberOfTuples="4" format="appended" RangeMin="1"                    RangeMax="3"                    offset="276"                 />
+        <DataArray type="Bit" Name="Mask" NumberOfTuples="16" format="appended" RangeMin="0"                    RangeMax="1"                    offset="324"                 />
+    </Trees>
+    <CellData>
+        <DataArray type="Float64" Name="Depth" NumberOfTuples="16" format="appended" RangeMin="0"                    RangeMax="2"                    offset="364"                 />
+        <DataArray type="Float64" Name="gid" NumberOfTuples="16" format="appended" RangeMin="0"                    RangeMax="15"                   offset="420"                 />
+        <DataArray type="Float64" Name="Normals" NumberOfComponents="3" NumberOfTuples="16" format="appended" RangeMin="0"                    RangeMax="1"                    offset="516"                 />
+        <DataArray type="Float64" Name="Intercepts" NumberOfComponents="3" NumberOfTuples="16" format="appended" RangeMin="0.29753760144"        RangeMax="3.0004677839"         offset="752"                 />
+    </CellData>
+  </HyperTreeGrid>
+  <AppendedData encoding="base64">
+   _AQAAAACAAAAYAAAAEAAAAA==eJxjYEAGH+yhDAcAC+8BcA==AQAAAACAAAAYAAAAEAAAAA==eJxjYEAGH+yhDAcAC+8BcA==AQAAAACAAAAIAAAACwAAAA==eJxjYIAAAAAIAAE=AQAAAACAAAABAAAACQAAAA==eJxbAgAApQClAQAAAACAAAA4AAAAEwAAAA==eJxjZIAAFjSaEY1GFwcAAlAAEQ==AQAAAACAAAAgAAAAEwAAAA==eJxjYIAARijNBKWZoTQAAHAABw==AQAAAACAAAAQAAAAEQAAAA==eJxjZmBgYARiJigNAABgAAg=AQAAAACAAAACAAAACgAAAA==eJxzZAAAAIQAQg==AQAAAACAAACAAAAAGAAAAA==eJxjYEAGH+zx0wwOBGg0QNA8BgCOtgp5AQAAAACAAACAAAAANAAAAA==eJxjYEAGAg4QWgRKS0BpGSitAaW1oLQOlNaD0h/soQZB+QpQWglKq0BpNSjN4QAAYe4GSA==AQAAAACAAACAAQAAnQAAAA==eJw7Y12fNm/Bs/1noDQDAVDz7ZzcnfU37YsS57Za+r+1hwo3wPgweZj4Wai5Z4k0n1QwMXDHmVufrtiHXPNI22nzDm7v1+9r1xYk3Lc/aFiX+Onxa7i9MD5MHiZ+9oh5kPKh9/ZzfSoPnkzbD1PfkM/p65x85t3+l3d3l8yKv2jPQAAYbOUo327z0P7f5ySmj19fwc3BpR4AKxlglA==AQAAAACAAACAAQAAkwAAAA==eJxzuSUecNTgrX1HcBHfyX9f7BnwA4cXmx9qtix/uR9V+MN+XOJuUPM7iTQfuzAHDnEGB43bG/1vMb3AsHday0Wr07YH7f2uG/zZ/OsCXB7Gh8nDxLVyHqjdWXEJwxxFox9r35vdt1dIqgqMKN1G2P3XIx/y7fuApu7D/iOalu0p9UwHlN5yr0ia8Q9uDwCF0VRp
+  </AppendedData>
+</VTKFile>

@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<VTKFile type="HyperTreeGrid" version="2.0" byte_order="LittleEndian" header_type="UInt32" compressor="vtkZLibDataCompressor">
+  <HyperTreeGrid BranchFactor="3" TransposedRootIndexing="0" Dimensions="4 4 1" InterfaceNormalsName="Normals" InterfaceInterceptsName="Intercepts">
+    <Grid>
+      <DataArray type="Float64" Name="XCoordinates" NumberOfTuples="4" format="appended" RangeMin="0"                    RangeMax="3"                    offset="0"                   />
+      <DataArray type="Float64" Name="YCoordinates" NumberOfTuples="4" format="appended" RangeMin="0"                    RangeMax="6"                    offset="52"                  />
+      <DataArray type="Float64" Name="ZCoordinates" NumberOfTuples="1" format="appended" RangeMin="0"                    RangeMax="0"                    offset="104"                 />
+    </Grid>
+    <Trees>
+        <DataArray type="Bit" Name="Descriptors" NumberOfTuples="31" format="appended" RangeMin="0"                    RangeMax="1"                    offset="144"                 />
+        <DataArray type="Int64" Name="NumberOfVerticesPerDepth" NumberOfTuples="16" format="appended" RangeMin="1"                    RangeMax="9"                    offset="184"                 />
+        <DataArray type="Int64" Name="TreeIds" NumberOfTuples="9" format="appended" RangeMin="0"                    RangeMax="8"                    offset="240"                 />
+        <DataArray type="UInt32" Name="DepthPerTree" NumberOfTuples="9" format="appended" RangeMin="1"                    RangeMax="3"                    offset="308"                 />
+        <DataArray type="Bit" Name="Mask" NumberOfTuples="72" format="appended" RangeMin="0"                    RangeMax="0"                    offset="364"                 />
+    </Trees>
+    <CellData>
+        <DataArray type="Float64" Name="Depth" NumberOfTuples="72" format="appended" RangeMin="0"                    RangeMax="2"                    offset="404"                 />
+        <DataArray type="Float64" Name="gid" NumberOfTuples="72" format="appended" RangeMin="0"                    RangeMax="71"                   offset="476"                 />
+        <DataArray type="Float64" Name="Normals" NumberOfComponents="3" NumberOfTuples="72" format="appended" RangeMin="0"                    RangeMax="1"                    offset="692"                 />
+        <DataArray type="Float64" Name="Intercepts" NumberOfComponents="3" NumberOfTuples="72" format="appended" RangeMin="1.0229162076"         RangeMax="7.6446168878"         offset="1396"                />
+    </CellData>
+  </HyperTreeGrid>
+  <AppendedData encoding="base64">
+   _AQAAAACAAAAgAAAAFAAAAA==eJxjYEAGH+yhDAcIxeEAABe/Abg=AQAAAACAAAAgAAAAEwAAAA==eJxjYEABDhBKAEpLOAAAB7AA6Q==AQAAAACAAAAIAAAACwAAAA==eJxjYIAAAAAIAAE=AQAAAACAAAAEAAAADAAAAA==eJxbYMHSAAADtAFdAQAAAACAAACAAAAAFwAAAA==eJxjZIAATjSaEQeNS55U/TAaABKAAEk=AQAAAACAAABIAAAAIAAAAA==eJxjYIAARijNBKWZoTQLlGaF0mxQmh1Kc0BpAAQIACU=AQAAAACAAAAkAAAAFgAAAA==eJxjZmBgYIRiJijNjCQGYgMAAWAAEQ==AQAAAACAAAAJAAAACwAAAA==eJxjYIACAAAJAAE=AQAAAACAAABAAgAAJAAAAA==eJxjYEAGH+ypQzM4UInGAajmTlqZi+4PcmkcYPC4EwD9UjFdAQAAAACAAABAAgAAjwAAAA==eJxNyTtOQgEURdFTWlJQWFAYQgwhhsgfReCBH76izOgNjSExBIq3Cm6z7s5J7u+69BQVD6yxzkc2+MQmW3xmmx2+sMtX9tjngEOOOOaEU77xnTN+cM4FlywqS2almbVmPjXzpZlvzfxoZqOZrWZ2mtlr5qCZo2Z+NXPSzJ9m/isLlrwwZztLXs7FDZydLjQ=AQAAAACAAADABgAA/AEAAA==eJzLOWVy5abhA3uWLxeuls18bc8AAQ0MQwTMYE47f0L5if3PqKo//PdewN1fy3X1QtftB/YPY79ZyRoPPX+RCjgWVZnZPz5q/4jdkymi/T3cv1xnz7uYXD27n+nQjbspcgjxd6rlT6atf7dfSKfhxXe1S/th5jyChhcs/GDq03SeqyzNfGmvOSt3Sn3RY4Lhea/K9Ms8oH3HtOr7si6eJaheqLn4iPzNt/ZlsVcPLxK6TnZ8Sdmw/T9i8t5eNtLMf3boGZi/Gs5a16fNW/DMHkbDxJcdLt3L/frl/lTT/ZYbjjyCi8tD9cPMg4mHXPJ32qF0b3+X1tyPjNZvyHYnLnvbNEQ0jwi93f+9LoNBZ+8tss3f+kwvbNmTd/uDUwL9Lq+/AA8HUs2hNXCznqiVcuXwfsd3+amScxHh/L6Ko2hd/8X9d6PCkiYefQcXF7Zs+D6j8sb+6XcT+PwnvoWLHxCP7Xma/NSedWq6zrMzz+H+DVMw7hEsvLBfqKdiB99buDkM3zbzMf/lvWY/wUVxpyUXQhwWXrDwg5kTmVu+vUf94X4R7w1Hc5lfUz083W47ch9lfrB/d+nGVN8tCPMNVVNU4z7s3t/xfoat4Pn3cPH11+vW3Px3fn+e8ewNH38j3Dnx7rs6fakb+y1+iOx8sOTtoI13agEAefINeQ==AQAAAACAAADABgAAjwEAAA==eJw7M+1jUIzK3/0MKOADGh8GOBywizPgEKe9+pKYtMrXjn8w3J/x3fetnQSx/ho491NL/YY1KyN0J/7E8G+EvWc+04sXGOK37A9ukp/yzz5AUub/jYPP7GEy935skZ0Y9hVDfc0fTj1e3h9Eh6fDMtlSD+5HJIf/Z5ZNkQv+MhyAqrdniZG4yjj7qT2qcsLps+FJAa95/+n9MHNg4g+OWet/YmQ/gC6+wOVXp/SBO/bo4jq1z+4fFmHAUC8T82Pt9ozPGObjcg8agIvjsle1fWnm1aLPGOK4zGf5cK2yiFXAAV19j/Sy5X2avBjiuNxDqvuppT6fQ2WudTHjAQgP4c4bX+alBJz6ixHOXN7SsxZm/oCLH+XkSDjzkAvNng/7+6qip91aKnygJVp2svQm3gMwmRdJagW1j8UPSE+LXLxBTPgAAxpYYL5ki9Z5IQd0e8Osuj+8chbGECfVv+jqA9QSLvqKSWC4f43z+/uK18QwxIvkll06OEEcQ9z33n1Pwe+Y4qS6Z6ioBwDQ173l
+  </AppendedData>
+</VTKFile>

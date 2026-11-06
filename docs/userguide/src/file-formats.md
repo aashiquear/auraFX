@@ -406,6 +406,8 @@ What you get:
   those leaves as voxels (pixels in 2-D) with their values.
 - **Information** shows the dimension, branch factor, number of visible leaves and depth.
   The cell count is the number of all cells (coarse ones included), as in ParaView.
+- A grid with **material interfaces** is drawn cut to its material (see below), as ParaView
+  draws it. Other filters still see whole leaves.
 - Saving as `.htg` keeps the grid: its trees, the mask and every cell's values (the
   version 2 files ParaView writes). Saving as any other format (`.vtu` and the rest) writes the
   visible leaves as an unstructured grid.
@@ -433,6 +435,7 @@ What you get:
 | **Hyper Tree Grid Generate Fields** | `CellSize` (volume, area or length of every cell), `ValidCell` (1 on visible leaves), `CellCenter`, and `TotalVisibleVolume` in the field data |
 | **Hyper Tree Grid To Dual Grid** | a point at the center of every visible leaf, with the leaf's values as point data, and a cell (voxel, pixel or line) joining the leaves around every corner. Use it for smooth contours and for filters that need point data. Points on the grid's boundary sit on the boundary; next to masked leaves they move as ParaView moves them |
 | **Hyper Tree Grid Geometry** | the outside of the visible leaves as polygons with their values: in 3-D the faces on the grid's boundary and the walls next to masked cells (a face of a masked cell next to a coarser visible leaf carries that leaf's values); in 2-D a quad per visible leaf, in 1-D a line |
+| | With material interfaces, mixed cells are cut to their material (see below). **Fill material** (on by default): off draws only the interface lines in 2-D and leaves out pure cells in 1-D and 2-D |
 | **Hyper Tree Grid Feature Edges** | the edges of the visible region as lines with their leaves' values: the outline in 2-D, the outer corners and folds in 3-D |
 | **Hyper Tree Grid Evaluate Coarse** | fills the values of refined cells from their children: Min, Max, Sum, Average, Unmasked Average, Elder Child (the first child) or Splatting Average |
 
@@ -441,6 +444,28 @@ What you get:
 ![A random 3-D hyper tree grid with 40 % masked: its Geometry (see-through, colored by depth) shows the walls next to the masked cells, and its Feature Edges are the dark lines](images/htg_surface.png)
 
 ![A random 2-D hyper tree grid's leaves (gray lines) with its dual grid on top, colored by depth: large cells joining coarse leaves, small ones where the grid is refined](images/htg_dual.png)
+
+**Material interfaces.** A grid can describe where a material ends inside some cells, for
+simulations that track interfaces between materials. The file names two
+cell arrays (VTK's `InterfaceNormalsName` and `InterfaceInterceptsName`). For each cell they
+hold a normal *n* (three values) and intercepts (*d1*, *d2*, *type*); each interface is the plane
+*n*·*x* + *d* = 0:
+- *type* −1: one plane (*d1*); the material is where *n*·*x* + *d1* ≥ 0;
+- *type* 1: one plane (*d2*); the material is where *n*·*x* + *d2* ≤ 0;
+- *type* 0: the material lies between the two planes;
+- *type* 2 or more, or a zero normal: the cell is pure (all material).
+
+Hyper Tree Grid Geometry (and the default drawing) cuts each mixed cell by its planes, as
+ParaView does:
+- In 1-D and 2-D, each mixed leaf becomes the part of its line or quad that is in the
+  material.
+- In 3-D, the faces of mixed cells and of their neighbors are drawn cut to the material, and
+  each mixed cell adds its interface polygons.
+
+With **Fill material** off, 2-D grids give only the interface lines. Saving as `.htg` keeps
+the interface arrays.
+
+![A 2-D hyper tree grid whose cells crossing a ring carry interfaces, drawn cut to its material with its cell edges and colored by interface type, with the interface lines (Fill material off) in red, 4 pixels wide](images/htg_interfaces.png)
 
 ```python
 h = afx.random_hyper_tree_grid(dimensions=(7, 5, 1), max_depth=5, split_fraction=0.45, seed=3)
@@ -454,6 +479,8 @@ holes = afx.random_hyper_tree_grid(seed=3, masked_fraction=0.25)
 walls = holes.hyper_tree_grid_geometry()
 edges = holes.hyper_tree_grid_feature_edges()
 h.save("tree.htg")
+m = afx.load("interface_plane.htg")       # drawn cut to its material
+lines = m.hyper_tree_grid_geometry(fill_material=False)
 ```
 
 Checked against ParaView 6.1.1 on `.htg` files it wrote (3-D, 2-D with branch factor 3,
@@ -469,7 +496,12 @@ masked):
 - `.htg` files auraFX writes open in ParaView with the same cells, leaves and values, and read
   back into auraFX unchanged;
 - Geometry and Feature Edges on eight grids (1-D, 2-D and 3-D, files and sources, masked and
-  not): every polygon and line in ParaView's order, its points and its values.
+  not): every polygon and line in ParaView's order, its points and its values;
+- Geometry with material interfaces on six grids (1-D, 2-D, 2-D masked, 2-D with branch
+  factor 3, 3-D, 3-D masked) with one-plane and two-plane interfaces, Fill material on and
+  off: every output cell in order, its points (shared exactly as in ParaView) and the cell it
+  comes from. ParaView keeps the output points in single precision, so cut points agree to
+  about 7 digits.
 
 ParaView's To Unstructured Grid leaves the `OriginalIds` of masked files partly unfilled (zeros
 at the end); auraFX gives every leaf its index. ParaView's To Dual Grid also keeps a point for
@@ -477,8 +509,9 @@ every coarse and masked cell, left at the origin and used by no cell; auraFX lea
 Axis Reflection filters in 6.0: Cell Centers works on hyper tree grids directly, and Axis
 Reflection is not provided.
 
-Not available yet: version 1 `.htg` files and material interfaces (interface normals and
-intercepts in Geometry). Ghost Cells only matters for data split across processes.
+Not available yet: version 1 `.htg` files. Ghost Cells only matters for data split across
+processes. Interfaces are used by Geometry only (as in ParaView): slicing or clipping a grid
+with interfaces works on whole leaves.
 
 ### Cell grids
 

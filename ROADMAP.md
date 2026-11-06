@@ -127,7 +127,7 @@ catalog is listed; those marked with a star are the ones that ship in the first 
 - [~] Resample To Image ★, Resample With Dataset ★ (done, matches ParaView point by point), Resample To Line, Resample AMR (iteration 41), Adaptive Resample To Image, Gaussian Resampling, Probe Location ★, Point Interpolator (Gaussian/Shepard/Voronoi/Linear kernels), Point Line/Plane/Volume/Dataset Interpolator, SPH Interpolator (+ Line/Plane/Volume/Dataset), Point Set To Octree Image, Octree Image to Point Set, Median, Equalizer Filter
 - [~] Particle Tracer, Particle Path, Streak Line (done; exact on an analytic flow, where ParaView 6.1.1 is 0.25 rad off), Legacy Particle Path, Legacy Streak Line, In Situ Particle Path, Temporal Particles To Pathlines
 - [~] Temporal Interpolator, Temporal Shift Scale, Temporal Array Operator (done, checked against ParaView), Temporal Snap-to-TimeStep, Temporal Cache, Temporal Smoothing, Merge Time, Group Time Steps, Generate Time Steps, Force Time, Synchronize Time, Critical Time, Date To Numeric, Time Step Progress Bar, Animate Modes
-- [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source; iteration 44: Geometry, Feature Edges): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
+- [~] Hyper Tree Grid (iteration 34: type, .htg reader, both sources, To Unstructured Grid, Depth Limiter, Generate Fields, Evaluate Coarse, Cell Centers; iteration 37: .htg writer, To Dual Grid, masked random source; iteration 44: Geometry, Feature Edges; iteration 49: material interfaces in Geometry): Axis Reflection, Cell Centers, Depth Limiter, Evaluate Coarse, Feature Edges, Generate Fields, Geometry Filter, Ghost Cells Generator, Redistribute, To Dual Grid, To Unstructured Grid, Visible Leaves Size
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer; iteration 46: Probe; iteration 47: Compute Sides): Centers, Compute Sides, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
@@ -912,8 +912,30 @@ the cells of To Unstructured Grid. ParaView's To Unstructured Grid evaluates sid
 the wrong cell (the side's list index) and crashes on vertex sides of edges; auraFX's continuous
 fields on sides match the input's. Ghost-node marks are not read.
 
+Done in iteration 48: **wide lines**. Line width (Properties › Display for wireframes, edges,
+outlines and line data; `line_width=`) is now drawn: above 1 pixel each segment is an instance
+of a screen-space quad (`vs_wide_line`, both vertices from the line buffer with a 2-vertex
+stride, clipped to the front of the camera), extended by half the width at both ends so bent
+lines join; opaque, translucent (OIT) and overlay pipelines, cell edges included, servers too.
+1-pixel lines keep the hairline pipeline. Checked by a headless render: 1, 3 and 7 pixels
+across and no gaps at a polyline bend. Picking still uses 1-pixel lines.
+
+Done in iteration 49: **hyper tree grid material interfaces**. Grids keep VTK's interface
+array names (InterfaceNormalsName/InterfaceInterceptsName, read and written in .htg).
+Hyper Tree Grid Geometry ports vtkHyperTreeGridGeometry's interface code: in 1-D and 2-D the
+material part of each mixed leaf (one plane, or the sandwich between two), Fill Material off
+giving 2-D interface lines; in 3-D the faces of mixed cells and of their neighbors clipped to
+the material and the interface polygons linked edge by edge, with VTK's by-value point copies
+(which decide the point numbering) and the swap of inverted sandwich intercepts. The default
+drawing of a grid with interfaces goes through it (picking mapped to the leaves). Checked
+against ParaView 6.1.1 on six grids made by scripts/htg_interface_reference.py (1-D, 2-D,
+masked, branch factor 3, 3-D, masked 3-D; one- and two-plane interfaces, swapped intercepts,
+zero normals), Fill Material on and off: every cell's point ids, points (ParaView single
+precision), type and source cell. Client/server protocol 11 (also covers iteration 47's cell
+grid side lists).
+
 Known gaps worth doing next (P5): Tecplot SZL (no reference reader), more GDAL formats
-(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo; HTG material interfaces); rendering: wide lines (line_width is ignored by the renderer); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
+(other rasters, MapInfo, file geodatabases), remaining filter catalog (CTH material AMR filters, which need non-overlapping AMR data; 4-D Chombo); P4 odds: TAA, comparative views, more widgets; P6: srun/MPI workers, ghost cells,
 temporal filters on parallel servers; P7: Rust plugins, plugin panels, localization.
 
 ## Status (2026-11-03, iteration 1)

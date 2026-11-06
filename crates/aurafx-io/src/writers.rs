@@ -321,12 +321,13 @@ pub fn write_htg(h: &aurafx_data::HyperTreeGrid, path: &Path) -> Result<()> {
     let mut body = String::new();
     let dims = h.dims();
     body += &format!(
-        "  <HyperTreeGrid BranchFactor=\"{}\" TransposedRootIndexing=\"{}\" Dimensions=\"{} {} {}\">\n    <Grid>\n",
+        "  <HyperTreeGrid BranchFactor=\"{}\" TransposedRootIndexing=\"{}\" Dimensions=\"{} {} {}\"{}>\n    <Grid>\n",
         h.branch_factor,
         h.transposed as u8,
         dims[0],
         dims[1],
-        dims[2]
+        dims[2],
+        h.interface.as_ref().map(|(n, i)| format!(" InterfaceNormalsName=\"{}\" InterfaceInterceptsName=\"{}\"", n, i)).unwrap_or_default()
     );
     for (k, name) in ["XCoordinates", "YCoordinates", "ZCoordinates"].iter().enumerate() {
         let off = app.add(&le_bytes(&ArrayData::F64(h.coords[k].clone())));

@@ -26,6 +26,10 @@ pub struct HyperTreeGrid {
     pub trees: Vec<Option<HyperTree>>,
     /// Masked vertices, by global index.
     pub mask: Option<Vec<bool>>,
+    /// Material interfaces (VTK's InterfaceNormalsName, InterfaceInterceptsName): the names of
+    /// the cell arrays holding each cell's plane normal and its (d1, d2, type) intercepts.
+    #[serde(default)]
+    pub interface: Option<(String, String)>,
     pub cell_data: Attributes,
     pub field_data: Attributes,
 }
@@ -224,7 +228,7 @@ impl HyperTreeGrid {
     /// by tree in breadth-first order), as VTK's depth limiter.
     pub fn limit_depth(&self, depth: usize) -> HyperTreeGrid {
         let nc = self.children_per_vertex();
-        let mut out = HyperTreeGrid { coords: self.coords.clone(), branch_factor: self.branch_factor, transposed: self.transposed, field_data: self.field_data.clone(), ..Default::default() };
+        let mut out = HyperTreeGrid { coords: self.coords.clone(), branch_factor: self.branch_factor, transposed: self.transposed, interface: self.interface.clone(), field_data: self.field_data.clone(), ..Default::default() };
         let mut order: Vec<usize> = Vec::new();
         let mut mask = Vec::new();
         for tree in &self.trees {

@@ -690,7 +690,11 @@ fn read_htg(ctx: &FileCtx, body: &Node, version: &str) -> Result<DataSet> {
             }
         }
     }
-    let mut htg = aurafx_data::HyperTreeGrid { coords, branch_factor, transposed, ..Default::default() };
+    let interface = match (body.attr("InterfaceNormalsName"), body.attr("InterfaceInterceptsName")) {
+        (Some(n), Some(i)) => Some((n.to_string(), i.to_string())),
+        _ => None,
+    };
+    let mut htg = aurafx_data::HyperTreeGrid { coords, branch_factor, transposed, interface, ..Default::default() };
     let n_roots: usize = htg.cell_dims().iter().product();
     htg.trees = vec![None; n_roots];
     let trees = body.child("Trees").ok_or_else(|| anyhow!("no <Trees> in the hyper tree grid"))?;

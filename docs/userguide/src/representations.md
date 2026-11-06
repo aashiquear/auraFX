@@ -18,6 +18,21 @@
 **Lighting** can be switched off per object (flat colors, for 2-D data). **Axes grid** draws
 a labelled grid around the object with tick values.
 
+**Line width** (Properties › Display, shown for Wireframe, Surface With Edges, Outline and
+line data; `line_width=` in Python) sets how many pixels wide lines, wireframes and cell edges
+are drawn, from 1 to 10 (any width from Python). As in ParaView it is a width on the screen,
+so lines keep their width when you zoom. Wider lines are drawn as flat bands with square ends
+(reaching half the width past each point), which fills the joints of bent lines. Wide lines
+show in screenshots and in pictures drawn on a server; picking still uses 1-pixel lines. For lines with a
+thickness in the scene (shaded, and growing as you zoom in), use the **Tube** filter.
+
+![A wavelet's isosurfaces as a wireframe with 2-pixel lines, inside its bounding box drawn 6 pixels wide](images/line_width.png)
+
+```python
+c.set(representation="Wireframe", line_width=2)
+w.set(representation="Outline", line_width=6)
+```
+
 ## Volume rendering
 
 ![A wavelet volume](images/volume_view.png)

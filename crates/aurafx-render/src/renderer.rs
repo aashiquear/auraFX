@@ -142,6 +142,9 @@ pub struct Renderer {
     pipe_points_opaque: wgpu::RenderPipeline,
     pipe_tris_oit: wgpu::RenderPipeline,
     pipe_lines_oit: wgpu::RenderPipeline,
+    pipe_wide_lines: wgpu::RenderPipeline,
+    pipe_overlay_wide_lines: wgpu::RenderPipeline,
+    pipe_wide_lines_oit: wgpu::RenderPipeline,
     pipe_points_oit: wgpu::RenderPipeline,
     pipe_edl: wgpu::RenderPipeline,
     edl_uniform: wgpu::Buffer,
@@ -412,6 +415,28 @@ fn vertex_layout(step: wgpu::VertexStepMode) -> wgpu::VertexBufferLayout<'static
     }
 }
 
+/// A line segment's two vertices per instance (wide lines: `vs_wide_line`).
+fn segment_layout() -> wgpu::VertexBufferLayout<'static> {
+    let v = std::mem::size_of::<Vertex>() as u64;
+    wgpu::VertexBufferLayout {
+        array_stride: 2 * v,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &SEGMENT_ATTRIBUTES,
+    }
+}
+
+const SEGMENT_ATTRIBUTES: [wgpu::VertexAttribute; 6] = {
+    let v = std::mem::size_of::<Vertex>() as u64;
+    [
+        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: 12, shader_location: 1 },
+        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 16, shader_location: 2 },
+        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: v, shader_location: 3 },
+        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: v + 12, shader_location: 4 },
+        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: v + 16, shader_location: 5 },
+    ]
+};
+
 impl Renderer {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue, adapter_info: String) -> Self {
         Self::with_samples(device, queue, adapter_info, MSAA)
@@ -583,7 +608,7 @@ impl Renderer {
                     vertex: wgpu::VertexState {
                         module: &shader,
                         entry_point: Some(vs),
-                        buffers: &[Some(vertex_layout(step))],
+                        buffers: &[Some(if vs == "vs_wide_line" { segment_layout() } else { vertex_layout(step) })],
                         compilation_options: Default::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
@@ -618,6 +643,9 @@ impl Renderer {
         // Opaque lines and points write depth (for occlusion and Eye-Dome Lighting).
         let pipe_lines_opaque = make_pipeline("lines opaque", "vs_mesh", "fs_line", LineList, Vertex, false, false, false);
         let pipe_points_opaque = make_pipeline("points opaque", "vs_point", "fs_point", TriangleList, Instance, false, false, false);
+        // Lines wider than a pixel: a quad per segment.
+        let pipe_wide_lines = make_pipeline("wide lines", "vs_wide_line", "fs_line", TriangleList, Instance, false, false, false);
+        let pipe_overlay_wide_lines = make_pipeline("overlay wide lines", "vs_wide_line", "fs_line", TriangleList, Instance, true, false, true);
         // Translucent geometry: weighted blended order-independent transparency.
         let make_oit = |label: &str, vs: &str, fs: &str, topology: wgpu::PrimitiveTopology, step: wgpu::VertexStepMode| {
             let add = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
@@ -629,7 +657,7 @@ impl Renderer {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some(vs),
-                    buffers: &[Some(vertex_layout(step))],
+                    buffers: &[Some(if vs == "vs_wide_line" { segment_layout() } else { vertex_layout(step) })],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -665,6 +693,7 @@ impl Renderer {
         let pipe_tris_oit = make_oit("tris oit", "vs_mesh", "fs_mesh_oit", TriangleList, Vertex);
         let pipe_lines_oit = make_oit("lines oit", "vs_mesh", "fs_line_oit", LineList, Vertex);
         let pipe_points_oit = make_oit("points oit", "vs_point", "fs_point_oit", TriangleList, Instance);
+        let pipe_wide_lines_oit = make_oit("wide lines oit", "vs_wide_line", "fs_line_oit", TriangleList, Instance);
 
         let vol_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aurafx volume shader"),
@@ -1164,6 +1193,9 @@ impl Renderer {
             pipe_points_opaque,
             pipe_tris_oit,
             pipe_lines_oit,
+            pipe_wide_lines,
+            pipe_overlay_wide_lines,
+            pipe_wide_lines_oit,
             pipe_points_oit,
             pipe_edl,
             edl_uniform,
@@ -2054,7 +2086,7 @@ impl Renderer {
                 view_proj: vp.to_cols_array_2d(),
                 camera_pos: [cam_rel.x, cam_rel.y, cam_rel.z, 1.0],
                 light_dir: [light.x as f32, light.y as f32, light.z as f32, 0.0],
-                viewport: [self.width as f32, self.height as f32, d.display.lic_strength.clamp(0.0, 1.0), 0.0],
+                viewport: [self.width as f32, self.height as f32, d.display.lic_strength.clamp(0.0, 1.0), d.display.line_width.max(0.1)],
                 color: [d.display.solid_color[0], d.display.solid_color[1], d.display.solid_color[2], d.display.opacity],
                 range: [lo as f32, hi as f32, if d.display.log_scale { 1.0 } else { 0.0 }, if d.mesh.has_scalars { 1.0 } else { 0.0 }],
                 flags: [
@@ -2219,30 +2251,36 @@ impl Renderer {
             return;
         }
         let translucent = d.display.opacity < 1.0;
-        let (pt, pl, pp) = if d.overlay {
-            (&self.pipe_overlay_tris, &self.pipe_overlay_lines, &self.pipe_overlay_points)
+        let (pt, pl, pp, pw) = if d.overlay {
+            (&self.pipe_overlay_tris, &self.pipe_overlay_lines, &self.pipe_overlay_points, &self.pipe_overlay_wide_lines)
         } else if translucent {
-            (&self.pipe_tris_oit, &self.pipe_lines_oit, &self.pipe_points_oit)
+            (&self.pipe_tris_oit, &self.pipe_lines_oit, &self.pipe_points_oit, &self.pipe_wide_lines_oit)
         } else {
-            (&self.pipe_tris, &self.pipe_lines_opaque, &self.pipe_points_opaque)
+            (&self.pipe_tris, &self.pipe_lines_opaque, &self.pipe_points_opaque, &self.pipe_wide_lines)
         };
         for (buf, n) in &g.tris {
             pass.set_pipeline(pt);
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..*n, 0..1);
         }
-        for (buf, n) in &g.lines {
-            pass.set_pipeline(pl);
-            pass.set_vertex_buffer(0, buf.slice(..));
-            pass.draw(0..*n, 0..1);
-        }
+        // Hairlines for a width of 1 pixel (or less); wider lines as a quad per segment.
+        let wide = d.display.line_width > 1.0;
+        let draw_lines = |pass: &mut wgpu::RenderPass<'_>, bufs: &[(wgpu::Buffer, u32)]| {
+            for (buf, n) in bufs {
+                pass.set_vertex_buffer(0, buf.slice(..));
+                if wide {
+                    pass.set_pipeline(pw);
+                    pass.draw(0..6, 0..*n / 2);
+                } else {
+                    pass.set_pipeline(pl);
+                    pass.draw(0..*n, 0..1);
+                }
+            }
+        };
+        draw_lines(pass, &g.lines);
         if !g.edges.is_empty() {
             pass.set_bind_group(0, &g.edge_bg, &[]);
-            for (buf, n) in &g.edges {
-                pass.set_pipeline(pl);
-                pass.set_vertex_buffer(0, buf.slice(..));
-                pass.draw(0..*n, 0..1);
-            }
+            draw_lines(pass, &g.edges);
             pass.set_bind_group(0, &g.bind_group, &[]);
         }
         for (buf, n) in &g.points {

@@ -2,7 +2,7 @@ struct NodeUniform {
     view_proj: mat4x4<f32>,    // includes the node's local origin
     camera_pos: vec4<f32>,     // origin-relative
     light_dir: vec4<f32>,
-    viewport: vec4<f32>,       // width, height, 0, 0
+    viewport: vec4<f32>,       // width, height, LIC strength, line width (px)
     color: vec4<f32>,          // solid color + opacity
     range: vec4<f32>,          // lo, hi, log_scale, use_scalar
     flags: vec4<f32>,          // lighting, point_size_px, spheres, 0
@@ -210,6 +210,69 @@ fn fs_mesh_oit(in: VertexOut) -> OitOut {
 @fragment
 fn fs_line_oit(in: VertexOut) -> OitOut {
     return oit(surface_color(in.scalar, in.uv), node.color.a, in.clip.z);
+}
+
+// ---- wide lines: one instance per segment (its two vertices), drawn as a screen-space quad
+// of node.viewport.w pixels, extended by half the width at each end so polylines join ----
+struct SegmentIn {
+    @location(0) pos0: vec3<f32>,
+    @location(1) scalar0: f32,
+    @location(2) normal0: vec3<f32>,
+    @location(3) pos1: vec3<f32>,
+    @location(4) scalar1: f32,
+    @location(5) normal1: vec3<f32>,
+};
+
+@vertex
+fn vs_wide_line(@builtin(vertex_index) vi: u32, in: SegmentIn) -> VertexOut {
+    // (end, side) of the six corners of the quad.
+    var ends = array<f32, 6>(0.0, 1.0, 1.0, 0.0, 1.0, 0.0);
+    var sides = array<f32, 6>(-1.0, -1.0, 1.0, -1.0, 1.0, 1.0);
+    let t = ends[vi % 6u];
+    let side = sides[vi % 6u];
+    var a = node.view_proj * vec4<f32>(in.pos0, 1.0);
+    var b = node.view_proj * vec4<f32>(in.pos1, 1.0);
+    // Clip the segment to the space in front of the camera before going to pixels.
+    let near = 1e-5;
+    var ta = 0.0;
+    var tb = 1.0;
+    if (a.w < near && b.w >= near) {
+        ta = (near - a.w) / (b.w - a.w);
+    }
+    if (b.w < near && a.w >= near) {
+        tb = (near - a.w) / (b.w - a.w);
+    }
+    let a2 = mix(a, b, ta);
+    let b2 = mix(a, b, tb);
+    let half_px = node.viewport.xy * 0.5;
+    let sa = a2.xy / a2.w * half_px;
+    let sb = b2.xy / b2.w * half_px;
+    var d = sb - sa;
+    if (length(d) < 1e-6) {
+        d = vec2<f32>(1.0, 0.0);
+    }
+    d = normalize(d);
+    let n = vec2<f32>(-d.y, d.x);
+    let w = node.viewport.w * 0.5;
+    let f = mix(ta, tb, t);
+    var clip = mix(a2, b2, t);
+    let offset_px = n * side * w + d * (2.0 * t - 1.0) * w;
+    clip = vec4<f32>(clip.xy + offset_px / half_px * clip.w, clip.zw);
+    if (a.w < near && b.w < near) {
+        clip = vec4<f32>(0.0, 0.0, -1.0, 1.0); // behind the camera: nothing drawn
+    }
+    let pos = mix(in.pos0, in.pos1, f);
+    var out: VertexOut;
+    out.clip = clip;
+    out.world = pos;
+    out.normal = select(in.normal0, in.normal1, t > 0.5);
+    out.scalar = select(in.scalar0, in.scalar1, t > 0.5);
+    out.shadow = node.shadow_vp * vec4<f32>(pos, 1.0);
+    out.uv = vec2<f32>(0.0);
+    if (node.env.w > 0.5) {
+        out.uv = unpack2x16float(bitcast<u32>(out.scalar));
+    }
+    return out;
 }
 
 // ---- point sprites: 6 vertices per instance ----

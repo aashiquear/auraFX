@@ -853,7 +853,9 @@ fn surface_output(h: &HyperTreeGrid, pts: Vec<f64>, cells: Vec<Vec<u32>>, source
     let mut c = Cells::new();
     for cell in &cells {
         let ty = match (lines, cell.len()) {
-            (true, _) => CellType::Line,
+            (true, 2) => CellType::Line,
+            (true, _) => CellType::PolyLine,
+            (false, 3) => CellType::Triangle,
             (false, 4) => CellType::Quad,
             _ => CellType::Polygon,
         };
@@ -889,66 +891,554 @@ fn corners(v: &aurafx_data::htg::Visit, axes: &[usize]) -> Vec<[f64; 3]> {
         .collect()
 }
 
-/// Hyper Tree Grid Geometry, as VTK's vtkHyperTreeGridGeometry (without material interfaces):
-/// a line (1-D) or quad (2-D) per visible leaf; in 3-D the faces of visible leaves on the grid's
-/// boundary or next to masked cells, and the faces of masked cells next to a coarser visible
-/// leaf (carrying that leaf's values). Points are shared only within a cell, as in VTK.
-pub fn geometry(h: &HyperTreeGrid) -> Result<PolyData> {
+/// A cell's material interface (VTK's vtkHyperTreeGridGeometryImpl::ProbeForCellInterface):
+/// planes n.x + d = 0 with one normal; type -1: the material is on the positive side of plane
+/// A, 1: on the negative side of plane B, 0: between A and B.
+#[derive(Debug, Clone, Copy)]
+struct CellInterface {
+    kind: i32,
+    d: [f64; 2],
+    n: [f64; 3],
+}
+
+impl CellInterface {
+    fn dist_a(&self, p: [f64; 3]) -> f64 {
+        self.d[0] + self.n[0] * p[0] + self.n[1] * p[1] + self.n[2] * p[2]
+    }
+    fn dist_b(&self, p: [f64; 3]) -> f64 {
+        self.d[1] + self.n[0] * p[0] + self.n[1] * p[1] + self.n[2] * p[2]
+    }
+}
+
+/// The grid's interface arrays (normals, intercepts), when it declares them and they exist with
+/// three components.
+fn interface_arrays(h: &HyperTreeGrid) -> Option<(&Array, &Array)> {
+    let (n, i) = h.interface.as_ref()?;
+    let normals = h.cell_data.get(n)?;
+    let intercepts = h.cell_data.get(i)?;
+    (normals.ncomp == 3 && intercepts.ncomp == 3).then_some((normals, intercepts))
+}
+
+/// The interface of cell `g`, or None for a pure cell. With `invert`, a sandwich whose
+/// intercepts come in the wrong order is swapped (as VTK's 3-D geometry does).
+fn probe_interface(arrays: Option<(&Array, &Array)>, g: usize, invert: bool) -> Option<CellInterface> {
+    let (normals, intercepts) = arrays?;
+    if g >= intercepts.len() || g >= normals.len() {
+        return None;
+    }
+    let kind = intercepts.get(g, 2) as i32;
+    if kind >= 2 {
+        return None;
+    }
+    let n = [normals.get(g, 0), normals.get(g, 1), normals.get(g, 2)];
+    if n == [0.0; 3] {
+        return None;
+    }
+    let mut d = [intercepts.get(g, 0), intercepts.get(g, 1)];
+    if kind == 0 && invert && d[1] - d[0] < 0.0 {
+        d.swap(0, 1);
+    }
+    Some(CellInterface { kind, d, n })
+}
+
+/// Whether cell `g` has an interface (VTK's GetHasInterface, used for the neighbors in 3-D).
+fn has_interface(arrays: Option<(&Array, &Array)>, g: usize) -> bool {
+    let Some((normals, intercepts)) = arrays else { return false };
+    g < intercepts.len() && g < normals.len() && intercepts.get(g, 2) < 2.0 && (0..3).any(|k| normals.get(g, k) != 0.0)
+}
+
+/// Hyper Tree Grid Geometry, as VTK's vtkHyperTreeGridGeometry: a line (1-D) or quad (2-D) per
+/// visible leaf; in 3-D the faces of visible leaves on the grid's boundary or next to masked
+/// cells, and the faces of masked cells next to a coarser visible leaf (carrying that leaf's
+/// values). Points are shared only within a cell, as in VTK. With material interfaces (the
+/// grid's interface normal and intercept arrays), each mixed leaf is cut to its material: in
+/// 1-D and 2-D the part of the line or quad on the material's side of the planes, in 3-D the
+/// cut faces of the mixed cell and of its neighbors plus the interface polygons. Without
+/// `fill_material` pure leaves are left out in 1-D and 2-D, and in 2-D the cuts are lines.
+pub fn geometry(h: &HyperTreeGrid, fill_material: bool) -> Result<PolyData> {
+    Ok(geometry_with_sources(h, fill_material)?.0)
+}
+
+/// As `geometry`, also giving the global index of the cell each output cell comes from.
+pub fn geometry_with_sources(h: &HyperTreeGrid, fill_material: bool) -> Result<(PolyData, Vec<usize>)> {
     let axes = h.axes();
     let dim = axes.len();
     if dim == 0 {
         bail!("the hyper tree grid has no cells");
     }
-    let (mut pts, mut cells, mut sources) = (Vec::new(), Vec::new(), Vec::new());
+    let arrays = interface_arrays(h);
+    let (mut pts, mut cells, mut sources) = (Vec::<f64>::new(), Vec::<Vec<u32>>::new(), Vec::new());
+    let add_point = |pts: &mut Vec<f64>, p: [f64; 3]| -> u32 {
+        pts.extend_from_slice(&p);
+        (pts.len() / 3 - 1) as u32
+    };
     if dim < 3 {
+        let any_interface = h.interface.is_some() && arrays.is_some();
         h.walk(|v| {
-            if v.leaf && !v.masked {
-                let c = corners(v, &axes);
-                let order: &[usize] = if dim == 1 { &[0, 1] } else { &[0, 1, 3, 2] };
-                let base = (pts.len() / 3) as u32;
-                for &k in order {
-                    pts.extend_from_slice(&c[k]);
+            if !(v.leaf && !v.masked) {
+                return true;
+            }
+            let c = corners(v, &axes);
+            let order: &[usize] = if dim == 1 { &[0, 1] } else { &[0, 1, 3, 2] };
+            let cp: Vec<[f64; 3]> = order.iter().map(|&k| c[k]).collect();
+            let iface = if any_interface { probe_interface(arrays, v.global, false) } else { None };
+            let Some(ci) = iface else {
+                if !any_interface || fill_material {
+                    cells.push(cp.iter().map(|&p| add_point(&mut pts, p)).collect());
+                    sources.push(v.global);
                 }
-                cells.push((0..order.len() as u32).map(|k| base + k).collect());
+                return true;
+            };
+            let a: Vec<f64> = cp.iter().map(|&p| if ci.kind != 1 { ci.dist_a(p) } else { 0.0 }).collect();
+            let b: Vec<f64> = cp.iter().map(|&p| if ci.kind != -1 { ci.dist_b(p) } else { 0.0 }).collect();
+            // The crossing of an edge from p to q where the distances are u and w.
+            let cross = |p: [f64; 3], q: [f64; 3], u: f64, w: f64, only: Option<usize>| -> [f64; 3] {
+                let mut x = p;
+                for k in 0..3 {
+                    if only.is_none_or(|o| o == k) {
+                        x[k] = (w * p[k] - u * q[k]) / (w - u);
+                    }
+                }
+                x
+            };
+            let mut out: Vec<[f64; 3]> = Vec::new();
+            if dim == 1 {
+                let ax = Some(axes[0]);
+                let (p, q) = (cp[0], cp[1]);
+                if ci.kind == 0 {
+                    if a[0] >= 0.0 && b[0] <= 0.0 {
+                        out.push(p);
+                    }
+                    let xa = (a[0] * a[1] < 0.0).then(|| cross(p, q, a[0], a[1], ax));
+                    let xb = (b[0] * b[1] < 0.0).then(|| cross(p, q, b[0], b[1], ax));
+                    let k = axes[0];
+                    match (xa, xb) {
+                        (Some(xa), Some(xb)) => {
+                            if xa[k] > xb[k] {
+                                out.extend([xb, xa]);
+                            } else if xa[k] == xb[k] {
+                                out.push(xa);
+                            } else if xa[k] < xb[k] {
+                                out.extend([xa, xb]);
+                            }
+                        }
+                        (Some(xa), None) => out.push(xa),
+                        (None, Some(xb)) => out.push(xb),
+                        _ => {}
+                    }
+                    if a[1] >= 0.0 && b[1] <= 0.0 {
+                        out.push(q);
+                    }
+                } else {
+                    let (sign, d) = if ci.kind == 1 { (-1.0, &b) } else { (1.0, &a) };
+                    if sign * d[0] >= 0.0 {
+                        out.push(p);
+                    }
+                    if d[0] * d[1] < 0.0 {
+                        out.push(cross(p, q, d[0], d[1], ax));
+                    }
+                    if sign * d[1] >= 0.0 {
+                        out.push(q);
+                    }
+                }
+                // (VTK adds the cell even when nothing of it is in the material.)
+                cells.push(out.iter().map(|&p| add_point(&mut pts, p)).collect());
+                sources.push(v.global);
+                return true;
+            }
+            let (ax1, ax2) = (axes[0], axes[1]);
+            for i in 0..4 {
+                let ni = (i + 1) % 4;
+                let (p, q) = (cp[i], cp[ni]);
+                if ci.kind == 0 {
+                    if a[i] >= 0.0 && b[i] <= 0.0 {
+                        out.push(p);
+                    }
+                    let xa = (a[i] * a[ni] < 0.0).then(|| cross(p, q, a[i], a[ni], None));
+                    let xb = (b[i] * b[ni] < 0.0).then(|| cross(p, q, b[i], b[ni], None));
+                    match (xa, xb) {
+                        (Some(xa), Some(xb)) => {
+                            // Ordered along the edge's direction of travel.
+                            let (k, forward) = match i {
+                                0 => (ax1, true),
+                                1 => (ax2, true),
+                                2 => (ax1, false),
+                                _ => (ax2, false),
+                            };
+                            let (lo, hi) = if forward { (xa[k] > xb[k], xa[k] < xb[k]) } else { (xa[k] < xb[k], xa[k] > xb[k]) };
+                            if lo {
+                                out.extend([xb, xa]);
+                            } else if xa[k] == xb[k] {
+                                out.push(xa);
+                            } else if hi {
+                                out.extend([xa, xb]);
+                            }
+                        }
+                        (Some(xa), None) => out.push(xa),
+                        (None, Some(xb)) => out.push(xb),
+                        _ => {}
+                    }
+                } else {
+                    let (sign, d) = if ci.kind == 1 { (-1.0, &b) } else { (1.0, &a) };
+                    if fill_material && sign * d[i] >= 0.0 {
+                        out.push(p);
+                    }
+                    if d[i] * d[ni] < 0.0 {
+                        out.push(cross(p, q, d[i], d[ni], None));
+                    }
+                }
+            }
+            if !out.is_empty() {
+                cells.push(out.iter().map(|&p| add_point(&mut pts, p)).collect());
                 sources.push(v.global);
             }
             true
         });
-        return Ok(surface_output(h, pts, cells, sources, dim == 1));
+        let src = sources.clone();
+        return Ok((surface_output(h, pts, cells, sources, dim == 1 || !fill_material), src));
     }
-    // Each face's corners in VTK's output order (it walks the face's edges).
-    const FACE_PTS: [[usize; 4]; 6] = [[0, 2, 3, 1], [0, 1, 5, 4], [0, 4, 6, 2], [1, 3, 7, 5], [2, 6, 7, 3], [4, 5, 7, 6]];
-    // Face neighbors (-z, -y, -x, +x, +y, +z) in the 3x3x3 neighborhood.
-    const FACE_NEIGHBOR: [usize; 6] = [4, 10, 12, 14, 16, 22];
     let cur = Cursors::new(h);
     h.walk(|v| {
         if !v.leaf && !v.masked {
             return true;
         }
         let nb = cur.neighborhood(v);
-        let c = corners(v, &axes);
-        let mut ids: [Option<u32>; 8] = [None; 8];
+        let iface = probe_interface(arrays, v.global, true);
+        let mut cell = Cell3::new(iface, corners(v, &axes));
         for (f, &n) in FACE_NEIGHBOR.iter().enumerate() {
             let x = nb[n];
-            let emit = if !v.masked { x.is_none_or(|x| x.masked) } else { x.is_some_and(|x| x.leaf && x.level < v.depth && !x.masked) };
+            let x_iface = x.is_some_and(|x| has_interface(arrays, x.global));
+            let emit = if !v.masked {
+                x.is_none_or(|x| x.masked) || iface.is_some() || x_iface
+            } else {
+                x.is_some_and(|x| x.leaf && x.level < v.depth && !x.masked)
+            };
             if !emit {
                 continue;
             }
-            let face: Vec<u32> = FACE_PTS[f]
-                .iter()
-                .map(|&k| {
-                    *ids[k].get_or_insert_with(|| {
-                        pts.extend_from_slice(&c[k]);
-                        (pts.len() / 3 - 1) as u32
-                    })
-                })
-                .collect();
-            cells.push(face);
-            sources.push(if v.masked { x.unwrap().global } else { v.global });
+            if let Some(face) = cell.face(f, &mut pts) {
+                cells.push(face);
+                sources.push(if v.masked { x.unwrap().global } else { v.global });
+            }
+        }
+        for poly in cell.interface_polygons() {
+            cells.push(poly);
+            sources.push(v.global);
         }
         true
     });
-    Ok(surface_output(h, pts, cells, sources, false))
+    let src = sources.clone();
+    Ok((surface_output(h, pts, cells, sources, false), src))
+}
+
+// VTK's 3-D tables (vtkHyperTreeGridGeometry3DImpl): corner k has bit 0 along x, 1 along y,
+// 2 along z.
+const FACE_PTS: [[usize; 4]; 6] = [[0, 1, 3, 2], [0, 4, 5, 1], [0, 2, 6, 4], [1, 3, 7, 5], [2, 6, 7, 3], [4, 5, 7, 6]];
+const FACE_EDGES: [[usize; 4]; 6] = [[1, 5, 3, 0], [0, 4, 8, 2], [2, 9, 6, 1], [3, 7, 10, 4], [6, 11, 7, 5], [8, 10, 11, 9]];
+const EDGE_PTS: [(usize, usize); 12] = [(0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3), (2, 6), (3, 7), (4, 5), (4, 6), (5, 7), (6, 7)];
+const EDGE_AXIS: [usize; 12] = [0, 1, 2, 1, 2, 0, 2, 2, 0, 1, 1, 0];
+/// Face neighbors (-z, -y, -x, +x, +y, +z) in the 3x3x3 neighborhood.
+const FACE_NEIGHBOR: [usize; 6] = [4, 10, 12, 14, 16, 22];
+const NO_EDGE: usize = 42;
+
+/// A point of a 3-D cell being cut (VTK's HTG3DPoint): copied by value as in VTK, so a point
+/// copied before it got an output id gets one of its own later.
+#[derive(Debug, Clone, Copy, Default)]
+struct P3 {
+    x: [f64; 3],
+    valid: bool,
+    id: Option<u32>,
+    has_a: bool,
+    has_b: bool,
+    da: f64,
+    db: f64,
+}
+
+/// Where an interface polygon's point lives: (edge slot, second of the pair).
+type Slot = (usize, bool);
+
+/// One 3-D cell's faces and interface polygons (VTK's GenerateCellSurface state).
+struct Cell3 {
+    iface: Option<CellInterface>,
+    corner_x: Vec<[f64; 3]>,
+    corners: [P3; 8],
+    /// 12 edges, then 8 corner slots (for interfaces through corners).
+    edges: [(P3, P3); 20],
+    /// Interface A and B: edge slot -> (point slot, next edge slot); an absent slot reads as
+    /// VTK's default-made entry (no point, next 0).
+    faces: [std::collections::BTreeMap<usize, (Option<Slot>, usize)>; 2],
+}
+
+impl Cell3 {
+    fn new(iface: Option<CellInterface>, corner_x: Vec<[f64; 3]>) -> Self {
+        Cell3 { iface, corner_x, corners: [P3::default(); 8], edges: [(P3::default(), P3::default()); 20], faces: Default::default() }
+    }
+    fn kind(&self) -> i32 {
+        self.iface.map(|i| i.kind).unwrap_or(2)
+    }
+    fn set_xyz(&self, x: [f64; 3]) -> P3 {
+        let mut p = P3 { x, valid: true, ..Default::default() };
+        if let Some(i) = self.iface {
+            if i.kind != 1 {
+                p.has_a = true;
+                p.da = i.dist_a(x);
+            }
+            if i.kind != -1 {
+                p.has_b = true;
+                p.db = i.dist_b(x);
+            }
+        }
+        p
+    }
+    fn set_intersect(&self, x: [f64; 3], is_a: bool) -> P3 {
+        let mut p = P3 { x, valid: true, ..Default::default() };
+        let i = self.iface;
+        if is_a {
+            p.has_a = true;
+            p.da = 0.0;
+            if let Some(i) = i.filter(|i| i.kind != -1) {
+                p.has_b = true;
+                p.db = i.dist_b(x);
+            }
+        } else {
+            p.has_b = true;
+            p.db = 0.0;
+            if let Some(i) = i.filter(|i| i.kind != 1) {
+                p.has_a = true;
+                p.da = i.dist_a(x);
+            }
+        }
+        p
+    }
+    fn inside(&self, p: &P3) -> bool {
+        if !p.valid {
+            return false;
+        }
+        match self.kind() {
+            -1 => !(p.has_a && p.da < 0.0),
+            0 => !(p.da > 0.0 || p.db < 0.0),
+            1 => !(p.has_b && p.db > 0.0),
+            _ => true,
+        }
+    }
+    fn slot(&mut self, s: Slot) -> &mut P3 {
+        if s.1 {
+            &mut self.edges[s.0].1
+        } else {
+            &mut self.edges[s.0].0
+        }
+    }
+    fn set_interface_face(&mut self, f: usize, edge: usize, s: Slot) {
+        self.faces[f].entry(edge).or_insert((Some(s), NO_EDGE));
+    }
+    fn next(&mut self, f: usize, e: usize) -> usize {
+        self.faces[f].entry(e).or_insert((None, 0)).1
+    }
+    fn set_next(&mut self, f: usize, e: usize, n: usize) {
+        self.faces[f].entry(e).or_insert((None, 0)).1 = n;
+    }
+    /// VTK's CompleteLinkage: link edge slots e1 -> e2 in interface `f`.
+    fn link(&mut self, f: usize, e1: usize, e2: usize) {
+        if e1 == NO_EDGE || e2 == NO_EDGE || e1 == e2 {
+            return;
+        }
+        let (n1, n2) = (self.next(f, e1), self.next(f, e2));
+        if n1 == NO_EDGE {
+            if n2 == NO_EDGE || n2 != e1 {
+                self.set_next(f, e1, e2);
+            }
+        } else if n2 == NO_EDGE {
+            self.set_next(f, e2, e1);
+        } else if n2 != e1 {
+            // Reverse the chain from e1, then link its old end (now e1's place) to e2.
+            let mut chain = vec![e1];
+            let mut next = self.next(f, e1);
+            let mut guard = 0;
+            while next != NO_EDGE && guard < 64 {
+                chain.push(next);
+                next = self.next(f, next);
+                guard += 1;
+            }
+            let mut current = NO_EDGE;
+            for &c in chain.iter().rev() {
+                if current == NO_EDGE {
+                    current = c;
+                } else {
+                    self.set_next(f, current, c);
+                    current = c;
+                }
+            }
+            self.set_next(f, current, e2);
+        }
+    }
+    /// VTK's ComputeEdgeInterface: Some(()) when the interface lies along the edge (handled
+    /// here); otherwise the crossing point (invalid if none) and its edge slot.
+    fn edge_interface(&mut self, p: P3, q: P3, axis: usize, edge: usize, is_a: bool, at: &mut usize) -> Result<P3, ()> {
+        let f = if is_a { 0 } else { 1 };
+        let (u, w) = if is_a { (p.da, q.da) } else { (p.db, q.db) };
+        if u == 0.0 {
+            if w == 0.0 {
+                let e1 = EDGE_PTS[edge].0 + 12;
+                self.edges[e1].0 = p;
+                self.edges[e1].1.valid = false;
+                self.set_interface_face(f, e1, (e1, false));
+                let e2 = EDGE_PTS[edge].1 + 12;
+                self.edges[e2].0 = q;
+                self.edges[e2].1.valid = false;
+                self.set_interface_face(f, e2, (e2, false));
+                self.link(f, e1, e2);
+                return Err(());
+            }
+            *at = EDGE_PTS[edge].0 + 12;
+            return Ok(p);
+        }
+        if w == 0.0 {
+            *at = EDGE_PTS[edge].1 + 12;
+            return Ok(q);
+        }
+        if u * w < 0.0 {
+            let mut x = p.x;
+            x[axis] = (w * p.x[axis] - u * q.x[axis]) / (w - u);
+            let mut r = self.set_intersect(x, is_a);
+            if r.x[axis] == p.x[axis] || r.x[axis] == q.x[axis] {
+                r.valid = false;
+            }
+            *at = edge;
+            return Ok(r);
+        }
+        Ok(P3::default())
+    }
+    /// VTK's ComputeEdge.
+    fn edge(&mut self, p: P3, q: P3, axis: usize, edge: usize, cur: &mut [usize; 2]) {
+        let (mut ea, mut eb) = (edge, edge);
+        let mut pa = P3::default();
+        let mut pb = P3::default();
+        if p.has_a {
+            match self.edge_interface(p, q, axis, edge, true, &mut ea) {
+                Err(()) => return,
+                Ok(x) => pa = x,
+            }
+        }
+        if p.has_b {
+            match self.edge_interface(p, q, axis, edge, false, &mut eb) {
+                Err(()) => return,
+                Ok(x) => pb = x,
+            }
+        }
+        let put = |c: &mut Self, f: usize, slot: Slot, val: P3, cur: &mut [usize; 2]| {
+            *c.slot(slot) = val;
+            c.set_interface_face(f, slot.0, slot);
+            c.link(f, cur[f], slot.0);
+            cur[f] = slot.0;
+        };
+        if pa.valid {
+            if pb.valid {
+                if pa.x[axis] < pb.x[axis] {
+                    if edge == ea && edge == eb {
+                        put(self, 0, (edge, false), pa, cur);
+                        put(self, 1, (edge, true), pb, cur);
+                    } else {
+                        put(self, 0, (ea, false), pa, cur);
+                        put(self, 1, (eb, true), pb, cur);
+                    }
+                }
+                if pa.x[axis] > pb.x[axis] {
+                    if edge == ea && edge == eb {
+                        put(self, 1, (edge, false), pb, cur);
+                        put(self, 0, (edge, true), pa, cur);
+                    } else {
+                        self.edges[ea].0 = pa;
+                        self.edges[ea].1.valid = false;
+                        self.set_interface_face(0, ea, (ea, false));
+                        self.link(0, cur[0], ea);
+                        cur[0] = ea;
+                        self.edges[eb].1 = pb;
+                        self.edges[eb].1.valid = false;
+                        self.set_interface_face(1, eb, (eb, true));
+                        self.link(1, cur[1], eb);
+                        cur[1] = eb;
+                    }
+                }
+            } else {
+                put(self, 0, (ea, false), pa, cur);
+            }
+        } else if pb.valid {
+            put(self, 1, (eb, false), pb, cur);
+        }
+    }
+    /// VTK's GenerateOneCellFace: the face's corners and interface crossings that are in the
+    /// material, or None when fewer than three remain.
+    fn face(&mut self, f: usize, pts: &mut Vec<f64>) -> Option<Vec<u32>> {
+        for &k in &FACE_PTS[f] {
+            if !self.corners[k].valid {
+                self.corners[k] = self.set_xyz(self.corner_x[k]);
+            }
+        }
+        let mut out: Vec<u32> = Vec::new();
+        let mut last: Option<u32> = None;
+        let mut cur = [NO_EDGE; 2];
+        for e in 0..4 {
+            let fe = FACE_EDGES[f][e];
+            let (a, b) = EDGE_PTS[fe];
+            let (p, q) = (self.corners[a], self.corners[b]);
+            self.edge(p, q, EDGE_AXIS[fe], fe, &mut cur);
+            let order: [(bool, usize, bool); 3] = if e < 2 { [(true, a, false), (false, fe, false), (false, fe, true)] } else { [(true, b, false), (false, fe, true), (false, fe, false)] };
+            for (is_corner, i, second) in order {
+                let pt = if is_corner { self.corners[i] } else if second { self.edges[i].1 } else { self.edges[i].0 };
+                if !pt.valid {
+                    continue;
+                }
+                let mut id = None;
+                if self.inside(&pt) {
+                    let target = if is_corner { &mut self.corners[i] } else if second { &mut self.edges[i].1 } else { &mut self.edges[i].0 };
+                    id = Some(*target.id.get_or_insert_with(|| {
+                        pts.extend_from_slice(&target.x);
+                        (pts.len() / 3 - 1) as u32
+                    }));
+                }
+                if let Some(id) = id {
+                    if Some(id) != last {
+                        out.push(id);
+                        last = Some(id);
+                    }
+                }
+            }
+        }
+        (out.len() > 2).then_some(out)
+    }
+    /// The interface polygons (A, then B) from the linked crossing points. Points that never
+    /// got an output id are skipped (VTK writes id -1 there).
+    fn interface_polygons(&self) -> Vec<Vec<u32>> {
+        let mut polys = Vec::new();
+        for f in 0..2 {
+            let m = &self.faces[f];
+            if m.len() < 3 {
+                continue;
+            }
+            let Some((&first, _)) = m.iter().next() else { continue };
+            if first == NO_EDGE {
+                continue;
+            }
+            let get = |e: usize| m.get(&e).copied().unwrap_or((None, 0));
+            let id_of = |s: Option<Slot>| s.and_then(|s| if s.1 { self.edges[s.0].1.id } else { self.edges[s.0].0.id });
+            let mut ids: Vec<Option<u32>> = vec![id_of(get(first).0)];
+            let mut next = get(first).1;
+            let mut guard = 0;
+            while next != first && next != NO_EDGE && guard < 64 {
+                ids.push(id_of(get(next).0));
+                next = get(next).1;
+                guard += 1;
+            }
+            if next == NO_EDGE || guard >= 64 {
+                continue;
+            }
+            let ids: Vec<u32> = ids.into_iter().flatten().collect();
+            if !ids.is_empty() {
+                polys.push(ids);
+            }
+        }
+        polys
+    }
 }
 
 /// Hyper Tree Grid Feature Edges, as VTK's vtkHyperTreeGridFeatureEdges: the edges of the

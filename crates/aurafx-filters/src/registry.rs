@@ -1815,10 +1815,11 @@ fn build() -> Vec<FilterDef> {
             ext: None,
             temporal: None,
             multi: None,
-            params: vec![],
-            apply: |input, _| {
+            params: vec![b("fill_material", "Fill material", true)
+                .help("With material interfaces: draw the material's part of each cell (off: only the interface lines in 2-D; pure cells left out in 1-D and 2-D).")],
+            apply: |input, p| {
                 per_leaf(input.unwrap(), &|d| match d {
-                    DataSet::HyperTreeGrid(h) => Ok(DataSet::PolyData(crate::htg::geometry(h)?)),
+                    DataSet::HyperTreeGrid(h) => Ok(DataSet::PolyData(crate::htg::geometry(h, p.bool("fill_material", true))?)),
                     other => Err(anyhow::anyhow!("this filter needs a hyper tree grid, not {}", other.type_name())),
                 })
             },

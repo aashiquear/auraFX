@@ -409,6 +409,19 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
     if let DataSet::CellGrid(g) = ds {
         return tessellate(&DataSet::UnstructuredGrid(g.to_unstructured()), display);
     }
+    // Hyper tree grids with material interfaces are drawn cut to their material, as ParaView
+    // draws them (through Hyper Tree Grid Geometry).
+    if let DataSet::HyperTreeGrid(h) = ds {
+        if h.interface.is_some() && !matches!(display.representation, Representation::Volume | Representation::Outline) {
+            if let Ok((mut pd, sources)) = aurafx_filters::htg::geometry_with_sources(h, true) {
+                // Picking and selection number the visible leaves (as the leaf mesh does).
+                let leaf_of: std::collections::HashMap<usize, usize> = h.leaves_mesh().1.into_iter().enumerate().map(|(i, g)| (g, i)).collect();
+                let ids: Vec<i64> = sources.iter().map(|g| leaf_of.get(g).map(|&i| i as i64).unwrap_or(0)).collect();
+                pd.cell_data.insert(aurafx_data::Array::new("vtkOriginalCellIds", 1, aurafx_data::ArrayData::I64(ids)));
+                return tessellate(&DataSet::PolyData(pd), display);
+            }
+        }
+    }
     let bounds = ds.bounds();
     let origin = if bounds.is_empty() { [0.0; 3] } else { bounds.center() };
     let mut mesh = MeshData { bounds, origin, ..Default::default() };

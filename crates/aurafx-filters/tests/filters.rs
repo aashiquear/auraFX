@@ -1763,3 +1763,60 @@ fn cell_grid_compute_sides_matches_paraview() {
     }
     assert!(checked > 1000, "{checked} sides checked");
 }
+
+/// Hyper Tree Grid Geometry with material interfaces against ParaView 6.1.1
+/// (testdata/htg/interface_*.htg and interface_reference.json from
+/// scripts/htg_interface_reference.py): grids in 1-D, 2-D (masked, branch factor 3) and 3-D
+/// (masked) whose cells crossing a spherical shell carry one- or two-plane interfaces; with
+/// Fill Material on and off, every output cell in order: its type, the cell it comes from and
+/// its points (the same point numbering, so points are shared exactly as in VTK).
+#[test]
+fn hyper_tree_grid_interfaces_match_paraview() {
+    use serde_json::{json, Value};
+    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/interface_reference.json")).unwrap()).unwrap();
+    let mut checked = 0;
+    for (key, want) in reference.as_object().unwrap() {
+        let (name, fill) = key.split_once('#').unwrap();
+        let grid = td(&format!("htg/interface_{name}.htg"));
+        let DataSet::HyperTreeGrid(h) = &grid else { panic!("{name}") };
+        assert!(h.interface.is_some(), "{name}: interface arrays read");
+        let out = run("hyper_tree_grid_geometry", Some(&grid), &[("fill_material", json!(fill == "1"))]);
+        let DataSet::PolyData(pd) = &out else { panic!() };
+        let cells = if pd.lines.is_empty() { &pd.polys } else { &pd.lines };
+        let wpts = want["points"].as_array().unwrap();
+        let wcells = want["cells"].as_array().unwrap();
+        assert_eq!(pd.points.len(), wpts.len(), "{key} points");
+        assert_eq!(cells.len(), wcells.len(), "{key} cells");
+        let gid = pd.cell_data.get("gid").unwrap();
+        for (i, w) in wcells.iter().enumerate() {
+            let ids: Vec<u32> = w[0].as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u32).collect();
+            assert_eq!(cells.cell(i), &ids[..], "{key} cell {i} points");
+            assert_eq!(gid.get(i, 0) as i64, w[1].as_i64().unwrap(), "{key} cell {i} source");
+            assert_eq!(cells.cell_type(i) as u64, w[2].as_u64().unwrap(), "{key} cell {i} type");
+            checked += 1;
+        }
+        for (j, w) in wpts.iter().enumerate() {
+            let p = pd.points.get(j);
+            for k in 0..3 {
+                let x = w[k].as_f64().unwrap();
+                // ParaView's output points are single precision.
+                assert!((p[k] - x).abs() <= 1e-6 * (1.0 + x.abs()), "{key} point {j}: {p:?} vs {w}");
+            }
+        }
+        // In 3-D Fill Material changes nothing.
+        if h.dimension() == 3 {
+            let other = run("hyper_tree_grid_geometry", Some(&grid), &[("fill_material", json!(false))]);
+            assert_eq!(other, out, "{key}");
+        }
+        // Saving keeps the interface.
+        let path = std::env::temp_dir().join(format!("aurafx_iface_{}_{name}.htg", std::process::id()));
+        aurafx_io::writers::write_file(&grid, &path).unwrap();
+        let back = match aurafx_io::read_file(&path).unwrap() {
+            aurafx_io::Loaded::Static(d) => (*d).clone(),
+            _ => panic!(),
+        };
+        std::fs::remove_file(&path).ok();
+        assert_eq!(run("hyper_tree_grid_geometry", Some(&back), &[("fill_material", json!(fill == "1"))]), out, "{key} written");
+    }
+    assert!(checked > 3000, "{checked}");
+}

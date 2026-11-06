@@ -1049,6 +1049,13 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.add(egui::Slider::new(&mut d.opacity, 0.0..=1.0));
                     ui.end_row();
                 }
+                if matches!(d.representation, Representation::Wireframe | Representation::SurfaceWithEdges | Representation::Outline)
+                    || info.as_ref().is_some_and(|i| i.kind == "Polygonal Mesh")
+                {
+                    ui.label("Line width");
+                    ui.add(egui::Slider::new(&mut d.line_width, 1.0..=10.0).suffix(" px")).on_hover_text("Width of lines, wireframes and cell edges in pixels");
+                    ui.end_row();
+                }
                 if matches!(d.representation, Representation::Points) || info.as_ref().map(|i| i.n_cells == 0 || i.kind == "Polygonal Mesh").unwrap_or(false) {
                     ui.label("Point size");
                     ui.horizontal(|ui| {

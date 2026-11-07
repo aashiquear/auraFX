@@ -34,6 +34,7 @@ and value ranges on the same files. The comparisons are listed in the verificati
 | GIS rasters | GeoTIFF `.tif`, Esri ASCII grid `.asc` | at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below |
 | GIS vectors | Shapefile `.shp`, GeoJSON `.geojson .json`, KML `.kml`, KMZ `.kmz`, GeoPackage `.gpkg`, FlatGeobuf `.fgb`, GML `.gml` | points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below |
 | EBSD maps and microstructures | TSL/EDAX `.ang`, Oxford `.ctf`, `.h5ebsd` stacks, EDAX and Bruker `.h5`, `.dream3d` | crystal orientations on a square grid with phases and quality columns; voxel volumes and meshes with feature and phase arrays; see [Grains and crystals](grains.md) |
+| SPPARKS sites | `.spparks`, `.sites`; lattice text dumps (`id i1 x y z`) | a site file without a `Sites` section (a lattice filling its box) and a dump of every site of a lattice open as a volume with `FeatureIds` (from `i1`); a site file with coordinates opens as points |
 | Surfaces | `.stl .ply .obj` | |
 | CSV / TSV | `.csv .tsv .txt` | delimiter and header detection; tables with x, y, z columns become points |
 
@@ -645,7 +646,9 @@ mesh, so curved cells come out straight.
 | EnSight Gold | `.case` | C binary; one part per block (image, rectilinear and structured grids as blocks, the rest as elements of every standard type, polygons and polyhedra); every time step with `all_times=True`, the geometry written once when it does not change |
 | CGNS | `.cgns` | HDF5 storage (CGNS 4): a zone per block, image/rectilinear/structured grids as structured zones, the rest as one element section (MIXED when the cell types differ) plus NGON/NFACE for polygons and polyhedra; vectors as `NameX/NameY/NameZ`; with `all_times=True` one solution per step (and coordinates per step when the points move), but the cells must stay the same |
 | Xdmf 3 | `.xmf` + `.h5` | the description in the `.xmf`, the arrays in an HDF5 file beside it; block trees as spatial collections, time steps as a temporal collection that shares unchanged points and cells |
-| Grain orientations | `.tex` | φ1 Φ φ2 in degrees, one line per grain in order of grain id (meshes with grains from Assign Grains or Overlay Mesh) |
+| Grain orientations | `.tex` | four header lines (the fourth `B N`), then one line per grain id from 1: φ1 Φ φ2 in degrees and a weight of 1 (meshes with grains from Assign Grains or Overlay Mesh); grains without elements get 0 0 0 |
+| Microstructure files | `.dream3d` | volumes (an image geometry), point sets and meshes of one element type (vertex, edge, triangle, quad, tetrahedral, hexahedral geometries) with their cell, vertex, feature and phase arrays; multiblocks as one data container per block; the pipeline that made the data is recorded in the file (see [Grains and crystals](grains.md#pipelines-in-dream3d-files)) |
+| SPPARKS sites | `.spparks` | the `FeatureIds` of a volume as the `Values` of a simple-cubic lattice filling the box, x fastest |
 | CSV, STL, PLY | | a multiblock of surfaces saved as `name.stl` writes one file per block, `name_<block>.stl` (Feature Surfaces gives one per grain) |
 | Scenes | `.glb .obj .x3d .wrl` | see [Exporting](exporting.md) |
 | Pictures | `.png .svg`, GIF/MP4 animations | see [Exporting](exporting.md) |

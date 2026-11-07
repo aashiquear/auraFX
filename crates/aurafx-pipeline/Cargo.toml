@@ -17,5 +17,6 @@ tracing.workspace = true
 parking_lot.workspace = true
 glam.workspace = true
 aurafx-jobs.workspace = true
+aurafx-crystal.workspace = true
 postcard = { version = "1.1", features = ["use-std"] }
 lz4_flex = "0.14"

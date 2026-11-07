@@ -12,6 +12,9 @@ pub struct Template {
     pub default_exe: &'static str,
     pub default_input: &'static str,
     pub outputs: &'static str,
+    /// Templates that write their input files from the selected pipeline data: the case kind
+    /// (moose, spparks, pinnacle).
+    pub case: Option<&'static str>,
 }
 
 pub const TEMPLATES: &[Template] = &[
@@ -24,6 +27,7 @@ pub const TEMPLATES: &[Template] = &[
         default_exe: "lmp",
         default_input: "in.lammps",
         outputs: "*.dump *.lammpstrj dump.*",
+        case: None,
     },
     Template {
         id: "moose",
@@ -34,6 +38,40 @@ pub const TEMPLATES: &[Template] = &[
         default_exe: "./myapp-opt",
         default_input: "input.i",
         outputs: "*_out.e *.e",
+        case: None,
+    },
+    Template {
+        id: "moose_polycrystal",
+        label: "MOOSE polycrystal",
+        description: "Crystal plasticity of a grain mesh (Assign Grains): writes the mesh with one block per grain, the grain orientations, the slip systems and the input file from the selected data, then runs a MOOSE application with the solid mechanics module.",
+        command: "mpiexec -n {np} {exe} -i {input}",
+        gpu_command: "mpiexec -n {np} {exe} -i {input}",
+        default_exe: "solid_mechanics-opt",
+        default_input: "polycrystal.i",
+        outputs: "polycrystal_out.e",
+        case: Some("moose"),
+    },
+    Template {
+        id: "spparks",
+        label: "SPPARKS grain growth",
+        description: "Potts-model grain growth of a microstructure volume: writes the site file and the input from the selected data; the snapshots (dump.potts) open as volumes.",
+        command: "mpirun -np {np} {exe} -in {input}",
+        gpu_command: "mpirun -np {np} {exe} -in {input}",
+        default_exe: "spk_mpi",
+        default_input: "in.potts",
+        outputs: "dump.potts",
+        case: Some("spparks"),
+    },
+    Template {
+        id: "pinnacle",
+        label: "PINNACLE crystal plasticity",
+        description: "Dislocation-density crystal plasticity of a grain mesh: writes the Exodus mesh, the orientation point file and the input deck from the selected data; the field snapshots open as a time series.",
+        command: "{exe} run {input}",
+        gpu_command: "{exe} run {input}",
+        default_exe: "pinnacle",
+        default_input: "case.i",
+        outputs: "solver/fields.pvd",
+        case: Some("pinnacle"),
     },
     Template {
         id: "openfoam",
@@ -44,6 +82,7 @@ pub const TEMPLATES: &[Template] = &[
         default_exe: "foamRun",
         default_input: "",
         outputs: "VTK/*.vtm VTK/*.vtk",
+        case: None,
     },
     Template {
         id: "python",
@@ -54,6 +93,7 @@ pub const TEMPLATES: &[Template] = &[
         default_exe: "python3",
         default_input: "pipeline.py",
         outputs: "*.vtu *.vtk *.csv",
+        case: None,
     },
     Template {
         id: "shell",
@@ -64,6 +104,7 @@ pub const TEMPLATES: &[Template] = &[
         default_exe: "./run.sh",
         default_input: "",
         outputs: "",
+        case: None,
     },
 ];
 

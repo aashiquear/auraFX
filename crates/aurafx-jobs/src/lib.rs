@@ -269,6 +269,10 @@ pub struct JobSpec {
     /// Create the working directory before running (used by sweeps).
     #[serde(default)]
     pub create_workdir: bool,
+    /// Local files copied into the working directory before the run (uploaded to remote hosts):
+    /// the input files of a simulation case.
+    #[serde(default)]
+    pub inputs: Vec<PathBuf>,
 }
 
 impl JobSpec {
@@ -284,6 +288,7 @@ impl JobSpec {
             outputs: String::new(),
             auto_load: false,
             create_workdir: false,
+            inputs: Vec::new(),
         }
     }
 
@@ -370,6 +375,8 @@ pub struct Job {
     pub outputs: Vec<PathBuf>,
     /// Set when outputs are ready for the UI to auto-load; the UI clears it.
     pub outputs_pending_load: bool,
+    /// The run has ended and its result files are collected.
+    pub settled: bool,
 }
 
 impl Job {
@@ -442,6 +449,7 @@ pub fn submit(jobs: &SharedJobs, spec: JobSpec) -> JobId {
             child: None,
             outputs: vec![],
             outputs_pending_load: false,
+            settled: false,
         });
         m.revision += 1;
         id
@@ -450,10 +458,10 @@ pub fn submit(jobs: &SharedJobs, spec: JobSpec) -> JobId {
     std::thread::Builder::new()
         .name(format!("aurafx-job-{id}"))
         .spawn(move || {
-            let r = match &spec.scheduler {
+            let r = stage_inputs(&jobs2, id, &spec).and_then(|_| match &spec.scheduler {
                 Scheduler::Direct => run_direct(&jobs2, id, &spec),
                 Scheduler::Slurm { partition, time, nodes, tasks, extra } => run_slurm(&jobs2, id, &spec, partition, time, *nodes, *tasks, extra),
-            };
+            });
             if let Err(e) = r {
                 push_log(&jobs2, id, format!("[auraFX] error: {e:#}"));
                 set_state(&jobs2, id, JobState::Failed(format!("{e:#}")));
@@ -474,6 +482,31 @@ fn stream(jobs: &SharedJobs, id: JobId, r: impl std::io::Read + Send + 'static, 
             }
         }
     })
+}
+
+/// Copy (or upload) the job's input files into its working directory.
+fn stage_inputs(jobs: &SharedJobs, id: JobId, spec: &JobSpec) -> Result<()> {
+    if spec.inputs.is_empty() {
+        return Ok(());
+    }
+    if spec.host.is_local() {
+        let dir = PathBuf::from(shellexpand(&spec.workdir));
+        std::fs::create_dir_all(&dir)?;
+        for f in &spec.inputs {
+            let dest = dir.join(f.file_name().unwrap_or_default());
+            if std::fs::canonicalize(f).ok() != std::fs::canonicalize(&dest).ok() {
+                std::fs::copy(f, &dest).with_context(|| format!("copying {} to {}", f.display(), dir.display()))?;
+            }
+        }
+        return Ok(());
+    }
+    spec.host.run_capture(&format!("mkdir -p {}", shell_quote(&spec.workdir)), Duration::from_secs(60))?;
+    for f in &spec.inputs {
+        let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        push_log(jobs, id, format!("[auraFX] uploading {name}"));
+        spec.host.upload(f, &format!("{}/{name}", spec.workdir.trim_end_matches('/')))?;
+    }
+    Ok(())
 }
 
 fn run_direct(jobs: &SharedJobs, id: JobId, spec: &JobSpec) -> Result<()> {
@@ -572,6 +605,15 @@ fn run_slurm(jobs: &SharedJobs, id: JobId, spec: &JobSpec, partition: &str, time
 
 /// Find output files matching the spec's glob; for remote hosts copy them into a local cache.
 fn collect_outputs(jobs: &SharedJobs, id: JobId, spec: &JobSpec) {
+    collect_output_files(jobs, id, spec);
+    let mut m = jobs.lock();
+    if let Some(j) = m.jobs.iter_mut().find(|j| j.id == id) {
+        j.settled = true;
+    }
+    m.revision += 1;
+}
+
+fn collect_output_files(jobs: &SharedJobs, id: JobId, spec: &JobSpec) {
     if spec.outputs.trim().is_empty() {
         return;
     }

@@ -398,6 +398,21 @@ Boundaries against a brute-force distance.
   pinn-cp-pfd-benchmark study for its h40 plate with a hole (860 elements, 30 grains) exactly,
   from the study's own point file (testdata/benchmark). Voronoi assignment matches a brute-force
   nearest-seed search for every element.
+- `.dream3d` files written by auraFX (an image volume with cell, feature and ensemble
+  arrays; a triangle surface mesh with vertex, face and face-feature arrays) were read with
+  h5py in ParaView 6.1.1's Python: the layout (`_SIMPL_GEOMETRY`, attribute matrix types,
+  `ObjectType`, `TupleDimensions`, `ComponentDimensions`) and the `/Pipeline/Pipeline` JSON
+  read as written; auraFX reads them back with every array equal.
+- The AM Bench serial-section pipeline (71 steps, `testdata/dream3d/am_bench_pipeline.json`)
+  imports as 27 auraFX filters with its parameters (segmentation tolerance 2°, the
+  SampleVoxels mask, minimum sizes 7, kernel 2 2 1, Taubin mu = MuFactor × lambda); its
+  segmentation steps 48 to 67 run on the AM Bench window.
+- The PINNACLE case written for a grain mesh passes `pinnacle validate` and runs (PINNACLE
+  installed locally); the result's grains, recovered by nearest point from the case's point
+  file, have the case mesh's grain sizes exactly. The MOOSE deck follows the solid mechanics
+  module's crystal-plasticity tests (`PropertyReadFile` with `read_type = block`,
+  `ComputeElasticityTensorCP`, `CrystalPlasticityKalidindiUpdate`); MOOSE was not built, so it
+  was not run.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

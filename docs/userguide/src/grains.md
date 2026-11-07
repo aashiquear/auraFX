@@ -87,6 +87,49 @@ v = afx.load("volume.dream3d", arrays="EulerAngles, Phases, FeatureIds")
 
 ![A window of a real additively manufactured nickel alloy volume read from a .dream3d file, drawn with the inverse pole figure colors stored in it](images/dream3d_volume.png)
 
+**Saving.** **File › Save Data** writes `.dream3d` files of volumes, meshes and point sets
+(see [File formats](file-formats.md#writers)). The file also records the pipeline that made
+the data.
+
+### Pipelines in .dream3d files
+
+**File › Import Pipeline…** builds a pipeline from a pipeline file:
+- a `.json` pipeline with numbered steps, the form `.dream3d` files record;
+- the pipeline inside a `.dream3d` file.
+
+Files auraFX wrote rebuild exactly: the same filters, parameters and inputs, starting from the
+same files.
+
+Pipelines from other `.dream3d` files are built as a chain of the auraFX filters that do the
+same work:
+- reading steps open their file when it exists; otherwise the chain starts from the data
+  selected in the pipeline;
+- Crop, Change Resolution, Rotate Orientations, Convert Orientations;
+- thresholds (as a Calculator mask), Segment Features, Fill Bad Data, Minimum Size;
+- the per-feature steps (sizes, centroids, shapes, neighbors, average and reference
+  orientations, kernel average misorientation, distances, merging twins);
+- IPF colors, Align Sections, Quick Surface Mesh and Smooth Boundaries.
+
+Steps without a counterpart are listed in the Log and the notice: writing files, deleting
+arrays, image filters, point cloud alignment and the like.
+
+```python
+v = afx.load("window.dream3d")
+steps = afx.import_pipeline("segmentation.json", v)   # the new nodes; skipped steps are printed
+seg = v.segment_features(tolerance=3, mask="SampleVoxels")
+seg.save("segmented.dream3d")                          # records Open File and Segment Features
+print(seg.pipeline_json())
+again = afx.import_pipeline("segmented.dream3d")       # the same pipeline, rebuilt
+```
+
+![The segmentation steps of the AM Bench pipeline imported onto a window of the volume: the pipeline browser lists the auraFX filters, the view shows the inverse pole figure colors](images/import_pipeline.png)
+
+Limits:
+- Pipelines with numbered steps (version 6) are read. The newer layout with a `pipeline` list
+  is not.
+- A pipeline from another program becomes one chain, so steps that worked on another data
+  container continue from the previous step.
+
 ## Orientation conventions
 
 An orientation turns the sample axes into the crystal axes. A direction with sample

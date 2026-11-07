@@ -2655,6 +2655,7 @@ fn build() -> Vec<FilterDef> {
                 v3("min", "Box minimum", [f64::NAN; 3]).help("Cells whose centres lie at or above these coordinates are kept; leave unset for an open side."),
                 v3("max", "Box maximum", [f64::NAN; 3]).help("Cells whose centres lie at or below these coordinates are kept; leave unset for an open side."),
                 b("renumber_features", "Renumber features", true).help("Number the remaining feature ids from 1 and keep only their rows of the per-feature field arrays."),
+                choice("units", "Box in", &["Coordinates", "Cell indices"], "Coordinates").help("Cell indices: the first and last cell kept along x, y and z, counted from 0.").advanced(),
                 s("feature_ids", "Feature ids", "FeatureIds").advanced(),
             ],
             apply: |input, p| {
@@ -2662,7 +2663,15 @@ fn build() -> Vec<FilterDef> {
                     Some(ParamValue::Vec3(x)) => *x,
                     _ => [f64::NAN; 3],
                 };
-                crate::grain_grid::crop(input.unwrap(), v("min"), v("max"), p.bool("renumber_features", true), &p.str("feature_ids"))
+                let (mut lo, mut hi) = (v("min"), v("max"));
+                if p.str("units") == "Cell indices" {
+                    // Cell i's centre: origin + (extent start + i + 0.5) * spacing.
+                    let img = crate::grain_grid::image(input.unwrap())?;
+                    let c = |a: usize, i: f64| if i.is_finite() && i.abs() < 1e29 { img.origin[a] + (img.extent[2 * a] as f64 + i + 0.5) * img.spacing[a] } else { f64::NAN };
+                    lo = std::array::from_fn(|a| c(a, lo[a]));
+                    hi = std::array::from_fn(|a| c(a, hi[a]));
+                }
+                crate::grain_grid::crop(input.unwrap(), lo, hi, p.bool("renumber_features", true), &p.str("feature_ids"))
             },
         },
         FilterDef {

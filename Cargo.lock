@@ -193,6 +193,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aurafx-ai",
+ "aurafx-crystal",
  "aurafx-data",
  "aurafx-filters",
  "aurafx-io",
@@ -316,6 +317,7 @@ name = "aurafx-pipeline"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aurafx-crystal",
  "aurafx-data",
  "aurafx-filters",
  "aurafx-io",

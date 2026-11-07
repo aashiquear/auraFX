@@ -70,8 +70,10 @@ fn voronoi_volume_blocks_and_files() {
     aurafx_io::writers::write_file(&v, &tex).unwrap();
     let text = std::fs::read_to_string(&tex).unwrap();
     let _ = std::fs::remove_file(&tex);
-    let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()).collect();
+    let lines: Vec<&str> = text.lines().skip(4).collect();
+    assert_eq!(text.lines().nth(3), Some("B 12"));
     assert_eq!(lines.len(), 12);
+    assert!(lines.iter().all(|l| l.split_whitespace().count() == 4));
     // From a volume: the grains of the AM Bench window on a box mesh over it.
     let vol = load("dream3d/am_bench_subset.dream3d");
     let DataSet::ImageData(img) = &vol else { panic!() };
@@ -119,7 +121,7 @@ fn worked_example() {
     let m = aurafx_mesh::hex::HexMesh::from_dataset(&back).unwrap();
     assert!(m.block_names.len() >= 35 && m.side_set("grain boundaries").is_some() && m.side_set("cylinder 2 side").is_some());
     let tex = std::fs::read_to_string(dir.join("plate.tex")).unwrap();
-    assert_eq!(tex.lines().filter(|l| !l.starts_with('#')).count(), m.block_names.len());
+    assert_eq!(tex.lines().skip(4).count(), *m.block_names.keys().max().unwrap() as usize);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

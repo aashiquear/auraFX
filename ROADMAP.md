@@ -287,7 +287,7 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
   - [x] G4b: Pack Grains (goal statistics, four shapes, matrix phase, calibration), Pack Like, Insert Precipitates, Match Crystallography (iteration 64).
 - [x] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [x] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
-- [ ] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
+- [x] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
 
 ## 12. Geometry and mesh generator
 
@@ -321,8 +321,8 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
 | P5 Breadth | in progress | Remaining readers/writers/filters from the catalog, AMR/HTG/molecule/cell-grid types, higher-order cells |
 | P6 Scale | started (data server) | Client/server, distributed, in-situ, collaboration, out-of-core |
 | P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
-| P8 Grains | designed (section 11) | Crystal core, EBSD readers, features, texture, synthetic builder, surface meshing, mechanics, `.dream3d`, solver templates |
-| P9 Mesh | designed (section 12) | Geometry kernel and command language, structured hex (hexaform), overlay-grid mesher, refinement and tets, grains on meshes |
+| P8 Grains | done (section 11) | Crystal core, EBSD readers, features, texture, synthetic builder, surface meshing, mechanics, `.dream3d`, solver templates |
+| P9 Mesh | done (section 12) | Geometry kernel and command language, structured hex (hexaform), overlay-grid mesher, refinement and tets, grains on meshes |
 
 P8 and P9 are developed interleaved (G1, M1, G2, M2, G3, M3, G4, G5, M4, G6, M5, G7) so that
 each side is usable early; see the design document for the test reference of every stage.
@@ -492,6 +492,20 @@ Grains), the .tex orientation writer, the worked geometry-to-polycrystal example
 point rule reproduces the benchmark's element-to-grain table exactly. The solver run of the
 worked example comes with G7's simulation templates. Guide chapter: Geometry and meshing.
 Next: G7.
+
+Done in iteration 70 (G7): the `.dream3d` writer (volumes, point sets and one-type meshes as
+data containers, feature and ensemble matrices, the auraFX pipeline as JSON in
+`/Pipeline/Pipeline`, read back by h5py and by auraFX), File › Import Pipeline (auraFX
+pipelines rebuilt exactly; numbered-step pipeline files mapped to auraFX filters, checked on the
+AM Bench serial-section pipeline), SPPARKS site files and lattice dumps (read as volumes) and
+the site writer, the `.tex` layout of `EulerAngleFileReader`, and three case templates that
+write their files from the selected data and run them (MOOSE polycrystal, SPPARKS grain
+growth, PINNACLE crystal plasticity; files uploaded to remote hosts; results reopened named
+after the run). The PINNACLE case was generated, validated and run with the installed
+PINNACLE, its result read back with the grains recovered exactly; MOOSE is not built here,
+so its deck is checked against the solid mechanics module's source and tests, not run.
+P8 and P9 are complete. Guide chapters: Running simulations, Grains and crystals, File
+formats, Geometry and meshing. Next: the user's choice among the remaining phases.
 
 ## Status (2026-11-05)
 

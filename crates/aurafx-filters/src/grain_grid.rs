@@ -12,7 +12,7 @@ use aurafx_crystal::{self as cx, Laue, Quat};
 use aurafx_data::*;
 use rayon::prelude::*;
 
-fn image(ds: &DataSet) -> Result<&ImageData> {
+pub(crate) fn image(ds: &DataSet) -> Result<&ImageData> {
     match ds {
         DataSet::ImageData(i) => Ok(i),
         _ => bail!("this filter works on image data (voxel volumes and EBSD maps)"),

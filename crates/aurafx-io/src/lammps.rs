@@ -104,7 +104,9 @@ pub fn read_frame(path: &Path, frame: usize) -> Result<DataSet> {
             }
         }
     };
-    parse_frame(&bytes).with_context(|| format!("parsing LAMMPS frame {frame} of {}", path.display()))
+    let ds = parse_frame(&bytes).with_context(|| format!("parsing LAMMPS frame {frame} of {}", path.display()))?;
+    // Lattice dumps (site values i1 on a full lattice) read as a volume.
+    crate::spparks::lattice_volume(ds)
 }
 
 #[derive(Default)]

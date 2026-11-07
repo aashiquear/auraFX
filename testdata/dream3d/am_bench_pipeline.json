@@ -1,0 +1,3355 @@
+{
+ "0": {
+  "AngleRepresentation": 1,
+  "CellAttributeMatrixName": "CellData",
+  "CellEnsembleAttributeMatrixName": "CellEnsembleData",
+  "DataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Import H5EBSD File",
+  "Filter_Name": "ReadH5Ebsd",
+  "InputFile": "13thru524_leroy118.h5ebsd",
+  "RefFrameZDir": 1,
+  "SelectedArrayNames": [
+   "EulerAngles",
+   "Euler3",
+   "Phases",
+   "Euler2",
+   "Error",
+   "Euler1",
+   "Phase"
+  ],
+  "UseTransformations": 1,
+  "ZEndIndex": 524,
+  "ZStartIndex": 13
+ },
+ "1": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Rotate Sample Reference Frame",
+  "Filter_Name": "RotateSampleRefFrame",
+  "RotationAngle": 180,
+  "RotationAxis": {
+   "x": 0,
+   "y": 1,
+   "z": 0
+  },
+  "RotationRepresentationChoice": 0,
+  "RotationTable": {
+   "Column Headers": [],
+   "DefaultColCount": 3,
+   "DefaultRowCount": 3,
+   "HasDynamicCols": false,
+   "HasDynamicRows": false,
+   "MinColCount": 3,
+   "MinRowCount": 3,
+   "Row Headers": [],
+   "Table Data": [
+    [
+     1,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     1
+    ]
+   ]
+  }
+ },
+ "10": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "CellFeatureAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Resample Data (Image Geometry)",
+  "Filter_Name": "ResampleImageGeom",
+  "NewDataContainerPath": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "NewImageDataContainer"
+  },
+  "RenumberFeatures": 0,
+  "SaveAsNewDataContainer": 0,
+  "Spacing": {
+   "x": 2,
+   "y": 2,
+   "z": 2.119999885559082
+  }
+ },
+ "11": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "OutputFile": "3 - Optical_stack_2um.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "12": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Read DREAM.3D Data File",
+  "Filter_Name": "DataContainerReader",
+  "InputFile": "3 - Optical_stack_2um.dream3d",
+  "InputFileDataContainerArrayProxy": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "ImageData",
+         "Object Type": "DataArray<uint16_t>",
+         "Path": "/DataContainers/ImageDataContainer/CellData",
+         "Tuple Dimensions": [
+          409,
+          478,
+          431
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "CellData",
+       "Type": 3
+      }
+     ],
+     "Flag": 2,
+     "Name": "ImageDataContainer",
+     "Type": 0
+    }
+   ]
+  },
+  "OverwriteExistingDataContainers": 0
+ },
+ "13": {
+  "FilterVersion": "2.0.941",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "ITK::Median Image Filter",
+  "Filter_Name": "ITKMedianImage",
+  "NewCellArrayName": "Median",
+  "Radius": {
+   "x": 1,
+   "y": 1,
+   "z": 1
+  },
+  "SelectedCellArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "ImageData",
+   "Data Container Name": "ImageDataContainer"
+  }
+ },
+ "14": {
+  "FilterVersion": "2.0.941",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "ITK::Otsu Multiple Thresholds Image Filter",
+  "Filter_Name": "ITKOtsuMultipleThresholdsImage",
+  "LabelOffset": 0,
+  "NewCellArrayName": "Otsu",
+  "NumberOfHistogramBins": 128,
+  "NumberOfThresholds": 1,
+  "SelectedCellArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Median",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "ValleyEmphasis": 0
+ },
+ "15": {
+  "DestinationArrayName": "SampleMask",
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Threshold Objects",
+  "Filter_Name": "MultiThresholdObjects",
+  "ScalarType": 10,
+  "SelectedThresholds": [
+   {
+    "Attribute Array Name": "Otsu",
+    "Attribute Matrix Name": "CellData",
+    "Comparison Operator": 1,
+    "Comparison Value": 0,
+    "Data Container Name": "ImageDataContainer"
+   }
+  ]
+ },
+ "16": {
+  "FillHoles": 1,
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Isolate Largest Feature (Identify Sample)",
+  "Filter_Name": "IdentifySample",
+  "GoodVoxelsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "SampleMask",
+   "Data Container Name": "ImageDataContainer"
+  }
+ },
+ "17": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Convert AttributeArray Data Type",
+  "Filter_Name": "ConvertData",
+  "OutputArrayName": "FeatureIds",
+  "ScalarType": 4,
+  "SelectedCellArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "SampleMask",
+   "Data Container Name": "ImageDataContainer"
+  }
+ },
+ "18": {
+  "FaceAttributeMatrixName": "FaceData",
+  "FaceLabelsArrayName": "FaceLabels",
+  "FeatureAttributeMatrixName": "FaceFeatureData",
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Quick Surface Mesh",
+  "Filter_Name": "QuickSurfaceMesh",
+  "FixProblemVoxels": 1,
+  "NodeTypesArrayName": "NodeType",
+  "SelectedDataArrayPaths": [],
+  "SurfaceDataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "TriangleDataContainer"
+  },
+  "VertexAttributeMatrixName": "VertexData"
+ },
+ "19": {
+  "DataArraysToRemove": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "FeatureIds",
+         "Object Type": "int32_t",
+         "Path": "ImageDataContainer/CellData/",
+         "Tuple Dimensions": [
+          409,
+          478,
+          431
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "ImageData",
+         "Object Type": "uint16_t",
+         "Path": "ImageDataContainer/CellData/",
+         "Tuple Dimensions": [
+          409,
+          478,
+          431
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Median",
+         "Object Type": "uint16_t",
+         "Path": "ImageDataContainer/CellData/",
+         "Tuple Dimensions": [
+          409,
+          478,
+          431
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Otsu",
+         "Object Type": "uint8_t",
+         "Path": "ImageDataContainer/CellData/",
+         "Tuple Dimensions": [
+          409,
+          478,
+          431
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "SampleMask",
+         "Object Type": "bool",
+         "Path": "ImageDataContainer/CellData/",
+         "Tuple Dimensions": [
+          409,
+          478,
+          431
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellData",
+       "Type": 3
+      }
+     ],
+     "Flag": 2,
+     "Name": "ImageDataContainer",
+     "Type": 0
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          2
+         ],
+         "Flag": 0,
+         "Name": "FaceLabels",
+         "Object Type": "int32_t",
+         "Path": "TriangleDataContainer/FaceData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "FaceData",
+       "Type": 2
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 0,
+       "Name": "FaceFeatureData",
+       "Type": 6
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "NodeType",
+         "Object Type": "int8_t",
+         "Path": "TriangleDataContainer/VertexData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "TriangleDataContainer",
+     "Type": 4
+    },
+    {
+     "Attribute Matricies": [],
+     "Flag": 2,
+     "Name": "TripleLines",
+     "Type": 999
+    }
+   ]
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Delete Data",
+  "Filter_Name": "RemoveArrays"
+ },
+ "2": {
+  "CellEulerAnglesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Rotate Euler Reference Frame",
+  "Filter_Name": "RotateEulerRefFrame",
+  "RotationAngle": 180,
+  "RotationAxis": {
+   "x": 0,
+   "y": 1,
+   "z": 0
+  }
+ },
+ "20": {
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Laplacian Smoothing",
+  "Filter_Name": "LaplacianSmoothing",
+  "IterationSteps": 100,
+  "Lambda": 0.15000000596046448,
+  "MuFactor": -1.0299999713897705,
+  "QuadPointLambda": 0,
+  "SurfaceMeshFaceLabelsArrayPath": {
+   "Attribute Matrix Name": "FaceData",
+   "Data Array Name": "FaceLabels",
+   "Data Container Name": "TriangleDataContainer"
+  },
+  "SurfaceMeshNodeTypeArrayPath": {
+   "Attribute Matrix Name": "VertexData",
+   "Data Array Name": "NodeType",
+   "Data Container Name": "TriangleDataContainer"
+  },
+  "SurfacePointLambda": 0,
+  "SurfaceQuadPointLambda": 0,
+  "SurfaceTripleLineLambda": 0,
+  "TripleLineLambda": 0,
+  "UseTaubinSmoothing": 1
+ },
+ "21": {
+  "FaceAttributeMatrixName": "FaceData",
+  "FaceNormalsArrayName": "FaceNormals",
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Import STL File",
+  "Filter_Name": "ReadStlFile",
+  "ScaleFactor": 1,
+  "ScaleOutput": 0,
+  "StlFilePath": "AMBench 2022 Build B8-P1-L9_cropped.STL",
+  "SurfaceMeshDataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "TriangleDataContainerSTL"
+  },
+  "VertexAttributeMatrixName": "VertexData"
+ },
+ "22": {
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Generate Triangle Areas",
+  "Filter_Name": "TriangleAreaFilter",
+  "SurfaceMeshTriangleAreasArrayPath": {
+   "Attribute Matrix Name": "FaceData",
+   "Data Array Name": "FaceAreas",
+   "Data Container Name": "TriangleDataContainerSTL"
+  }
+ },
+ "23": {
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Point Sample Triangle Geometry",
+  "Filter_Name": "PointSampleTriangleGeometry",
+  "MaskArrayPath": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "NumberOfSamples": 100000,
+  "ParentGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "SamplesNumberType": 0,
+  "SelectedDataArrayPaths": [],
+  "TriangleAreasArrayPath": {
+   "Attribute Matrix Name": "FaceData",
+   "Data Array Name": "FaceAreas",
+   "Data Container Name": "TriangleDataContainerSTL"
+  },
+  "TriangleGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "TriangleDataContainerSTL"
+  },
+  "UseMask": 0,
+  "VertexAttributeMatrixName": "VertexData",
+  "VertexGeometry": "VertexDataContainerSTL"
+ },
+ "24": {
+  "FaceAttributeMatrixName": "FaceData",
+  "FaceNormalsArrayName": "FaceNormals",
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Import STL File",
+  "Filter_Name": "ReadStlFile",
+  "ScaleFactor": 1,
+  "ScaleOutput": 0,
+  "StlFilePath": "0 - XRCT_Exterior_Feature_1.stl",
+  "SurfaceMeshDataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "TriangleDataContainerCT"
+  },
+  "VertexAttributeMatrixName": "VertexData"
+ },
+ "25": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "FaceData",
+   "Data Array Name": "",
+   "Data Container Name": "TriangleDataContainerCT"
+  },
+  "ComputedTransformationMatrix": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "DataArraySelection": [],
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Apply Transformation to Geometry",
+  "Filter_Name": "ApplyTransformationToGeometry",
+  "InterpolationType": 1,
+  "ManualTransformationMatrix": {
+   "Column Headers": [],
+   "DefaultColCount": 0,
+   "DefaultRowCount": 0,
+   "HasDynamicCols": false,
+   "HasDynamicRows": false,
+   "MinColCount": 0,
+   "MinRowCount": 0,
+   "Row Headers": [],
+   "Table Data": [
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  },
+  "RotationAngle": 174,
+  "RotationAxis": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  },
+  "Scale": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "TransformationMatrixType": 3,
+  "Translation": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "UseDataArraySelection": 0
+ },
+ "26": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "FaceData",
+   "Data Array Name": "",
+   "Data Container Name": "TriangleDataContainerCT"
+  },
+  "ComputedTransformationMatrix": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "DataArraySelection": [],
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Apply Transformation to Geometry",
+  "Filter_Name": "ApplyTransformationToGeometry",
+  "InterpolationType": 1,
+  "ManualTransformationMatrix": {
+   "Column Headers": [],
+   "DefaultColCount": 0,
+   "DefaultRowCount": 0,
+   "HasDynamicCols": false,
+   "HasDynamicRows": false,
+   "MinColCount": 0,
+   "MinRowCount": 0,
+   "Row Headers": [],
+   "Table Data": [
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  },
+  "RotationAngle": 0,
+  "RotationAxis": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  },
+  "Scale": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "TransformationMatrixType": 4,
+  "Translation": {
+   "x": 1900,
+   "y": 29800,
+   "z": -725
+  },
+  "UseDataArraySelection": 0
+ },
+ "27": {
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Generate Triangle Areas",
+  "Filter_Name": "TriangleAreaFilter",
+  "SurfaceMeshTriangleAreasArrayPath": {
+   "Attribute Matrix Name": "FaceData",
+   "Data Array Name": "FaceAreas",
+   "Data Container Name": "TriangleDataContainerCT"
+  }
+ },
+ "28": {
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Point Sample Triangle Geometry",
+  "Filter_Name": "PointSampleTriangleGeometry",
+  "MaskArrayPath": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "NumberOfSamples": 100000,
+  "ParentGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "SamplesNumberType": 0,
+  "SelectedDataArrayPaths": [],
+  "TriangleAreasArrayPath": {
+   "Attribute Matrix Name": "FaceData",
+   "Data Array Name": "FaceAreas",
+   "Data Container Name": "TriangleDataContainerCT"
+  },
+  "TriangleGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "TriangleDataContainerCT"
+  },
+  "UseMask": 0,
+  "VertexAttributeMatrixName": "VertexData",
+  "VertexGeometry": "VertexDataContainerCT"
+ },
+ "29": {
+  "CroppedDataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "CroppedDataContainerCT"
+  },
+  "DataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "VertexDataContainerCT"
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Crop Geometry (Vertex)",
+  "Filter_Name": "CropVertexGeometry",
+  "XMax": 1025,
+  "XMin": 0,
+  "YMax": 29300,
+  "YMin": 28100,
+  "ZMax": 700,
+  "ZMin": -75
+ },
+ "3": {
+  "ChangeOrigin": 1,
+  "ChangeResolution": 1,
+  "DataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Set Origin & Spacing (Image)",
+  "Filter_Name": "SetOriginResolutionImageGeom",
+  "Origin": {
+   "x": 36,
+   "y": 610,
+   "z": 6.360000133514404
+  },
+  "Spacing": {
+   "x": 1,
+   "y": 1,
+   "z": 2.119999885559082
+  }
+ },
+ "30": {
+  "ApplyTransform": 1,
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Iterative Closest Point",
+  "Filter_Name": "IterativeClosestPoint",
+  "Iterations": 200,
+  "MovingVertexGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "CroppedDataContainerCT"
+  },
+  "TargetVertexGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "VertexDataContainerSTL"
+  },
+  "TransformArrayName": "Transform",
+  "TransformAttributeMatrixName": "TransformAttributeMatrix"
+ },
+ "31": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "OutputFile": "1 - CT_2_Build.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "32": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Read DREAM.3D Data File",
+  "Filter_Name": "DataContainerReader",
+  "InputFile": "1 - CT_2_Build.dream3d",
+  "InputFileDataContainerArrayProxy": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          4,
+          4
+         ],
+         "Flag": 2,
+         "Name": "Transform",
+         "Object Type": "DataArray<float>",
+         "Path": "/DataContainers/CroppedDataContainerCT/TransformAttributeMatrix",
+         "Tuple Dimensions": [
+          1
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "TransformAttributeMatrix",
+       "Type": 13
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 2,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 2,
+     "Name": "CroppedDataContainerCT",
+     "Type": 2
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "FaceAreas",
+         "Object Type": "DataArray<double>",
+         "Path": "/DataContainers/TriangleDataContainerCT/FaceData",
+         "Tuple Dimensions": [
+          7231628
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 2,
+         "Name": "FaceNormals",
+         "Object Type": "DataArray<double>",
+         "Path": "/DataContainers/TriangleDataContainerCT/FaceData",
+         "Tuple Dimensions": [
+          7231628
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "FaceData",
+       "Type": 2
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 2,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "TriangleDataContainerCT",
+     "Type": 4
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "FaceAreas",
+         "Object Type": "DataArray<double>",
+         "Path": "/DataContainers/TriangleDataContainerSTL/FaceData",
+         "Tuple Dimensions": [
+          8
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 2,
+         "Name": "FaceNormals",
+         "Object Type": "DataArray<double>",
+         "Path": "/DataContainers/TriangleDataContainerSTL/FaceData",
+         "Tuple Dimensions": [
+          8
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "FaceData",
+       "Type": 2
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 2,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "TriangleDataContainerSTL",
+     "Type": 4
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [],
+       "Flag": 2,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "VertexDataContainerCT",
+     "Type": 2
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [],
+       "Flag": 2,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "VertexDataContainerSTL",
+     "Type": 2
+    }
+   ]
+  },
+  "OverwriteExistingDataContainers": 0
+ },
+ "33": {
+  "ApplyTransform": 1,
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Iterative Closest Point",
+  "Filter_Name": "IterativeClosestPoint",
+  "Iterations": 200,
+  "MovingVertexGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "CroppedDataContainerOM7"
+  },
+  "TargetVertexGeometry": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "CroppedDataContainerCT"
+  },
+  "TransformArrayName": "Transform_Opt_to_Build",
+  "TransformAttributeMatrixName": "TransformAttributeMatrix"
+ },
+ "34": {
+  "DataArraysToRemove": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          4,
+          4
+         ],
+         "Flag": 0,
+         "Name": "Transform",
+         "Object Type": "float",
+         "Path": "CroppedDataContainerCT/TransformAttributeMatrix/",
+         "Tuple Dimensions": [
+          1
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "TransformAttributeMatrix",
+       "Type": 13
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 0,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "CroppedDataContainerCT",
+     "Type": 2
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          4,
+          4
+         ],
+         "Flag": 0,
+         "Name": "Transform_Opt_to_Build",
+         "Object Type": "float",
+         "Path": "CroppedDataContainerOM7/TransformAttributeMatrix/",
+         "Tuple Dimensions": [
+          1
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "TransformAttributeMatrix",
+       "Type": 13
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 0,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "CroppedDataContainerOM7",
+     "Type": 2
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "FaceAreas",
+         "Object Type": "double",
+         "Path": "TriangleDataContainer/FaceData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          2
+         ],
+         "Flag": 0,
+         "Name": "FaceLabels",
+         "Object Type": "int32_t",
+         "Path": "TriangleDataContainer/FaceData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "FaceData",
+       "Type": 2
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 0,
+       "Name": "FaceFeatureData",
+       "Type": 6
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "NodeType",
+         "Object Type": "int8_t",
+         "Path": "TriangleDataContainer/VertexData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 2,
+     "Name": "TriangleDataContainer",
+     "Type": 4
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [],
+       "Flag": 0,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 2,
+     "Name": "VertexDataContainer",
+     "Type": 2
+    }
+   ]
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Delete Data",
+  "Filter_Name": "RemoveArrays"
+ },
+ "35": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "OutputFile": "4 - Optical_2_Build.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "36": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Read DREAM.3D Data File",
+  "Filter_Name": "DataContainerReader",
+  "InputFile": "4 - Optical_2_Build.dream3d",
+  "InputFileDataContainerArrayProxy": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          4,
+          4
+         ],
+         "Flag": 2,
+         "Name": "Transform",
+         "Object Type": "DataArray<float>",
+         "Path": "/DataContainers/CroppedDataContainerCT/TransformAttributeMatrix",
+         "Tuple Dimensions": [
+          1
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "TransformAttributeMatrix",
+       "Type": 13
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 2,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 0,
+     "Name": "CroppedDataContainerCT",
+     "Type": 2
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          4,
+          4
+         ],
+         "Flag": 2,
+         "Name": "Transform_Opt_to_Build",
+         "Object Type": "DataArray<float>",
+         "Path": "/DataContainers/CroppedDataContainerOM7/TransformAttributeMatrix",
+         "Tuple Dimensions": [
+          1
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "TransformAttributeMatrix",
+       "Type": 13
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 2,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 2,
+     "Name": "CroppedDataContainerOM7",
+     "Type": 2
+    }
+   ]
+  },
+  "OverwriteExistingDataContainers": 0
+ },
+ "37": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "ComputedTransformationMatrix": {
+   "Attribute Matrix Name": "TransformAttributeMatrix",
+   "Data Array Name": "Transform_Opt_to_Build",
+   "Data Container Name": "CroppedDataContainerOM7"
+  },
+  "DataArraySelection": [],
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Apply Transformation to Geometry",
+  "Filter_Name": "ApplyTransformationToGeometry",
+  "InterpolationType": 0,
+  "ManualTransformationMatrix": {
+   "Column Headers": [],
+   "DefaultColCount": 0,
+   "DefaultRowCount": 0,
+   "HasDynamicCols": false,
+   "HasDynamicRows": false,
+   "MinColCount": 0,
+   "MinRowCount": 0,
+   "Row Headers": [],
+   "Table Data": [
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  },
+  "RotationAngle": 0,
+  "RotationAxis": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  },
+  "Scale": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "TransformationMatrixType": 1,
+  "Translation": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "UseDataArraySelection": 0
+ },
+ "38": {
+  "CellEulerAnglesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Rotate Euler Reference Frame",
+  "Filter_Name": "RotateEulerRefFrame",
+  "RotationAngle": 1.9778499603271484,
+  "RotationAxis": {
+   "x": 0.989441990852356,
+   "y": -0.13793499767780304,
+   "z": -0.04446820169687271
+  }
+ },
+ "39": {
+  "DataArraysToRemove": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          4,
+          4
+         ],
+         "Flag": 0,
+         "Name": "Transform_Opt_to_Build",
+         "Object Type": "float",
+         "Path": "CroppedDataContainerOM7/TransformAttributeMatrix/",
+         "Tuple Dimensions": [
+          1
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "TransformAttributeMatrix",
+       "Type": 13
+      },
+      {
+       "Data Arrays": [],
+       "Flag": 0,
+       "Name": "VertexData",
+       "Type": 0
+      }
+     ],
+     "Flag": 2,
+     "Name": "CroppedDataContainerOM7",
+     "Type": 2
+    },
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Error",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          0,
+          0,
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "EulerAngles",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          931,
+          931,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Phases",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          931,
+          931,
+          512
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellData",
+       "Type": 3
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "CrystalStructures",
+         "Object Type": "uint32_t",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          6
+         ],
+         "Flag": 0,
+         "Name": "LatticeConstants",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "MaterialName",
+         "Object Type": "StringDataArray",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellEnsembleData",
+       "Type": 11
+      }
+     ],
+     "Flag": 0,
+     "Name": "EBSDDataContainer",
+     "Type": 0
+    }
+   ]
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Delete Data",
+  "Filter_Name": "RemoveArrays"
+ },
+ "4": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "ComputedTransformationMatrix": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "DataArraySelection": [],
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Apply Transformation to Geometry",
+  "Filter_Name": "ApplyTransformationToGeometry",
+  "InterpolationType": 0,
+  "ManualTransformationMatrix": {
+   "Column Headers": [],
+   "DefaultColCount": 0,
+   "DefaultRowCount": 0,
+   "HasDynamicCols": false,
+   "HasDynamicRows": false,
+   "MinColCount": 0,
+   "MinRowCount": 0,
+   "Row Headers": [],
+   "Table Data": [
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  },
+  "RotationAngle": 182,
+  "RotationAxis": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  },
+  "Scale": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "TransformationMatrixType": 3,
+  "Translation": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "UseDataArraySelection": 0
+ },
+ "40": {
+  "DestinationArrayName": "SampleVoxels",
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Threshold Objects",
+  "Filter_Name": "MultiThresholdObjects",
+  "ScalarType": 10,
+  "SelectedThresholds": [
+   {
+    "Attribute Array Name": "Error",
+    "Attribute Matrix Name": "CellData",
+    "Comparison Operator": 2,
+    "Comparison Value": 0,
+    "Data Container Name": "EBSDDataContainer"
+   },
+   {
+    "Attribute Array Name": "Phases",
+    "Attribute Matrix Name": "CellData",
+    "Comparison Operator": 1,
+    "Comparison Value": 0,
+    "Data Container Name": "EBSDDataContainer"
+   }
+  ]
+ },
+ "41": {
+  "FillHoles": 1,
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Isolate Largest Feature (Identify Sample)",
+  "Filter_Name": "IdentifySample",
+  "GoodVoxelsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "SampleVoxels",
+   "Data Container Name": "EBSDDataContainer"
+  }
+ },
+ "42": {
+  "DataArraysToRemove": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "Error",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          0,
+          0,
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "EulerAngles",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          0,
+          0,
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Phases",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          0,
+          0,
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "SampleVoxels",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          0,
+          0,
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellData",
+       "Type": 3
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "CrystalStructures",
+         "Object Type": "uint32_t",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          6
+         ],
+         "Flag": 0,
+         "Name": "LatticeConstants",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "MaterialName",
+         "Object Type": "StringDataArray",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellEnsembleData",
+       "Type": 11
+      }
+     ],
+     "Flag": 0,
+     "Name": "EBSDDataContainer",
+     "Type": 0
+    }
+   ]
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Delete Data",
+  "Filter_Name": "RemoveArrays"
+ },
+ "43": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "OutputFile": "8 - EBSD_1um_BuildCoords.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "44": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellFeatureAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Resample Data (Image Geometry)",
+  "Filter_Name": "ResampleImageGeom",
+  "NewDataContainerPath": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "NewImageDataContainer"
+  },
+  "RenumberFeatures": 0,
+  "SaveAsNewDataContainer": 0,
+  "Spacing": {
+   "x": 2,
+   "y": 2,
+   "z": 2.200000047683716
+  }
+ },
+ "45": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "OutputFile": "8 - EBSD_2um_BuildCoords.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "46": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Read DREAM.3D Data File",
+  "Filter_Name": "DataContainerReader",
+  "Filter_Uuid": "{043cbde5-3878-5718-958f-ae75714df0df}",
+  "InputFile": "8 - EBSD_1um_BuildCoords.dream3d",
+  "InputFileDataContainerArrayProxy": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 2,
+         "Name": "EulerAngles",
+         "Object Type": "DataArray<float>",
+         "Path": "/DataContainers/EBSDDataContainer/CellData",
+         "Tuple Dimensions": [
+          938,
+          969,
+          529
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "Phases",
+         "Object Type": "DataArray<int32_t>",
+         "Path": "/DataContainers/EBSDDataContainer/CellData",
+         "Tuple Dimensions": [
+          938,
+          969,
+          529
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "SampleVoxels",
+         "Object Type": "DataArray<bool>",
+         "Path": "/DataContainers/EBSDDataContainer/CellData",
+         "Tuple Dimensions": [
+          938,
+          969,
+          529
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "CellData",
+       "Type": 3
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "CrystalStructures",
+         "Object Type": "DataArray<uint32_t>",
+         "Path": "/DataContainers/EBSDDataContainer/CellEnsembleData",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          6
+         ],
+         "Flag": 2,
+         "Name": "LatticeConstants",
+         "Object Type": "DataArray<float>",
+         "Path": "/DataContainers/EBSDDataContainer/CellEnsembleData",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "MaterialName",
+         "Object Type": "StringDataArray",
+         "Path": "/DataContainers/EBSDDataContainer/CellEnsembleData",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 2,
+       "Name": "CellEnsembleData",
+       "Type": 11
+      }
+     ],
+     "Flag": 2,
+     "Name": "EBSDDataContainer",
+     "Type": 0
+    }
+   ]
+  },
+  "OverwriteExistingDataContainers": 0
+ },
+ "47": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellFeatureAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Crop Geometry (Image)",
+  "Filter_Name": "CropImageGeometry",
+  "Filter_Uuid": "{baa4b7fe-31e5-5e63-a2cb-0bb9d844cfaf}",
+  "NewDataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "NewImageDataContainer"
+  },
+  "RenumberFeatures": 0,
+  "SaveAsNewDataContainer": 0,
+  "UpdateOrigin": 1,
+  "XMax": 833,
+  "XMin": 100,
+  "YMax": 915,
+  "YMin": 67,
+  "ZMax": 526,
+  "ZMin": 2
+ },
+ "48": {
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Convert Orientation Representation",
+  "Filter_Name": "ConvertOrientations",
+  "Filter_Uuid": "{e5629880-98c4-5656-82b8-c9fe2b9744de}",
+  "InputOrientationArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "InputType": 0,
+  "OutputOrientationArrayName": "Quats",
+  "OutputType": 2
+ },
+ "49": {
+  "ActiveArrayName": "Active",
+  "CellFeatureAttributeMatrixName": "CellFeatureData",
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CrystalStructuresArrayPath": {
+   "Attribute Matrix Name": "CellEnsembleData",
+   "Data Array Name": "CrystalStructures",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureIdsArrayName": "FeatureIds",
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Segment Features (Misorientation)",
+  "Filter_Name": "EBSDSegmentFeatures",
+  "Filter_Uuid": "{7861c691-b821-537b-bd25-dc195578e0ea}",
+  "GoodVoxelsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "SampleVoxels",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "MisorientationTolerance": 2,
+  "QuatsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Quats",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "RandomizeFeatureIds": 1,
+  "UseGoodVoxels": 1
+ },
+ "5": {
+  "CellEulerAnglesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Rotate Euler Reference Frame",
+  "Filter_Name": "RotateEulerRefFrame",
+  "RotationAngle": 182,
+  "RotationAxis": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  }
+ },
+ "50": {
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Fill Bad Data",
+  "Filter_Name": "FillBadData",
+  "Filter_Uuid": "{30ae0a1e-3d94-5dab-b279-c5727ab5d7ff}",
+  "IgnoredDataArrayPaths": [],
+  "MinAllowedDefectSize": 7,
+  "StoreAsNewPhase": 0
+ },
+ "51": {
+  "EquivalentDiametersArrayName": "EquivalentDiameters",
+  "FeatureAttributeMatrixName": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Feature Sizes",
+  "Filter_Name": "FindSizes",
+  "Filter_Uuid": "{656f144c-a120-5c3b-bee5-06deab438588}",
+  "NumElementsArrayName": "NumElements",
+  "SaveElementSizes": 0,
+  "VolumesArrayName": "Volumes"
+ },
+ "52": {
+  "ApplyToSinglePhase": 0,
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeaturePhasesArrayPath": {
+   "Attribute Matrix Name": "\t",
+   "Data Array Name": "\t",
+   "Data Container Name": "\t"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Minimum Size",
+  "Filter_Name": "MinSize",
+  "Filter_Uuid": "{53ac1638-8934-57b8-b8e5-4b91cdda23ec}",
+  "IgnoredDataArrayPaths": [],
+  "MinAllowedFeatureSize": 7,
+  "NumCellsArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "NumElements",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "PhaseNumber": 0
+ },
+ "53": {
+  "DataArraysToRemove": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "EulerAngles",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "FeatureIds",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Phases",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          4
+         ],
+         "Flag": 0,
+         "Name": "Quats",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "SampleVoxels",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellData",
+       "Type": 3
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "CrystalStructures",
+         "Object Type": "uint32_t",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          6
+         ],
+         "Flag": 0,
+         "Name": "LatticeConstants",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "MaterialName",
+         "Object Type": "StringDataArray",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellEnsembleData",
+       "Type": 11
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Active",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "EquivalentDiameters",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "NumElements",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "Volumes",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellFeatureData",
+       "Type": 7
+      }
+     ],
+     "Flag": 0,
+     "Name": "EBSDDataContainer",
+     "Type": 0
+    }
+   ]
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Delete Data",
+  "Filter_Name": "RemoveArrays",
+  "Filter_Uuid": "{7b1c8f46-90dd-584a-b3ba-34e16958a7d0}"
+ },
+ "54": {
+  "EquivalentDiametersArrayName": "EquivalentDiameters",
+  "FeatureAttributeMatrixName": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Feature Sizes",
+  "Filter_Name": "FindSizes",
+  "Filter_Uuid": "{656f144c-a120-5c3b-bee5-06deab438588}",
+  "NumElementsArrayName": "NumElements",
+  "SaveElementSizes": 0,
+  "VolumesArrayName": "Volumes"
+ },
+ "55": {
+  "CentroidsArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "Centroids",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Feature Centroids",
+  "Filter_Name": "FindFeatureCentroids",
+  "Filter_Uuid": "{6f8ca36f-2995-5bd3-8672-6b0b80d5b2ca}"
+ },
+ "56": {
+  "DataArraysToRemove": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "EulerAngles",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "FeatureIds",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Phases",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          4
+         ],
+         "Flag": 0,
+         "Name": "Quats",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "SampleVoxels",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellData",
+       "Type": 3
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "CrystalStructures",
+         "Object Type": "uint32_t",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          6
+         ],
+         "Flag": 0,
+         "Name": "LatticeConstants",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "MaterialName",
+         "Object Type": "StringDataArray",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellEnsembleData",
+       "Type": 11
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Active",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "Centroids",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "EquivalentDiameters",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "NumElements",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 2,
+         "Name": "Volumes",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellFeatureData",
+       "Type": 7
+      }
+     ],
+     "Flag": 0,
+     "Name": "EBSDDataContainer",
+     "Type": 0
+    }
+   ]
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Delete Data",
+  "Filter_Name": "RemoveArrays",
+  "Filter_Uuid": "{7b1c8f46-90dd-584a-b3ba-34e16958a7d0}"
+ },
+ "57": {
+  "AspectRatiosArrayName": "AspectRatios",
+  "AxisEulerAnglesArrayName": "AxisEulerAngles",
+  "AxisLengthsArrayName": "AxisLengths",
+  "CellFeatureAttributeMatrixName": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CentroidsArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "Centroids",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Feature Shapes",
+  "Filter_Name": "FindShapes",
+  "Filter_Uuid": "{3b0ababf-9c8d-538d-96af-e40775c4f0ab}",
+  "Omega3sArrayName": "Omega3s",
+  "VolumesArrayName": "Volumes"
+ },
+ "58": {
+  "CreatedArrayName": "EquivalentDiameters",
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Create Element Array from Feature Array",
+  "Filter_Name": "CopyFeatureArrayToElementArray",
+  "Filter_Uuid": "{99836b75-144b-5126-b261-b411133b5e8a}",
+  "SelectedFeatureArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "EquivalentDiameters",
+   "Data Container Name": "EBSDDataContainer"
+  }
+ },
+ "59": {
+  "AvgEulerAnglesArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "AvgQuatsArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "AvgQuats",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CrystalStructuresArrayPath": {
+   "Attribute Matrix Name": "CellEnsembleData",
+   "Data Array Name": "CrystalStructures",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Feature Average Orientations",
+  "Filter_Name": "FindAvgOrientations",
+  "Filter_Uuid": "{bf7036d8-25bd-540e-b6de-3a5ab0e42c5f}",
+  "QuatsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Quats",
+   "Data Container Name": "EBSDDataContainer"
+  }
+ },
+ "6": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "ComputedTransformationMatrix": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": ""
+  },
+  "DataArraySelection": [],
+  "FilterVersion": "1.0.1347",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Apply Transformation to Geometry",
+  "Filter_Name": "ApplyTransformationToGeometry",
+  "InterpolationType": 0,
+  "ManualTransformationMatrix": {
+   "Column Headers": [],
+   "DefaultColCount": 0,
+   "DefaultRowCount": 0,
+   "HasDynamicCols": false,
+   "HasDynamicRows": false,
+   "MinColCount": 0,
+   "MinRowCount": 0,
+   "Row Headers": [],
+   "Table Data": [
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ]
+   ]
+  },
+  "RotationAngle": 0,
+  "RotationAxis": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  },
+  "Scale": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "TransformationMatrixType": 4,
+  "Translation": {
+   "x": 1200,
+   "y": 29480,
+   "z": -425
+  },
+  "UseDataArraySelection": 0
+ },
+ "60": {
+  "AvgQuatsArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "AvgQuats",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CrystalStructuresArrayPath": {
+   "Attribute Matrix Name": "CellEnsembleData",
+   "Data Array Name": "CrystalStructures",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureAvgMisorientationsArrayName": "FeatureAvgMisorientations",
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureReferenceMisorientationsArrayName": "FeatureReferenceMisorientations",
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Feature Reference Misorientations",
+  "Filter_Name": "FindFeatureReferenceMisorientations",
+  "Filter_Uuid": "{428e1f5b-e6d8-5e8b-ad68-56ff14ee0e8c}",
+  "GBEuclideanDistancesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "GBEuclideanDistances",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "QuatsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Quats",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "ReferenceOrientation": 0
+ },
+ "61": {
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Surface Features",
+  "Filter_Name": "FindSurfaceFeatures",
+  "Filter_Uuid": "{d2b0ae3d-686a-5dc0-a844-66bc0dc8f3cb}",
+  "SurfaceFeaturesArrayPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "SurfaceFeatures",
+   "Data Container Name": "EBSDDataContainer"
+  }
+ },
+ "62": {
+  "CellFeatureAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "DelimiterChoiceInt": 0,
+  "FeatureDataFile": "9 - EBSD_1um - Feature_Statistics_2deg.csv",
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Export Feature Data as CSV File",
+  "Filter_Name": "FeatureDataCSVWriter",
+  "Filter_Uuid": "{737b8d5a-8622-50f9-9a8a-bfdb57608891}",
+  "WriteNeighborListData": 0,
+  "WriteNumFeaturesLine": 1
+ },
+ "63": {
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CrystalStructuresArrayPath": {
+   "Attribute Matrix Name": "CellEnsembleData",
+   "Data Array Name": "CrystalStructures",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Find Kernel Average Misorientations",
+  "Filter_Name": "FindKernelAvgMisorientations",
+  "Filter_Uuid": "{88d332c1-cf6c-52d3-a38d-22f6eae19fa6}",
+  "KernelAverageMisorientationsArrayName": "KernelAverageMisorientations",
+  "KernelSize": {
+   "x": 2,
+   "y": 2,
+   "z": 1
+  },
+  "QuatsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Quats",
+   "Data Container Name": "EBSDDataContainer"
+  }
+ },
+ "64": {
+  "DataArraysToRemove": {
+   "Data Containers": [
+    {
+     "Attribute Matricies": [
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "EquivalentDiameters",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "EulerAngles",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "FeatureIds",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "FeatureReferenceMisorientations",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "KernelAverageMisorientations",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Phases",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          4
+         ],
+         "Flag": 2,
+         "Name": "Quats",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "SampleVoxels",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellData/",
+         "Tuple Dimensions": [
+          881,
+          881,
+          512
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellData",
+       "Type": 3
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "CrystalStructures",
+         "Object Type": "uint32_t",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          6
+         ],
+         "Flag": 0,
+         "Name": "LatticeConstants",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "MaterialName",
+         "Object Type": "StringDataArray",
+         "Path": "EBSDDataContainer/CellEnsembleData/",
+         "Tuple Dimensions": [
+          7
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellEnsembleData",
+       "Type": 11
+      },
+      {
+       "Data Arrays": [
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Active",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          2
+         ],
+         "Flag": 0,
+         "Name": "AspectRatios",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          4
+         ],
+         "Flag": 0,
+         "Name": "AvgQuats",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "AxisEulerAngles",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "AxisLengths",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "Centroids",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "EquivalentDiameters",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          3
+         ],
+         "Flag": 0,
+         "Name": "EulerAngles",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "FeatureAvgMisorientations",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "NumElements",
+         "Object Type": "int32_t",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Omega3s",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "SurfaceFeatures",
+         "Object Type": "bool",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        },
+        {
+         "Component Dimensions": [
+          1
+         ],
+         "Flag": 0,
+         "Name": "Volumes",
+         "Object Type": "float",
+         "Path": "EBSDDataContainer/CellFeatureData/",
+         "Tuple Dimensions": [
+          0
+         ],
+         "Version": 2
+        }
+       ],
+       "Flag": 0,
+       "Name": "CellFeatureData",
+       "Type": 7
+      }
+     ],
+     "Flag": 0,
+     "Name": "EBSDDataContainer",
+     "Type": 0
+    }
+   ]
+  },
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Delete Data",
+  "Filter_Name": "RemoveArrays",
+  "Filter_Uuid": "{7b1c8f46-90dd-584a-b3ba-34e16958a7d0}"
+ },
+ "65": {
+  "CellEulerAnglesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellIPFColorsArrayName": "IPFColorZ",
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CrystalStructuresArrayPath": {
+   "Attribute Matrix Name": "CellEnsembleData",
+   "Data Array Name": "CrystalStructures",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Generate IPF Colors",
+  "Filter_Name": "GenerateIPFColors",
+  "Filter_Uuid": "{a50e6532-8075-5de5-ab63-945feb0de7f7}",
+  "GoodVoxelsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "SampleVoxels",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "ReferenceDir": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  },
+  "UseGoodVoxels": 1
+ },
+ "66": {
+  "CellEulerAnglesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellIPFColorsArrayName": "IPFColorY",
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CrystalStructuresArrayPath": {
+   "Attribute Matrix Name": "CellEnsembleData",
+   "Data Array Name": "CrystalStructures",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Generate IPF Colors",
+  "Filter_Name": "GenerateIPFColors",
+  "Filter_Uuid": "{a50e6532-8075-5de5-ab63-945feb0de7f7}",
+  "GoodVoxelsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "SampleVoxels",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "ReferenceDir": {
+   "x": 0,
+   "y": 1,
+   "z": 0
+  },
+  "UseGoodVoxels": 1
+ },
+ "67": {
+  "CellEulerAnglesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "EulerAngles",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellIPFColorsArrayName": "IPFColorX",
+  "CellPhasesArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "Phases",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CrystalStructuresArrayPath": {
+   "Attribute Matrix Name": "CellEnsembleData",
+   "Data Array Name": "CrystalStructures",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Generate IPF Colors",
+  "Filter_Name": "GenerateIPFColors",
+  "Filter_Uuid": "{a50e6532-8075-5de5-ab63-945feb0de7f7}",
+  "GoodVoxelsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "SampleVoxels",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "ReferenceDir": {
+   "x": 1,
+   "y": 0,
+   "z": 0
+  },
+  "UseGoodVoxels": 1
+ },
+ "68": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "Filter_Uuid": "{3fcd4c43-9d75-5b86-aad4-4441bc914f37}",
+  "OutputFile": "9 - EBSD_1um_OrientationAnalysis_2deg.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "69": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "EBSDDataContainer"
+  },
+  "CellFeatureAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Resample Data (Image Geometry)",
+  "Filter_Name": "ResampleImageGeom",
+  "Filter_Uuid": "{1966e540-759c-5798-ae26-0c6a3abc65c0}",
+  "NewDataContainerPath": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "NewImageDataContainer"
+  },
+  "RenumberFeatures": 0,
+  "SaveAsNewDataContainer": 0,
+  "Spacing": {
+   "x": 2,
+   "y": 2,
+   "z": 2.119999885559082
+  }
+ },
+ "7": {
+  "CellAttributeMatrixName": "CellData",
+  "DataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FilterVersion": "2.0.941",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "ITK::Import Images (3D Stack)",
+  "Filter_Name": "ITKImportImageStack",
+  "ImageDataArrayName": "ImageData",
+  "ImageTransformChoice": 0,
+  "InputFileListInfo": "OM_7_Aligned_Cropped",
+  "Origin": {
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  "Spacing": {
+   "x": 0.3449999988079071,
+   "y": 0.3449999988079071,
+   "z": 2.119999885559082
+  }
+ },
+ "70": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "Filter_Uuid": "{3fcd4c43-9d75-5b86-aad4-4441bc914f37}",
+  "OutputFile": "9 - EBSD_2um_OrientationAnalysis_2deg.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "8": {
+  "CellAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "CellFeatureAttributeMatrixPath": {
+   "Attribute Matrix Name": "CellFeatureData",
+   "Data Array Name": "",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FeatureIdsArrayPath": {
+   "Attribute Matrix Name": "CellData",
+   "Data Array Name": "FeatureIds",
+   "Data Container Name": "ImageDataContainer"
+  },
+  "FilterVersion": "6.6.356",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Crop Geometry (Image)",
+  "Filter_Name": "CropImageGeometry",
+  "NewDataContainerName": {
+   "Attribute Matrix Name": "",
+   "Data Array Name": "",
+   "Data Container Name": "NewImageDataContainer"
+  },
+  "RenumberFeatures": 0,
+  "SaveAsNewDataContainer": 0,
+  "UpdateOrigin": 1,
+  "XMax": 2500,
+  "XMin": 200,
+  "YMax": 4200,
+  "YMin": 125,
+  "ZMax": 515,
+  "ZMin": 0
+ },
+ "9": {
+  "FilterVersion": "2.0.496",
+  "Filter_Enabled": true,
+  "Filter_Human_Label": "Write DREAM.3D Data File",
+  "Filter_Name": "DataContainerWriter",
+  "OutputFile": "3 - Optical_stack_0345um.dream3d",
+  "WriteTimeSeries": 0,
+  "WriteXdmfFile": 1
+ },
+ "PipelineBuilder": {
+  "Name": "Pipeline",
+  "Number_Filters": 71,
+  "Version": 6
+ }
+}

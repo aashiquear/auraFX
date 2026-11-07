@@ -12,6 +12,7 @@ pub mod ebsd;
 pub mod ebsd_h5;
 pub mod cgns;
 pub mod cgns_writer;
+pub mod dream3d_writer;
 pub mod csv;
 pub mod ensight;
 pub mod enzo;
@@ -32,6 +33,7 @@ pub mod openfoam;
 pub mod plot3d;
 pub mod rasters;
 pub mod series;
+pub mod spparks;
 pub mod sqlite;
 pub mod stl;
 pub mod surfaces;
@@ -92,6 +94,7 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
         (&["tif", "tiff", "asc", "img"], "GIS rasters (GeoTIFF, Esri ASCII grid, ERDAS Imagine)"),
         (&["ang", "ctf", "h5ebsd", "dream3d"], "EBSD maps and microstructures (TSL/EDAX .ang, Oxford .ctf, .h5ebsd, EDAX and Bruker .h5, .dream3d)"),
+        (&["spparks", "sites"], "SPPARKS site files"),
         (&["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml", "tab", "mif"], "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML, MapInfo; file geodatabases: open the .gdb folder or a file in it)"),
     ]
 }
@@ -190,6 +193,7 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
         "ang" => Loaded::Static(Arc::new(ebsd::read_ang(path)?)),
         "ctf" => Loaded::Static(Arc::new(ebsd::read_ctf(path)?)),
         "dream3d" => Loaded::Static(Arc::new(ebsd_h5::read_dream3d(path)?)),
+        "spparks" | "sites" => Loaded::Static(Arc::new(spparks::read_sites(path)?)),
         "h5ebsd" => Loaded::Static(Arc::new(ebsd_h5::read(path)?)),
         "img" => Loaded::Static(Arc::new(rasters::read_hfa(path)?)),
         "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif" => Loaded::Static(Arc::new(vectors::read(path)?)),

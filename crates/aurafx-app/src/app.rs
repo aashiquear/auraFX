@@ -489,6 +489,31 @@ impl State {
         }
     }
 
+    /// Build a pipeline from a pipeline file chosen by the user.
+    pub fn import_pipeline_dialog(&mut self) {
+        let Some(p) = crate::dialogs::FileDialog::new().add_filter("Pipelines", &["json", "dream3d"]).pick_file() else { return };
+        let mut s = self.session.lock();
+        let input = s.active;
+        let r = s.import_pipeline(&p, input);
+        drop(s);
+        match r {
+            Ok(r) => {
+                let msg = if r.skipped.is_empty() {
+                    format!("Imported {} steps", r.nodes.len())
+                } else {
+                    format!("Imported {} steps; skipped: {}", r.nodes.len(), r.skipped.iter().map(|(a, b)| format!("{a} ({b})")).collect::<Vec<_>>().join("; "))
+                };
+                let mut s = self.session.lock();
+                for (a, b) in &r.skipped {
+                    s.log(aurafx_pipeline::session::LogLevel::Warn, format!("pipeline step {a} skipped: {b}"));
+                }
+                drop(s);
+                self.toast(msg, !r.skipped.is_empty());
+            }
+            Err(e) => self.toast(format!("{e:#}"), true),
+        }
+    }
+
     /// Write the active node's data to a file chosen by the user.
     pub fn save_data_dialog(&mut self) {
         let (name, ds) = {
@@ -518,6 +543,13 @@ impl State {
                 let mut s = self.session.lock();
                 match s.active {
                     Some(id) => s.save_all_times(id, &p).map(|n| format!("Saved {} ({n} time steps)", p.display())),
+                    None => Err(anyhow::anyhow!("nothing selected")),
+                }
+            } else if ext == "dream3d" {
+                // Records the pipeline that made the data.
+                let mut s = self.session.lock();
+                match s.active {
+                    Some(id) => s.save_data(id, &p).map(|_| format!("Saved {} with its pipeline", p.display())),
                     None => Err(anyhow::anyhow!("nothing selected")),
                 }
             } else {
@@ -719,6 +751,10 @@ impl State {
                 if ui.add_enabled(has_data, egui::Button::new("Save Data…")).on_hover_text("Write the selected node's data (VTK, CSV, STL, PLY)").clicked() {
                     ui.close();
                     self.save_data_dialog();
+                }
+                if ui.button("Import Pipeline…").on_hover_text("Build a pipeline from a pipeline file (.json) or the pipeline a .dream3d file records; it starts from the selected data when its files are not found").clicked() {
+                    ui.close();
+                    self.import_pipeline_dialog();
                 }
                 ui.separator();
                 if ui.button("Save State    Ctrl+S").on_hover_text("Save the pipeline, display settings and camera to an .afx file").clicked() {
@@ -1484,7 +1520,14 @@ impl eframe::App for AuraApp {
         for (name, outs) in to_open {
             st.toast(format!("{name} finished: opening {} result file(s)", outs.len().min(8)), false);
             for o in outs.into_iter().take(8) {
+                let file = o.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                let before = st.session.lock().active;
                 st.open_file(o);
+                // Name the result after its run.
+                let mut s = st.session.lock();
+                if let Some(id) = s.active.filter(|a| Some(*a) != before) {
+                    s.rename(id, format!("{name}: {file}"));
+                }
             }
         }
         if aurafx_jobs::global().lock().jobs.iter().any(|j| j.state.is_active()) {
@@ -1552,6 +1595,22 @@ impl eframe::App for AuraApp {
                 }
                 "show" => {
                     if let Some(p) = find(arg) {
+                        self.state.layout_actions.push(LayoutAction::Show(p));
+                    }
+                }
+                // "sim_template <id>": choose a template in the Simulations panel.
+                "sim_template" => {
+                    if let Some(i) = aurafx_jobs::templates::TEMPLATES.iter().position(|t| t.id == arg.trim() || t.label.eq_ignore_ascii_case(arg.trim())) {
+                        let t = &aurafx_jobs::templates::TEMPLATES[i];
+                        let p = &mut self.state.jobs_panel;
+                        p.template = i;
+                        p.exe = t.default_exe.into();
+                        p.input = t.default_input.into();
+                        p.outputs = t.outputs.into();
+                        p.name = format!("{} run", t.label);
+                        p.command_override = None;
+                    }
+                    if let Some(p) = find("Simulations") {
                         self.state.layout_actions.push(LayoutAction::Show(p));
                     }
                 }

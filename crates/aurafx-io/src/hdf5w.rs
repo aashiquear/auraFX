@@ -97,7 +97,12 @@ fn datatype(d: &ArrayData) -> (Vec<u8>, usize) {
         ArrayData::I64(_) => fixed(8, true),
         ArrayData::U64(_) => fixed(8, false),
         ArrayData::F32(_) | ArrayData::F16(_) => float(false),
-        ArrayData::F64(_) | ArrayData::String(_) => float(true),
+        ArrayData::F64(_) => float(true),
+        // Fixed-length strings as long as the longest.
+        ArrayData::String(v) => {
+            let n = v.iter().map(|s| s.len()).max().unwrap_or(1).max(1);
+            (string_type(n), n)
+        }
     }
 }
 
@@ -130,7 +135,14 @@ fn bytes(d: &ArrayData) -> Vec<u8> {
         ArrayData::F16(v) => put!(v.iter().map(|x| x.to_f32())),
         ArrayData::F32(v) => put!(v),
         ArrayData::F64(v) => put!(v),
-        ArrayData::String(_) => {}
+        ArrayData::String(v) => {
+            let n = v.iter().map(|s| s.len()).max().unwrap_or(1).max(1);
+            for s in v {
+                let mut b = s.as_bytes().to_vec();
+                b.resize(n, 0);
+                out.extend_from_slice(&b);
+            }
+        }
     }
     out
 }

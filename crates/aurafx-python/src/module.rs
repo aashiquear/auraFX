@@ -519,7 +519,7 @@ impl PyNode {
     }
 
     /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .vtkhdf .exo .case (EnSight Gold)
-    /// .xmf (Xdmf + .h5) .cgns .csv .stl .ply (format from the extension). all_times=True writes every
+    /// .xmf (Xdmf + .h5) .cgns .csv .stl .ply .dream3d (with the pipeline) .spparks .tex (format from the extension). all_times=True writes every
     /// time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one mesh), or as an EnSight or
     /// Xdmf series.
     #[pyo3(signature = (path, all_times=false))]
@@ -532,7 +532,16 @@ impl PyNode {
             return session().lock().save_all_times(self.id, p).map(|_| ()).map_err(err);
         }
         let ds = self.output()?;
+        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dream3d")) {
+            // Records the pipeline that made the data.
+            return session().lock().save_data(self.id, p).map_err(err);
+        }
         aurafx_io::writers::write_file(&ds, p).map_err(err)
+    }
+
+    /// The pipeline that makes this node, as JSON text (the form .dream3d files record).
+    fn pipeline_json(&self) -> PyResult<String> {
+        Ok(session().lock().pipeline_json(self.id))
     }
 
     /// Point coordinates as an (N, 3) NumPy array.
@@ -1066,6 +1075,13 @@ fn show_panel(name: String) {
     app_command(format!("show {name}"));
 }
 
+/// Open the Simulations panel on a template: "lammps", "moose", "moose_polycrystal",
+/// "spparks", "pinnacle", "openfoam", "python", "shell" (or its label).
+#[pyfunction]
+fn simulation_template(name: String) {
+    app_command(format!("sim_template {name}"));
+}
+
 /// Send a request to the AI assistant panel. With agent=True it runs its code and iterates.
 #[pyfunction]
 #[pyo3(signature = (text, agent=false))]
@@ -1230,6 +1246,22 @@ fn save_state(path: String) -> PyResult<()> {
     let s = session().lock();
     let cam = s.camera_state;
     s.save_state(std::path::Path::new(&path), cam).map_err(err)
+}
+
+/// Build a pipeline from a pipeline file: a .json pipeline (numbered steps, the layout .dream3d
+/// files record) or the pipeline inside a .dream3d file. Steps that read files open them when
+/// they exist; otherwise the pipeline starts from `input` (a node). Returns the new nodes; steps
+/// without an auraFX filter are listed in the console.
+#[pyfunction]
+#[pyo3(signature = (path, input=None))]
+fn import_pipeline(path: String, input: Option<PyRef<'_, PyNode>>) -> PyResult<Vec<PyNode>> {
+    let mut s = session().lock();
+    let r = s.import_pipeline(std::path::Path::new(&path), input.map(|n| n.id)).map_err(err)?;
+    for (step, why) in &r.skipped {
+        s.log(aurafx_pipeline::session::LogLevel::Warn, format!("pipeline step {step} skipped: {why}"));
+        println!("skipped {step}: {why}");
+    }
+    Ok(r.nodes.into_iter().map(|id| PyNode { id }).collect())
 }
 
 /// Replace the pipeline with the contents of an .afx file.
@@ -1515,6 +1547,116 @@ fn job_dict<'py>(py: Python<'py>, j: &aurafx_jobs::Job, tail: usize) -> PyResult
     Ok(d)
 }
 
+fn case_options(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<aurafx_pipeline::cases::CaseOptions> {
+    let mut o = aurafx_pipeline::cases::CaseOptions::default();
+    if let Some(k) = kwargs {
+        for (key, v) in k.iter() {
+            let key: String = key.extract()?;
+            match key.as_str() {
+                "material" => o.material = v.extract()?,
+                "axis" => {
+                    o.axis = match v.extract::<String>() {
+                        Ok(s) => ["x", "y", "z"].iter().position(|a| s.eq_ignore_ascii_case(a)).ok_or_else(|| PyValueError::new_err("axis is x, y or z"))?,
+                        Err(_) => v.extract::<usize>()?.min(2),
+                    }
+                }
+                "strain" => o.strain = v.extract()?,
+                "steps" => o.steps = v.extract()?,
+                "end_time" => o.end_time = v.extract()?,
+                "fixed" => o.fixed = v.extract()?,
+                "loaded" => o.loaded = v.extract()?,
+                "mc_steps" => o.mc_steps = v.extract()?,
+                "temperature" => o.temperature = v.extract()?,
+                "dump_every" => o.dump_every = v.extract()?,
+                "seed" => o.seed = v.extract()?,
+                k => return Err(PyValueError::new_err(format!("unknown case option {k}: material, axis, strain, steps, end_time, fixed, loaded, mc_steps, temperature, dump_every, seed"))),
+            }
+        }
+    }
+    Ok(o)
+}
+
+/// Write a simulation case from a node's data into `folder`: solver "moose" (a grain mesh:
+/// mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt,
+/// polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts) or "pinnacle"
+/// (a grain mesh: mesh.e, orientations_points.csv, case.i). Options: material, axis ('x', 'y',
+/// 'z'), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature,
+/// dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.
+#[pyfunction]
+#[pyo3(signature = (node, solver, folder, **kwargs))]
+fn simulation_case<'py>(py: Python<'py>, node: PyRef<'_, PyNode>, solver: String, folder: String, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Bound<'py, PyDict>> {
+    let o = case_options(kwargs)?;
+    let ds = node.output()?;
+    let c = aurafx_pipeline::cases::write_case(&ds, &solver, std::path::Path::new(&folder), &o).map_err(err)?;
+    let t = aurafx_jobs::templates::TEMPLATES.iter().find(|t| t.id == c.template).unwrap();
+    let d = PyDict::new(py);
+    d.set_item("folder", c.folder.display().to_string())?;
+    d.set_item("files", c.files.iter().map(|f| f.display().to_string()).collect::<Vec<_>>())?;
+    d.set_item("input", &c.input)?;
+    d.set_item("command", aurafx_jobs::templates::render(t, t.default_exe, &c.input, 1, &aurafx_jobs::GpuRequest::None))?;
+    d.set_item("outputs", &c.outputs)?;
+    d.set_item("template", c.template)?;
+    Ok(d)
+}
+
+/// Write a simulation case from a node's data (see simulation_case) and run it: on this
+/// computer in `workdir`, or on `host` (the case files are uploaded to `workdir` there). `exe`
+/// is the solver program (default: solid_mechanics-opt, spk_mpi, pinnacle), `np` the MPI
+/// processes. The results open when the run ends (auto_load). Returns the job id.
+#[pyfunction]
+#[pyo3(signature = (node, solver, workdir, host=None, exe=None, np=1, auto_load=true, wait=false, slurm=None, **kwargs))]
+#[allow(clippy::too_many_arguments)]
+fn run_case(
+    py: Python<'_>,
+    node: PyRef<'_, PyNode>,
+    solver: String,
+    workdir: String,
+    host: Option<String>,
+    exe: Option<String>,
+    np: u32,
+    auto_load: bool,
+    wait: bool,
+    slurm: Option<std::collections::HashMap<String, String>>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<u64> {
+    let o = case_options(kwargs)?;
+    let ds = node.output()?;
+    let h = aurafx_jobs::resolve_host(host.as_deref());
+    let name = format!("{} {}", solver, std::path::Path::new(&workdir).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default());
+    let local = if h.is_local() { std::path::PathBuf::from(&workdir) } else { aurafx_jobs::cache_dir().join("cases").join(name.replace(' ', "_")) };
+    let c = aurafx_pipeline::cases::write_case(&ds, &solver, &local, &o).map_err(err)?;
+    let t = aurafx_jobs::templates::TEMPLATES.iter().find(|t| t.id == c.template).unwrap();
+    let cmd = aurafx_jobs::templates::render(t, exe.as_deref().unwrap_or(t.default_exe), &c.input, np, &aurafx_jobs::GpuRequest::None);
+    let mut spec = aurafx_jobs::JobSpec::new(name, cmd);
+    spec.host = h;
+    spec.workdir = workdir;
+    spec.outputs = c.outputs.clone();
+    spec.auto_load = auto_load;
+    spec.inputs = if spec.host.is_local() { Vec::new() } else { c.files.clone() };
+    if let Some(sl) = slurm {
+        spec.scheduler = aurafx_jobs::Scheduler::Slurm {
+            partition: sl.get("partition").cloned().unwrap_or_default(),
+            time: sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into()),
+            nodes: sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1),
+            tasks: np,
+            extra: sl.get("extra").cloned().unwrap_or_default(),
+        };
+    }
+    let jobs = aurafx_jobs::global();
+    let id = aurafx_jobs::submit(&jobs, spec);
+    if wait {
+        loop {
+            let active = jobs.lock().jobs.iter().find(|j| j.id == id).map(|j| !j.settled).unwrap_or(false);
+            if !active {
+                break;
+            }
+            py.detach(|| std::thread::sleep(std::time::Duration::from_millis(200)));
+            py.check_signals()?;
+        }
+    }
+    Ok(id)
+}
+
 /// Run a shell command as a job (locally, on an SSH host, or via Slurm).
 /// gpu: None, "any", "nvidia", "amd", or e.g. "nvidia:0,1". Returns the job id.
 #[pyfunction]
@@ -1557,7 +1699,7 @@ fn submit(
     let id = aurafx_jobs::submit(&jobs, spec);
     if wait {
         loop {
-            let active = jobs.lock().jobs.iter().find(|j| j.id == id).map(|j| j.state.is_active()).unwrap_or(false);
+            let active = jobs.lock().jobs.iter().find(|j| j.id == id).map(|j| !j.settled).unwrap_or(false);
             if !active {
                 break;
             }
@@ -1730,6 +1872,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(redo, m)?)?;
     m.add_function(wrap_pyfunction!(save_state, m)?)?;
     m.add_function(wrap_pyfunction!(load_state, m)?)?;
+    m.add_function(wrap_pyfunction!(import_pipeline, m)?)?;
+    m.add_function(wrap_pyfunction!(simulation_case, m)?)?;
+    m.add_function(wrap_pyfunction!(run_case, m)?)?;
+    m.add_function(wrap_pyfunction!(simulation_template, m)?)?;
     m.add_function(wrap_pyfunction!(layout, m)?)?;
     m.add_function(wrap_pyfunction!(hide_panel, m)?)?;
     m.add_function(wrap_pyfunction!(plot, m)?)?;

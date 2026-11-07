@@ -514,10 +514,18 @@ The Exodus file holds:
 - the grain boundaries as a side set.
 
 The `.tex` file lists the grains' orientations, ready for a crystal-plasticity input deck.
-Running that deck on a remote machine and reading the results back are covered by the
-simulation templates (Simulations chapter). Once results are back, the filters of the
-Grains and crystals chapter apply to them as well (Average Orientations, Misorientation
-Distribution, Crystal Mechanics, ...).
+
+The case templates of [Running simulations](simulations.md#simulation-cases-from-the-pipeline)
+write and run the solver's input from the grain mesh directly, here or on a remote machine,
+and open the results when the run ends:
+
+```python
+jid = afx.run_case(poly, "moose", "~/runs/plate", host="cluster", np=32,
+                   material="Nickel", axis="x", strain=0.02, steps=100)
+```
+
+On the results, per-grain statistics come from the grain blocks (MOOSE) or from Assign Grains
+with the case's point file (PINNACLE).
 
 ## Elevate
 

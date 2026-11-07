@@ -498,6 +498,14 @@ fn read_container(dc: &Group, wanted: &Option<Vec<String>>) -> Result<DataSet> {
     Ok(ds)
 }
 
+/// The pipeline a `.dream3d` file records (the JSON text of `/Pipeline/Pipeline`), if any.
+pub fn dream3d_pipeline(path: &Path) -> Result<Option<String>> {
+    let f = open(path)?;
+    let Ok(g) = f.group("Pipeline") else { return Ok(None) };
+    let name = attr_text(&g, "Current Pipeline").unwrap_or_else(|| "Pipeline".into());
+    Ok(text(&g, &name).or_else(|| text(&g, "Pipeline")))
+}
+
 /// A `.dream3d` file: one data container, or every one as blocks.
 pub fn read_dream3d(path: &Path) -> Result<DataSet> {
     let f = open(path)?;

@@ -9,7 +9,7 @@ The **Simulations** panel (right side; **Simulate › Run a simulation…**, or
 
 | Field | Meaning |
 |---|---|
-| **Template** | LAMMPS, MOOSE app, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns |
+| **Template** | LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below) |
 | **Run on** | this computer, or a remote machine from the SSH list; **via Slurm** submits with `sbatch` there (partition, time and extra `#SBATCH` lines appear) |
 | **Name**, **Working directory** | where the run lives; a remote directory when running over SSH |
 | **Program**, **Input**, **MPI processes** | the command line is assembled from these and shown below, editable |
@@ -21,6 +21,75 @@ The **Simulations** panel (right side; **Simulate › Run a simulation…**, or
 **Run** starts the job. Jobs appear in the **Jobs** list with their state, a live log tail,
 and buttons to cancel, open the results or the folder, and resubmit. Files a running solver
 writes can be opened while it runs; auraFX reloads them as they change (live reload).
+
+## Simulation cases from the pipeline
+
+Three templates write their input files from the data selected in the pipeline, then run the
+solver:
+
+| Template | Selected data | Files written into the working directory |
+|---|---|---|
+| **MOOSE polycrystal** | a grain mesh (from [Assign Grains](geometry.md#grains-on-meshes), or Overlay Mesh of a microstructure) | `mesh.e` (one block per grain, block id = grain id), `grain_euler.txt` (each block's Euler angles, read with `PropertyReadFile`), `grains.tex` (the same orientations for `EulerAngleFileReader`), `slip_systems.txt`, `polycrystal.i` |
+| **SPPARKS grain growth** | a microstructure volume with `FeatureIds` | `grains.spparks` (the site file), `in.potts` (a Potts-model run that reads it) |
+| **PINNACLE crystal plasticity** | a grain mesh | `mesh.e`, `orientations_points.csv` (each element's centre with its grain and Euler angles), `case.i` |
+
+Choose the template, select the data in the pipeline (the panel shows it under **Case
+from**), and set the case:
+- **Material**: the elastic constants, shear modulus and Burgers vector come from the
+  material table of [Crystal Mechanics](grains.md#mechanics-and-additive-manufacturing).
+  Only cubic materials (FCC, BCC) are offered.
+- **Pull along**, **strain** and **steps**: the faces named `x-` and `x+` (or `y-`/`y+`,
+  `z-`/`z+`) are held and pulled. The faces of the other two directions are held on their
+  lower side when the mesh names them. Box Mesh, Plate Mesh, Dog-bone Mesh and the Geometry
+  source name their faces this way.
+- For SPPARKS: **Monte Carlo steps** and **temperature**.
+
+**Run** writes the files and starts the job. For a remote machine they are written to a local
+folder and uploaded to the working directory there. With **open when done**, the results open
+when the run ends, named after the run:
+- MOOSE: `polycrystal_out.e`, with one block per grain.
+- SPPARKS: `dump.potts`, each snapshot a volume with `FeatureIds`.
+- PINNACLE: `solver/fields.pvd`, the field snapshots as a time series.
+
+![The Simulations panel set to write a PINNACLE case from a grain mesh](images/simulation_case.png)
+
+The input files are a starting point. Edit them for the material's hardening and slip
+parameters, the boundary conditions and the solver settings before production runs.
+
+```python
+poly = afx.plate_mesh().assign_grains(grains=30, blocks=True)
+case = afx.simulation_case(poly, "moose", "~/runs/plate", material="Copper", axis="x",
+                           strain=0.02, steps=50)        # only write the files
+print(case["command"], case["files"])
+jid = afx.run_case(poly, "pinnacle", "/data/runs/plate", strain=0.02, steps=40, wait=True)
+jid = afx.run_case(volume, "spparks", "~/gg", host="cluster", np=16, mc_steps=500)
+```
+
+`run_case` takes `host`, `exe` (the solver program), `np`, `slurm`, `auto_load` and `wait` as
+`afx.submit` does, plus the case options: `material`, `axis`, `strain`, `steps`, `end_time`,
+`fixed` and `loaded` (other set names), `mc_steps`, `temperature`, `dump_every`, `seed`.
+
+**Grains on the results.** MOOSE keeps the grain blocks. A PINNACLE result has no grain
+array, but every element sits on its own point of `orientations_points.csv`, so Assign Grains
+(nearest point) gives the grains back exactly. Statistics per grain then come from the arrays:
+
+```python
+res = afx.load("/data/runs/plate/solver/fields.pvd")
+g = res.assign_grains(afx.load("/data/runs/plate/orientations_points.csv"), method="Nearest point")
+import numpy as np
+gid, sxx = g.array("grain_id", "cells"), g.array("stress", "cells")[:, 0]
+for k in np.unique(gid):
+    print(k, sxx[gid == k].mean())
+```
+
+![The PINNACLE result of a 30-grain plate with a hole at 2 % strain, colored by the equivalent plastic strain, with the grain boundaries recovered from the case's point file](images/pinnacle_result.png)
+
+Limits:
+- Every element and site needs a grain: no grain id 0. Fill Bad Data fills unindexed cells
+  of a volume.
+- The crystal-plasticity cases cover cubic crystals (FCC and BCC).
+- SPPARKS sites lie on a simple-cubic lattice of the volume's cells. The lattice constant is
+  the cell size when the cells are cubes, else 1.
 
 ## Remote machines
 

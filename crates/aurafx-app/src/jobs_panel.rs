@@ -36,6 +36,13 @@ pub struct JobsPanel {
     pub command_override: Option<String>,
     pub sweep_var: String,
     pub sweep_values: String,
+    // Cases written from the selected data
+    pub case_material: String,
+    pub case_axis: usize,
+    pub case_strain: f64,
+    pub case_steps: usize,
+    pub case_mc_steps: f64,
+    pub case_kt: f64,
     pub selected: Option<JobId>,
     pub log_filter: String,
     // Host editor
@@ -85,6 +92,12 @@ impl Default for JobsPanel {
             command_override: None,
             sweep_var: String::new(),
             sweep_values: String::new(),
+            case_material: "Aluminium".into(),
+            case_axis: 0,
+            case_strain: 0.02,
+            case_steps: 50,
+            case_mc_steps: 100.0,
+            case_kt: 0.0,
             selected: None,
             log_filter: String::new(),
             new_host_name: String::new(),
@@ -218,6 +231,8 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
         }
     }
     let hosts = aurafx_jobs::hosts();
+    let session = state.session.clone();
+    let mut case_error: Option<String> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // ---------------------------------------------------------- new job
         egui::CollapsingHeader::new(RichText::new(format!("{} New simulation", icons::PLAY)).strong()).default_open(true).show(ui, |ui| {
@@ -262,6 +277,44 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     }
                 });
                 ui.end_row();
+                if let Some(kind) = TEMPLATES[p.template].case {
+                    let (active, ok) = {
+                        let s = session.lock();
+                        s.active_node().map(|n| (n.name.clone(), n.output.is_some())).unwrap_or_default()
+                    };
+                    ui.label("Case from");
+                    ui.label(if ok { RichText::new(active) } else { RichText::new("select the data in the pipeline").weak() })
+                        .on_hover_text("The selected node's data: a grain mesh (Assign Grains) for crystal plasticity, a microstructure volume with FeatureIds for grain growth. Run writes the case files into the working directory.");
+                    ui.end_row();
+                    if kind == "spparks" {
+                        ui.label("Monte Carlo steps");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(&mut p.case_mc_steps).range(1.0..=1e9));
+                            ui.label("temperature (kT)");
+                            ui.add(egui::DragValue::new(&mut p.case_kt).speed(0.01).range(0.0..=10.0));
+                        });
+                        ui.end_row();
+                    } else {
+                        ui.label("Material");
+                        egui::ComboBox::from_id_salt("case_mat").selected_text(p.case_material.clone()).show_ui(ui, |ui| {
+                            for m in aurafx_crystal::mechanics::MATERIALS.iter().filter(|m| m.lattice != aurafx_crystal::mechanics::Lattice::Hcp) {
+                                ui.selectable_value(&mut p.case_material, m.name.to_string(), m.name);
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Pull along");
+                        ui.horizontal(|ui| {
+                            for (i, a) in ["x", "y", "z"].iter().enumerate() {
+                                ui.selectable_value(&mut p.case_axis, i, *a);
+                            }
+                            ui.label("strain");
+                            ui.add(egui::DragValue::new(&mut p.case_strain).speed(0.001).range(1e-6..=1.0));
+                            ui.label("steps");
+                            ui.add(egui::DragValue::new(&mut p.case_steps).range(1..=100000));
+                        });
+                        ui.end_row();
+                    }
+                }
                 ui.label("Program");
                 ui.text_edit_singleline(&mut p.exe);
                 ui.end_row();
@@ -339,6 +392,32 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     if p.slurm {
                         spec.scheduler =
                             Scheduler::Slurm { partition: p.partition.clone(), time: p.time.clone(), nodes: p.nodes, tasks: p.np, extra: p.extra.clone() };
+                    }
+                    // Case templates: write the case from the selected data (here, or into a
+                    // folder whose files are uploaded to the host).
+                    if let Some(kind) = TEMPLATES[p.template].case {
+                        let ds = session.lock().active_node().and_then(|n| n.output.clone());
+                        let o = aurafx_pipeline::cases::CaseOptions {
+                            material: p.case_material.clone(),
+                            axis: p.case_axis,
+                            strain: p.case_strain,
+                            steps: p.case_steps,
+                            mc_steps: p.case_mc_steps,
+                            temperature: p.case_kt,
+                            ..Default::default()
+                        };
+                        let folder = if spec.host.is_local() { std::path::PathBuf::from(&spec.workdir) } else { aurafx_jobs::cache_dir().join("cases").join(p.name.replace([' ', '/'], "_")) };
+                        match ds.ok_or_else(|| anyhow::anyhow!("select the data to simulate in the pipeline")).and_then(|d| aurafx_pipeline::cases::write_case(&d, kind, &folder, &o)) {
+                            Ok(c) => {
+                                if !spec.host.is_local() {
+                                    spec.inputs = c.files.clone();
+                                }
+                            }
+                            Err(e) => {
+                                case_error = Some(format!("{e:#}"));
+                                return;
+                            }
+                        }
                     }
                     let values: Vec<String> = p.sweep_values.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
                     if !p.sweep_var.trim().is_empty() && !values.is_empty() {
@@ -674,6 +753,9 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         });
     });
+    if let Some(e) = case_error {
+        state.toast(format!("Could not write the case: {e}"), true);
+    }
     let monitoring = true;
     state.jobs_panel.poll(&ctx, now, monitoring);
 }

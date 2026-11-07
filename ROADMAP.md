@@ -305,7 +305,7 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
   - [x] M4a: uniform refinement of hexahedra and tetrahedra, HTet/THex conversions, mesh smoothing (Laplacian, smart Laplacian, condition number), boundary layers, tetrahedron quality metrics (iteration 66).
   - [x] M4b: tetrahedral meshing of implicit and STL geometry (isosurface stuffing), local refinement of tetrahedra, Tet mesh output and filters (iteration 67).
   - [ ] Later: local refinement of hexahedra with transition templates, Winslow smoothing, graded sizing by curvature, sharp edges in tetrahedral meshes, conforming tetrahedra between touching bodies.
-- [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
+- [x] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
 
 ---
 
@@ -484,6 +484,14 @@ weights, directional Young's modulus from the 6 x 6 compliance, a materials tabl
 toolkit's IN718 and CoNi), filters Crystal Mechanics (yield estimate), SROD (grain classes,
 bins, by-height table) and GND Density (Nye tensor, from KAM); Taylor, Schmid, modulus, SROD
 and Nye GND match the AM orientation toolkit. Guide chapter: Grains and crystals. Next: M5.
+
+Done in iteration 69 (M5): Assign Grains (Voronoi/Laguerre seeds, nearest point of a point set
+or table, the feature of a microstructure volume; grain_id and orientations per element,
+blocks per grain, grain-boundary side sets), Overlay Mesh carrying grain orientations (Mesh
+Grains), the .tex orientation writer, the worked geometry-to-polycrystal example; the nearest
+point rule reproduces the benchmark's element-to-grain table exactly. The solver run of the
+worked example comes with G7's simulation templates. Guide chapter: Geometry and meshing.
+Next: G7.
 
 ## Status (2026-11-05)
 

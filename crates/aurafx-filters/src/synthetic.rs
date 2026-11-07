@@ -177,6 +177,11 @@ fn compact(labels: &[u32]) -> (Vec<i32>, Vec<u32>) {
     (ids, order)
 }
 
+/// One orientation per grain (random or a fibre along z with a spread in radians).
+pub fn grain_orientations_pub(n: usize, kind: &str, spread: f64, r: &mut dyn Draws) -> Vec<Quat> {
+    grain_orientations(n, kind, spread, r)
+}
+
 /// Orientations of synthetic grains.
 pub const ORIENT_RANDOM: &str = "Random";
 pub const ORIENT_FIBER100: &str = "<100> along Z";

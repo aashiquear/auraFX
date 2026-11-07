@@ -451,6 +451,74 @@ smooth = tets.smooth_mesh(scheme="Smart Laplacian", iterations=10)
 
 ![A box with boundary layers grown under two of its faces](images/boundary_layers.png)
 
+## Grains on meshes
+
+### Assign Grains
+
+**Filters › Mesh › Assign Grains** gives every element of a mesh a grain, as the cell array
+`grain_id`, and that grain's orientation, as `EulerAngles` (radians). **Grains from** sets
+where the grains come from:
+- **Voronoi**: **Grains** seeds placed at random in the mesh's box. Each element takes the
+  grain of the seed nearest its centre. **Size spread** above 0 makes Laguerre grains of
+  different sizes. Orientations are random or a fibre. The seeds are kept as `GrainSeeds`.
+- **Nearest point**: a second input of points, or a table with `x`, `y` and `z` columns,
+  carrying grain ids (**Grain id array**, `grain_id` by default). Each element takes the grain
+  of the point nearest its centre. If the points have orientations, as `EulerAngles` in
+  radians or `phi1`, `Phi` and `phi2` columns in degrees, the grain takes them.
+- **From a volume**: a second input that is a microstructure, for example an EBSD volume or a
+  synthetic one, with `FeatureIds`. Each element takes the feature of the cell its centre
+  lies in, with that feature's mean orientation.
+
+**One block per grain** makes each grain an element block named `grain N`. **Side set on
+grain boundaries** adds a side set, and a node set, named `grain boundaries` on the faces
+between elements of different grains. Grains without an orientation in the source get a
+random one. The grains' orientations are also kept as the field array `GrainEulerAngles`,
+one row per grain id.
+
+**Mesh grains from a microstructure.** Overlay Mesh on a volume with `FeatureIds` and
+orientations already gives one block per grain. Each element also gets its grain's
+`grain_id` and mean orientation.
+
+**Orientation files.** Saving a mesh with grain orientations as `.tex` writes one line per
+grain, in order of grain id: φ1 Φ φ2 in degrees. Crystal-plasticity input decks read
+orientations in this form.
+
+```python
+grains = mesh.assign_grains(grains=80, blocks=True, boundaries=True)
+from_points = mesh.assign_grains(afx.load("points.csv"), method="Nearest point")
+grains.save("specimen.e")
+grains.save("specimen.tex")
+```
+
+![A dog-bone specimen with 80 Voronoi grains, colored by grain id](images/assign_grains.png)
+
+### Worked example: geometry to a solver-ready polycrystal
+
+```python
+import aurafx as afx
+part = afx.geometry(output="Hex mesh", commands='''
+brick x 4 y 1 z 0.5
+cylinder radius 0.2 height 1
+subtract body 2 from body 1
+mesh body 1 size 0.05 scheme overlay
+''')
+poly = part.assign_grains(grains=200, blocks=True, boundaries=True)
+q = poly.mesh_quality(output="Summary table")       # check the elements
+poly.save("plate.e")                                  # blocks per grain, side sets per face
+poly.save("plate.tex")                                # one orientation per grain
+```
+
+The Exodus file holds:
+- one block per grain;
+- the plate's faces as side sets (`brick 1 x-`, `cylinder 2 side`, ...);
+- the grain boundaries as a side set.
+
+The `.tex` file lists the grains' orientations, ready for a crystal-plasticity input deck.
+Running that deck on a remote machine and reading the results back are covered by the
+simulation templates (Simulations chapter). Once results are back, the filters of the
+Grains and crystals chapter apply to them as well (Average Orientations, Misorientation
+Distribution, Crystal Mechanics, ...).
+
 ## Elevate
 
 **Filters › Mesh › Elevate** turns 8-node hexahedra into 20-node (edge midpoints) or 27-node
@@ -523,6 +591,9 @@ t = m.mesh_quality(output="Summary table")        # one row per metric
 - Inclusions must be star-shaped (one surface point along every direction from their
   centre) and cannot touch: each lies in its own box of grid cells, which caps how dense a
   packing can get even with collective packing.
+- Assign Grains places a grain by each element's centre: grain boundaries follow the element
+  faces (a finer mesh resolves them better), and the tetrahedral and hexahedral side sets need
+  the mesh to be all one kind.
 - Tetrahedral meshes have one element size, refined locally with Refine Region; they round
   sharp edges over about an element, and touching bodies are meshed separately (their nodes
   do not match). Local refinement works on tetrahedra only, and smoothing has no Winslow

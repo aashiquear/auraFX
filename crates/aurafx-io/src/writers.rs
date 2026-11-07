@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 /// (extensions, description) of writable formats.
 pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
     let mut v = match ds {
+        DataSet::UnstructuredGrid(u) if u.field_data.get("GrainEulerAngles").is_some() => vec![("vtu", "VTK unstructured grid"), ("inp", "Abaqus input (blocks, node sets, surfaces)"), ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"), ("tex", "Grain orientations (phi1 Phi phi2 per grain, degrees)")],
         DataSet::UnstructuredGrid(_) => vec![("vtu", "VTK unstructured grid"), ("inp", "Abaqus input (blocks, node sets, surfaces)"), ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)")],
         DataSet::PolyData(_) => vec![("vtp", "VTK polygonal data"), ("stl", "STL surface"), ("ply", "PLY surface")],
         DataSet::ImageData(_) => vec![("vti", "VTK image data")],
@@ -60,6 +61,7 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
         "vtm" => write_vtm(ds, path),
         "vtk" => write_legacy(ds, path),
         "csv" => write_csv(ds, path),
+        "tex" => write_tex(ds, path),
         "stl" => write_stl(ds, path),
         "ply" => write_ply(ds, path),
         "e" | "exo" | "ex2" | "exii" | "g" => crate::exodus_writer::write_exodus(ds, path),
@@ -627,6 +629,25 @@ fn surface_triangles(ds: &DataSet) -> Result<(Vec<[f32; 3]>, Vec<[u32; 3]>)> {
         }
     }
     Ok((pts, tris))
+}
+
+/// Grain orientations as text: one line per grain, Bunge phi1 Phi phi2 in degrees, in order
+/// of grain id (from the field array GrainEulerAngles that Assign Grains writes, radians, one row
+/// per grain id).
+pub fn write_tex(ds: &DataSet, path: &Path) -> Result<()> {
+    let leaf = match ds {
+        DataSet::MultiBlock(mb) => mb.leaves().into_iter().find(|(_, d)| d.field_data().get("GrainEulerAngles").is_some()).map(|(_, d)| d.clone()).unwrap_or_else(|| ds.clone()),
+        d => d.clone(),
+    };
+    let a = leaf.field_data().get("GrainEulerAngles").ok_or_else(|| anyhow!("no grain orientations (field array GrainEulerAngles): run Assign Grains first"))?;
+    let rows: Vec<(usize, [f64; 3])> = (0..a.len()).map(|g| (g, [a.get(g, 0), a.get(g, 1), a.get(g, 2)])).filter(|(_, e)| e.iter().all(|x| x.is_finite())).collect();
+    let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
+    writeln!(f, "# Grain orientations written by auraFX: Bunge Euler angles phi1 Phi phi2 in degrees.")?;
+    writeln!(f, "# One line per grain, in order of grain id: {}", rows.iter().map(|r| r.0.to_string()).collect::<Vec<_>>().join(" "))?;
+    for (_, e) in rows {
+        writeln!(f, "{:.6} {:.6} {:.6}", e[0].to_degrees(), e[1].to_degrees(), e[2].to_degrees())?;
+    }
+    Ok(())
 }
 
 pub fn write_stl(ds: &DataSet, path: &Path) -> Result<()> {

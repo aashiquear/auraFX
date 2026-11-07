@@ -394,6 +394,10 @@ Boundaries against a brute-force distance.
   with the same cell counts, every SROD (grain, bin, cell, rate) within 3e-5 degrees; the Nye
   GND density within 2.3e-6 relative with the same empty cells
   (testdata/crystal/am_reference.json).
+- Assign Grains, nearest point, reproduces the element-to-grain table of the
+  pinn-cp-pfd-benchmark study for its h40 plate with a hole (860 elements, 30 grains) exactly,
+  from the study's own point file (testdata/benchmark). Voronoi assignment matches a brute-force
+  nearest-seed search for every element.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

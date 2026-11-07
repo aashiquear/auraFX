@@ -423,7 +423,28 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
     };
     let mut m = r.mesh;
     m.elevate(nodes_per_element(&p.element), &[], &|_, q| q);
+    // Grains of a labelled volume with orientations: each element's grain and its mean
+    // orientation, ready for orientation files.
+    let grain_q: Option<Vec<Option<aurafx_crystal::Quat>>> = match ds {
+        DataSet::ImageData(img) => crate::features::Orients::of(ds, None, crate::crystal::FROM_PHASES, None).ok().and_then(|o| {
+            let a = img.cell_data.get(&p.array)?;
+            let fid: Vec<i32> = (0..a.len()).map(|i| a.get(i, 0) as i32).collect();
+            let nf = fid.iter().copied().max().unwrap_or(0).max(0) as usize + 1;
+            Some(crate::features::average_quats(&o, &fid, nf))
+        }),
+        _ => None,
+    };
+    let grain_of: Vec<i32> = m.block.iter().map(|b| if m.block_names.get(b).is_some_and(|n| n == "void") { 0 } else { *b }).collect();
     let mut out = m.to_dataset();
+    if let Some(gq) = grain_q {
+        let eul: Vec<f64> = grain_of.iter().flat_map(|g| gq.get(*g as usize).copied().flatten().map(aurafx_crystal::quat_to_euler).unwrap_or([f64::NAN; 3])).collect();
+        let rows: Vec<f64> = gq.iter().flat_map(|q| q.map(aurafx_crystal::quat_to_euler).unwrap_or([f64::NAN; 3])).collect();
+        if let Some(cd) = out.cell_data_mut() {
+            cd.insert(Array::new("grain_id", 1, ArrayData::I32(grain_of.clone())));
+            cd.insert(Array::new("EulerAngles", 3, ArrayData::F64(eul)));
+        }
+        out.field_data_mut_any().insert(Array::new("GrainEulerAngles", 3, ArrayData::F64(rows)));
+    }
     let fd = out.field_data_mut_any();
     fd.insert(Array::new("MinScaledJacobian", 1, ArrayData::F64(vec![r.min_sj])));
     fd.insert(Array::new("InvertedElements", 1, ArrayData::F64(vec![r.inverted as f64])));
@@ -553,4 +574,292 @@ pub fn refine_region(ds: &DataSet, lo: [f64; 3], hi: [f64; 3], array: &str, valu
         bail!("no element to refine");
     }
     Ok(aurafx_mesh::stuffing::refine_marked(&m, &marked, &|p| p).to_dataset())
+}
+
+// ------------------------------------------------------------------ grains on meshes
+
+fn corner_count(t: CellType, n: usize) -> usize {
+    match t {
+        CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron | CellType::BiquadraticQuadraticHexahedron => 8,
+        CellType::QuadraticTetra => 4,
+        CellType::QuadraticWedge => 6,
+        CellType::QuadraticPyramid => 5,
+        _ => n,
+    }
+}
+
+/// Element centres: the mean of each element's corner nodes.
+fn centroids(ds: &DataSet) -> Result<Vec<[f64; 3]>> {
+    let ug = ds.to_unstructured().ok_or_else(|| anyhow!("Assign Grains works on meshes"))?;
+    Ok(ug
+        .cells
+        .iter()
+        .map(|(t, ids)| {
+            let k = corner_count(t, ids.len()).min(ids.len()).max(1);
+            let mut c = [0.0; 3];
+            for id in &ids[..k] {
+                let p = ug.points.get(*id as usize);
+                for a in 0..3 {
+                    c[a] += p[a];
+                }
+            }
+            c.map(|x| x / k as f64)
+        })
+        .collect())
+}
+
+/// Nearest of a set of points (with optional power weights) by buckets.
+struct Nearest {
+    pts: Vec<[f64; 3]>,
+    w: Vec<f64>,
+    lo: [f64; 3],
+    bw: [f64; 3],
+    nb: [usize; 3],
+    bucket: Vec<Vec<u32>>,
+    wmax: f64,
+}
+
+impl Nearest {
+    fn new(pts: Vec<[f64; 3]>, w: Vec<f64>) -> Nearest {
+        let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+        for p in &pts {
+            for a in 0..3 {
+                lo[a] = lo[a].min(p[a]);
+                hi[a] = hi[a].max(p[a]);
+            }
+        }
+        let ext: [f64; 3] = std::array::from_fn(|a| (hi[a] - lo[a]).max(1e-12));
+        let per = (pts.len() as f64).cbrt().max(1.0);
+        let nb: [usize; 3] = std::array::from_fn(|a| ((per * ext[a] / ext.iter().cloned().fold(0.0, f64::max)).ceil() as usize).clamp(1, 128));
+        let bw: [f64; 3] = std::array::from_fn(|a| ext[a] / nb[a] as f64 * (1.0 + 1e-9));
+        let mut bucket = vec![Vec::new(); nb[0] * nb[1] * nb[2]];
+        for (i, p) in pts.iter().enumerate() {
+            let b: [usize; 3] = std::array::from_fn(|a| (((p[a] - lo[a]) / bw[a]) as usize).min(nb[a] - 1));
+            bucket[b[0] + nb[0] * (b[1] + nb[1] * b[2])].push(i as u32);
+        }
+        let wmax = w.iter().cloned().fold(0.0, f64::max);
+        Nearest { pts, w, lo, bw, nb, bucket, wmax }
+    }
+    /// Index of the point of least |x - p|^2 - w (ties: the lowest index).
+    fn query(&self, x: [f64; 3]) -> usize {
+        let pb: [i64; 3] = std::array::from_fn(|a| (((x[a] - self.lo[a]) / self.bw[a]).floor() as i64).clamp(0, self.nb[a] as i64 - 1));
+        let mut best = (f64::INFINITY, usize::MAX);
+        let bmin = self.bw.iter().cloned().fold(f64::INFINITY, f64::min);
+        for ring in 0i64.. {
+            for dz in -ring..=ring {
+                for dy in -ring..=ring {
+                    for dx in -ring..=ring {
+                        if dx.abs().max(dy.abs()).max(dz.abs()) != ring {
+                            continue;
+                        }
+                        let q = [pb[0] + dx, pb[1] + dy, pb[2] + dz];
+                        if (0..3).any(|a| q[a] < 0 || q[a] >= self.nb[a] as i64) {
+                            continue;
+                        }
+                        for &i in &self.bucket[q[0] as usize + self.nb[0] * (q[1] as usize + self.nb[1] * q[2] as usize)] {
+                            let p = self.pts[i as usize];
+                            let d = (0..3).map(|a| (x[a] - p[a]).powi(2)).sum::<f64>() - self.w.get(i as usize).copied().unwrap_or(0.0);
+                            if d < best.0 || (d == best.0 && (i as usize) < best.1) {
+                                best = (d, i as usize);
+                            }
+                        }
+                    }
+                }
+            }
+            // Beyond this ring every point is at least `ring` bucket widths away (the query
+            // point may lie outside the buckets: measure from its clamped bucket).
+            let outside: f64 = (0..3).map(|a| ((self.lo[a] - x[a]).max(0.0).max(x[a] - (self.lo[a] + self.nb[a] as f64 * self.bw[a]))).powi(2)).sum::<f64>().sqrt();
+            let reach = (ring as f64 * bmin + outside).max(0.0);
+            let all = (0..3).all(|a| ring as usize >= self.nb[a]);
+            if all || (best.1 != usize::MAX && reach * reach - self.wmax > best.0 + 1e-12) {
+                break;
+            }
+        }
+        best.1
+    }
+}
+
+pub const GRAINS_VORONOI: &str = "Voronoi";
+pub const GRAINS_POINTS: &str = "Nearest point";
+pub const GRAINS_VOLUME: &str = "From a volume";
+
+pub struct AssignParams {
+    pub method: String,
+    pub grains: usize,
+    pub size_sigma: f64,
+    pub orientations: String,
+    pub spread_deg: f64,
+    pub seed: u64,
+    pub grain_array: String,
+    pub blocks: bool,
+    pub boundaries: bool,
+}
+
+/// Assign Grains: a grain id (`grain_id`) and an orientation (`EulerAngles`, radians) for
+/// every element of a mesh, from Voronoi (or Laguerre) seeds placed at random, from the
+/// nearest point of a point set or table carrying grain ids (and orientations), or from the
+/// feature of a microstructure volume at the element's centre. Optionally one element block
+/// per grain and a side set on the grain boundaries; the grains' orientations are field data
+/// (`GrainEulerAngles`, one row per grain id) for orientation files.
+pub fn assign_grains(mesh: &DataSet, source: Option<&DataSet>, p: &AssignParams) -> Result<DataSet> {
+    use aurafx_crystal::{self as cx, Quat};
+    let cen = centroids(mesh)?;
+    if cen.is_empty() {
+        bail!("the mesh has no elements");
+    }
+    let mut seeds_out: Option<Vec<[f64; 3]>> = None;
+    let (gid, mut grain_q): (Vec<i32>, std::collections::BTreeMap<i32, Quat>) = match p.method.as_str() {
+        GRAINS_POINTS => {
+            let s = source.ok_or_else(|| anyhow!("Nearest point needs a second input: points or a table (x, y, z and a grain id column)"))?;
+            let (pts, cols): (Vec<[f64; 3]>, &Attributes) = match s {
+                DataSet::Table(t) => {
+                    let col = |n: &str| t.columns.get(n).ok_or_else(|| anyhow!("the table has no column {n}"));
+                    let (x, y) = (col("x")?, col("y")?);
+                    let z = t.columns.get("z");
+                    ((0..x.len()).map(|i| [x.get(i, 0), y.get(i, 0), z.map(|a| a.get(i, 0)).unwrap_or(0.0)]).collect(), &t.columns)
+                }
+                d => {
+                    let pts = d.points().ok_or_else(|| anyhow!("the second input has no points"))?;
+                    ((0..pts.len()).map(|i| pts.get(i)).collect(), d.point_data().ok_or_else(|| anyhow!("no point data"))?)
+                }
+            };
+            let g = cols.get(&p.grain_array).ok_or_else(|| anyhow!("the points have no {} array", p.grain_array))?;
+            // Orientations: EulerAngles (radians) or phi1/Phi/phi2 columns (degrees).
+            let eul: Option<Box<dyn Fn(usize) -> Quat>> = if let Some(e) = cols.get("EulerAngles").filter(|e| e.ncomp == 3) {
+                Some(Box::new(move |i| cx::euler_to_quat([e.get(i, 0), e.get(i, 1), e.get(i, 2)])))
+            } else if let (Some(a), Some(b), Some(c)) = (cols.get("phi1"), cols.get("Phi"), cols.get("phi2")) {
+                Some(Box::new(move |i| cx::euler_to_quat([a.get(i, 0).to_radians(), b.get(i, 0).to_radians(), c.get(i, 0).to_radians()])))
+            } else {
+                None
+            };
+            let near = Nearest::new(pts, Vec::new());
+            let pick: Vec<usize> = cen.iter().map(|c| near.query(*c)).collect();
+            let gid: Vec<i32> = pick.iter().map(|i| g.get(*i, 0) as i32).collect();
+            let mut q = std::collections::BTreeMap::new();
+            if let Some(f) = &eul {
+                for (k, i) in pick.iter().enumerate() {
+                    q.entry(gid[k]).or_insert_with(|| f(*i));
+                }
+            }
+            (gid, q)
+        }
+        GRAINS_VOLUME => {
+            let s = source.ok_or_else(|| anyhow!("From a volume needs a second input: a microstructure with FeatureIds"))?;
+            let img = crate::features::image(s)?;
+            let v = crate::features::Vox::of(img);
+            let ids = img.cell_data.get(&p.grain_array).ok_or_else(|| anyhow!("the volume has no {} array", p.grain_array))?;
+            let gid: Vec<i32> = cen
+                .iter()
+                .map(|c| {
+                    let ix: [usize; 3] = std::array::from_fn(|a| if v.n[a] <= 1 { 0 } else { (((c[a] - v.corner[a]) / v.sp[a]).floor().max(0.0) as usize).min(v.n[a] - 1) });
+                    ids.get(ix[0] + v.n[0] * (ix[1] + v.n[1] * ix[2]), 0) as i32
+                })
+                .collect();
+            let mut q = std::collections::BTreeMap::new();
+            if let Ok(o) = crate::features::Orients::of(s, None, crate::crystal::FROM_PHASES, None) {
+                let fid: Vec<i32> = (0..ids.len()).map(|i| ids.get(i, 0) as i32).collect();
+                let nf = fid.iter().copied().max().unwrap_or(0).max(0) as usize + 1;
+                for (f, a) in crate::features::average_quats(&o, &fid, nf).into_iter().enumerate() {
+                    if let Some(a) = a {
+                        q.insert(f as i32, a);
+                    }
+                }
+            }
+            (gid, q)
+        }
+        _ => {
+            // Voronoi / Laguerre seeds in the mesh's bounding box.
+            let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+            for c in &cen {
+                for a in 0..3 {
+                    lo[a] = lo[a].min(c[a]);
+                    hi[a] = hi[a].max(c[a]);
+                }
+            }
+            let mut r = crate::synthetic::Rng::new(p.seed);
+            use crate::synthetic::Draws;
+            let n = p.grains.max(1);
+            let seeds: Vec<[f64; 3]> = (0..n).map(|_| std::array::from_fn(|a| r.uniform(lo[a], hi[a]))).collect();
+            let vol: f64 = (0..3).map(|a| (hi[a] - lo[a]).max(1e-12)).product();
+            let spacing = (vol / n as f64).cbrt();
+            let w: Vec<f64> = (0..n).map(|_| if p.size_sigma > 0.0 { (0.5 * spacing * (p.size_sigma * r.std_normal().clamp(-3.0, 3.0)).exp()).powi(2) } else { 0.0 }).collect();
+            seeds_out = Some(seeds.clone());
+            let near = Nearest::new(seeds, w);
+            let gid: Vec<i32> = cen.iter().map(|c| near.query(*c) as i32 + 1).collect();
+            let orients = crate::synthetic::grain_orientations_pub(n, &p.orientations, p.spread_deg.to_radians(), &mut r);
+            let q = (1..=n as i32).zip(orients).collect();
+            (gid, q)
+        }
+    };
+    // Every grain present gets an orientation (random when the source had none).
+    let mut r = crate::synthetic::Rng::new(p.seed ^ 0x5eed);
+    for g in gid.iter() {
+        grain_q.entry(*g).or_insert_with(|| crate::synthetic::random_quat(&mut r));
+    }
+    let mut out = mesh.clone();
+    if p.blocks || p.boundaries {
+        // Through the mesh types that know blocks and sides.
+        out = match any_mesh(mesh)? {
+            AnyMesh::Hex(mut h) => {
+                if p.blocks {
+                    h.block = gid.clone();
+                    h.block_names = gid.iter().map(|g| (*g, format!("grain {g}"))).collect();
+                }
+                if p.boundaries {
+                    let mut faces: std::collections::HashMap<Vec<u32>, Vec<(u32, u8)>> = Default::default();
+                    for e in 0..h.n_elements() {
+                        for s in 1..=6u8 {
+                            let mut k = h.side_corners(e, s).to_vec();
+                            k.sort_unstable();
+                            faces.entry(k).or_default().push((e as u32, s));
+                        }
+                    }
+                    let mut set: Vec<(u32, u8)> = faces.values().filter(|f| f.len() == 2 && gid[f[0].0 as usize] != gid[f[1].0 as usize]).map(|f| if gid[f[0].0 as usize] < gid[f[1].0 as usize] { f[0] } else { f[1] }).collect();
+                    set.sort_unstable();
+                    let nodes: Vec<u32> = set.iter().flat_map(|(e, s)| h.side_corners(*e as usize, *s)).collect();
+                    h.add_side_set("grain boundaries", set);
+                    h.add_node_set("grain boundaries", nodes);
+                }
+                h.to_dataset()
+            }
+            AnyMesh::Tet(mut t) => {
+                if p.blocks {
+                    t.block = gid.clone();
+                    t.block_names = gid.iter().map(|g| (*g, format!("grain {g}"))).collect();
+                }
+                if p.boundaries {
+                    let mut faces: std::collections::HashMap<Vec<u32>, Vec<(u32, u8)>> = Default::default();
+                    for e in 0..t.n_elements() {
+                        for s in 1..=4u8 {
+                            let mut k = t.side_corners(e, s).to_vec();
+                            k.sort_unstable();
+                            faces.entry(k).or_default().push((e as u32, s));
+                        }
+                    }
+                    let mut set: Vec<(u32, u8)> = faces.values().filter(|f| f.len() == 2 && gid[f[0].0 as usize] != gid[f[1].0 as usize]).map(|f| if gid[f[0].0 as usize] < gid[f[1].0 as usize] { f[0] } else { f[1] }).collect();
+                    set.sort_unstable();
+                    let mut nodes: Vec<u32> = set.iter().flat_map(|(e, s)| t.side_corners(*e as usize, *s)).collect();
+                    nodes.sort_unstable();
+                    nodes.dedup();
+                    t.side_sets.push(("grain boundaries".into(), set));
+                    t.node_sets.push(("grain boundaries".into(), nodes));
+                }
+                t.to_dataset()
+            }
+        };
+    }
+    let cd = out.cell_data_mut().ok_or_else(|| anyhow!("the mesh cannot hold cell arrays"))?;
+    cd.insert(Array::new("grain_id", 1, ArrayData::I32(gid.clone())));
+    let eul: Vec<f64> = gid.iter().flat_map(|g| cx::quat_to_euler(grain_q[g])).collect();
+    cd.insert(Array::new("EulerAngles", 3, ArrayData::F64(eul)));
+    let gmax = grain_q.keys().copied().max().unwrap_or(0).max(0) as usize;
+    let rows: Vec<f64> = (0..=gmax).flat_map(|g| grain_q.get(&(g as i32)).map(|q| cx::quat_to_euler(*q)).unwrap_or([f64::NAN; 3])).collect();
+    let fd = out.field_data_mut_any();
+    fd.insert(Array::new("GrainEulerAngles", 3, ArrayData::F64(rows)));
+    fd.insert(Array::scalars_f64("Grains", vec![grain_q.len() as f64]));
+    if let Some(s) = seeds_out {
+        let rows: Vec<f64> = std::iter::once([f64::NAN; 3]).chain(s).flatten().collect();
+        fd.insert(Array::new("GrainSeeds", 3, ArrayData::F64(rows)));
+    }
+    Ok(out)
 }

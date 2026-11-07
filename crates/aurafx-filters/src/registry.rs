@@ -3989,6 +3989,34 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "assign_grains",
+            label: "Assign Grains",
+            category: "Mesh",
+            description: "Give every element of a mesh a grain and an orientation: Voronoi or Laguerre grains, the nearest point of a point set with grain ids, or the feature of a microstructure volume; optionally one block per grain and a side set on the grain boundaries.",
+            keywords: &["polycrystal", "grain_id", "voronoi", "grains on mesh", "microstructure mapping", "crystal plasticity", "orientations", "grain blocks"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: Some(MultiInput {
+                label: "Grain source (points or volume)",
+                min: 1,
+                max: Some(2),
+                apply: |inputs, p| crate::mesh_gen::assign_grains(inputs[0], inputs.get(1).copied(), &assign_params(p)),
+            }),
+            params: vec![
+                choice("method", "Grains from", &[crate::mesh_gen::GRAINS_VORONOI, crate::mesh_gen::GRAINS_POINTS, crate::mesh_gen::GRAINS_VOLUME], crate::mesh_gen::GRAINS_VORONOI),
+                i("grains", "Grains (Voronoi)", 30, 1, 10_000_000),
+                f("size_sigma", "Size spread (Laguerre)", 0.0, 0.0, 3.0),
+                choice("orientations", "Orientations (Voronoi)", &[crate::synthetic::ORIENT_RANDOM, crate::synthetic::ORIENT_FIBER100, crate::synthetic::ORIENT_FIBER111], crate::synthetic::ORIENT_RANDOM),
+                f("spread", "Fibre spread (degrees)", 10.0, 0.0, 90.0),
+                s("grain_array", "Grain id array of the source", "grain_id").help("Nearest point: the points' grain id column (grain_id); from a volume: its feature ids (FeatureIds)."),
+                b("blocks", "One block per grain", false),
+                b("boundaries", "Side set on grain boundaries", false),
+                i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
+            ],
+            apply: |input, p| crate::mesh_gen::assign_grains(input.unwrap(), None, &assign_params(p)),
+        },
+        FilterDef {
             id: "elevate",
             label: "Elevate",
             category: "Mesh",
@@ -4105,5 +4133,24 @@ fn texture_selection<'a>(p: &crate::params::Params, structure: &'a str, phases: 
         mask,
         max: p.i64("max_orientations", max).max(1) as usize,
         seed: 1,
+    }
+}
+
+fn assign_params(p: &crate::params::Params) -> crate::mesh_gen::AssignParams {
+    let method = p.str("method");
+    let mut grain_array = p.str("grain_array");
+    if method == crate::mesh_gen::GRAINS_VOLUME && grain_array == "grain_id" {
+        grain_array = "FeatureIds".into();
+    }
+    crate::mesh_gen::AssignParams {
+        method,
+        grains: p.i64("grains", 30).max(1) as usize,
+        size_sigma: p.f64("size_sigma", 0.0),
+        orientations: p.str("orientations"),
+        spread_deg: p.f64("spread", 10.0),
+        seed: p.i64("seed", 1) as u64,
+        grain_array,
+        blocks: p.bool("blocks", false),
+        boundaries: p.bool("boundaries", false),
     }
 }

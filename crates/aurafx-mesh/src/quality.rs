@@ -128,7 +128,20 @@ impl HexMetric {
 }
 
 fn edges(p: &[P; 8]) -> [P; 12] {
-    [sub(p[1], p[0]), sub(p[2], p[1]), sub(p[3], p[2]), sub(p[0], p[3]), sub(p[5], p[4]), sub(p[6], p[5]), sub(p[7], p[6]), sub(p[4], p[7]), sub(p[4], p[0]), sub(p[5], p[1]), sub(p[6], p[2]), sub(p[7], p[3])]
+    [
+        sub(p[1], p[0]),
+        sub(p[2], p[1]),
+        sub(p[3], p[2]),
+        sub(p[0], p[3]),
+        sub(p[5], p[4]),
+        sub(p[6], p[5]),
+        sub(p[7], p[6]),
+        sub(p[4], p[7]),
+        sub(p[4], p[0]),
+        sub(p[5], p[1]),
+        sub(p[6], p[2]),
+        sub(p[7], p[3]),
+    ]
 }
 
 fn diagonals(p: &[P; 8]) -> [f64; 4] {
@@ -232,7 +245,8 @@ pub fn volume(p: &[P; 8]) -> f64 {
 
 /// Trilinear shape-function derivatives at (xi, eta, zeta) in [-1, 1]^3.
 fn dshape(x: f64, y: f64, z: f64) -> [[f64; 3]; 8] {
-    let s = [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]];
+    let s =
+        [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]];
     std::array::from_fn(|i| {
         let [a, b, c]: [f64; 3] = s[i];
         [a * (1.0 + b * y) * (1.0 + c * z) / 8.0, b * (1.0 + a * x) * (1.0 + c * z) / 8.0, c * (1.0 + a * x) * (1.0 + b * y) / 8.0]
@@ -594,7 +608,11 @@ fn tri_area(a: P, b: P, c: P) -> f64 {
 
 fn unit(v: P) -> P {
     let l = len(v);
-    if l > 0.0 { [v[0] / l, v[1] / l, v[2] / l] } else { v }
+    if l > 0.0 {
+        [v[0] / l, v[1] / l, v[2] / l]
+    } else {
+        v
+    }
 }
 
 /// One metric of one tetrahedron. `avg_volume` is the mean tetrahedron volume of the mesh (for
@@ -728,7 +746,14 @@ pub fn tet_metric(m: TetMetric, p: &[P; 4], avg_volume: f64) -> f64 {
             let (ab, ac, ad, bc, bd, cd) = (unit(s0), unit(sub(p[2], p[0])), unit(s3), unit(s1), unit(s4), unit(s5));
             let (abc, abd, acd, bcd) = (unit(cross(bc, ab)), unit(cross(ab, ad)), unit(cross(cd, ad)), unit(cross(bc, cd)));
             let k = 180.0 * std::f64::consts::FRAC_1_PI;
-            let dih = [(-dot(abc, abd)).acos(), (-dot(abc, acd)).acos(), (-dot(abc, bcd)).acos(), (-dot(abd, acd)).acos(), (-dot(abd, bcd)).acos(), (-dot(acd, bcd)).acos()];
+            let dih = [
+                (-dot(abc, abd)).acos(),
+                (-dot(abc, acd)).acos(),
+                (-dot(abc, bcd)).acos(),
+                (-dot(abd, acd)).acos(),
+                (-dot(abd, bcd)).acos(),
+                (-dot(acd, bcd)).acos(),
+            ];
             let (mn, mx) = dih.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| (a.min(*x), b.max(*x)));
             let theta = (1.0f64 / 3.0).acos() * k;
             let dmax = (mx * k - theta) / (180.0 - theta);
@@ -754,7 +779,12 @@ pub fn tet_metric(m: TetMetric, p: &[P; 4], avg_volume: f64) -> f64 {
         }
         TetMetric::SquishIndex => {
             let c = scale(add3(add3(p[0], p[1], p[2]), p[3], [0.0; 3]), 0.25);
-            let faces: [([usize; 3], P); 4] = [([0, 1, 3], scale(cross(s0, s4), 0.5)), ([1, 2, 3], scale(cross(s1, s5), 0.5)), ([0, 2, 3], scale(cross(sub(p[0], p[2]), s3), 0.5)), ([0, 1, 2], scale(cross(s1, s0), 0.5))];
+            let faces: [([usize; 3], P); 4] = [
+                ([0, 1, 3], scale(cross(s0, s4), 0.5)),
+                ([1, 2, 3], scale(cross(s1, s5), 0.5)),
+                ([0, 2, 3], scale(cross(sub(p[0], p[2]), s3), 0.5)),
+                ([0, 1, 2], scale(cross(s1, s0), 0.5)),
+            ];
             let mut best: f64 = 0.0;
             for (f, a) in faces {
                 let fc = scale(add3(p[f[0]], p[f[1]], p[f[2]]), 1.0 / 3.0);
@@ -837,7 +867,20 @@ fn tet_normalized_inradius(p: &[P; 4]) -> f64 {
     }
     let aux = scale((4..10).fold([0.0; 3], |s, i| add3(s, c[i], [0.0; 3])), 1.0 / 6.0);
     c[10] = aux;
-    const SUB: [[usize; 4]; 12] = [[0, 4, 6, 7], [1, 5, 4, 8], [2, 6, 5, 9], [3, 8, 7, 9], [4, 8, 5, 10], [5, 8, 9, 10], [9, 8, 7, 10], [7, 8, 4, 10], [4, 5, 6, 10], [5, 9, 6, 10], [9, 7, 6, 10], [7, 4, 6, 10]];
+    const SUB: [[usize; 4]; 12] = [
+        [0, 4, 6, 7],
+        [1, 5, 4, 8],
+        [2, 6, 5, 9],
+        [3, 8, 7, 9],
+        [4, 8, 5, 10],
+        [5, 8, 9, 10],
+        [9, 8, 7, 10],
+        [7, 8, 4, 10],
+        [4, 5, 6, 10],
+        [5, 9, 6, 10],
+        [9, 7, 6, 10],
+        [7, 4, 6, 10],
+    ];
     let min_in = |lo: usize, hi: usize| (lo..=hi).map(|i| tet_inradius4(&SUB[i].map(|k| c[k]))).fold(DBL_MAX, f64::min);
     let (with_parent, without) = (min_in(0, 3), min_in(4, 11));
     let (a, b, cc) = (len(sub(p[1], p[0])), len(sub(p[2], p[0])), len(sub(p[3], p[0])));

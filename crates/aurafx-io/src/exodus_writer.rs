@@ -229,7 +229,9 @@ fn exodus_type(t: CellType, n: usize) -> Option<(&'static str, Vec<usize>)> {
         CellType::QuadraticTetra if n == 10 => ("TETRA10", first(10)),
         CellType::QuadraticTetra => ("TETRA4", first(4)),
         CellType::QuadraticHexahedron if n == 20 => ("HEX20", vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 12, 13, 14, 15]),
-        CellType::TriquadraticHexahedron if n == 27 => ("HEX27", vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 12, 13, 14, 15, 26, 24, 25, 20, 21, 22, 23]),
+        CellType::TriquadraticHexahedron if n == 27 => {
+            ("HEX27", vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 12, 13, 14, 15, 26, 24, 25, 20, 21, 22, 23])
+        }
         CellType::Hexahedron | CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron | CellType::BiquadraticQuadraticHexahedron => {
             ("HEX8", first(8))
         }
@@ -532,8 +534,20 @@ pub fn write_exodus_steps(steps: &[(f64, &DataSet)], path: &Path) -> Result<()> 
         if !side_sets.is_empty() {
             let d = w.dim("num_side_sets", side_sets.len());
             w.vars.push(fixed("ss_status", vec![d], NC_INT, be_i32(&vec![1; side_sets.len()]), vec![]));
-            w.vars.push(fixed("ss_prop1", vec![d], NC_INT, be_i32(&(1..=side_sets.len() as i64).collect::<Vec<_>>()), vec![("name".into(), Att::Text("ID".into()))]));
-            w.vars.push(fixed("ss_names", vec![d, d_len_name], NC_CHAR, names_bytes(&side_sets.iter().map(|s| s.0.clone()).collect::<Vec<_>>(), LEN_NAME), vec![]));
+            w.vars.push(fixed(
+                "ss_prop1",
+                vec![d],
+                NC_INT,
+                be_i32(&(1..=side_sets.len() as i64).collect::<Vec<_>>()),
+                vec![("name".into(), Att::Text("ID".into()))],
+            ));
+            w.vars.push(fixed(
+                "ss_names",
+                vec![d, d_len_name],
+                NC_CHAR,
+                names_bytes(&side_sets.iter().map(|s| s.0.clone()).collect::<Vec<_>>(), LEN_NAME),
+                vec![],
+            ));
             for (i, (_, e, s)) in side_sets.iter().enumerate() {
                 let dd = w.dim(&format!("num_side_ss{}", i + 1), e.len());
                 w.vars.push(fixed(&format!("elem_ss{}", i + 1), vec![dd], NC_INT, be_i32(e), vec![]));
@@ -543,8 +557,20 @@ pub fn write_exodus_steps(steps: &[(f64, &DataSet)], path: &Path) -> Result<()> 
         if !node_sets.is_empty() {
             let d = w.dim("num_node_sets", node_sets.len());
             w.vars.push(fixed("ns_status", vec![d], NC_INT, be_i32(&vec![1; node_sets.len()]), vec![]));
-            w.vars.push(fixed("ns_prop1", vec![d], NC_INT, be_i32(&(1..=node_sets.len() as i64).collect::<Vec<_>>()), vec![("name".into(), Att::Text("ID".into()))]));
-            w.vars.push(fixed("ns_names", vec![d, d_len_name], NC_CHAR, names_bytes(&node_sets.iter().map(|s| s.0.clone()).collect::<Vec<_>>(), LEN_NAME), vec![]));
+            w.vars.push(fixed(
+                "ns_prop1",
+                vec![d],
+                NC_INT,
+                be_i32(&(1..=node_sets.len() as i64).collect::<Vec<_>>()),
+                vec![("name".into(), Att::Text("ID".into()))],
+            ));
+            w.vars.push(fixed(
+                "ns_names",
+                vec![d, d_len_name],
+                NC_CHAR,
+                names_bytes(&node_sets.iter().map(|s| s.0.clone()).collect::<Vec<_>>(), LEN_NAME),
+                vec![],
+            ));
             for (i, (_, v)) in node_sets.iter().enumerate() {
                 let dd = w.dim(&format!("num_nod_ns{}", i + 1), v.len());
                 w.vars.push(fixed(&format!("node_ns{}", i + 1), vec![dd], NC_INT, be_i32(v), vec![]));

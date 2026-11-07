@@ -23,7 +23,14 @@ fn line_width_sets_pixels_across() {
     cam.set_view([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], &ds.bounds());
     let mut across = Vec::new();
     for width in [1.0f32, 3.0, 7.0] {
-        let d = DisplayProps { representation: Representation::Surface, color_by: None, solid_color: [1.0, 0.0, 0.0], lighting: false, line_width: width, ..Default::default() };
+        let d = DisplayProps {
+            representation: Representation::Surface,
+            color_by: None,
+            solid_color: [1.0, 0.0, 0.0],
+            lighting: false,
+            line_width: width,
+            ..Default::default()
+        };
         let mesh = Arc::new(tessellate::tessellate(&ds, &d));
         r.render(&cam, &[NodeDraw { id: 1, mesh, display: d, overlay: false }], &RenderSettings::default());
         let (w, h, px) = r.read_pixels().unwrap();

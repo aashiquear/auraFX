@@ -95,7 +95,12 @@ pub fn read_sites(path: &Path) -> Result<DataSet> {
         if d[0] * d[1] * d[2] != n {
             bail!("{n} sites do not fill the {} x {} x {} box: a Sites section is needed", d[0], d[1], d[2]);
         }
-        let mut img = ImageData { extent: [0, d[0] as i64, 0, d[1] as i64, 0, d[2] as i64], origin: [bounds[0][0], bounds[1][0], if dim > 2 { bounds[2][0] } else { 0.0 }], spacing: [1.0; 3], ..Default::default() };
+        let mut img = ImageData {
+            extent: [0, d[0] as i64, 0, d[1] as i64, 0, d[2] as i64],
+            origin: [bounds[0][0], bounds[1][0], if dim > 2 { bounds[2][0] } else { 0.0 }],
+            spacing: [1.0; 3],
+            ..Default::default()
+        };
         for a in arrays {
             img.cell_data.insert(a);
         }
@@ -119,7 +124,12 @@ pub fn write_sites(ds: &DataSet, path: &Path) -> Result<()> {
     let a = ["FeatureIds", "grain_id", "Spins", "i1"]
         .iter()
         .find_map(|n| img.cell_data.get(n))
-        .or_else(|| img.cell_data.iter().find(|a| a.ncomp == 1 && matches!(a.data, ArrayData::I32(_) | ArrayData::I64(_) | ArrayData::U32(_) | ArrayData::I16(_) | ArrayData::U16(_) | ArrayData::U8(_))))
+        .or_else(|| {
+            img.cell_data.iter().find(|a| {
+                a.ncomp == 1
+                    && matches!(a.data, ArrayData::I32(_) | ArrayData::I64(_) | ArrayData::U32(_) | ArrayData::I16(_) | ArrayData::U16(_) | ArrayData::U8(_))
+            })
+        })
         .ok_or_else(|| anyhow!("the volume has no FeatureIds (or other integer cell array) to write"))?;
     use std::io::Write;
     let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);

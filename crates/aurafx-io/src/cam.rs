@@ -26,8 +26,7 @@ const SPHERE: &str = "Sphere";
 
 /// Whether a NetCDF file is CAM-SE output: columns `ncol` with `lat` and `lon` on them.
 pub fn is_cam(f: &NcFile) -> bool {
-    f.dimension("ncol").is_ok()
-        && ["lat", "lon"].iter().all(|n| f.variable(n).is_ok_and(|v| v.dimensions().len() == 1 && v.dimensions()[0].name == "ncol"))
+    f.dimension("ncol").is_ok() && ["lat", "lon"].iter().all(|n| f.variable(n).is_ok_and(|v| v.dimensions().len() == 1 && v.dimensions()[0].name == "ncol"))
 }
 
 pub fn is_cam_file(path: &Path) -> bool {
@@ -58,10 +57,12 @@ fn connectivity(path: &Path) -> Result<PathBuf> {
         .filter(|p| p != path && crate::netcdf_cf::is_netcdf_ext(p))
         .collect();
     cands.sort();
-    cands
-        .into_iter()
-        .find(|p| NcFile::open(p).ok().is_some_and(|f| is_connectivity(&f)))
-        .ok_or_else(|| anyhow!("{}: CAM-SE output needs its connectivity file (with element_corners); none was found beside it. Name it under Reader options > Connectivity file", path.display()))
+    cands.into_iter().find(|p| NcFile::open(p).ok().is_some_and(|f| is_connectivity(&f))).ok_or_else(|| {
+        anyhow!(
+            "{}: CAM-SE output needs its connectivity file (with element_corners); none was found beside it. Name it under Reader options > Connectivity file",
+            path.display()
+        )
+    })
 }
 
 fn kinds(f: &NcFile) -> Vec<&'static str> {
@@ -97,7 +98,13 @@ pub fn options(path: &Path) -> Vec<ReaderOption> {
         ),
         ReaderOption::new("all_levels", "All levels", ReaderOptionKind::Bool, true, "Stack every level into hexahedra (off: only the level below)"),
         ReaderOption::new("level", "Level", ReaderOptionKind::Int { min: 0, max: (max_lev - 1).max(0) }, 0, "The level shown when not all levels are"),
-        ReaderOption::new("layout", "Layout", ReaderOptionKind::Choice(vec![MAP.into(), SPHERE.into()]), MAP, "A flat lon/lat map (as ParaView), or the sphere"),
+        ReaderOption::new(
+            "layout",
+            "Layout",
+            ReaderOptionKind::Choice(vec![MAP.into(), SPHERE.into()]),
+            MAP,
+            "A flat lon/lat map (as ParaView), or the sphere",
+        ),
     ]
 }
 
@@ -245,10 +252,19 @@ fn read_grid(path: &Path, step: usize) -> Result<DataSet> {
     }
     if let Some(d) = lev_dim {
         if let Ok(lv) = read_all(&f, d) {
-            pd.insert(Array::scalars_f64(d.to_string(), levels.iter().flat_map(|&l| std::iter::repeat_n(lv.get(l).copied().unwrap_or(l as f64), npl)).collect()));
+            pd.insert(Array::scalars_f64(
+                d.to_string(),
+                levels.iter().flat_map(|&l| std::iter::repeat_n(lv.get(l).copied().unwrap_or(l as f64), npl)).collect(),
+            ));
         }
     }
-    Ok(DataSet::UnstructuredGrid(UnstructuredGrid { points: Points::new_f64(out), cells, point_data: pd, cell_data: Attributes::new(), field_data: Attributes::new() }))
+    Ok(DataSet::UnstructuredGrid(UnstructuredGrid {
+        points: Points::new_f64(out),
+        cells,
+        point_data: pd,
+        cell_data: Attributes::new(),
+        field_data: Attributes::new(),
+    }))
 }
 
 /// One time step (and level) of a variable on `[time, [lev,] ncol]`.

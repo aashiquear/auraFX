@@ -154,7 +154,9 @@ impl Outline {
             for k in 0..per {
                 let t = k as f64 / per as f64;
                 let (t2, t3) = (t * t, t * t * t);
-                let q = |a: f64, b: f64, c2: f64, d: f64| 0.5 * (2.0 * b + (-a + c2) * t + (2.0 * a - 5.0 * b + 4.0 * c2 - d) * t2 + (-a + 3.0 * b - 3.0 * c2 + d) * t3);
+                let q = |a: f64, b: f64, c2: f64, d: f64| {
+                    0.5 * (2.0 * b + (-a + c2) * t + (2.0 * a - 5.0 * b + 4.0 * c2 - d) * t2 + (-a + 3.0 * b - 3.0 * c2 + d) * t3)
+                };
                 piece.points.push([q(p0[0], p1[0], p2[0], p3[0]), q(p0[1], p1[1], p2[1], p3[1])]);
                 piece.curve.push(c);
                 piece.straight.push(false);
@@ -256,11 +258,12 @@ impl Outline {
     /// Signed area (positive counterclockwise).
     pub fn area(&self) -> f64 {
         let n = self.points.len();
-        (0..n).map(|i| {
-            let (a, b) = (self.points[i], self.points[(i + 1) % n]);
-            a[0] * b[1] - b[0] * a[1]
-        })
-        .sum::<f64>()
+        (0..n)
+            .map(|i| {
+                let (a, b) = (self.points[i], self.points[(i + 1) % n]);
+                a[0] * b[1] - b[0] * a[1]
+            })
+            .sum::<f64>()
             * 0.5
     }
 

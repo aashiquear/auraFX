@@ -50,8 +50,23 @@ impl Bin {
 
 /// Element types in the order they are written.
 const ORDER: [&str; 17] = [
-    "point", "bar2", "bar3", "tria3", "tria6", "quad4", "quad8", "tetra4", "tetra10", "pyramid5", "pyramid13", "penta6", "penta15", "hexa8",
-    "hexa20", "nsided", "nfaced",
+    "point",
+    "bar2",
+    "bar3",
+    "tria3",
+    "tria6",
+    "quad4",
+    "quad8",
+    "tetra4",
+    "tetra10",
+    "pyramid5",
+    "pyramid13",
+    "penta6",
+    "penta15",
+    "hexa8",
+    "hexa20",
+    "nsided",
+    "nfaced",
 ];
 
 /// One element group: connectivity (1-based) and the source cell of every element.

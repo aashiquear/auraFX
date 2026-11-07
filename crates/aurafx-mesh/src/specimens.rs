@@ -3,7 +3,7 @@
 //! elliptical through-hole meshed by a conforming O-grid ring, and a flat dog-bone tensile bar
 //! with shoulder fillets and a thickness profile along the gage.
 
-use crate::hex::{HexMesh, P3, HEX8_SIDES};
+use crate::hex::{HexMesh, HEX8_SIDES, P3};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
@@ -59,7 +59,18 @@ pub struct PlateOptions {
 
 impl Default for PlateOptions {
     fn default() -> Self {
-        PlateOptions { width: 100.0, height: 50.0, thickness: 1.0, h: 2.5, hole: None, transition: None, ring_cells: 2, n_r: None, grading: None, origin: [0.0; 3] }
+        PlateOptions {
+            width: 100.0,
+            height: 50.0,
+            thickness: 1.0,
+            h: 2.5,
+            hole: None,
+            transition: None,
+            ring_cells: 2,
+            n_r: None,
+            grading: None,
+            origin: [0.0; 3],
+        }
     }
 }
 
@@ -301,7 +312,8 @@ pub fn plate(o: &PlateOptions) -> Result<HexMesh, String> {
             member[*n as usize] = true;
         }
         m.add_node_set("hole", on);
-        let faces: Vec<(u32, u8)> = m.boundary_faces().into_iter().filter(|(e, s)| HEX8_SIDES[*s as usize - 1].iter().all(|k| member[m.cell(*e as usize)[*k] as usize])).collect();
+        let faces: Vec<(u32, u8)> =
+            m.boundary_faces().into_iter().filter(|(e, s)| HEX8_SIDES[*s as usize - 1].iter().all(|k| member[m.cell(*e as usize)[*k] as usize])).collect();
         m.add_side_set("hole", faces);
     }
     Ok(m)
@@ -326,7 +338,19 @@ pub struct DogboneOptions {
 
 impl Default for DogboneOptions {
     fn default() -> Self {
-        DogboneOptions { length: 25.4, gage_length: 8.0, gage_width: 1.85, grip_width: 4.8, fillet_radius: 3.175, grip_thickness: 0.35, stations: Vec::new(), h: 0.2, h_grip: None, n_z: 1, origin: [0.0; 3] }
+        DogboneOptions {
+            length: 25.4,
+            gage_length: 8.0,
+            gage_width: 1.85,
+            grip_width: 4.8,
+            fillet_radius: 3.175,
+            grip_thickness: 0.35,
+            stations: Vec::new(),
+            h: 0.2,
+            h_grip: None,
+            n_z: 1,
+            origin: [0.0; 3],
+        }
     }
 }
 
@@ -477,7 +501,16 @@ pub fn dogbone(o: &DogboneOptions) -> Result<HexMesh, String> {
     for i in 0..nx {
         for j in 0..ny {
             for k in 0..nz {
-                m.cells.extend_from_slice(&[id(i, j, k), id(i + 1, j, k), id(i + 1, j + 1, k), id(i, j + 1, k), id(i, j, k + 1), id(i + 1, j, k + 1), id(i + 1, j + 1, k + 1), id(i, j + 1, k + 1)]);
+                m.cells.extend_from_slice(&[
+                    id(i, j, k),
+                    id(i + 1, j, k),
+                    id(i + 1, j + 1, k),
+                    id(i, j + 1, k),
+                    id(i, j, k + 1),
+                    id(i + 1, j, k + 1),
+                    id(i + 1, j + 1, k + 1),
+                    id(i, j + 1, k + 1),
+                ]);
                 m.block.push(region[i] + 1);
             }
         }

@@ -107,7 +107,9 @@ impl Plan {
                 let k = series.times.iter().rposition(|&x| x <= t + eps).unwrap_or(0);
                 match current {
                     Some((i, d)) if *i == k => d.clone(),
-                    _ => aurafx_io::with_options(options, || aurafx_io::load_step_piece(series.steps.get(k).ok_or_else(|| anyhow!("time step {k} missing"))?, *piece))?,
+                    _ => aurafx_io::with_options(options, || {
+                        aurafx_io::load_step_piece(series.steps.get(k).ok_or_else(|| anyhow!("time step {k} missing"))?, *piece)
+                    })?,
                 }
             }
             Plan::Run { def, params, inputs } => {
@@ -226,7 +228,6 @@ impl Node {
             self.output_time_index = None;
         }
     }
-
 
     pub fn new(id: NodeId, name: String, kind: NodeKind, params: Params, input: Option<NodeId>) -> Self {
         Node {
@@ -896,7 +897,9 @@ impl Session {
         // Edits of command and code boxes (applied explicitly) go into the trace, so the
         // journal of a Geometry source replays.
         let code = self.nodes.get(&id).and_then(|n| match &n.kind {
-            NodeKind::Source { def } | NodeKind::Filter { def } => def.params.iter().find(|p| p.key == key).map(|p| matches!(p.kind, aurafx_filters::ParamKind::Code)),
+            NodeKind::Source { def } | NodeKind::Filter { def } => {
+                def.params.iter().find(|p| p.key == key).map(|p| matches!(p.kind, aurafx_filters::ParamKind::Code))
+            }
             _ => None,
         });
         let changed = self.nodes.get(&id).is_some_and(|n| n.params.get(key) != Some(&value));
@@ -1531,7 +1534,8 @@ impl Session {
                 // sticks colored by element the first time they arrive.
                 if !n.auto_colored && n.display.color_by.is_none() && n.display.representation == crate::display::Representation::Surface {
                     if let DataSet::PolyData(p) = &*ds {
-                        let z = p.point_data.get("atomic_number").map(|_| "atomic_number").or_else(|| p.point_data.get("Atomic Numbers").map(|_| "Atomic Numbers"));
+                        let z =
+                            p.point_data.get("atomic_number").map(|_| "atomic_number").or_else(|| p.point_data.get("Atomic Numbers").map(|_| "Atomic Numbers"));
                         if let Some(z) = z.filter(|_| p.polys.is_empty() && p.strips.is_empty() && p.points.len() <= 100_000) {
                             n.display.representation = crate::display::Representation::Molecule;
                             n.display.color_by = Some(ColorBy { assoc: aurafx_filters::Association::Points, name: z.to_string(), component: None });

@@ -897,7 +897,8 @@ fn ensight_writer_round_trip() {
     let mut cd = Attributes::new();
     cd.insert(Array::scalars_f64("id", vec![0.0, 1.0, 2.0]));
     let pts = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0];
-    let ug = UnstructuredGrid { points: Points::new_f64(pts), cells: cells.clone(), point_data: Attributes::new(), cell_data: cd, field_data: Attributes::new() };
+    let ug =
+        UnstructuredGrid { points: Points::new_f64(pts), cells: cells.clone(), point_data: Attributes::new(), cell_data: cd, field_data: Attributes::new() };
     let p = dir.join("grouped.case");
     aurafx_io::writers::write_file(&DataSet::UnstructuredGrid(ug), &p).unwrap();
     let back = static_ds(p.to_str().unwrap());
@@ -1098,7 +1099,9 @@ fn rasters_match_paraview() {
     close(range_all(&DataSet::ImageData(rgb.clone()), false, "Elevation"), (0.0, 415.875), "rgb magnitude");
 
     let bands = check("rasters/bands.tif", [0, 40, 0, 30, 0, 0], [-1000.0, 500.0, 0.0], [50.0, 50.0, 1.0]);
-    for (name, first, last, total) in [("Elevation", 42.0, 139.0, 108600.0), ("Band 2", 142.0, 239.0, 228600.0), ("Band 3", 242.0, 339.0, 348600.0), ("Band 4", 342.0, 439.0, 468600.0)] {
+    for (name, first, last, total) in
+        [("Elevation", 42.0, 139.0, 108600.0), ("Band 2", 142.0, 239.0, 228600.0), ("Band 3", 242.0, 339.0, 348600.0), ("Band 4", 342.0, 439.0, 468600.0)]
+    {
         let v = comp0(&bands, name);
         assert_eq!((v[0], v[1199], sum(&v)), (first, last, total), "{name}");
     }
@@ -1180,7 +1183,14 @@ fn cam_and_pop_match_paraview() {
     check(&read(&[]), 1160, 864, 4.0, &[1, 8, 7, 0, 233, 240, 239, 232], &[("T", 304448.3949), ("lev", 580000.0)]);
     let one = read(&[("all_levels", "false"), ("level", "2")]);
     check(&one, 232, 216, 0.0, &[1, 8, 7, 0], &[("T", 60889.6789), ("lev", 116000.0)]);
-    check(&read(&[("variables", "Interface layers [time, ilev, ncol]")]), 1392, 1080, 5.0, &[1, 8, 7, 0, 233, 240, 239, 232], &[("OMEGA", 13.8989), ("ilev", 696000.0)]);
+    check(
+        &read(&[("variables", "Interface layers [time, ilev, ncol]")]),
+        1392,
+        1080,
+        5.0,
+        &[1, 8, 7, 0, 233, 240, 239, 232],
+        &[("OMEGA", 13.8989), ("ilev", 696000.0)],
+    );
     check(&read(&[("variables", "Surface [time, ncol]")]), 232, 216, 0.0, &[1, 8, 7, 0], &[("PS", 23206707.3984)]);
     // The sphere needs no seam copies.
     assert_eq!(read(&[("layout", "Sphere"), ("variables", "Surface [time, ncol]")]).n_points(), 218);
@@ -1195,7 +1205,9 @@ fn cam_and_pop_match_paraview() {
     assert!(matches!(&*d3, DataSet::StructuredGrid(_)));
     assert_eq!((d3.n_points(), d3.n_cells()), (4320, 3220));
     let b = d3.bounds();
-    for (got, want) in [(b.min[0], -11491.42659), (b.max[0], 7399.73609), (b.min[1], -11483.54217), (b.max[1], 11327.60494), (b.min[2], -10153.17442), (b.max[2], 8202.26019)] {
+    for (got, want) in
+        [(b.min[0], -11491.42659), (b.max[0], 7399.73609), (b.min[1], -11483.54217), (b.max[1], 11327.60494), (b.min[2], -10153.17442), (b.max[2], 8202.26019)]
+    {
         assert!((got - want).abs() < 1e-4, "{got} vs {want}");
     }
     close(range_all(&d3, true, "TEMP"), (-2.73508, 26.96611), "TEMP");
@@ -1338,7 +1350,13 @@ fn cgns_writer_round_trip() {
         }
     }
     vol.push(TriquadraticHexahedron, &(0..27).collect::<Vec<u32>>());
-    let ug = UnstructuredGrid { points: u.points.clone(), cells: vol.clone(), point_data: Attributes::new(), cell_data: Attributes::new(), field_data: Attributes::new() };
+    let ug = UnstructuredGrid {
+        points: u.points.clone(),
+        cells: vol.clone(),
+        point_data: Attributes::new(),
+        cell_data: Attributes::new(),
+        field_data: Attributes::new(),
+    };
     let p = dir.join("quadratic.cgns");
     aurafx_io::writers::write_file(&DataSet::UnstructuredGrid(ug), &p).unwrap();
     let DataSet::UnstructuredGrid(g) = first_leaf(&static_ds(p.to_str().unwrap())) else { panic!() };
@@ -1417,10 +1435,14 @@ fn gis_vectors_match_paraview() {
     };
     let blocks = |d: &DataSet| -> Vec<aurafx_data::PolyData> {
         match d {
-            DataSet::MultiBlock(mb) => mb.blocks.iter().map(|(_, b)| match b {
-                Some(DataSet::PolyData(p)) => p.clone(),
-                _ => panic!("not polygonal"),
-            }).collect(),
+            DataSet::MultiBlock(mb) => mb
+                .blocks
+                .iter()
+                .map(|(_, b)| match b {
+                    Some(DataSet::PolyData(p)) => p.clone(),
+                    _ => panic!("not polygonal"),
+                })
+                .collect(),
             _ => panic!("not multi-block"),
         }
     };
@@ -1481,7 +1503,10 @@ fn gis_vectors_match_paraview() {
     for (k, layer) in ["countries", "rivers", "cities"].iter().enumerate() {
         let gj = &blocks(&read(&format!("{layer}.geojson"), &[]))[0];
         assert_eq!(kml[k].points.len(), gj.points.len(), "{layer}");
-        assert_eq!((0..gj.points.len()).map(|i| gj.points.get(i)).collect::<Vec<_>>(), (0..kml[k].points.len()).map(|i| kml[k].points.get(i)).collect::<Vec<_>>());
+        assert_eq!(
+            (0..gj.points.len()).map(|i| gj.points.get(i)).collect::<Vec<_>>(),
+            (0..kml[k].points.len()).map(|i| kml[k].points.get(i)).collect::<Vec<_>>()
+        );
         assert_eq!(kml[k].cell_data.get("Name").unwrap().data, gj.cell_data.get("name").unwrap().data);
     }
     // KMZ is the KML zipped: the same blocks.
@@ -1497,9 +1522,17 @@ fn gis_vectors_match_paraview() {
     for (k, layer) in ["countries", "rivers", "cities"].iter().enumerate() {
         let gj = &blocks(&read(&format!("{layer}.geojson"), &[]))[0];
         let g = &gml[k];
-        assert_eq!((0..g.points.len()).map(|i| g.points.get(i)).collect::<Vec<_>>(), (0..gj.points.len()).map(|i| gj.points.get(i)).collect::<Vec<_>>(), "{layer} points");
+        assert_eq!(
+            (0..g.points.len()).map(|i| g.points.get(i)).collect::<Vec<_>>(),
+            (0..gj.points.len()).map(|i| gj.points.get(i)).collect::<Vec<_>>(),
+            "{layer} points"
+        );
         for (a, b) in [(&g.verts, &gj.verts), (&g.lines, &gj.lines)] {
-            assert_eq!((0..a.len()).map(|i| a.cell(i).to_vec()).collect::<Vec<_>>(), (0..b.len()).map(|i| b.cell(i).to_vec()).collect::<Vec<_>>(), "{layer} cells");
+            assert_eq!(
+                (0..a.len()).map(|i| a.cell(i).to_vec()).collect::<Vec<_>>(),
+                (0..b.len()).map(|i| b.cell(i).to_vec()).collect::<Vec<_>>(),
+                "{layer} cells"
+            );
         }
         for arr in gj.cell_data.iter() {
             let x = g.cell_data.get(&arr.name).unwrap_or_else(|| panic!("GML {layer}: no {}", arr.name));
@@ -1570,10 +1603,12 @@ fn polygon_fill_covers_the_area() {
         })
         .collect();
     let hole = |c: [f64; 2], r: f64, m: usize| -> Vec<[f64; 3]> {
-        (0..m).map(|k| {
-            let t = -2.0 * std::f64::consts::PI * k as f64 / m as f64;
-            [c[0] + r * t.cos(), c[1] + r * t.sin(), 0.0]
-        }).collect()
+        (0..m)
+            .map(|k| {
+                let t = -2.0 * std::f64::consts::PI * k as f64 / m as f64;
+                [c[0] + r * t.cos(), c[1] + r * t.sin(), 0.0]
+            })
+            .collect()
     };
     let starts = vec![0, n, n + 500];
     pts.extend(hole([0.0, 0.0], 2.0, 500));
@@ -1590,10 +1625,13 @@ fn polygon_fill_covers_the_area() {
         .sum();
     eprintln!("{} triangles, area {got} (polygon {want})", tris.len());
     assert!((got - want).abs() < 1e-6 * want, "signed area {got} vs {want}");
-    assert!(tris.iter().all(|t| {
-        let (a, b, c) = (pts[t[0]], pts[t[1]], pts[t[2]]);
-        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0.0
-    }), "all triangles counter-clockwise (no overlaps)");
+    assert!(
+        tris.iter().all(|t| {
+            let (a, b, c) = (pts[t[0]], pts[t[1]], pts[t[2]]);
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0.0
+        }),
+        "all triangles counter-clockwise (no overlaps)"
+    );
 }
 
 /// AMR files: VTK's .vthb (written by ParaView from its AMR Gaussian Pulse source) and AMReX
@@ -1606,10 +1644,13 @@ fn amr_files_match_paraview() {
     let leaves = |d: &DataSet| -> Vec<aurafx_data::ImageData> {
         assert!(aurafx_data::amr::is_amr(d), "not AMR");
         let DataSet::MultiBlock(mb) = d else { panic!() };
-        mb.leaves().into_iter().map(|(_, l)| match l {
-            DataSet::ImageData(i) => i.clone(),
-            _ => panic!("not image data"),
-        }).collect()
+        mb.leaves()
+            .into_iter()
+            .map(|(_, l)| match l {
+                DataSet::ImageData(i) => i.clone(),
+                _ => panic!("not image data"),
+            })
+            .collect()
     };
     let sum = |i: &aurafx_data::ImageData, name: &str, c: usize| -> f64 {
         let a = i.cell_data.get(name).unwrap_or_else(|| panic!("no {name}"));
@@ -1883,10 +1924,14 @@ fn chombo_4d_reads_velocity_space() {
         .blocks
         .iter()
         .flat_map(|(_, b)| match b {
-            Some(DataSet::MultiBlock(level)) => level.blocks.iter().filter_map(|(_, x)| match x {
-                Some(DataSet::ImageData(i)) => Some(i.clone()),
-                _ => None,
-            }).collect::<Vec<_>>(),
+            Some(DataSet::MultiBlock(level)) => level
+                .blocks
+                .iter()
+                .filter_map(|(_, x)| match x {
+                    Some(DataSet::ImageData(i)) => Some(i.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
             _ => Vec::new(),
         })
         .collect();

@@ -228,7 +228,14 @@ impl HyperTreeGrid {
     /// by tree in breadth-first order), as VTK's depth limiter.
     pub fn limit_depth(&self, depth: usize) -> HyperTreeGrid {
         let nc = self.children_per_vertex();
-        let mut out = HyperTreeGrid { coords: self.coords.clone(), branch_factor: self.branch_factor, transposed: self.transposed, interface: self.interface.clone(), field_data: self.field_data.clone(), ..Default::default() };
+        let mut out = HyperTreeGrid {
+            coords: self.coords.clone(),
+            branch_factor: self.branch_factor,
+            transposed: self.transposed,
+            interface: self.interface.clone(),
+            field_data: self.field_data.clone(),
+            ..Default::default()
+        };
         let mut order: Vec<usize> = Vec::new();
         let mut mask = Vec::new();
         for tree in &self.trees {

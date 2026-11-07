@@ -401,7 +401,11 @@ impl HexMesh {
             ug.field_data.insert(Array::new(format!("NodeSet {name}"), 1, ArrayData::I32(nodes.iter().map(|n| *n as i32).collect())));
         }
         for (name, pairs) in &self.periodic_pairs {
-            ug.field_data.insert(Array::new(format!("PeriodicPairs {name}"), 2, ArrayData::I32(pairs.iter().flat_map(|(a, b)| [*a as i32, *b as i32]).collect())));
+            ug.field_data.insert(Array::new(
+                format!("PeriodicPairs {name}"),
+                2,
+                ArrayData::I32(pairs.iter().flat_map(|(a, b)| [*a as i32, *b as i32]).collect()),
+            ));
         }
         DataSet::UnstructuredGrid(ug)
     }

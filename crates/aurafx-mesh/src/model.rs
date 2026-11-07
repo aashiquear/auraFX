@@ -155,7 +155,11 @@ fn rotation(axis: V3, deg: f64) -> [[f64; 3]; 3] {
     let (x, y, z) = (axis[0] / n, axis[1] / n, axis[2] / n);
     let (s, c) = deg.to_radians().sin_cos();
     let t = 1.0 - c;
-    [[t * x * x + c, t * x * y - s * z, t * x * z + s * y], [t * x * y + s * z, t * y * y + c, t * y * z - s * x], [t * x * z - s * y, t * y * z + s * x, t * z * z + c]]
+    [
+        [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
+        [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
+        [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
+    ]
 }
 
 impl Model {
@@ -240,7 +244,10 @@ impl Model {
                 positive(&[x, y, z])?;
                 self.add_body(
                     "brick",
-                    |m, id| Shape::Brick { half: [x / 2.0, y / 2.0, z / 2.0], faces: ["x-", "x+", "y-", "y+", "z-", "z+"].map(|f| m.face(format!("brick {id} {f}"))) },
+                    |m, id| Shape::Brick {
+                        half: [x / 2.0, y / 2.0, z / 2.0],
+                        faces: ["x-", "x+", "y-", "y+", "z-", "z+"].map(|f| m.face(format!("brick {id} {f}"))),
+                    },
                     format!("brick {x} x {y} x {z}"),
                 );
             }
@@ -253,7 +260,11 @@ impl Model {
                 let r = a.need("radius")?;
                 let h = a.num("height")?.or(a.num("z")?).ok_or_else(|| anyhow!("missing height"))?;
                 positive(&[r, h])?;
-                self.add_body("cylinder", |m, id| Shape::Cylinder { r, h, faces: ["side", "bottom", "top"].map(|f| m.face(format!("cylinder {id} {f}"))) }, format!("cylinder radius {r} height {h}"));
+                self.add_body(
+                    "cylinder",
+                    |m, id| Shape::Cylinder { r, h, faces: ["side", "bottom", "top"].map(|f| m.face(format!("cylinder {id} {f}"))) },
+                    format!("cylinder radius {r} height {h}"),
+                );
             }
             "cone" | "frustum" => {
                 let r1 = a.need("radius")?;
@@ -263,7 +274,11 @@ impl Model {
                 if r2 < 0.0 {
                     bail!("the top radius cannot be negative");
                 }
-                self.add_body("cone", |m, id| Shape::Cone { r1, r2, h, faces: ["side", "bottom", "top"].map(|f| m.face(format!("cone {id} {f}"))) }, format!("cone radius {r1} top {r2} height {h}"));
+                self.add_body(
+                    "cone",
+                    |m, id| Shape::Cone { r1, r2, h, faces: ["side", "bottom", "top"].map(|f| m.face(format!("cone {id} {f}"))) },
+                    format!("cone radius {r1} top {r2} height {h}"),
+                );
             }
             "torus" => {
                 let major = a.need("major")?;
@@ -272,7 +287,11 @@ impl Model {
                 if minor > major {
                     bail!("the minor radius must not exceed the major radius");
                 }
-                self.add_body("torus", |m, id| Shape::Torus { major, minor, face: m.face(format!("torus {id} surface")) }, format!("torus major {major} minor {minor}"));
+                self.add_body(
+                    "torus",
+                    |m, id| Shape::Torus { major, minor, face: m.face(format!("torus {id} surface")) },
+                    format!("torus major {major} minor {minor}"),
+                );
             }
             "prism" => {
                 let n = a.need("sides")? as usize;
@@ -302,7 +321,11 @@ impl Model {
                 let e1 = a.num("e1")?.unwrap_or(1.0);
                 let e2 = a.num("e2")?.unwrap_or(1.0);
                 positive(&[x, y, z, e1, e2])?;
-                self.add_body("superquadric", |m, id| Shape::Superquadric { abc: [x, y, z], e1, e2, face: m.face(format!("superquadric {id} surface")) }, format!("superquadric {x} x {y} x {z}, exponents {e1} {e2}"));
+                self.add_body(
+                    "superquadric",
+                    |m, id| Shape::Superquadric { abc: [x, y, z], e1, e2, face: m.face(format!("superquadric {id} surface")) },
+                    format!("superquadric {x} x {y} x {z}, exponents {e1} {e2}"),
+                );
             }
             "harmonic" => {
                 let r = a.need("radius")?;
@@ -310,7 +333,12 @@ impl Model {
                 let mut coef = Vec::new();
                 for (i, w) in a.w.iter().enumerate() {
                     if w.eq_ignore_ascii_case("coefficient") {
-                        let v: Vec<f64> = a.w[i + 1..].iter().take(3).map(|x| x.parse::<f64>()).collect::<std::result::Result<_, _>>().map_err(|_| anyhow!("coefficient l m value"))?;
+                        let v: Vec<f64> = a.w[i + 1..]
+                            .iter()
+                            .take(3)
+                            .map(|x| x.parse::<f64>())
+                            .collect::<std::result::Result<_, _>>()
+                            .map_err(|_| anyhow!("coefficient l m value"))?;
                         if v.len() != 3 || v[0] < 0.0 || v[1].abs() > v[0] {
                             bail!("coefficient l m value with l >= 0 and |m| <= l");
                         }
@@ -372,21 +400,25 @@ impl Model {
                 let stem = path.file_name().and_then(|f| f.to_str()).unwrap_or("surface").to_string();
                 let patches = mesh.n_patches;
                 let inner = Shape::Surface { mesh: Arc::new(mesh), face: 0 };
-                let id = self.add_body("surface", |m, id| {
-                    let f = m.face(format!("surface {id} {stem}"));
-                    for k in 1..patches {
-                        m.face(format!("surface {id} {stem} {}", k + 1));
-                    }
-                    let inner = match inner {
-                        Shape::Surface { mesh, .. } => Shape::Surface { mesh, face: f },
-                        x => x,
-                    };
-                    if s == 1.0 {
-                        inner
-                    } else {
-                        Shape::Transform { inner: Box::new(inner), rot: rotation([0.0, 0.0, 1.0], 0.0), offset: [0.0; 3], scale: [s; 3] }
-                    }
-                }, format!("import {file}"));
+                let id = self.add_body(
+                    "surface",
+                    |m, id| {
+                        let f = m.face(format!("surface {id} {stem}"));
+                        for k in 1..patches {
+                            m.face(format!("surface {id} {stem} {}", k + 1));
+                        }
+                        let inner = match inner {
+                            Shape::Surface { mesh, .. } => Shape::Surface { mesh, face: f },
+                            x => x,
+                        };
+                        if s == 1.0 {
+                            inner
+                        } else {
+                            Shape::Transform { inner: Box::new(inner), rot: rotation([0.0, 0.0, 1.0], 0.0), offset: [0.0; 3], scale: [s; 3] }
+                        }
+                    },
+                    format!("import {file}"),
+                );
                 let _ = id;
             }
             "move" | "translate" => {
@@ -463,7 +495,8 @@ impl Model {
                     hist.push(b.history);
                 }
                 let first = ids[0];
-                self.bodies.insert(first, Body { id: first, name: format!("body {first}"), shape: Shape::Union(parts), history: History::Op("unite".into(), hist) });
+                self.bodies
+                    .insert(first, Body { id: first, name: format!("body {first}"), shape: Shape::Union(parts), history: History::Op("unite".into(), hist) });
             }
             "intersect" => {
                 let ids = a.ids("body");
@@ -478,7 +511,10 @@ impl Model {
                     hist.push(b.history);
                 }
                 let first = ids[0];
-                self.bodies.insert(first, Body { id: first, name: format!("body {first}"), shape: Shape::Intersect(parts), history: History::Op("intersect".into(), hist) });
+                self.bodies.insert(
+                    first,
+                    Body { id: first, name: format!("body {first}"), shape: Shape::Intersect(parts), history: History::Op("intersect".into(), hist) },
+                );
             }
             "subtract" => {
                 let f = a.pos("from").ok_or_else(|| anyhow!("subtract body B from body A"))?;
@@ -509,7 +545,10 @@ impl Model {
                     let b = self.bodies.get(&id).cloned().ok_or_else(|| anyhow!("there is no body {id}"))?;
                     let nid = self.next_body;
                     self.next_body += 1;
-                    self.bodies.insert(nid, Body { id: nid, name: format!("{} copy", b.name), shape: b.shape, history: History::Op(format!("copy of body {id}"), vec![b.history]) });
+                    self.bodies.insert(
+                        nid,
+                        Body { id: nid, name: format!("{} copy", b.name), shape: b.shape, history: History::Op(format!("copy of body {id}"), vec![b.history]) },
+                    );
                 }
             }
             "delete" => {
@@ -616,7 +655,10 @@ impl Model {
 
     fn outline_cmd(&mut self, a: &Args) -> Result<()> {
         let id = a.w.get(1).and_then(|x| x.parse::<u32>().ok()).ok_or_else(|| anyhow!("outline N <shape> ..."))?;
-        let kind = a.w.get(2).map(|s| s.to_ascii_lowercase()).ok_or_else(|| anyhow!("outline {id} what? (polyline, rectangle, circle, ellipse, spline, regular, add, fillet)"))?;
+        let kind =
+            a.w.get(2)
+                .map(|s| s.to_ascii_lowercase())
+                .ok_or_else(|| anyhow!("outline {id} what? (polyline, rectangle, circle, ellipse, spline, regular, add, fillet)"))?;
         let center = {
             let c = a.nums("center");
             if c.len() >= 2 {
@@ -639,7 +681,9 @@ impl Model {
             "add" => {
                 let mut o = self.outlines.get(&id).cloned().unwrap_or_default();
                 match a.w.get(3).map(|s| s.to_ascii_lowercase()).as_deref() {
-                    Some("line") | Some("lines") | Some("polyline") => o.add_lines(&pairs(&a.w[4..].iter().filter_map(|x| x.parse().ok()).collect::<Vec<f64>>(), "line")?),
+                    Some("line") | Some("lines") | Some("polyline") => {
+                        o.add_lines(&pairs(&a.w[4..].iter().filter_map(|x| x.parse().ok()).collect::<Vec<f64>>(), "line")?)
+                    }
                     Some("arc") => {
                         let r = a.need("radius")?;
                         let (s, e) = (a.need("start")?, a.need("end")?);
@@ -663,7 +707,10 @@ impl Model {
 
     /// The bodies with their face ids, for listings.
     pub fn describe(&self) -> Vec<(u32, String, Vec<String>, Vec<(FaceId, String)>)> {
-        self.bodies.values().map(|b| (b.id, b.name.clone(), b.history.lines(), b.shape.faces().into_iter().map(|f| (f, self.faces[f as usize].clone())).collect())).collect()
+        self.bodies
+            .values()
+            .map(|b| (b.id, b.name.clone(), b.history.lines(), b.shape.faces().into_iter().map(|f| (f, self.faces[f as usize].clone())).collect()))
+            .collect()
     }
 }
 

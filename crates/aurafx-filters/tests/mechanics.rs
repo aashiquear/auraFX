@@ -76,12 +76,29 @@ fn mechanics_filter() {
     let m = run("crystal_mechanics", Some(&d), &[]);
     let fd = m.field_data();
     let g = |k: &str| fd.get(k).unwrap().get(0, 0);
-    eprintln!("AM Bench window along z: Taylor {:.3}, Schmid {:.3}, E Voigt {:.1} Reuss {:.1} GPa, yield {:.0} MPa", g("MeanTaylorFactor"), g("MeanSchmidFactor"), g("YoungsModulusVoigt"), g("YoungsModulusReuss"), g("YieldEstimateMPa"));
+    eprintln!(
+        "AM Bench window along z: Taylor {:.3}, Schmid {:.3}, E Voigt {:.1} Reuss {:.1} GPa, yield {:.0} MPa",
+        g("MeanTaylorFactor"),
+        g("MeanSchmidFactor"),
+        g("YoungsModulusVoigt"),
+        g("YoungsModulusReuss"),
+        g("YieldEstimateMPa")
+    );
     assert!(g("YoungsModulusReuss") <= g("YoungsModulusVoigt"));
     assert!((g("YieldEstimateMPa") - 647.6 * g("MeanTaylorFactor") / 3.06).abs() < 1e-6);
     let c = m.cell_data().unwrap();
     assert!(c.get("TaylorFactor").is_some() && c.get("SchmidFactor").is_some());
-    let hcp = run("crystal_mechanics", Some(&d), &[("material", "Custom".into()), ("lattice", "HCP".into()), ("elastic", serde_json::json!([162.4, 92.0, 69.0, 180.7, 46.7])), ("families", "Basal <a>, Prismatic <a>=0.7, Pyramidal <c+a>=3".into()), ("structure", "Hexagonal 6/mmm".into())]);
+    let hcp = run(
+        "crystal_mechanics",
+        Some(&d),
+        &[
+            ("material", "Custom".into()),
+            ("lattice", "HCP".into()),
+            ("elastic", serde_json::json!([162.4, 92.0, 69.0, 180.7, 46.7])),
+            ("families", "Basal <a>, Prismatic <a>=0.7, Pyramidal <c+a>=3".into()),
+            ("structure", "Hexagonal 6/mmm".into()),
+        ],
+    );
     assert!(hcp.field_data().get("MeanTaylorFactor").unwrap().get(0, 0) > 2.0);
 }
 
@@ -169,7 +186,11 @@ fn srod_and_gnd_filters() {
     };
     let v = run("srod", Some(&d), &[("layer", 4.0.into()), ("min_volume", 200.0.into()), ("reference_volume", 50.0.into()), ("min_bin_volume", 20.0.into())]);
     assert!(v.cell_data().unwrap().get("SROD").is_some() && v.field_data().get("SRODRate").is_some());
-    let b = run("srod", Some(&d), &[("layer", 4.0.into()), ("min_volume", 200.0.into()), ("reference_volume", 50.0.into()), ("min_bin_volume", 20.0.into()), ("output", "Bins".into())]);
+    let b = run(
+        "srod",
+        Some(&d),
+        &[("layer", 4.0.into()), ("min_volume", 200.0.into()), ("reference_volume", 50.0.into()), ("min_bin_volume", 20.0.into()), ("output", "Bins".into())],
+    );
     let DataSet::Table(t) = &b else { panic!() };
     assert!(t.n_rows() > 100);
     let h = run("srod", Some(&d), &[("layer", 4.0.into()), ("min_volume", 200.0.into()), ("output", "By height".into())]);

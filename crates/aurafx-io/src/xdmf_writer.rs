@@ -88,7 +88,8 @@ impl Writer {
 
     fn inline(&mut self, indent: usize, values: &[f64]) {
         let v = values.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(" ");
-        let _ = writeln!(self.xml, "{:indent$}<DataItem Dimensions=\"{}\" NumberType=\"Float\" Precision=\"8\" Format=\"XML\">{v}</DataItem>", "", values.len());
+        let _ =
+            writeln!(self.xml, "{:indent$}<DataItem Dimensions=\"{}\" NumberType=\"Float\" Precision=\"8\" Format=\"XML\">{v}</DataItem>", "", values.len());
     }
 
     fn line(&mut self, indent: usize, s: &str) {

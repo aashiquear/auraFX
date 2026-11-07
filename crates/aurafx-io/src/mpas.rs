@@ -79,7 +79,13 @@ pub fn options(path: &Path) -> Vec<ReaderOption> {
             SPHERE,
             "On the sphere, or flat on a longitude/latitude map in degrees",
         ));
-        o.push(ReaderOption::new("center_lon", "Map center longitude", ReaderOptionKind::Float { min: 0.0, max: 360.0 }, 180, "The longitude in the middle of the lon/lat map"));
+        o.push(ReaderOption::new(
+            "center_lon",
+            "Map center longitude",
+            ReaderOptionKind::Float { min: 0.0, max: 360.0 },
+            180,
+            "The longitude in the middle of the lon/lat map",
+        ));
     }
     o
 }
@@ -297,7 +303,11 @@ fn read_grid(path: &Path, step: usize) -> Result<DataSet> {
             20.0 / nlev as f64
         } else {
             let r = px.iter().map(|p| (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt()).fold(0.0, f64::max);
-            if sphere { 0.05 * r / nlev as f64 } else { 0.05 * bounds_size(&px) / nlev as f64 }
+            if sphere {
+                0.05 * r / nlev as f64
+            } else {
+                0.05 * bounds_size(&px) / nlev as f64
+            }
         };
         let dir = if o.up { 1.0 } else { -1.0 };
         let mut pts = Vec::with_capacity(3 * nb * (nlev + 1));

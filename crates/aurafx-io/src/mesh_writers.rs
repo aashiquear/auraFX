@@ -233,7 +233,9 @@ pub fn write_gmsh(ds: &DataSet, path: &Path) -> Result<()> {
         let mut quads = Vec::new();
         for (c, side) in faces {
             let Some((t, ids)) = ug.cells.iter().nth(*c) else { continue };
-            if !matches!(t, CellType::Hexahedron | CellType::Voxel | CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron) || !(1..=6).contains(side) {
+            if !matches!(t, CellType::Hexahedron | CellType::Voxel | CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron)
+                || !(1..=6).contains(side)
+            {
                 continue;
             }
             let e = exodus_order(t, ids);

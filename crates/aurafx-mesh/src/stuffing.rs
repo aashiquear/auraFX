@@ -244,7 +244,11 @@ pub fn stuff(f: &(dyn Fn(P3) -> f64 + Sync), lo: P3, hi: P3, h: f64) -> Result<T
                 let p0 = sub(at(cap[0]), cen);
                 let p1 = sub(at(cap[1]), cen);
                 let c = cross(p0, p1);
-                if dot(c, c) > dot(nn, nn) { c } else { nn }
+                if dot(c, c) > dot(nn, nn) {
+                    c
+                } else {
+                    nn
+                }
             };
             let u = {
                 let p = sub(at(cap[0]), cen);
@@ -314,10 +318,14 @@ pub fn refine_marked(m: &TetMesh, marked: &[bool], project: &dyn Fn(P3) -> P3) -
     let mut mid: HashMap<(u32, u32), u32> = HashMap::new();
     let bnd: std::collections::HashSet<u32> = m.boundary_faces().iter().flat_map(|(e, s)| m.side_corners(*e as usize, *s)).collect();
     // Edges whose both ends are on the boundary and that lie on a boundary face.
-    let bface: std::collections::HashSet<(u32, u32)> = m.boundary_faces().iter().flat_map(|(e, s)| {
-        let c = m.side_corners(*e as usize, *s);
-        [key(c[0], c[1]), key(c[1], c[2]), key(c[0], c[2])]
-    }).collect();
+    let bface: std::collections::HashSet<(u32, u32)> = m
+        .boundary_faces()
+        .iter()
+        .flat_map(|(e, s)| {
+            let c = m.side_corners(*e as usize, *s);
+            [key(c[0], c[1]), key(c[1], c[2]), key(c[0], c[2])]
+        })
+        .collect();
     for (e, t) in m.tets.iter().enumerate() {
         if marked[e] {
             for k in edges_of(t) {

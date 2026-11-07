@@ -10,7 +10,17 @@ use aurafx_data::*;
 use std::path::Path;
 
 /// Per-ensemble arrays (one row per phase); the rest of the field data is sorted by length.
-const ENSEMBLE: &[&str] = &["CrystalStructures", "LatticeConstants", "MaterialName", "PhaseTypes", "ShapeTypes", "PhaseName", "PhaseNames", "NumFeatures", "PrecipitateBoundaryFraction"];
+const ENSEMBLE: &[&str] = &[
+    "CrystalStructures",
+    "LatticeConstants",
+    "MaterialName",
+    "PhaseTypes",
+    "ShapeTypes",
+    "PhaseName",
+    "PhaseNames",
+    "NumFeatures",
+    "PrecipitateBoundaryFraction",
+];
 
 fn object_type(d: &ArrayData) -> &'static str {
     match d {

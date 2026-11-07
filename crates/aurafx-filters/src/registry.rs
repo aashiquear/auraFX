@@ -389,11 +389,13 @@ fn array_or_default(ds: &DataSet, p: &Params, key: &str, vector: bool) -> Result
         // A name given without its association (a plain string from Python) may be on the
         // other side: cell data of AMR blocks and most simulation files.
         Some((a, n)) => {
-            let has = |a: Association| match a {
-                Association::Points => ds.point_data(),
-                Association::Cells => ds.cell_data(),
-            }
-            .is_some_and(|x| x.get(&n).is_some());
+            let has = |a: Association| {
+                match a {
+                    Association::Points => ds.point_data(),
+                    Association::Cells => ds.cell_data(),
+                }
+                .is_some_and(|x| x.get(&n).is_some())
+            };
             let other = if a == Association::Points { Association::Cells } else { Association::Points };
             Ok(if !has(a) && has(other) { (other, n) } else { (a, n) })
         }
@@ -4133,7 +4135,13 @@ fn texture_selection_params(max: i64) -> Vec<ParamSpec> {
     ]
 }
 
-fn texture_selection<'a>(p: &crate::params::Params, structure: &'a str, phases: Option<&'a str>, mask: Option<&'a str>, max: i64) -> crate::crystal_texture::Selection<'a> {
+fn texture_selection<'a>(
+    p: &crate::params::Params,
+    structure: &'a str,
+    phases: Option<&'a str>,
+    mask: Option<&'a str>,
+    max: i64,
+) -> crate::crystal_texture::Selection<'a> {
     crate::crystal_texture::Selection {
         orientations: p.array("orientations"),
         structure,

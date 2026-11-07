@@ -9,10 +9,21 @@ use std::path::{Path, PathBuf};
 /// (extensions, description) of writable formats.
 pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
     let mut v = match ds {
-        DataSet::UnstructuredGrid(u) if u.field_data.get("GrainEulerAngles").is_some() => vec![("vtu", "VTK unstructured grid"), ("inp", "Abaqus input (blocks, node sets, surfaces)"), ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"), ("tex", "Grain orientations (phi1 Phi phi2 per grain, degrees)")],
-        DataSet::UnstructuredGrid(_) => vec![("vtu", "VTK unstructured grid"), ("inp", "Abaqus input (blocks, node sets, surfaces)"), ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)")],
+        DataSet::UnstructuredGrid(u) if u.field_data.get("GrainEulerAngles").is_some() => vec![
+            ("vtu", "VTK unstructured grid"),
+            ("inp", "Abaqus input (blocks, node sets, surfaces)"),
+            ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"),
+            ("tex", "Grain orientations (phi1 Phi phi2 per grain, degrees)"),
+        ],
+        DataSet::UnstructuredGrid(_) => vec![
+            ("vtu", "VTK unstructured grid"),
+            ("inp", "Abaqus input (blocks, node sets, surfaces)"),
+            ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"),
+        ],
         DataSet::PolyData(_) => vec![("vtp", "VTK polygonal data"), ("stl", "STL surface"), ("ply", "PLY surface")],
-        DataSet::ImageData(i) if i.cell_data.get("FeatureIds").is_some() || i.cell_data.get("grain_id").is_some() => vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)"), ("spparks", "SPPARKS site file (feature ids)")],
+        DataSet::ImageData(i) if i.cell_data.get("FeatureIds").is_some() || i.cell_data.get("grain_id").is_some() => {
+            vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)"), ("spparks", "SPPARKS site file (feature ids)")]
+        }
         DataSet::ImageData(_) => vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)")],
         DataSet::RectilinearGrid(_) => vec![("vtr", "VTK rectilinear grid")],
         DataSet::StructuredGrid(_) => vec![("vts", "VTK structured grid")],
@@ -298,7 +309,8 @@ fn pack_bits(bits: &[bool]) -> Vec<u8> {
 pub fn write_htg(h: &aurafx_data::HyperTreeGrid, path: &Path) -> Result<()> {
     let mut app = Appended { blob: Vec::new() };
     let nc = h.children_per_vertex();
-    let (mut descriptor, mut per_depth, mut tree_ids, mut depth_per_tree, mut mask, mut order) = (Vec::new(), Vec::<i64>::new(), Vec::<i64>::new(), Vec::<u32>::new(), Vec::new(), Vec::new());
+    let (mut descriptor, mut per_depth, mut tree_ids, mut depth_per_tree, mut mask, mut order) =
+        (Vec::new(), Vec::<i64>::new(), Vec::<i64>::new(), Vec::<u32>::new(), Vec::new(), Vec::new());
     for (ti, tree) in h.trees.iter().enumerate() {
         let Some(tree) = tree.as_ref().filter(|t| !t.refined.is_empty()) else { continue };
         // Level sizes of the breadth-first list.
@@ -346,7 +358,9 @@ pub fn write_htg(h: &aurafx_data::HyperTreeGrid, path: &Path) -> Result<()> {
         *body += &format!("      <DataArray type=\"Bit\" Name=\"{name}\" NumberOfTuples=\"{}\" format=\"appended\" offset=\"{off}\"/>\n", b.len());
     };
     bits(&mut app, &mut body, "Descriptors", &descriptor);
-    for (name, d) in [("NumberOfVerticesPerDepth", ArrayData::I64(per_depth)), ("TreeIds", ArrayData::I64(tree_ids)), ("DepthPerTree", ArrayData::U32(depth_per_tree))] {
+    for (name, d) in
+        [("NumberOfVerticesPerDepth", ArrayData::I64(per_depth)), ("TreeIds", ArrayData::I64(tree_ids)), ("DepthPerTree", ArrayData::U32(depth_per_tree))]
+    {
         let off = app.add(&le_bytes(&d));
         body += &format!("      <DataArray type=\"{}\" Name=\"{name}\" NumberOfTuples=\"{}\" format=\"appended\" offset=\"{off}\"/>\n", type_name(&d), d.len());
     }
@@ -553,7 +567,10 @@ pub fn write_csv(ds: &DataSet, path: &Path) -> Result<()> {
     if let DataSet::MultiBlock(mb) = ds {
         let leaves = mb.leaves();
         let names = |d: &DataSet| -> Vec<String> { d.point_data().map(|a| a.iter().map(|x| format!("{}:{}", x.name, x.ncomp)).collect()).unwrap_or_default() };
-        if leaves.len() > 1 && !matches!(leaves[0].1, DataSet::Table(_)) && leaves.iter().all(|(_, d)| names(d) == names(leaves[0].1) && !matches!(d, DataSet::Table(_))) {
+        if leaves.len() > 1
+            && !matches!(leaves[0].1, DataSet::Table(_))
+            && leaves.iter().all(|(_, d)| names(d) == names(leaves[0].1) && !matches!(d, DataSet::Table(_)))
+        {
             let mut text = String::new();
             for (k, (name, d)) in leaves.iter().enumerate() {
                 let tmp = path.with_extension(format!("part{k}.csv"));
@@ -638,12 +655,26 @@ fn surface_triangles(ds: &DataSet) -> Result<(Vec<[f32; 3]>, Vec<[u32; 3]>)> {
 /// id) as rows for grain ids 1..=N in degrees; grains absent from the data get 0 0 0.
 pub fn grain_euler_rows(ds: &DataSet) -> Result<Vec<[f64; 3]>> {
     let leaf = match ds {
-        DataSet::MultiBlock(mb) => mb.leaves().into_iter().find(|(_, d)| d.field_data().get("GrainEulerAngles").is_some()).map(|(_, d)| d.clone()).unwrap_or_else(|| ds.clone()),
+        DataSet::MultiBlock(mb) => {
+            mb.leaves().into_iter().find(|(_, d)| d.field_data().get("GrainEulerAngles").is_some()).map(|(_, d)| d.clone()).unwrap_or_else(|| ds.clone())
+        }
         d => d.clone(),
     };
-    let a = leaf.field_data().get("GrainEulerAngles").ok_or_else(|| anyhow!("no grain orientations (field array GrainEulerAngles): run Assign Grains first"))?;
+    let a =
+        leaf.field_data().get("GrainEulerAngles").ok_or_else(|| anyhow!("no grain orientations (field array GrainEulerAngles): run Assign Grains first"))?;
     let last = (1..a.len()).rev().find(|g| (0..3).all(|c| a.get(*g, c).is_finite())).ok_or_else(|| anyhow!("no grain has an orientation"))?;
-    Ok((1..=last).map(|g| std::array::from_fn(|c| { let x = a.get(g, c); if x.is_finite() { x.to_degrees() } else { 0.0 } })).collect())
+    Ok((1..=last)
+        .map(|g| {
+            std::array::from_fn(|c| {
+                let x = a.get(g, c);
+                if x.is_finite() {
+                    x.to_degrees()
+                } else {
+                    0.0
+                }
+            })
+        })
+        .collect())
 }
 
 /// Grain orientations as a texture file: four header lines (the fourth `B N`), then one line

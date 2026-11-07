@@ -53,12 +53,23 @@ fn overlay_parts() {
         ("sphere", "sphere radius 1", 0.125, vec![(1, 4.0 / 3.0 * pi)]),
         ("plate with hole", "brick x 4 y 2 z 1; cylinder radius 0.5 height 2; subtract body 2 from body 1", 0.125, vec![(1, 8.0 - pi * 0.25)]),
         ("sphere in a block", "sphere radius 0.6; brick x 2 y 2 z 2", 0.1, vec![(1, 4.0 / 3.0 * pi * 0.216), (2, 8.0 - 4.0 / 3.0 * pi * 0.216)]),
-        ("crossed cylinders", "cylinder radius 0.5 height 3; cylinder radius 0.5 height 3; rotate body 2 angle 90 about x; unite body 1 2", 0.1, vec![(1, 2.0 * pi * 0.25 * 3.0 - 16.0 / 3.0 * 0.125)]),
+        (
+            "crossed cylinders",
+            "cylinder radius 0.5 height 3; cylinder radius 0.5 height 3; rotate body 2 angle 90 about x; unite body 1 2",
+            0.1,
+            vec![(1, 2.0 * pi * 0.25 * 3.0 - 16.0 / 3.0 * 0.125)],
+        ),
     ] {
         let (r, _) = mesh_model(cmds, h, |_| {});
         let m = &r.mesh;
         let v = volumes(m);
-        eprintln!("{name}: {} elements, min SJ {:.3}, inverted {}, sets {:?}", m.n_elements(), r.min_sj, r.inverted, m.side_sets.iter().map(|s| (s.0.clone(), s.1.len())).collect::<Vec<_>>());
+        eprintln!(
+            "{name}: {} elements, min SJ {:.3}, inverted {}, sets {:?}",
+            m.n_elements(),
+            r.min_sj,
+            r.inverted,
+            m.side_sets.iter().map(|s| (s.0.clone(), s.1.len())).collect::<Vec<_>>()
+        );
         assert_eq!(r.inverted, 0, "{name}");
         assert!(r.min_sj > 0.2, "{name}: {}", r.min_sj);
         assert!(conforming(m), "{name}");
@@ -135,7 +146,8 @@ fn overlay_surface() {
             [p[0] * a.cos() - p[1] * a.sin(), p[0] * a.sin() + p[1] * a.cos(), p[2]]
         })
         .collect();
-    let tris: Vec<[u32; 3]> = vec![[0, 2, 1], [1, 2, 3], [4, 5, 6], [5, 7, 6], [0, 1, 4], [1, 5, 4], [2, 6, 3], [3, 6, 7], [0, 4, 2], [2, 4, 6], [1, 3, 5], [3, 7, 5]];
+    let tris: Vec<[u32; 3]> =
+        vec![[0, 2, 1], [1, 2, 3], [4, 5, 6], [5, 7, 6], [0, 1, 4], [1, 5, 4], [2, 6, 3], [3, 6, 7], [0, 4, 2], [2, 4, 6], [1, 3, 5], [3, 7, 5]];
     let tm = TriMesh::new(&pts, &tris).unwrap();
     let shape = aurafx_mesh::shape::Shape::Surface { mesh: std::sync::Arc::new(tm), face: 1 };
     let src = ShapeSource { shapes: vec![(1, &shape)] };
@@ -148,7 +160,6 @@ fn overlay_surface() {
     assert!((v[&1] - 1.0).abs() < 0.03, "{}", v[&1]);
 }
 
-
 /// Four grains meeting along triple lines and at the domain faces.
 #[test]
 fn overlay_grains() {
@@ -159,7 +170,15 @@ fn overlay_grains() {
             for i in 0..n {
                 let c = [i, j, k].map(|x| (x as f64 + 0.5) / n as f64);
                 let r2 = (c[0] - 0.6).powi(2) + (c[1] - 0.4).powi(2) + (c[2] - 0.5).powi(2);
-                labels.push(if r2 < 0.25 * 0.25 { 4 } else if c[0] + 0.3 * c[2] < 0.5 { 1 } else if c[1] < 0.55 - 0.2 * c[0] { 2 } else { 3 });
+                labels.push(if r2 < 0.25 * 0.25 {
+                    4
+                } else if c[0] + 0.3 * c[2] < 0.5 {
+                    1
+                } else if c[1] < 0.55 - 0.2 * c[0] {
+                    2
+                } else {
+                    3
+                });
             }
         }
     }
@@ -174,8 +193,6 @@ fn overlay_grains() {
     assert!((v.values().sum::<f64>() - 1.0).abs() < 1e-9);
     assert_eq!(v.len(), 4);
 }
-
-
 
 /// Sharp edges: a brick turned off the grid keeps its edges (nodes are put on them), so its
 /// volume is close to exact; without that the edges are rounded off.

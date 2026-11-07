@@ -481,9 +481,8 @@ pub fn perlin_noise(ds: &DataSet, frequency: [f64; 3], phase: [f64; 3], amplitud
 pub const DEFAULT_HARMONICS: [f64; 24] =
     [1.0, 1.0, 0.6283, 0.6283, 0.6283, 0.0, 3.0, 1.0, 0.6283, 0.0, 0.0, 1.5708, 2.0, 2.0, 0.0, 0.6283, 0.0, 3.1416, 1.0, 3.0, 0.0, 0.0, 0.6283, 4.7124];
 /// ParaView's default time steps of the harmonics source (one period in 20 steps).
-pub const DEFAULT_TIMES: [f64; 20] = [
-    0.0, 0.3141, 0.6283, 0.9425, 1.2566, 1.5708, 1.885, 2.1991, 2.5133, 2.8274, 3.1416, 3.4558, 3.7699, 4.0841, 4.3982, 4.7124, 5.0266, 5.3407, 5.6549, 5.969,
-];
+pub const DEFAULT_TIMES: [f64; 20] =
+    [0.0, 0.3141, 0.6283, 0.9425, 1.2566, 1.5708, 1.885, 2.1991, 2.5133, 2.8274, 3.1416, 3.4558, 3.7699, 4.0841, 4.3982, 4.7124, 5.0266, 5.3407, 5.6549, 5.969];
 pub const HARMONICS_NAME: &str = "SpatioTemporalHarmonics";
 
 /// Sum of amplitude·sin(frequency·t + k·x + phase) over the harmonics (6 numbers each).

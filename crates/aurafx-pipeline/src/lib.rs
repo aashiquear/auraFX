@@ -6,14 +6,15 @@ pub mod cases;
 pub mod cluster;
 pub mod colormap;
 pub mod display;
-pub mod remote;
 pub mod pipeline_json;
+pub mod remote;
 pub mod session;
 pub mod state;
 
 pub use animation::{Animation, CameraKey, ParamKey, ParamTrack};
 pub use display::{ColorBy, DisplayProps, DrawOn, Light, Lighting, MoleculeStyle, RayDevice, Representation, ToneMapping};
 pub use session::{
-    reader_options_of, reader_param_specs, stat_of, Annotation, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, RemoteStatus, Selection, Session, SharedSession, WorkItem,
+    reader_options_of, reader_param_specs, stat_of, Annotation, Chart, ChartSeries, LogEntry, LogLevel, Node, NodeId, NodeKind, RemoteStatus, Selection,
+    Session, SharedSession, WorkItem,
 };
 pub use state::{CameraState, Snapshot};

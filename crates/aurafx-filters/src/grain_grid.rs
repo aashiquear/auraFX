@@ -372,7 +372,15 @@ pub fn align_sections(
         };
         cells.insert(Array::new(a.name.clone(), a.ncomp, g));
     }
-    let mut out = ImageData { extent: img.extent, origin: img.origin, spacing: img.spacing, direction: img.direction, cell_data: cells, field_data: img.field_data.clone(), ..Default::default() };
+    let mut out = ImageData {
+        extent: img.extent,
+        origin: img.origin,
+        spacing: img.spacing,
+        direction: img.direction,
+        cell_data: cells,
+        field_data: img.field_data.clone(),
+        ..Default::default()
+    };
     out.field_data.insert(Array::new("SectionShifts", 2, ArrayData::I32(total.iter().flat_map(|(x, y)| [*x as i32, *y as i32]).collect())));
     Ok(DataSet::ImageData(out))
 }

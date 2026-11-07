@@ -43,7 +43,10 @@ pub fn elevation(ds: &DataSet, name: &str, origin: [f64; 3], axis: [f64; 3], sph
             Some(_) => (0..vals.len()).map(|i| dist([vals.get(i, 0), vals.get(i, 1), vals.get(i, 2)])).collect(),
             None => {
                 let nf = vals.ncomp / 3;
-                (0..vals.len()).flat_map(|c| (0..nf).map(move |k| (c, k))).map(|(c, k)| dist([vals.get(c, 3 * k), vals.get(c, 3 * k + 1), vals.get(c, 3 * k + 2)])).collect()
+                (0..vals.len())
+                    .flat_map(|c| (0..nf).map(move |k| (c, k)))
+                    .map(|(c, k)| dist([vals.get(c, 3 * k), vals.get(c, 3 * k + 1), vals.get(c, 3 * k + 2)]))
+                    .collect()
             }
         };
         let nc = if info.sharing.is_some() { 1 } else { vals.ncomp / 3 };
@@ -62,7 +65,10 @@ pub fn elevation(ds: &DataSet, name: &str, origin: [f64; 3], axis: [f64; 3], sph
 /// with test attributes: `hgrad` (1, 0, 0 at the first point), and on shapes that have them
 /// `hcurl` and `hdiv` (the first coefficient 1); a vertex gets a `constant` attribute.
 pub fn source(cell_type: &str) -> Result<DataSet> {
-    let i = CELL_TYPES.iter().position(|t| t.eq_ignore_ascii_case(cell_type)).ok_or_else(|| anyhow!("unknown cell type {cell_type} (one of {})", CELL_TYPES.join(", ")))?;
+    let i = CELL_TYPES
+        .iter()
+        .position(|t| t.eq_ignore_ascii_case(cell_type))
+        .ok_or_else(|| anyhow!("unknown cell type {cell_type} (one of {})", CELL_TYPES.join(", ")))?;
     let type_name = TYPE_NAMES[i];
     let shape = Shape::from_type(type_name).expect("known type");
     let corners = shape.corners();
@@ -101,7 +107,8 @@ pub fn source(cell_type: &str) -> Result<DataSet> {
             let mut v = vec![0.0; count];
             v[0] = 1.0;
             cell_arrays.push(Array::new(name, count, ArrayData::F64(v)));
-            let info = DgAttrInfo { function_space: space.into(), basis: "I".into(), order: 1, sharing: None, values: (tn.clone(), name.into()), connectivity: None };
+            let info =
+                DgAttrInfo { function_space: space.into(), basis: "I".into(), order: 1, sharing: None, values: (tn.clone(), name.into()), connectivity: None };
             atts.push(DgAttribute { name: name.into(), components: 3, shape: false, info: [(tn.clone(), info)].into_iter().collect() });
         }
     }
@@ -259,7 +266,8 @@ pub fn convert(ds: &DataSet) -> Result<DataSet> {
         connectivity: Some(conn.clone()),
     };
     let mut shape = DgAttribute { name: "shape".into(), components: 3, shape: true, info: Default::default() };
-    let mut point_atts: Vec<DgAttribute> = pnames.iter().map(|nm| DgAttribute { name: nm.clone(), components: pd.get(nm).unwrap().ncomp, shape: false, info: Default::default() }).collect();
+    let mut point_atts: Vec<DgAttribute> =
+        pnames.iter().map(|nm| DgAttribute { name: nm.clone(), components: pd.get(nm).unwrap().ncomp, shape: false, info: Default::default() }).collect();
     let cnames: Vec<String> = cd.iter().filter(|a| !matches!(a.data, ArrayData::String(_))).map(|a| a.name.clone()).collect();
     let mut cell_atts: Vec<DgAttribute> = cnames
         .iter()
@@ -281,7 +289,10 @@ pub fn convert(ds: &DataSet) -> Result<DataSet> {
             let vals = a.gather(orig);
             let out = cell_atts[k].name.clone();
             arrays.push(Array::new(out.clone(), vals.ncomp, vals.data));
-            cell_atts[k].info.insert(t.clone(), DgAttrInfo { function_space: "constant".into(), basis: "C".into(), order: 0, sharing: None, values: (t.clone(), out), connectivity: None });
+            cell_atts[k].info.insert(
+                t.clone(),
+                DgAttrInfo { function_space: "constant".into(), basis: "C".into(), order: 0, sharing: None, values: (t.clone(), out), connectivity: None },
+            );
         }
         g.groups.insert(t.clone(), arrays);
         g.cell_types.insert(t.clone(), DgCells::new(*s, conn_ref));

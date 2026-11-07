@@ -97,7 +97,13 @@ impl DataSetInfo {
         Self {
             kind: match ds {
                 DataSet::HyperTreeGrid(h) => {
-                    format!("Hyper Tree Grid ({}-D, branch factor {}, {} visible leaves, depth {})", h.dimension(), h.branch_factor, h.n_leaves(), h.max_depth())
+                    format!(
+                        "Hyper Tree Grid ({}-D, branch factor {}, {} visible leaves, depth {})",
+                        h.dimension(),
+                        h.branch_factor,
+                        h.n_leaves(),
+                        h.max_depth()
+                    )
                 }
                 _ => ds.type_name().to_string(),
             },

@@ -27,7 +27,8 @@ pub fn read(path: &Path) -> Result<DataSet> {
             let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let nc = a.get("components").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
             let ty = a.get("type").and_then(|v| v.as_str()).unwrap_or("double");
-            let vals: Vec<f64> = a.get("data").and_then(|d| d.as_array()).map(|d| d.iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect()).unwrap_or_default();
+            let vals: Vec<f64> =
+                a.get("data").and_then(|d| d.as_array()).map(|d| d.iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect()).unwrap_or_default();
             let data = if ty.contains("int") || ty.contains("char") || ty.contains("long") || ty.contains("short") {
                 ArrayData::I64(vals.iter().map(|&v| v as i64).collect())
             } else if ty == "float" {
@@ -87,7 +88,7 @@ pub fn read(path: &Path) -> Result<DataSet> {
                 (None, c, Some(u), Some(grp)) => {
                     let grp = if g.groups.get(grp.as_str()).is_some_and(|l| l.iter().any(|x| x.name == name)) { grp.clone() } else { "points".into() };
                     let vname = if att.shape { g.groups.get(&grp).and_then(|l| l.first()).map(|x| x.name.clone()).unwrap_or_default() } else { name.clone() };
-                    (( grp, vname), c.or(Some(u)))
+                    ((grp, vname), c.or(Some(u)))
                 }
                 (None, c, Some(u), None) => (u, c),
                 _ => continue,
@@ -153,7 +154,8 @@ fn shape_name(s: Shape) -> &'static str {
 /// Write a cell grid as a VTK `.dg` file (the JSON layout vtkCellGridWriter writes).
 pub fn write(g: &CellGrid, path: &Path) -> Result<()> {
     use serde_json::{json, Map};
-    let conn_refs: Vec<&ArrayRef> = g.cell_types.values().flat_map(|c| std::iter::once(&c.connectivity).chain(c.sides.iter().map(|s| &s.connectivity))).collect();
+    let conn_refs: Vec<&ArrayRef> =
+        g.cell_types.values().flat_map(|c| std::iter::once(&c.connectivity).chain(c.sides.iter().map(|s| &s.connectivity))).collect();
     let mut arrays = Map::new();
     for (group, list) in &g.groups {
         let items: Vec<Value> = list

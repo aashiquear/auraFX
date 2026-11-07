@@ -8,7 +8,7 @@
 //! image (no distances: the interface nodes are smoothed along the interface instead).
 //! Material 0 is void.
 
-use crate::hex::{HexMesh, P3, HEX8_SIDES, HEX_EDGES};
+use crate::hex::{HexMesh, HEX8_SIDES, HEX_EDGES, P3};
 use crate::shape::Shape;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -133,9 +133,14 @@ fn corner_sjs(p: &[P3; 8]) -> [f64; 8] {
         let nb = CORNER_NB[c];
         let e: [P3; 3] = nb.map(|k| std::array::from_fn(|a| p[k][a] - p[c][a]));
         let l = e.map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt());
-        let d = e[0][0] * (e[1][1] * e[2][2] - e[1][2] * e[2][1]) - e[0][1] * (e[1][0] * e[2][2] - e[1][2] * e[2][0]) + e[0][2] * (e[1][0] * e[2][1] - e[1][1] * e[2][0]);
+        let d = e[0][0] * (e[1][1] * e[2][2] - e[1][2] * e[2][1]) - e[0][1] * (e[1][0] * e[2][2] - e[1][2] * e[2][0])
+            + e[0][2] * (e[1][0] * e[2][1] - e[1][1] * e[2][0]);
         let n = l[0] * l[1] * l[2];
-        if n > 0.0 { d / n } else { -1.0 }
+        if n > 0.0 {
+            d / n
+        } else {
+            -1.0
+        }
     })
 }
 
@@ -145,7 +150,8 @@ pub fn corner_sj(p: &[P3; 8]) -> f64 {
     for (c, nb) in CORNER_NB.iter().enumerate() {
         let e: [P3; 3] = nb.map(|k| std::array::from_fn(|a| p[k][a] - p[c][a]));
         let l = e.map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt());
-        let d = e[0][0] * (e[1][1] * e[2][2] - e[1][2] * e[2][1]) - e[0][1] * (e[1][0] * e[2][2] - e[1][2] * e[2][0]) + e[0][2] * (e[1][0] * e[2][1] - e[1][1] * e[2][0]);
+        let d = e[0][0] * (e[1][1] * e[2][2] - e[1][2] * e[2][1]) - e[0][1] * (e[1][0] * e[2][2] - e[1][2] * e[2][0])
+            + e[0][2] * (e[1][0] * e[2][1] - e[1][1] * e[2][0]);
         let n = l[0] * l[1] * l[2];
         q = q.min(if n > 0.0 { d / n } else { -1.0 });
     }
@@ -188,7 +194,16 @@ impl Grid {
     /// Grid nodes of cell `c` in Exodus order.
     fn corners(&self, c: usize) -> [usize; 8] {
         let [i, j, k] = self.ijk(c);
-        [self.node(i, j, k), self.node(i + 1, j, k), self.node(i + 1, j + 1, k), self.node(i, j + 1, k), self.node(i, j, k + 1), self.node(i + 1, j, k + 1), self.node(i + 1, j + 1, k + 1), self.node(i, j + 1, k + 1)]
+        [
+            self.node(i, j, k),
+            self.node(i + 1, j, k),
+            self.node(i + 1, j + 1, k),
+            self.node(i, j + 1, k),
+            self.node(i, j, k + 1),
+            self.node(i + 1, j, k + 1),
+            self.node(i + 1, j + 1, k + 1),
+            self.node(i, j + 1, k + 1),
+        ]
     }
     /// The cells around grid node `v` (inside the grid), with their offset bits (x, y, z).
     fn around(&self, v: usize) -> Vec<(usize, usize)> {
@@ -705,11 +720,8 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
 
     if o.project && !stair {
         if has_distance {
-            let moved: Vec<(usize, P3)> = (0..n_grid_nodes)
-                .into_par_iter()
-                .filter(|k| on_surface(*k) && !fixed_box(flags[*k]))
-                .map(|k| (k, project(k, points[k])))
-                .collect();
+            let moved: Vec<(usize, P3)> =
+                (0..n_grid_nodes).into_par_iter().filter(|k| on_surface(*k) && !fixed_box(flags[*k])).map(|k| (k, project(k, points[k]))).collect();
             for (k, p) in moved {
                 points[k] = p;
             }
@@ -725,49 +737,70 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
     let mut pinned = vec![false; points.len()];
     if has_distance && o.project && !stair && o.curves {
         let body = |k: usize| -> Option<u32> { (sig[k].len() == 2).then(|| sig[k].iter().copied().find(|m| *m != 0)).flatten() };
-        let fid: Vec<u32> = (0..n_grid_nodes).into_par_iter().map(|k| if on_surface(k) && flags[k] == 0 { body(k).map(|m| src.face(m, points[k])).unwrap_or(0) } else { 0 }).collect();
+        let fid: Vec<u32> = (0..n_grid_nodes)
+            .into_par_iter()
+            .map(|k| if on_surface(k) && flags[k] == 0 { body(k).map(|m| src.face(m, points[k])).unwrap_or(0) } else { 0 })
+            .collect();
         let mut cands: Vec<(f64, usize, P3)> = (0..n_grid_nodes)
             .into_par_iter()
             .filter(|k| fid[*k] > 0)
             .flat_map_iter(|k| {
                 let m = body(k).unwrap();
                 let (fid, sig, nbr, points) = (&fid, &sig, &nbr, &points);
-                nbr[k].iter().copied().filter(move |w| (*w as usize) > k && (*w as usize) < n_grid_nodes && fid[*w as usize] > 0 && fid[*w as usize] != fid[k] && sig[*w as usize] == sig[k]).map(move |w| {
-                    let (a, b) = (points[k], points[w as usize]);
-                    let at = |t: f64| -> P3 { newton(&sig[k], 0, std::array::from_fn(|i| a[i] + t * (b[i] - a[i]))) };
-                    let (mut lo, mut hi) = (0.0, 1.0);
-                    for _ in 0..30 {
-                        let t = 0.5 * (lo + hi);
-                        if src.face(m, at(t)) == fid[k] {
-                            lo = t;
-                        } else {
-                            hi = t;
+                nbr[k]
+                    .iter()
+                    .copied()
+                    .filter(move |w| {
+                        (*w as usize) > k && (*w as usize) < n_grid_nodes && fid[*w as usize] > 0 && fid[*w as usize] != fid[k] && sig[*w as usize] == sig[k]
+                    })
+                    .map(move |w| {
+                        let (a, b) = (points[k], points[w as usize]);
+                        let at = |t: f64| -> P3 { newton(&sig[k], 0, std::array::from_fn(|i| a[i] + t * (b[i] - a[i]))) };
+                        let (mut lo, mut hi) = (0.0, 1.0);
+                        for _ in 0..30 {
+                            let t = 0.5 * (lo + hi);
+                            if src.face(m, at(t)) == fid[k] {
+                                lo = t;
+                            } else {
+                                hi = t;
+                            }
                         }
-                    }
-                    let e = at(0.5 * (lo + hi));
-                    let dk = (0..3).map(|i| (e[i] - a[i]).powi(2)).sum::<f64>().sqrt();
-                    let dw = (0..3).map(|i| (e[i] - b[i]).powi(2)).sum::<f64>().sqrt();
-                    // Only convex edges: stepping inward across one face and outward across the
-                    // other leaves the material.
-                    let grad = |p: P3| -> P3 {
-                        let h = 1e-4 * hmin;
-                        let gr: P3 = std::array::from_fn(|i| {
-                            let (mut x, mut y) = (p, p);
-                            x[i] += h;
-                            y[i] -= h;
-                            (src.distance(m, x).unwrap_or(0.0) - src.distance(m, y).unwrap_or(0.0)) / (2.0 * h)
-                        });
-                        let l = (gr[0] * gr[0] + gr[1] * gr[1] + gr[2] * gr[2]).sqrt().max(1e-12);
-                        gr.map(|x| x / l)
-                    };
-                    let (na, nb) = (grad(a), grad(b));
-                    let eps = 0.2 * hmin;
-                    let q1: P3 = std::array::from_fn(|i| e[i] - eps * na[i] + eps * nb[i]);
-                    let q2: P3 = std::array::from_fn(|i| e[i] + eps * na[i] - eps * nb[i]);
-                    let convex = src.material(q1) != m || src.material(q2) != m;
-                    let d = if convex { if dk <= dw { dk } else { dw } } else { f64::INFINITY };
-                    if dk <= dw { (d, k, e) } else { (d, w as usize, e) }
-                })
+                        let e = at(0.5 * (lo + hi));
+                        let dk = (0..3).map(|i| (e[i] - a[i]).powi(2)).sum::<f64>().sqrt();
+                        let dw = (0..3).map(|i| (e[i] - b[i]).powi(2)).sum::<f64>().sqrt();
+                        // Only convex edges: stepping inward across one face and outward across the
+                        // other leaves the material.
+                        let grad = |p: P3| -> P3 {
+                            let h = 1e-4 * hmin;
+                            let gr: P3 = std::array::from_fn(|i| {
+                                let (mut x, mut y) = (p, p);
+                                x[i] += h;
+                                y[i] -= h;
+                                (src.distance(m, x).unwrap_or(0.0) - src.distance(m, y).unwrap_or(0.0)) / (2.0 * h)
+                            });
+                            let l = (gr[0] * gr[0] + gr[1] * gr[1] + gr[2] * gr[2]).sqrt().max(1e-12);
+                            gr.map(|x| x / l)
+                        };
+                        let (na, nb) = (grad(a), grad(b));
+                        let eps = 0.2 * hmin;
+                        let q1: P3 = std::array::from_fn(|i| e[i] - eps * na[i] + eps * nb[i]);
+                        let q2: P3 = std::array::from_fn(|i| e[i] + eps * na[i] - eps * nb[i]);
+                        let convex = src.material(q1) != m || src.material(q2) != m;
+                        let d = if convex {
+                            if dk <= dw {
+                                dk
+                            } else {
+                                dw
+                            }
+                        } else {
+                            f64::INFINITY
+                        };
+                        if dk <= dw {
+                            (d, k, e)
+                        } else {
+                            (d, w as usize, e)
+                        }
+                    })
             })
             .collect();
         cands.sort_by(|x, y| x.0.total_cmp(&y.0));
@@ -776,7 +809,8 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
             if pinned[v] || d > dmax * hmax {
                 continue;
             }
-            let close = nbr[v].iter().any(|u| pinned[*u as usize] && (0..3).map(|i| (points[*u as usize][i] - e[i]).powi(2)).sum::<f64>() < (gap * hmin).powi(2));
+            let close =
+                nbr[v].iter().any(|u| pinned[*u as usize] && (0..3).map(|i| (points[*u as usize][i] - e[i]).powi(2)).sum::<f64>() < (gap * hmin).powi(2));
             if close {
                 continue;
             }
@@ -794,7 +828,8 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
                 // Faces met within two edges along the surface (nearest first).
                 let mut by_face: Vec<(u32, usize)> = vec![(fid[k], k)];
                 let ring1: Vec<usize> = nbr[k].iter().map(|w| *w as usize).filter(|w| *w < n_grid_nodes && fid[*w] > 0 && sig[*w] == sig[k]).collect();
-                let ring2: Vec<usize> = ring1.iter().flat_map(|w| nbr[*w].iter().map(|u| *u as usize)).filter(|w| *w < n_grid_nodes && fid[*w] > 0 && sig[*w] == sig[k]).collect();
+                let ring2: Vec<usize> =
+                    ring1.iter().flat_map(|w| nbr[*w].iter().map(|u| *u as usize)).filter(|w| *w < n_grid_nodes && fid[*w] > 0 && sig[*w] == sig[k]).collect();
                 for w in ring1.into_iter().chain(ring2) {
                     if !by_face.iter().any(|x| x.0 == fid[w]) {
                         by_face.push((fid[w], w));
@@ -840,9 +875,21 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
     // when they have none).
     let interior = |j: u32| (j as usize) < n_grid_nodes && !on_surface(j as usize);
     // Grid positions (before any move) of every node, for the cell centres.
-    let grid_at: Vec<P3> = (0..points.len()).map(|k| if k < n_grid_nodes { let q = g.node_ijk(grid_node[k]); std::array::from_fn(|a| o.lo[a] + q[a] as f64 * h[a]) } else { [f64::NAN; 3] }).collect();
+    let grid_at: Vec<P3> = (0..points.len())
+        .map(|k| {
+            if k < n_grid_nodes {
+                let q = g.node_ijk(grid_node[k]);
+                std::array::from_fn(|a| o.lo[a] + q[a] as f64 * h[a])
+            } else {
+                [f64::NAN; 3]
+            }
+        })
+        .collect();
     let pillow_twin: HashMap<u32, u32> = inward.iter().map(|x| (x.0, x.1)).collect();
-    let grid_ref = |k: u32, a: usize| -> f64 { let k = pillow_twin.get(&k).copied().unwrap_or(k); grid_at[k as usize][a] };
+    let grid_ref = |k: u32, a: usize| -> f64 {
+        let k = pillow_twin.get(&k).copied().unwrap_or(k);
+        grid_at[k as usize][a]
+    };
     let inner: Vec<(u32, P3)> = inward
         .iter()
         .map(|(v, outer, nrm, m)| {
@@ -872,7 +919,8 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
                 return (*v, std::array::from_fn(|a| base[a] - nv[a] / l * 0.25 * hmin));
             }
             // Towards the centres of the material's grid cells around the node.
-            let cells: Vec<&[u32; 8]> = elems_of[*v as usize].iter().filter(|e| egrid[**e as usize] != usize::MAX && emat[**e as usize] == *m).map(|e| &conn[*e as usize]).collect();
+            let cells: Vec<&[u32; 8]> =
+                elems_of[*v as usize].iter().filter(|e| egrid[**e as usize] != usize::MAX && emat[**e as usize] == *m).map(|e| &conn[*e as usize]).collect();
             if cells.is_empty() {
                 return (*v, base);
             }
@@ -895,7 +943,9 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
         es.dedup();
         es
     };
-    let worst_with = |pts: &[P3], subs: &[(usize, P3)]| -> f64 { around(subs).iter().map(|e| corner_sj(&conn[*e as usize].map(|k| subst(pts, subs, k)))).fold(f64::INFINITY, f64::min) };
+    let worst_with = |pts: &[P3], subs: &[(usize, P3)]| -> f64 {
+        around(subs).iter().map(|e| corner_sj(&conn[*e as usize].map(|k| subst(pts, subs, k)))).fold(f64::INFINITY, f64::min)
+    };
     let energy_with = |pts: &[P3], subs: &[(usize, P3)]| -> f64 {
         around(subs).iter().map(|e| corner_sjs(&conn[*e as usize].map(|k| subst(pts, subs, k))).iter().map(|q| (0.2 - q).max(0.0).powi(2)).sum::<f64>()).sum()
     };
@@ -958,10 +1008,17 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
             twins.entry(*outer).or_default().push(*inner);
         }
         let snb: Vec<Vec<u32>> = (0..n_grid_nodes)
-            .map(|k| if on_surface(k) { nbr[k].iter().copied().filter(|j| (*j as usize) < n_grid_nodes && sig[*j as usize] == sig[k]).collect() } else { Vec::new() })
+            .map(|k| {
+                if on_surface(k) {
+                    nbr[k].iter().copied().filter(|j| (*j as usize) < n_grid_nodes && sig[*j as usize] == sig[k]).collect()
+                } else {
+                    Vec::new()
+                }
+            })
             .collect();
         let heads: Vec<usize> = (0..n_grid_nodes).filter(|k| on_surface(*k) && snb[*k].len() >= 2 && !fixed_box(flags[*k])).collect();
-        let groups: Vec<Vec<u32>> = heads.iter().map(|k| std::iter::once(*k as u32).chain(twins.get(&(*k as u32)).into_iter().flatten().copied()).collect()).collect();
+        let groups: Vec<Vec<u32>> =
+            heads.iter().map(|k| std::iter::once(*k as u32).chain(twins.get(&(*k as u32)).into_iter().flatten().copied()).collect()).collect();
         let gclasses = colour(&groups);
         for it in 0..30 {
             let lam = if it % 2 == 0 { 0.5 } else { -0.53 };
@@ -1020,7 +1077,10 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
         tick("laplacian");
         // A node put on a sharp edge whose elements stay poor goes back to the plain surface.
         let rel = 0.25;
-        (0..nn).into_par_iter().filter(|v| pinned[*v].load(Relaxed) && worst_with(&points, &[(*v, points[*v])]) < rel).for_each(|v| pinned[v].store(false, Relaxed));
+        (0..nn)
+            .into_par_iter()
+            .filter(|v| pinned[*v].load(Relaxed) && worst_with(&points, &[(*v, points[*v])]) < rel)
+            .for_each(|v| pinned[v].store(false, Relaxed));
         // Optimisation in two tiers: nodes of elements below the target try small moves along
         // the axes; nodes of elements below 0.3 then search 26 directions with shrinking
         // steps. Moves keep the worst element around a node rising; surface nodes stay on
@@ -1028,7 +1088,11 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
         let dirs = directions();
         let tiers: [(f64, usize, usize); 2] = [(o.sj_target, 3, 6), (0.3_f64.min(o.sj_target), 9, 26)];
         for (target, rounds, nd) in tiers {
-            let dset: Vec<P3> = if nd == 6 { vec![[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]] } else { dirs.clone() };
+            let dset: Vec<P3> = if nd == 6 {
+                vec![[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]
+            } else {
+                dirs.clone()
+            };
             for round in 0..rounds {
                 let step = 0.2 * hmin / (1 << (round / 3)) as f64;
                 let mut poor = vec![false; nn];
@@ -1101,7 +1165,13 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
     tick("untangled");
     // Assemble, with blocks per material and the sets.
     let void_id = emat.iter().copied().max().unwrap_or(0) + 1;
-    let block_of = |m: u32| -> i32 { if m == 0 { void_id as i32 } else { m as i32 } };
+    let block_of = |m: u32| -> i32 {
+        if m == 0 {
+            void_id as i32
+        } else {
+            m as i32
+        }
+    };
     let mut mesh = HexMesh { npe: 8, points, ..Default::default() };
     for (e, c) in conn.iter().enumerate() {
         mesh.cells.extend(c);
@@ -1134,7 +1204,12 @@ pub fn overlay(src: &dyn MaterialSource, o: &OverlayOptions) -> Result<Overlay, 
             } else {
                 let c: P3 = std::array::from_fn(|a| k.iter().map(|v| mesh.points[*v as usize][a]).sum::<f64>() / 4.0);
                 let fid = src.face(emat[e as usize], c) as usize;
-                let name = o.face_names.get(fid).filter(|n| fid > 0 && !n.is_empty()).cloned().unwrap_or_else(|| format!("surface {}", mesh.block_names[&block_of(emat[e as usize])]));
+                let name = o
+                    .face_names
+                    .get(fid)
+                    .filter(|n| fid > 0 && !n.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| format!("surface {}", mesh.block_names[&block_of(emat[e as usize])]));
                 sets.entry(name).or_default().push((e, s));
             }
         } else if f.len() == 2 {
@@ -1196,8 +1271,15 @@ fn solve3(pl: &[(P3, f64)]) -> Option<P3> {
     }
     let d = [pl[0].1, pl[1].1, pl[2].1];
     let col = |k: usize| -> f64 {
-        let m = |r: usize, cidx: usize| -> f64 { if cidx == k { d[r] } else { [a, b, c][r][cidx] } };
-        m(0, 0) * (m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1)) - m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0)) + m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0))
+        let m = |r: usize, cidx: usize| -> f64 {
+            if cidx == k {
+                d[r]
+            } else {
+                [a, b, c][r][cidx]
+            }
+        };
+        m(0, 0) * (m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1)) - m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0))
+            + m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0))
     };
     Some([col(0) / det, col(1) / det, col(2) / det])
 }

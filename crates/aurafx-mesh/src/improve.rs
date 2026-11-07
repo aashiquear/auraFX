@@ -2,7 +2,7 @@
 //! Laplacian, condition-number optimisation) with their boundary held, and boundary layers
 //! inserted under chosen faces of a hexahedral mesh.
 
-use crate::hex::{HexMesh, P3, HEX8_SIDES, HEX_EDGES};
+use crate::hex::{HexMesh, HEX8_SIDES, HEX_EDGES, P3};
 use crate::overlay::corner_sj;
 use crate::quality::{tet_metric, TetMetric};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -123,7 +123,10 @@ pub fn smooth(points: &mut [P3], m: &Cells3, scheme: &str, iterations: usize, fi
                 }
                 SMOOTH_CONDITION => {
                     // Pattern search around the node, steps a fraction of its edge lengths.
-                    let h = nbr[v].iter().map(|j| dot(sub(points[*j as usize], points[v]), sub(points[*j as usize], points[v])).sqrt()).fold(f64::INFINITY, f64::min);
+                    let h = nbr[v]
+                        .iter()
+                        .map(|j| dot(sub(points[*j as usize], points[v]), sub(points[*j as usize], points[v])).sqrt())
+                        .fold(f64::INFINITY, f64::min);
                     let mut step = 0.2 * h / (1 << (it.min(8) / 2)) as f64;
                     let mut best = local_c(points, v);
                     for _ in 0..4 {

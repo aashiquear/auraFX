@@ -101,7 +101,11 @@ pub fn quick_surface_mesh(ds: &DataSet, ids_name: &str) -> Result<DataSet> {
                 }
             }
             let t = seen.len().clamp(2, 4) as i8;
-            if outside { t + 10 } else { t }
+            if outside {
+                t + 10
+            } else {
+                t
+            }
         })
         .collect();
     let mut polys = Cells::new();
@@ -126,10 +130,13 @@ pub fn quick_surface_mesh(ds: &DataSet, ids_name: &str) -> Result<DataSet> {
                 phase[*f as usize] = o.phase[c];
             }
         }
-        let vals: Vec<f64> = q.iter().flat_map(|q| match q {
-            Some(q) => cx_xyzw(*q),
-            None => [0.0, 0.0, 0.0, 1.0],
-        }).collect();
+        let vals: Vec<f64> = q
+            .iter()
+            .flat_map(|q| match q {
+                Some(q) => cx_xyzw(*q),
+                None => [0.0, 0.0, 0.0, 1.0],
+            })
+            .collect();
         pd.field_data.insert(Array::new("AvgQuats", 4, ArrayData::F64(vals)));
         pd.field_data.insert(Array::new("FeaturePhases", 1, ArrayData::I32(phase)));
     }
@@ -178,7 +185,9 @@ pub fn smooth(ds: &DataSet, p: &SmoothParams) -> Result<DataSet> {
         None => vec![2; np],
     };
     let mut pts: Vec<[f64; 3]> = (0..np).map(|i| pd.points.get(i)).collect();
-    let (lo, hi) = pts.iter().fold(([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]), |(l, h), q| (std::array::from_fn(|a| l[a].min(q[a])), std::array::from_fn(|a| h[a].max(q[a]))));
+    let (lo, hi) = pts
+        .iter()
+        .fold(([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]), |(l, h), q| (std::array::from_fn(|a| l[a].min(q[a])), std::array::from_fn(|a| h[a].max(q[a]))));
     let eps = 1e-9 * (0..3).map(|a| hi[a] - lo[a]).fold(0.0, f64::max).max(1e-300);
     // Axes along which a node lies on the volume's faces (fixed there).
     let on_face: Vec<[bool; 3]> = pts.iter().map(|q| std::array::from_fn(|a| (q[a] - lo[a]).abs() < eps || (q[a] - hi[a]).abs() < eps)).collect();
@@ -273,7 +282,11 @@ pub fn triangle_geometry(ds: &DataSet) -> Result<DataSet> {
             .map(|k| {
                 let (u, w) = (sub(p[(k + 1) % 3], p[k]), sub(p[(k + 2) % 3], p[k]));
                 let d = (dot(u, u) * dot(w, w)).sqrt();
-                if d > 0.0 { (dot(u, w) / d).clamp(-1.0, 1.0).acos().to_degrees() } else { 0.0 }
+                if d > 0.0 {
+                    (dot(u, w) / d).clamp(-1.0, 1.0).acos().to_degrees()
+                } else {
+                    0.0
+                }
             })
             .fold(f64::INFINITY, f64::min);
         minang.push(ang);
@@ -362,7 +375,10 @@ fn cx_xyzw(q: aurafx_crystal::Quat) -> [f64; 4] {
 /// Per feature: orientation and crystal class (from AvgQuats, FeaturePhases and
 /// CrystalStructures in the surface's field data).
 fn feature_crystals(pd: &PolyData) -> Result<Vec<Option<(aurafx_crystal::Quat, aurafx_crystal::Laue)>>> {
-    let q = pd.field_data.get("AvgQuats").ok_or_else(|| anyhow!("the surface has no feature orientations (make it with Quick Surface Mesh from a volume with orientations)"))?;
+    let q = pd
+        .field_data
+        .get("AvgQuats")
+        .ok_or_else(|| anyhow!("the surface has no feature orientations (make it with Quick Surface Mesh from a volume with orientations)"))?;
     let ph = pd.field_data.get("FeaturePhases");
     let cs = pd.field_data.get("CrystalStructures");
     Ok((0..q.len())

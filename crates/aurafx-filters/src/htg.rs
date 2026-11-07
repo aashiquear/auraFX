@@ -14,7 +14,14 @@ struct Node {
 /// vtkHyperTreeGridSource with a string descriptor: `dims` points per axis (1 = flat axis),
 /// levels separated by `|`, each listing its vertices as `R` (refined) or `.` (leaf) for all
 /// trees in order; `mask` (same layout) marks masked leaves with `0`.
-pub fn from_descriptor(dims: [usize; 3], branch_factor: usize, max_depth: usize, descriptor: &str, scale: [f64; 3], mask: Option<&str>) -> Result<HyperTreeGrid> {
+pub fn from_descriptor(
+    dims: [usize; 3],
+    branch_factor: usize,
+    max_depth: usize,
+    descriptor: &str,
+    scale: [f64; 3],
+    mask: Option<&str>,
+) -> Result<HyperTreeGrid> {
     if !(2..=3).contains(&branch_factor) {
         bail!("the branch factor must be 2 or 3");
     }
@@ -172,7 +179,8 @@ pub fn generate_fields(ds: &DataSet) -> Result<DataSet> {
     Ok(DataSet::HyperTreeGrid(h))
 }
 
-pub const COARSE_OPERATORS: [&str; 9] = ["Don't change fast", "Don't change", "Min", "Max", "Sum", "Average", "Unmasked Average", "Elder Child", "Splatting Average"];
+pub const COARSE_OPERATORS: [&str; 9] =
+    ["Don't change fast", "Don't change", "Min", "Max", "Sum", "Average", "Unmasked Average", "Elder Child", "Splatting Average"];
 
 /// HTG Evaluate Coarse: the values of refined cells computed from their children (bottom up),
 /// as VTK does (masked children count as 0).
@@ -1108,11 +1116,8 @@ pub fn geometry_with_sources(h: &HyperTreeGrid, fill_material: bool) -> Result<(
         for (f, &n) in FACE_NEIGHBOR.iter().enumerate() {
             let x = nb[n];
             let x_iface = x.is_some_and(|x| has_interface(arrays, x.global));
-            let emit = if !v.masked {
-                x.is_none_or(|x| x.masked) || iface.is_some() || x_iface
-            } else {
-                x.is_some_and(|x| x.leaf && x.level < v.depth && !x.masked)
-            };
+            let emit =
+                if !v.masked { x.is_none_or(|x| x.masked) || iface.is_some() || x_iface } else { x.is_some_and(|x| x.leaf && x.level < v.depth && !x.masked) };
             if !emit {
                 continue;
             }
@@ -1382,15 +1387,28 @@ impl Cell3 {
             let (a, b) = EDGE_PTS[fe];
             let (p, q) = (self.corners[a], self.corners[b]);
             self.edge(p, q, EDGE_AXIS[fe], fe, &mut cur);
-            let order: [(bool, usize, bool); 3] = if e < 2 { [(true, a, false), (false, fe, false), (false, fe, true)] } else { [(true, b, false), (false, fe, true), (false, fe, false)] };
+            let order: [(bool, usize, bool); 3] =
+                if e < 2 { [(true, a, false), (false, fe, false), (false, fe, true)] } else { [(true, b, false), (false, fe, true), (false, fe, false)] };
             for (is_corner, i, second) in order {
-                let pt = if is_corner { self.corners[i] } else if second { self.edges[i].1 } else { self.edges[i].0 };
+                let pt = if is_corner {
+                    self.corners[i]
+                } else if second {
+                    self.edges[i].1
+                } else {
+                    self.edges[i].0
+                };
                 if !pt.valid {
                     continue;
                 }
                 let mut id = None;
                 if self.inside(&pt) {
-                    let target = if is_corner { &mut self.corners[i] } else if second { &mut self.edges[i].1 } else { &mut self.edges[i].0 };
+                    let target = if is_corner {
+                        &mut self.corners[i]
+                    } else if second {
+                        &mut self.edges[i].1
+                    } else {
+                        &mut self.edges[i].0
+                    };
                     id = Some(*target.id.get_or_insert_with(|| {
                         pts.extend_from_slice(&target.x);
                         (pts.len() / 3 - 1) as u32
@@ -1473,7 +1491,20 @@ pub fn feature_edges(h: &HyperTreeGrid) -> Result<PolyData> {
     const N2: [usize; 4] = [1, 3, 5, 7];
     const E2: [[usize; 2]; 4] = [[0, 1], [0, 3], [1, 2], [2, 3]];
     const E3: [[usize; 2]; 12] = [[0, 1], [2, 3], [0, 2], [1, 3], [4, 5], [6, 7], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
-    const M3: [[usize; 3]; 12] = [[4, 1, 10], [4, 7, 16], [4, 3, 12], [4, 5, 14], [22, 19, 10], [22, 25, 16], [22, 21, 12], [22, 23, 14], [12, 9, 10], [14, 11, 10], [12, 15, 16], [14, 17, 16]];
+    const M3: [[usize; 3]; 12] = [
+        [4, 1, 10],
+        [4, 7, 16],
+        [4, 3, 12],
+        [4, 5, 14],
+        [22, 19, 10],
+        [22, 25, 16],
+        [22, 21, 12],
+        [22, 23, 14],
+        [12, 9, 10],
+        [14, 11, 10],
+        [12, 15, 16],
+        [14, 17, 16],
+    ];
     h.walk(|v| {
         if !v.leaf {
             return true;

@@ -30,10 +30,8 @@ fn stuffing_shapes() {
         let q = (p[0] * p[0] + p[1] * p[1]).sqrt() - 1.0;
         (q * q + p[2] * p[2]).sqrt() - 0.35
     };
-    let cases: Vec<(&str, Box<dyn Fn([f64; 3]) -> f64 + Sync>, f64, f64)> = vec![
-        ("sphere", Box::new(sphere), 4.0 / 3.0 * pi, 1.2),
-        ("torus", Box::new(torus), 2.0 * pi * pi * 0.35 * 0.35, 1.5),
-    ];
+    let cases: Vec<(&str, Box<dyn Fn([f64; 3]) -> f64 + Sync>, f64, f64)> =
+        vec![("sphere", Box::new(sphere), 4.0 / 3.0 * pi, 1.2), ("torus", Box::new(torus), 2.0 * pi * pi * 0.35 * 0.35, 1.5)];
     for (name, f, exact, r) in cases {
         for h in [0.2, 0.1] {
             let m = stuff(&*f, [-r - h; 3], [r + h; 3], h).unwrap();

@@ -17,28 +17,82 @@ pub type FaceId = u32;
 #[derive(Clone)]
 pub enum Shape {
     /// Centred box with half sizes; faces x-, x+, y-, y+, z-, z+.
-    Brick { half: V3, faces: [FaceId; 6] },
-    Sphere { r: f64, face: FaceId },
+    Brick {
+        half: V3,
+        faces: [FaceId; 6],
+    },
+    Sphere {
+        r: f64,
+        face: FaceId,
+    },
     /// Along z, centred; faces side, bottom, top.
-    Cylinder { r: f64, h: f64, faces: [FaceId; 3] },
+    Cylinder {
+        r: f64,
+        h: f64,
+        faces: [FaceId; 3],
+    },
     /// Along z, centred, radius `r1` at the bottom and `r2` at the top; faces side, bottom, top.
-    Cone { r1: f64, r2: f64, h: f64, faces: [FaceId; 3] },
+    Cone {
+        r1: f64,
+        r2: f64,
+        h: f64,
+        faces: [FaceId; 3],
+    },
     /// In the xy plane about z.
-    Torus { major: f64, minor: f64, face: FaceId },
+    Torus {
+        major: f64,
+        minor: f64,
+        face: FaceId,
+    },
     /// |x/a|^(2/e2) + |y/b|^(2/e2))^(e2/e1) + |z/c|^(2/e1) <= 1.
-    Superquadric { abc: V3, e1: f64, e2: f64, face: FaceId },
+    Superquadric {
+        abc: V3,
+        e1: f64,
+        e2: f64,
+        face: FaceId,
+    },
     /// r(theta, phi) = r (1 + sum c Y_lm) with real orthonormal spherical harmonics.
-    Harmonic { r: f64, coef: Vec<(i32, i32, f64)>, face: FaceId },
+    Harmonic {
+        r: f64,
+        coef: Vec<(i32, i32, f64)>,
+        face: FaceId,
+    },
     /// The outline (xy) extruded from z = 0 to `h`; one face per outline curve, bottom, top.
-    Extrude { outline: Arc<Outline>, h: f64, curve_faces: Vec<FaceId>, bottom: FaceId, top: FaceId },
+    Extrude {
+        outline: Arc<Outline>,
+        h: f64,
+        curve_faces: Vec<FaceId>,
+        bottom: FaceId,
+        top: FaceId,
+    },
     /// The outline (x = radius, y = height) turned about z by `angle` (radians) from the x axis.
-    Revolve { outline: Arc<Outline>, angle: f64, curve_faces: Vec<FaceId>, start: FaceId, end: FaceId },
+    Revolve {
+        outline: Arc<Outline>,
+        angle: f64,
+        curve_faces: Vec<FaceId>,
+        start: FaceId,
+        end: FaceId,
+    },
     /// The outline carried along a path (its plane normal to the path).
-    Sweep { outline: Arc<Outline>, path: Arc<Path>, curve_faces: Vec<FaceId>, start: FaceId, end: FaceId },
+    Sweep {
+        outline: Arc<Outline>,
+        path: Arc<Path>,
+        curve_faces: Vec<FaceId>,
+        start: FaceId,
+        end: FaceId,
+    },
     /// A closed triangle surface.
-    Surface { mesh: Arc<TriMesh>, face: FaceId },
+    Surface {
+        mesh: Arc<TriMesh>,
+        face: FaceId,
+    },
     /// `inner` placed by: p_local = rot^T (p - offset) / scale.
-    Transform { inner: Box<Shape>, rot: [[f64; 3]; 3], offset: V3, scale: V3 },
+    Transform {
+        inner: Box<Shape>,
+        rot: [[f64; 3]; 3],
+        offset: V3,
+        scale: V3,
+    },
     Union(Vec<Shape>),
     Intersect(Vec<Shape>),
     Subtract(Box<Shape>, Box<Shape>),
@@ -167,13 +221,28 @@ impl Shape {
                 let q: V3 = std::array::from_fn(|k| p[k].abs() - half[k]);
                 let out = (q[0].max(0.0).powi(2) + q[1].max(0.0).powi(2) + q[2].max(0.0).powi(2)).sqrt();
                 let m = q[0].max(q[1]).max(q[2]);
-                let axis = if q[0] >= q[1] && q[0] >= q[2] { 0 } else if q[1] >= q[2] { 1 } else { 2 };
+                let axis = if q[0] >= q[1] && q[0] >= q[2] {
+                    0
+                } else if q[1] >= q[2] {
+                    1
+                } else {
+                    2
+                };
                 (out + m.min(0.0), faces[2 * axis + (p[axis] >= 0.0) as usize])
             }
             Shape::Sphere { r, face } => (dot(p, p).sqrt() - r, *face),
             Shape::Cylinder { r, h, faces } => {
                 let (dx, dz) = (len2(p[0], p[1]) - r, p[2].abs() - h / 2.0);
-                (box2(dx, dz), if dx >= dz { faces[0] } else if p[2] < 0.0 { faces[1] } else { faces[2] })
+                (
+                    box2(dx, dz),
+                    if dx >= dz {
+                        faces[0]
+                    } else if p[2] < 0.0 {
+                        faces[1]
+                    } else {
+                        faces[2]
+                    },
+                )
             }
             Shape::Cone { r1, r2, h, faces } => {
                 let hh = h / 2.0;
@@ -185,7 +254,13 @@ impl Shape {
                 let cb = [q[0] - k1[0] + k2[0] * t, q[1] - k1[1] + k2[1] * t];
                 let s = if cb[0] < 0.0 && ca[1] < 0.0 { -1.0 } else { 1.0 };
                 let (da, db) = (ca[0] * ca[0] + ca[1] * ca[1], cb[0] * cb[0] + cb[1] * cb[1]);
-                let face = if db <= da { faces[0] } else if p[2] < 0.0 { faces[1] } else { faces[2] };
+                let face = if db <= da {
+                    faces[0]
+                } else if p[2] < 0.0 {
+                    faces[1]
+                } else {
+                    faces[2]
+                };
                 (s * da.min(db).sqrt(), face)
             }
             Shape::Torus { major, minor, face } => (len2(len2(p[0], p[1]) - major, p[2]) - minor, *face),
@@ -209,7 +284,16 @@ impl Shape {
             Shape::Extrude { outline, h, curve_faces, bottom, top } => {
                 let (d2, c) = outline.distance([p[0], p[1]]);
                 let dz = (p[2] - h / 2.0).abs() - h / 2.0;
-                (box2(d2, dz), if d2 >= dz { curve_faces[c] } else if p[2] < h / 2.0 { *bottom } else { *top })
+                (
+                    box2(d2, dz),
+                    if d2 >= dz {
+                        curve_faces[c]
+                    } else if p[2] < h / 2.0 {
+                        *bottom
+                    } else {
+                        *top
+                    },
+                )
             }
             Shape::Revolve { outline, angle, curve_faces, start, end } => {
                 let r = len2(p[0], p[1]);
@@ -358,8 +442,12 @@ impl Shape {
                 }
                 (a, b)
             }
-            Shape::Union(v) => v.iter().map(|s| s.bounds()).fold(([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]), |(a, b), (c, d)| (std::array::from_fn(|k| a[k].min(c[k])), std::array::from_fn(|k| b[k].max(d[k])))),
-            Shape::Intersect(v) => v.iter().map(|s| s.bounds()).fold(([f64::NEG_INFINITY; 3], [f64::INFINITY; 3]), |(a, b), (c, d)| (std::array::from_fn(|k| a[k].max(c[k])), std::array::from_fn(|k| b[k].min(d[k])))),
+            Shape::Union(v) => v.iter().map(|s| s.bounds()).fold(([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]), |(a, b), (c, d)| {
+                (std::array::from_fn(|k| a[k].min(c[k])), std::array::from_fn(|k| b[k].max(d[k])))
+            }),
+            Shape::Intersect(v) => v.iter().map(|s| s.bounds()).fold(([f64::NEG_INFINITY; 3], [f64::INFINITY; 3]), |(a, b), (c, d)| {
+                (std::array::from_fn(|k| a[k].max(c[k])), std::array::from_fn(|k| b[k].min(d[k])))
+            }),
             Shape::Subtract(a, _) => a.bounds(),
         }
     }

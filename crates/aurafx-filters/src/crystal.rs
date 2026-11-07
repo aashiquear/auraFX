@@ -6,10 +6,10 @@
 //! crystal class of each point comes from a phase array indexing the `CrystalStructures` field
 //! array (EBSD readers write both), or from a class chosen for the whole dataset.
 
+use crate::Association;
 use anyhow::{anyhow, bail, Result};
 use aurafx_crystal::{self as cx, Laue, Quat};
 use aurafx_data::*;
-use crate::Association;
 
 /// Representations a 3/4/9-component (or any) array can hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,7 +221,16 @@ pub fn orientation_colors(
 
 /// Convert Orientations: the orientations of `input` (holding `from`) as `to`, optionally each
 /// replaced by its symmetry-equivalent with the smallest rotation (its fundamental zone).
-pub fn convert_orientations(ds: &DataSet, input: Option<(Association, String)>, from: Repr, to: Repr, name: &str, reduce: bool, structure: &str, phases: Option<&str>) -> Result<DataSet> {
+pub fn convert_orientations(
+    ds: &DataSet,
+    input: Option<(Association, String)>,
+    from: Repr,
+    to: Repr,
+    name: &str,
+    reduce: bool,
+    structure: &str,
+    phases: Option<&str>,
+) -> Result<DataSet> {
     let (assoc, a) = orientation_array(ds, input)?;
     if a.ncomp != from.ncomp() {
         bail!("{} has {} components; {:?} needs {}", a.name, a.ncomp, from, from.ncomp());

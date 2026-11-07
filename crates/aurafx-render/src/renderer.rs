@@ -418,11 +418,7 @@ fn vertex_layout(step: wgpu::VertexStepMode) -> wgpu::VertexBufferLayout<'static
 /// A line segment's two vertices per instance (wide lines: `vs_wide_line`).
 fn segment_layout() -> wgpu::VertexBufferLayout<'static> {
     let v = std::mem::size_of::<Vertex>() as u64;
-    wgpu::VertexBufferLayout {
-        array_stride: 2 * v,
-        step_mode: wgpu::VertexStepMode::Instance,
-        attributes: &SEGMENT_ATTRIBUTES,
-    }
+    wgpu::VertexBufferLayout { array_stride: 2 * v, step_mode: wgpu::VertexStepMode::Instance, attributes: &SEGMENT_ATTRIBUTES }
 }
 
 const SEGMENT_ATTRIBUTES: [wgpu::VertexAttribute; 6] = {

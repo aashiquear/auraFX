@@ -606,7 +606,14 @@ fn unit_sphere(rings: usize) -> Vec<[f32; 3]> {
 /// Molecule representation: a sphere per atom (point with an atomic number) and a cylinder
 /// per bond (two-point line), each half of a bond in its atom's color, as ParaView draws
 /// molecules. Detail drops for large molecules.
-fn emit_molecule(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, display: &DisplayProps, cell_ids: &(dyn Fn(usize) -> u32 + Sync), out: &mut Vec<Vertex>) {
+fn emit_molecule(
+    pd: &PolyData,
+    origin: [f64; 3],
+    pscal: Option<&[f32]>,
+    display: &DisplayProps,
+    cell_ids: &(dyn Fn(usize) -> u32 + Sync),
+    out: &mut Vec<Vertex>,
+) {
     use aurafx_pipeline::MoleculeStyle;
     let n = pd.points.len();
     let z = aurafx_filters::molecule::atomic_numbers(&pd.point_data, None);

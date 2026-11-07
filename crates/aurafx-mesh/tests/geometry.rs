@@ -23,7 +23,17 @@ fn close(what: &str, got: f64, want: f64, rel: f64) {
 
 fn gamma(x: f64) -> f64 {
     // Lanczos approximation (g = 7).
-    const C: [f64; 9] = [0.999_999_999_999_809_9, 676.5203681218851, -1259.1392167224028, 771.323_428_777_653_1, -176.615_029_162_140_6, 12.507343278686905, -0.13857109526572012, 9.984_369_578_019_572e-6, 1.5056327351493116e-7];
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.5203681218851,
+        -1259.1392167224028,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507343278686905,
+        -0.13857109526572012,
+        9.984_369_578_019_572e-6,
+        1.5056327351493116e-7,
+    ];
     if x < 0.5 {
         return PI / ((PI * x).sin() * gamma(1.0 - x));
     }
@@ -158,15 +168,30 @@ fn hex_quality_matches_reference() {
     use aurafx_mesh::quality::{hex_metric, HexMetric};
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/mesh/hex_quality_reference.json");
     let r: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
-    let hexes: Vec<[[f64; 3]; 8]> = r["hexes"].as_array().unwrap().iter().map(|h| std::array::from_fn(|i| std::array::from_fn(|k| h[i][k].as_f64().unwrap() as f32 as f64))).collect();
+    let hexes: Vec<[[f64; 3]; 8]> =
+        r["hexes"].as_array().unwrap().iter().map(|h| std::array::from_fn(|i| std::array::from_fn(|k| h[i][k].as_f64().unwrap() as f32 as f64))).collect();
     let vols: Vec<f64> = hexes.iter().map(|h| hex_metric(HexMetric::Volume, h, 0.0)).collect();
     let avg = vols.iter().sum::<f64>() / vols.len() as f64;
     let names = [
-        ("Diagonal", HexMetric::Diagonal), ("Dimension", HexMetric::Dimension), ("Distortion", HexMetric::Distortion), ("Edge Ratio", HexMetric::EdgeRatio),
-        ("Jacobian", HexMetric::Jacobian), ("Maximum Aspect Frobenius", HexMetric::MaxAspectFrobenius), ("Maximum Edge Ratio", HexMetric::MaxEdgeRatio),
-        ("Mean Aspect Frobenius", HexMetric::MeanAspectFrobenius), ("Oddy", HexMetric::Oddy), ("Relative Size Squared", HexMetric::RelativeSizeSquared),
-        ("Scaled Jacobian", HexMetric::ScaledJacobian), ("Shape", HexMetric::Shape), ("Shape and Size", HexMetric::ShapeAndSize), ("Shear", HexMetric::Shear),
-        ("Shear and Size", HexMetric::ShearAndSize), ("Skew", HexMetric::Skew), ("Stretch", HexMetric::Stretch), ("Taper", HexMetric::Taper), ("Volume", HexMetric::Volume),
+        ("Diagonal", HexMetric::Diagonal),
+        ("Dimension", HexMetric::Dimension),
+        ("Distortion", HexMetric::Distortion),
+        ("Edge Ratio", HexMetric::EdgeRatio),
+        ("Jacobian", HexMetric::Jacobian),
+        ("Maximum Aspect Frobenius", HexMetric::MaxAspectFrobenius),
+        ("Maximum Edge Ratio", HexMetric::MaxEdgeRatio),
+        ("Mean Aspect Frobenius", HexMetric::MeanAspectFrobenius),
+        ("Oddy", HexMetric::Oddy),
+        ("Relative Size Squared", HexMetric::RelativeSizeSquared),
+        ("Scaled Jacobian", HexMetric::ScaledJacobian),
+        ("Shape", HexMetric::Shape),
+        ("Shape and Size", HexMetric::ShapeAndSize),
+        ("Shear", HexMetric::Shear),
+        ("Shear and Size", HexMetric::ShearAndSize),
+        ("Skew", HexMetric::Skew),
+        ("Stretch", HexMetric::Stretch),
+        ("Taper", HexMetric::Taper),
+        ("Volume", HexMetric::Volume),
     ];
     let mut bad = Vec::new();
     for (name, m) in names {
@@ -190,17 +215,31 @@ fn tet_quality_matches_reference() {
     use aurafx_mesh::quality::{tet_metric, TetMetric};
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/mesh/tet_quality_reference.json");
     let r: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
-    let tets: Vec<[[f64; 3]; 4]> = r["tets"].as_array().unwrap().iter().map(|h| std::array::from_fn(|i| std::array::from_fn(|k| h[i][k].as_f64().unwrap() as f32 as f64))).collect();
+    let tets: Vec<[[f64; 3]; 4]> =
+        r["tets"].as_array().unwrap().iter().map(|h| std::array::from_fn(|i| std::array::from_fn(|k| h[i][k].as_f64().unwrap() as f32 as f64))).collect();
     let vols: Vec<f64> = tets.iter().map(|t| tet_metric(TetMetric::Volume, t, 0.0)).collect();
     let avg = vols.iter().sum::<f64>() / vols.len() as f64;
     let names = [
-        ("Aspect Frobenius", TetMetric::AspectFrobenius), ("Aspect Gamma", TetMetric::AspectGamma), ("Aspect Ratio", TetMetric::AspectRatio),
-        ("Collapse Ratio", TetMetric::CollapseRatio), ("Condition", TetMetric::Condition), ("Distortion", TetMetric::Distortion),
-        ("Edge Ratio", TetMetric::EdgeRatio), ("Equiangle Skew", TetMetric::EquiangleSkew), ("Inradius", TetMetric::Inradius),
-        ("Jacobian", TetMetric::Jacobian), ("Mean Ratio", TetMetric::MeanRatio), ("Minimum Dihedral Angle", TetMetric::MinimumDihedralAngle),
-        ("Normalized Inradius", TetMetric::NormalizedInradius), ("Radius Ratio", TetMetric::RadiusRatio), ("Relative Size Squared", TetMetric::RelativeSizeSquared),
-        ("Scaled Jacobian", TetMetric::ScaledJacobian), ("Shape", TetMetric::Shape), ("Shape and Size", TetMetric::ShapeAndSize),
-        ("Squish Index", TetMetric::SquishIndex), ("Volume", TetMetric::Volume),
+        ("Aspect Frobenius", TetMetric::AspectFrobenius),
+        ("Aspect Gamma", TetMetric::AspectGamma),
+        ("Aspect Ratio", TetMetric::AspectRatio),
+        ("Collapse Ratio", TetMetric::CollapseRatio),
+        ("Condition", TetMetric::Condition),
+        ("Distortion", TetMetric::Distortion),
+        ("Edge Ratio", TetMetric::EdgeRatio),
+        ("Equiangle Skew", TetMetric::EquiangleSkew),
+        ("Inradius", TetMetric::Inradius),
+        ("Jacobian", TetMetric::Jacobian),
+        ("Mean Ratio", TetMetric::MeanRatio),
+        ("Minimum Dihedral Angle", TetMetric::MinimumDihedralAngle),
+        ("Normalized Inradius", TetMetric::NormalizedInradius),
+        ("Radius Ratio", TetMetric::RadiusRatio),
+        ("Relative Size Squared", TetMetric::RelativeSizeSquared),
+        ("Scaled Jacobian", TetMetric::ScaledJacobian),
+        ("Shape", TetMetric::Shape),
+        ("Shape and Size", TetMetric::ShapeAndSize),
+        ("Squish Index", TetMetric::SquishIndex),
+        ("Volume", TetMetric::Volume),
     ];
     let mut bad = Vec::new();
     for (name, m) in names {

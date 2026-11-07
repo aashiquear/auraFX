@@ -211,4 +211,3 @@ fn crystallography_matches_reference() {
     eprintln!("MDF error {b:.3} -> {a:.3}");
     assert!(a < 0.5 * b, "{b} {a}");
 }
-

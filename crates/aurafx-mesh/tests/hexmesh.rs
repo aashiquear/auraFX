@@ -33,11 +33,22 @@ fn setup() -> (Grid, Vec<Placed>) {
         let shape = match inc["kind"].as_str().unwrap() {
             "sphere" => StarShape::Sphere { centre: c, radius: p["radius"].as_f64().unwrap() },
             "ellipsoid" => StarShape::Ellipsoid { centre: c, semi_axes: v3(&p["semi_axes"]), rotation: rot(&p["rotation"]) },
-            "superquadric" => StarShape::Superquadric { centre: c, semi_axes: v3(&p["semi_axes"]), exponent_xy: p["exponent_xy"].as_f64().unwrap(), exponent_z: p["exponent_z"].as_f64().unwrap(), rotation: None },
+            "superquadric" => StarShape::Superquadric {
+                centre: c,
+                semi_axes: v3(&p["semi_axes"]),
+                exponent_xy: p["exponent_xy"].as_f64().unwrap(),
+                exponent_z: p["exponent_z"].as_f64().unwrap(),
+                rotation: None,
+            },
             _ => StarShape::Harmonic {
                 centre: c,
                 radius: p["radius"].as_f64().unwrap(),
-                coefficients: p["coefficients"].as_array().unwrap().iter().map(|t| (t[0].as_i64().unwrap() as i32, t[1].as_i64().unwrap() as i32, t[2].as_f64().unwrap())).collect(),
+                coefficients: p["coefficients"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|t| (t[0].as_i64().unwrap() as i32, t[1].as_i64().unwrap() as i32, t[2].as_f64().unwrap()))
+                    .collect(),
             },
         };
         let lo = v3(&inc["box_lo"]).map(|x| x as i64);
@@ -153,7 +164,10 @@ fn box_and_mapped_blocks() {
     let ys: Vec<f64> = (0..4).map(|j| m.points[j * 5][1]).collect();
     assert!(((ys[3] - ys[2]) / (ys[1] - ys[0]) - 2.0).abs() < 1e-9, "{ys:?}");
     // A skewed block keeps positive volumes; HEX20 and HEX27 nodes are shared.
-    let mut b = mapped_block([[0., 0., 0.], [2., 0., 0.], [2.5, 1., 0.], [0.3, 1.2, 0.], [0., 0., 1.], [2., 0.2, 1.1], [2.4, 1., 1.], [0., 1., 1.]], [&Division::uniform(3), &Division::uniform(3), &Division::uniform(3)]);
+    let mut b = mapped_block(
+        [[0., 0., 0.], [2., 0., 0.], [2.5, 1., 0.], [0.3, 1.2, 0.], [0., 0., 1.], [2., 0.2, 1.1], [2.4, 1., 1.], [0., 1., 1.]],
+        [&Division::uniform(3), &Division::uniform(3), &Division::uniform(3)],
+    );
     assert!(b.signed_volumes().iter().all(|v| *v > 0.0));
     b.elevate(27, &[], &|_, p| p);
     // Nodes: corners 4^3, edges 3*3*4*4... the structured counts of a 7^3 lattice.
@@ -284,7 +298,14 @@ fn specimens_match_benchmark_meshes() {
             centre: Some([hj["centre"][0].as_f64().unwrap(), hj["centre"][1].as_f64().unwrap()]),
             angle: hj["angle"].as_f64().unwrap(),
         };
-        let o = PlateOptions { width: j["width"].as_f64().unwrap(), height: j["height"].as_f64().unwrap(), thickness: j["thickness"].as_f64().unwrap(), h: j["h"].as_f64().unwrap(), hole: Some(hole), ..Default::default() };
+        let o = PlateOptions {
+            width: j["width"].as_f64().unwrap(),
+            height: j["height"].as_f64().unwrap(),
+            thickness: j["thickness"].as_f64().unwrap(),
+            h: j["h"].as_f64().unwrap(),
+            hole: Some(hole),
+            ..Default::default()
+        };
         let ours = plate(&o).unwrap();
         let theirs = HexMesh::from_dataset(&read(&bench(&format!("{name}.e")))).unwrap();
         same_as_file(&ours, &theirs);

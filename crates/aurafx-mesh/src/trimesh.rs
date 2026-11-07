@@ -177,7 +177,13 @@ impl TriMesh {
             }
             if count > 4 {
                 let ext = sub(hi, lo);
-                let axis = if ext[0] >= ext[1] && ext[0] >= ext[2] { 0 } else if ext[1] >= ext[2] { 1 } else { 2 };
+                let axis = if ext[0] >= ext[1] && ext[0] >= ext[2] {
+                    0
+                } else if ext[1] >= ext[2] {
+                    1
+                } else {
+                    2
+                };
                 let mid = count / 2;
                 self.order[start..start + count].select_nth_unstable_by(mid, |a, b| cent[*a][axis].total_cmp(&cent[*b][axis]));
                 self.nodes[id].count = 0;
@@ -226,11 +232,12 @@ impl TriMesh {
     }
 
     fn box_dist2(lo: V, hi: V, p: V) -> f64 {
-        (0..3).map(|k| {
-            let d = (lo[k] - p[k]).max(0.0).max(p[k] - hi[k]);
-            d * d
-        })
-        .sum()
+        (0..3)
+            .map(|k| {
+                let d = (lo[k] - p[k]).max(0.0).max(p[k] - hi[k]);
+                d * d
+            })
+            .sum()
     }
 
     /// Signed distance to the surface (negative inside).
@@ -283,11 +290,13 @@ impl TriMesh {
 
     /// Enclosed volume (divergence theorem; positive for outward-facing triangles).
     pub fn volume(&self) -> f64 {
-        self.tris.iter().map(|t| {
-            let [a, b, c] = t.map(|i| self.verts[i as usize]);
-            dot(a, cross(b, c)) / 6.0
-        })
-        .sum()
+        self.tris
+            .iter()
+            .map(|t| {
+                let [a, b, c] = t.map(|i| self.verts[i as usize]);
+                dot(a, cross(b, c)) / 6.0
+            })
+            .sum()
     }
 }
 

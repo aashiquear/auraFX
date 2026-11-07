@@ -4,7 +4,7 @@
 //! Tetrahedra use VTK's corner order (positive when (p1 - p0) x (p2 - p0) points towards
 //! p3) and Exodus' side numbers: 1 = (0, 1, 3), 2 = (1, 2, 3), 3 = (0, 3, 2), 4 = (0, 2, 1).
 
-use crate::hex::{HexMesh, P3, HEX8_SIDES};
+use crate::hex::{HexMesh, HEX8_SIDES, P3};
 use aurafx_data::*;
 use std::collections::{BTreeMap, HashMap};
 

@@ -122,7 +122,11 @@ impl Session {
             for s in &steps {
                 let name = s["Filter_Name"].as_str().unwrap()[OWN.len()..].to_string();
                 let inp = s.get("Input").and_then(|i| i.as_u64()).and_then(|i| made.get(i as usize).copied().flatten());
-                let extra: Vec<NodeId> = s.get("ExtraInputs").and_then(|e| e.as_array()).map(|a| a.iter().filter_map(|i| i.as_u64()).filter_map(|i| made.get(i as usize).copied().flatten()).collect()).unwrap_or_default();
+                let extra: Vec<NodeId> = s
+                    .get("ExtraInputs")
+                    .and_then(|e| e.as_array())
+                    .map(|a| a.iter().filter_map(|i| i.as_u64()).filter_map(|i| made.get(i as usize).copied().flatten()).collect())
+                    .unwrap_or_default();
                 let id = match name.as_str() {
                     "open_file" | "open_remote" => {
                         let f = s.get("InputFile").and_then(|f| f.as_str()).unwrap_or("");
@@ -130,7 +134,10 @@ impl Session {
                         if name == "open_file" && p.exists() {
                             Some(self.open_file(&p)?)
                         } else {
-                            out.skipped.push((format!("open {f}"), if input.is_some() { "not found: the pipeline starts from the selected data".into() } else { "not found".into() }));
+                            out.skipped.push((
+                                format!("open {f}"),
+                                if input.is_some() { "not found: the pipeline starts from the selected data".into() } else { "not found".into() },
+                            ));
                             input
                         }
                     }
@@ -181,7 +188,8 @@ impl Session {
                         out.nodes.push(id);
                         cur = Some(id);
                     } else {
-                        out.skipped.push((label, format!("{f} not found{}", if cur.is_some() { ": the pipeline continues from the selected data" } else { "" })));
+                        out.skipped
+                            .push((label, format!("{f} not found{}", if cur.is_some() { ": the pipeline continues from the selected data" } else { "" })));
                     }
                 }
                 Step::Filter(id, params) => {
@@ -225,13 +233,22 @@ fn map_step(name: &str, s: &Map<String, Value>) -> Step {
     let fids = array("FeatureIdsArrayPath").map(Value::String);
     let mask = || if flag("UseGoodVoxels").unwrap_or(true) { array("GoodVoxelsArrayPath").map(cells) } else { None };
     let id: &'static str = match name {
-        "ReadH5Ebsd" | "ReadAngData" | "ReadCtfData" | "DataContainerReader" | "ReadEDAXH5Data" | "ImportH5OimData" | "ImportH5EspritData" | "ITKImageReader" => {
+        "ReadH5Ebsd"
+        | "ReadAngData"
+        | "ReadCtfData"
+        | "DataContainerReader"
+        | "ReadEDAXH5Data"
+        | "ImportH5OimData"
+        | "ImportH5EspritData"
+        | "ITKImageReader" => {
             return match s.get("InputFile").and_then(|f| f.as_str()) {
                 Some(f) => Step::Open(f.to_string()),
                 None => Step::Skip("no file named".into()),
             }
         }
-        "DataContainerWriter" | "FeatureDataCSVWriter" | "VtkRectilinearGridWriter" | "AbaqusHexahedronWriter" => return Step::Skip("writes a file: save the result with File › Save Data".into()),
+        "DataContainerWriter" | "FeatureDataCSVWriter" | "VtkRectilinearGridWriter" | "AbaqusHexahedronWriter" => {
+            return Step::Skip("writes a file: save the result with File › Save Data".into())
+        }
         "RemoveArrays" | "RenameAttributeArray" | "CopyObject" | "ConvertData" => return Step::Skip("array bookkeeping, not needed".into()),
         "RotateEulerRefFrame" => {
             put("frame", Some(json!("Sample")));
@@ -264,11 +281,14 @@ fn map_step(name: &str, s: &Map<String, Value>) -> Step {
             "convert_orientations"
         }
         "EBSDSegmentFeatures" | "CAxisSegmentFeatures" | "ScalarSegmentFeatures" => {
-            put("method", Some(json!(match name {
-                "CAxisSegmentFeatures" => "C-axis alignment",
-                "ScalarSegmentFeatures" => "Scalar",
-                _ => "Misorientation",
-            })));
+            put(
+                "method",
+                Some(json!(match name {
+                    "CAxisSegmentFeatures" => "C-axis alignment",
+                    "ScalarSegmentFeatures" => "Scalar",
+                    _ => "Misorientation",
+                })),
+            );
             put("tolerance", num("MisorientationTolerance").or(num("ScalarTolerance")).map(|t| json!(t)));
             put("mask", mask());
             put("scalar", array("ScalarArrayPath").map(cells));
@@ -279,7 +299,11 @@ fn map_step(name: &str, s: &Map<String, Value>) -> Step {
             let Some(list) = s.get("SelectedThresholds").and_then(|v| v.as_array()) else { return Step::Skip("no thresholds".into()) };
             let mut terms = Vec::new();
             for t in list {
-                let (Some(a), Some(op), Some(v)) = (t.get("Attribute Array Name").and_then(|x| x.as_str()), t.get("Comparison Operator").and_then(|x| x.as_i64()), t.get("Comparison Value").and_then(|x| x.as_f64())) else {
+                let (Some(a), Some(op), Some(v)) = (
+                    t.get("Attribute Array Name").and_then(|x| x.as_str()),
+                    t.get("Comparison Operator").and_then(|x| x.as_i64()),
+                    t.get("Comparison Value").and_then(|x| x.as_f64()),
+                ) else {
                     return Step::Skip("thresholds in sets are not mapped".into());
                 };
                 let op = match op {

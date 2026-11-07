@@ -56,9 +56,7 @@ fn levels_of(amr: &Amr) -> Vec<Level> {
             let hidden = lev
                 .blocks
                 .iter()
-                .map(|b| {
-                    b.data.cell_data.get(GHOST).map(|a| (0..a.data.len()).map(|i| (a.data.get_f64(i) as i64 as u8) & MASKED != 0).collect())
-                })
+                .map(|b| b.data.cell_data.get(GHOST).map(|a| (0..a.data.len()).map(|i| (a.data.get_f64(i) as i64 as u8) & MASKED != 0).collect()))
                 .collect();
             let mut bins: HashMap<[i64; 3], Vec<usize>> = HashMap::new();
             for (i, (lo, hi)) in boxes.iter().enumerate() {
@@ -105,7 +103,8 @@ pub fn dual_grid(ds: &DataSet) -> Result<UnstructuredGrid> {
     };
     // Arrays copied to the points (all cell arrays but the ghost flags, from the first block).
     let first = &amr.levels[0].blocks.first().ok_or_else(|| anyhow!("the AMR data has no blocks"))?.data;
-    let names: Vec<(String, usize)> = first.cell_data.iter().filter(|a| a.name != GHOST && a.scalar_type() != ScalarType::String).map(|a| (a.name.clone(), a.ncomp)).collect();
+    let names: Vec<(String, usize)> =
+        first.cell_data.iter().filter(|a| a.name != GHOST && a.scalar_type() != ScalarType::String).map(|a| (a.name.clone(), a.ncomp)).collect();
     let mut ids: HashMap<(usize, usize, usize), u32> = HashMap::new();
     let mut pts: Vec<f64> = Vec::new();
     let mut vals: Vec<Vec<f64>> = vec![Vec::new(); names.len()];
@@ -326,9 +325,13 @@ pub fn resample_amr(ds: &DataSet, samples: [usize; 3], region: Option<([f64; 3],
     let mut out = ImageData { origin: gmin, spacing: h, extent: [0, n[0] as i64 - 1, 0, n[1] as i64 - 1, 0, n[2] as i64 - 1], ..Default::default() };
     // Arrays of the first box (VTK's reference grid), without the ghost flags.
     let reference = levels.iter().flatten().next().unwrap().img;
-    let names: Vec<(String, usize, ScalarType)> = reference.cell_data.iter().filter(|a| a.name != aurafx_data::amr::GHOST).map(|a| (a.name.clone(), a.ncomp, a.scalar_type())).collect();
+    let names: Vec<(String, usize, ScalarType)> =
+        reference.cell_data.iter().filter(|a| a.name != aurafx_data::amr::GHOST).map(|a| (a.name.clone(), a.ncomp, a.scalar_type())).collect();
     let queries: Vec<[f64; 3]> = if to_nodes {
-        (0..n[2]).flat_map(|k| (0..n[1]).flat_map(move |j| (0..n[0]).map(move |i| [i, j, k]))).map(|[i, j, k]| [gmin[0] + i as f64 * h[0], gmin[1] + j as f64 * h[1], gmin[2] + k as f64 * h[2]]).collect()
+        (0..n[2])
+            .flat_map(|k| (0..n[1]).flat_map(move |j| (0..n[0]).map(move |i| [i, j, k])))
+            .map(|[i, j, k]| [gmin[0] + i as f64 * h[0], gmin[1] + j as f64 * h[1], gmin[2] + k as f64 * h[2]])
+            .collect()
     } else {
         let c: [usize; 3] = std::array::from_fn(|k| (n[k] - 1).max(1));
         (0..c[2])

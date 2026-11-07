@@ -103,7 +103,8 @@ fn particles(f: &Hdf5File, dim: usize) -> Result<DataSet> {
     let z = if dim == 3 { col("position_z")? } else { vec![0.0; x.len()] };
     let pts: Vec<f64> = (0..x.len()).flat_map(|i| [x[i], y.get(i).copied().unwrap_or(0.0), z.get(i).copied().unwrap_or(0.0)]).collect();
     let mut pd = PolyData::from_points(Points::new_f64(pts));
-    let mut names: Vec<String> = g.datasets()?.iter().map(|d| d.name().rsplit('/').next().unwrap_or("").to_string()).filter(|n| !n.starts_with("position_")).collect();
+    let mut names: Vec<String> =
+        g.datasets()?.iter().map(|d| d.name().rsplit('/').next().unwrap_or("").to_string()).filter(|n| !n.starts_with("position_")).collect();
     names.sort();
     for n in names {
         let v = col(&n)?;
@@ -134,7 +135,13 @@ pub fn read(path: &Path) -> Result<DataSet> {
     let n_levels = nums(&root, "num_levels").and_then(|v| v.first().copied()).unwrap_or(1.0) as usize;
     let ncomp = nums(&root, "num_components").and_then(|v| v.first().copied()).unwrap_or(0.0) as usize;
     let names: Vec<String> = (0..ncomp)
-        .map(|i| root.attribute(&format!("component_{i}")).ok().and_then(|a| a.read_string().ok()).map(|s| s.trim_end_matches('\0').to_string()).unwrap_or_else(|| format!("component_{i}")))
+        .map(|i| {
+            root.attribute(&format!("component_{i}"))
+                .ok()
+                .and_then(|a| a.read_string().ok())
+                .map(|s| s.trim_end_matches('\0').to_string())
+                .unwrap_or_else(|| format!("component_{i}"))
+        })
         .collect();
     let time = nums(&root, "time").and_then(|v| v.first().copied());
     let mut prob_lo = [0.0; 3];
@@ -231,14 +238,26 @@ fn read_4d(f: &Hdf5File, root: &Group, path: &Path) -> Result<DataSet> {
     let extra = if node { 1 } else { 0 };
     let ncomp = nums(root, "num_components").and_then(|v| v.first().copied()).unwrap_or(0.0) as usize;
     let names: Vec<String> = (0..ncomp)
-        .map(|i| root.attribute(&format!("component_{i}")).ok().and_then(|a| a.read_string().ok()).map(|s| s.trim_end_matches('\0').to_string()).unwrap_or_else(|| format!("component_{i}")))
+        .map(|i| {
+            root.attribute(&format!("component_{i}"))
+                .ok()
+                .and_then(|a| a.read_string().ok())
+                .map(|s| s.trim_end_matches('\0').to_string())
+                .unwrap_or_else(|| format!("component_{i}"))
+        })
         .collect();
     let time = nums(root, "time").and_then(|v| v.first().copied());
     let g = f.group("level_0").context("no level_0 group")?;
     let dx = nums(&g, "vec_dx").or_else(|| nums(&g, "dx")).ok_or_else(|| anyhow!("level 0: no dx"))?;
     let dx: [f64; 4] = std::array::from_fn(|k| dx.get(k).or(dx.first()).copied().unwrap_or(1.0));
     let compound = |ds_or_attr: (&[u8], &[hdf5_reader::CompoundField]), name: &str| -> i64 {
-        ds_or_attr.1.iter().find(|x| x.name == name).and_then(|x| ds_or_attr.0.get(x.byte_offset as usize..x.byte_offset as usize + 4)).map(|b| i32::from_le_bytes(b.try_into().unwrap()) as i64).unwrap_or(0)
+        ds_or_attr
+            .1
+            .iter()
+            .find(|x| x.name == name)
+            .and_then(|x| ds_or_attr.0.get(x.byte_offset as usize..x.byte_offset as usize + 4))
+            .map(|b| i32::from_le_bytes(b.try_into().unwrap()) as i64)
+            .unwrap_or(0)
     };
     let axes = ["i", "j", "k", "l"];
     let boxes_ds = g.dataset("boxes").context("level 0: no boxes")?;
@@ -246,11 +265,18 @@ fn read_4d(f: &Hdf5File, root: &Group, path: &Path) -> Result<DataSet> {
     let Datatype::Compound { size, fields } = boxes_ds.dtype().clone() else { bail!("level 0: boxes are not compound") };
     let boxes: Vec<([i64; 4], [i64; 4])> = raw
         .chunks_exact(size as usize)
-        .map(|rec| (std::array::from_fn(|k| compound((rec, &fields), &format!("lo_{}", axes[k]))), std::array::from_fn(|k| compound((rec, &fields), &format!("hi_{}", axes[k])))))
+        .map(|rec| {
+            (
+                std::array::from_fn(|k| compound((rec, &fields), &format!("lo_{}", axes[k]))),
+                std::array::from_fn(|k| compound((rec, &fields), &format!("hi_{}", axes[k]))),
+            )
+        })
         .collect();
     // The velocity extent of the problem domain (or of the boxes when it is missing).
     // (prob_domain: lo_i, lo_j, lo_k, lo_l, hi_i, hi_j, hi_k, hi_l)
-    let domain = nums(&g, "prob_domain").filter(|v| v.len() == 8).map(|v| (std::array::from_fn::<i64, 4, _>(|k| v[k] as i64), std::array::from_fn::<i64, 4, _>(|k| v[4 + k] as i64)));
+    let domain = nums(&g, "prob_domain")
+        .filter(|v| v.len() == 8)
+        .map(|v| (std::array::from_fn::<i64, 4, _>(|k| v[k] as i64), std::array::from_fn::<i64, 4, _>(|k| v[4 + k] as i64)));
     let (dlo, dhi) = domain.unwrap_or_else(|| {
         (std::array::from_fn(|k| boxes.iter().map(|b| b.0[k]).min().unwrap_or(0)), std::array::from_fn(|k| boxes.iter().map(|b| b.1[k]).max().unwrap_or(0)))
     });

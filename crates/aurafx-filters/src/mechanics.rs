@@ -3,10 +3,10 @@
 //! the parameters), with their volume means and a yield-strength estimate.
 
 use crate::crystal_texture::{selected, Selection};
+use crate::Association;
 use anyhow::{anyhow, bail, Result};
 use aurafx_crystal::mechanics::{self as mech, Lattice, Material, MATERIALS};
 use aurafx_data::*;
-use crate::Association;
 use rayon::prelude::*;
 
 pub const CUSTOM: &str = "Custom";
@@ -41,7 +41,16 @@ struct Resolved {
 fn resolve(name: &str, custom: &CustomMaterial) -> Result<Resolved> {
     if let Some(m) = MATERIALS.iter().find(|m| m.name == name) {
         let Material { lattice, elastic, shear_modulus_gpa, burgers_m, c_over_a, families, sigma_base_mpa, taylor_alpha, .. } = m.clone();
-        return Ok(Resolved { lattice, elastic: elastic.to_vec(), mu: shear_modulus_gpa, b: burgers_m, ca: c_over_a, families: families.to_vec(), sigma_base: sigma_base_mpa, alpha: taylor_alpha });
+        return Ok(Resolved {
+            lattice,
+            elastic: elastic.to_vec(),
+            mu: shear_modulus_gpa,
+            b: burgers_m,
+            ca: c_over_a,
+            families: families.to_vec(),
+            sigma_base: sigma_base_mpa,
+            alpha: taylor_alpha,
+        });
     }
     let lattice = match custom.lattice.to_ascii_uppercase().as_str() {
         "FCC" => Lattice::Fcc,
@@ -60,18 +69,38 @@ fn resolve(name: &str, custom: &CustomMaterial) -> Result<Resolved> {
             None => (part, 1.0),
         };
         let k = mech::FAMILIES.iter().position(|f| f.name.eq_ignore_ascii_case(n) && f.lattice == lattice).ok_or_else(|| {
-            anyhow!("{n}: not a slip family of this lattice ({})", mech::FAMILIES.iter().filter(|f| f.lattice == lattice).map(|f| f.name).collect::<Vec<_>>().join(", "))
+            anyhow!(
+                "{n}: not a slip family of this lattice ({})",
+                mech::FAMILIES.iter().filter(|f| f.lattice == lattice).map(|f| f.name).collect::<Vec<_>>().join(", ")
+            )
         })?;
         families.push((k, w));
     }
     if families.is_empty() {
         families = mech::FAMILIES.iter().enumerate().filter(|(_, f)| f.lattice == lattice).take(1).map(|(k, _)| (k, 1.0)).collect();
     }
-    Ok(Resolved { lattice, elastic: custom.elastic.clone(), mu: custom.shear_modulus_gpa, b: custom.burgers_m, ca: custom.c_over_a, families, sigma_base: custom.sigma_base_mpa, alpha: 0.3 })
+    Ok(Resolved {
+        lattice,
+        elastic: custom.elastic.clone(),
+        mu: custom.shear_modulus_gpa,
+        b: custom.burgers_m,
+        ca: custom.c_over_a,
+        families,
+        sigma_base: custom.sigma_base_mpa,
+        alpha: 0.3,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn crystal_mechanics(ds: &DataSet, sel: &Selection, material: &str, custom: &CustomMaterial, dir: [f64; 3], taylor: bool, gnd: Option<&str>) -> Result<DataSet> {
+pub fn crystal_mechanics(
+    ds: &DataSet,
+    sel: &Selection,
+    material: &str,
+    custom: &CustomMaterial,
+    dir: [f64; 3],
+    taylor: bool,
+    gnd: Option<&str>,
+) -> Result<DataSet> {
     let m = resolve(material, custom)?;
     let (q, _laue) = selected(ds, sel)?;
     let fam_idx: Vec<usize> = m.families.iter().map(|f| f.0).collect();
@@ -99,7 +128,11 @@ pub fn crystal_mechanics(ds: &DataSet, sel: &Selection, material: &str, custom: 
     let mut out = ds.clone();
     let mean = |v: &mut dyn Iterator<Item = f64>| {
         let (s, n) = v.filter(|x| x.is_finite()).fold((0.0, 0usize), |(s, n), x| (s + x, n + 1));
-        if n > 0 { s / n as f64 } else { f64::NAN }
+        if n > 0 {
+            s / n as f64
+        } else {
+            f64::NAN
+        }
     };
     let e_voigt = mean(&mut rows.iter().map(|r| r.3));
     let e_reuss = 1.0 / mean(&mut rows.iter().map(|r| 1.0 / r.3));
@@ -146,7 +179,10 @@ pub fn crystal_mechanics(ds: &DataSet, sel: &Selection, material: &str, custom: 
             fd.insert(Array::scalars_f64("YieldEstimateMPa", vec![texture + disl]));
         }
     }
-    let names: Vec<String> = systems.iter().map(|s| format!("{} n({:.3} {:.3} {:.3}) s({:.3} {:.3} {:.3})", mech::FAMILIES[s.family].name, s.n[0], s.n[1], s.n[2], s.s[0], s.s[1], s.s[2])).collect();
+    let names: Vec<String> = systems
+        .iter()
+        .map(|s| format!("{} n({:.3} {:.3} {:.3}) s({:.3} {:.3} {:.3})", mech::FAMILIES[s.family].name, s.n[0], s.n[1], s.n[2], s.s[0], s.s[1], s.s[2]))
+        .collect();
     fd.insert(Array::new("SlipSystemNames", 1, ArrayData::String(names)));
     Ok(out)
 }

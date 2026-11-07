@@ -64,7 +64,9 @@ fn image(w: usize, h: usize, gt: &GeoTransform, bands: Vec<(String, usize, Array
             if vals.iter().any(|&v| v == nd || (v as f32) == (nd as f32)) {
                 let fix = |v: f64| if v == nd || (v as f32) == (nd as f32) { f64::NAN } else { v };
                 data = match data {
-                    ArrayData::F64(_) | ArrayData::I32(_) | ArrayData::U32(_) | ArrayData::I64(_) | ArrayData::U64(_) => ArrayData::F64(vals.into_iter().map(fix).collect()),
+                    ArrayData::F64(_) | ArrayData::I32(_) | ArrayData::U32(_) | ArrayData::I64(_) | ArrayData::U64(_) => {
+                        ArrayData::F64(vals.into_iter().map(fix).collect())
+                    }
                     _ => ArrayData::F32(vals.into_iter().map(|v| fix(v) as f32).collect()),
                 };
             }
@@ -175,12 +177,8 @@ pub fn read_geotiff(path: &Path) -> Result<DataSet> {
             }
         }
     }
-    let nodata = dec
-        .find_tag(Tag::GdalNodata)
-        .ok()
-        .flatten()
-        .and_then(|v| v.into_string().ok())
-        .and_then(|s| s.trim_end_matches('\0').trim().parse::<f64>().ok());
+    let nodata =
+        dec.find_tag(Tag::GdalNodata).ok().flatten().and_then(|v| v.into_string().ok()).and_then(|s| s.trim_end_matches('\0').trim().parse::<f64>().ok());
 
     let raw = if planar == 2 && spp > 1 {
         read_planes(&mut dec, w, h, spp).with_context(|| format!("decoding {}", path.display()))?
@@ -438,7 +436,10 @@ impl HfaDict {
                 (HfaVal::Text(String::from_utf8_lossy(&raw[..end]).into_owned()), at + count)
             }
             'e' => {
-                let v = (0..count).map(|k| b.get(at + 2 * k..at + 2 * k + 2).map(|x| u16::from_le_bytes([x[0], x[1]]) as usize).unwrap_or(0)).map(|i| f.enums.get(i).cloned().unwrap_or_default()).collect();
+                let v = (0..count)
+                    .map(|k| b.get(at + 2 * k..at + 2 * k + 2).map(|x| u16::from_le_bytes([x[0], x[1]]) as usize).unwrap_or(0))
+                    .map(|i| f.enums.get(i).cloned().unwrap_or_default())
+                    .collect();
                 (HfaVal::Enum(v), at + 2 * count)
             }
             t => {
@@ -644,7 +645,8 @@ pub fn read_hfa(path: &Path) -> Result<DataSet> {
     let header = u(16);
     let root = u(header + 8);
     let dict_ptr = u(header + 14);
-    let dict_text = b.get(dict_ptr..).map(|d| String::from_utf8_lossy(&d[..d.iter().position(|&c| c == 0).unwrap_or(d.len())]).into_owned()).unwrap_or_default();
+    let dict_text =
+        b.get(dict_ptr..).map(|d| String::from_utf8_lossy(&d[..d.iter().position(|&c| c == 0).unwrap_or(d.len())]).into_owned()).unwrap_or_default();
     let dict = HfaDict::parse(&dict_text);
     let tree = hfa_tree(&b, root, 0)?;
     let root = tree.first().ok_or_else(|| anyhow!("{}: no entries", path.display()))?;
@@ -686,7 +688,10 @@ pub fn read_hfa(path: &Path) -> Result<DataSet> {
             continue; // GDAL skips bands of another size too
         }
         let dt = match &info.get("pixelType") {
-            Some(HfaVal::Enum(v)) => ["u1", "u2", "u4", "u8", "s8", "u16", "s16", "u32", "s32", "f32", "f64", "c64", "c128"].iter().position(|t| Some(&t.to_string()) == v.first()).unwrap_or(99) as i16,
+            Some(HfaVal::Enum(v)) => ["u1", "u2", "u4", "u8", "s8", "u16", "s16", "u32", "s32", "f32", "f64", "c64", "c128"]
+                .iter()
+                .position(|t| Some(&t.to_string()) == v.first())
+                .unwrap_or(99) as i16,
             _ => 99,
         };
         let (bw, bh) = (num(&info, "blockWidth").max(1.0) as usize, num(&info, "blockHeight").max(1.0) as usize);

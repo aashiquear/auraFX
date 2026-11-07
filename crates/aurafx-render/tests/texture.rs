@@ -88,7 +88,11 @@ fn edges_use_the_edge_color() {
     cam.set_view([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], &plane.bounds());
     cam.update_clip(&plane.bounds());
     let reds = |r: &mut Renderer, d: &DisplayProps| {
-        r.render(&cam, &[NodeDraw { id: 1, mesh: Arc::new(tessellate::tessellate(&plane, d)), display: d.clone(), overlay: false }], &RenderSettings::default());
+        r.render(
+            &cam,
+            &[NodeDraw { id: 1, mesh: Arc::new(tessellate::tessellate(&plane, d)), display: d.clone(), overlay: false }],
+            &RenderSettings::default(),
+        );
         let (_, _, img) = r.read_pixels().unwrap();
         img.chunks(4).filter(|p| p[0] as i32 - p[1] as i32 > 60 && (p[1] as i32 - p[2] as i32).abs() < 30).count()
     };

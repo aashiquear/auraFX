@@ -83,7 +83,13 @@ pub fn slip_systems(families: &[usize], ca: f64) -> Vec<SlipSystem> {
             let (n, s) = (rotate(*op, n0), rotate(*op, s0));
             let same = |a: V3, b: V3| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-9);
             let neg = |a: V3| a.map(|x| -x);
-            let dup = out.iter().any(|o| o.family == fi && ((same(o.n, n) && same(o.s, s)) || (same(o.n, neg(n)) && same(o.s, neg(s))) || (same(o.n, n) && same(o.s, neg(s))) || (same(o.n, neg(n)) && same(o.s, s))));
+            let dup = out.iter().any(|o| {
+                o.family == fi
+                    && ((same(o.n, n) && same(o.s, s))
+                        || (same(o.n, neg(n)) && same(o.s, neg(s)))
+                        || (same(o.n, n) && same(o.s, neg(s)))
+                        || (same(o.n, neg(n)) && same(o.s, s)))
+            });
             if !dup {
                 out.push(SlipSystem { s, n, family: fi });
             }
@@ -194,7 +200,11 @@ impl TaylorBases {
                     break;
                 }
                 if i == 0 {
-                    return if combos.is_empty() { Err("the slip systems give no five independent ones".into()) } else { Ok(TaylorBases { combos, inv, weight: weight.to_vec() }) };
+                    return if combos.is_empty() {
+                        Err("the slip systems give no five independent ones".into())
+                    } else {
+                        Ok(TaylorBases { combos, inv, weight: weight.to_vec() })
+                    };
                 }
                 i -= 1;
             }
@@ -345,14 +355,102 @@ pub struct Material {
 }
 
 pub const MATERIALS: [Material; 8] = [
-    Material { name: "IN718", lattice: Lattice::Fcc, elastic: &[250.0, 160.0, 120.0], shear_modulus_gpa: 77.2, burgers_m: 2.54e-10, c_over_a: 1.0, families: &[(0, 1.0)], sigma_base_mpa: 647.6, taylor_alpha: 0.3, source: "AM orientation toolkit, materials/in718.json (NIST AM Bench 2022 IN718)" },
-    Material { name: "CoNi GammaPrint-700", lattice: Lattice::Fcc, elastic: &[250.0, 160.0, 120.0], shear_modulus_gpa: 80.0, burgers_m: 2.54e-10, c_over_a: 1.0, families: &[(0, 1.0)], sigma_base_mpa: 400.0, taylor_alpha: 0.3, source: "AM orientation toolkit, materials/coni.json" },
-    Material { name: "Nickel", lattice: Lattice::Fcc, elastic: &[246.5, 147.3, 124.7], shear_modulus_gpa: 76.0, burgers_m: 2.49e-10, c_over_a: 1.0, families: &[(0, 1.0)], sigma_base_mpa: 0.0, taylor_alpha: 0.3, source: "elastic constants: Simmons and Wang (1971)" },
-    Material { name: "Copper", lattice: Lattice::Fcc, elastic: &[168.4, 121.4, 75.4], shear_modulus_gpa: 48.0, burgers_m: 2.56e-10, c_over_a: 1.0, families: &[(0, 1.0)], sigma_base_mpa: 0.0, taylor_alpha: 0.3, source: "elastic constants: Simmons and Wang (1971)" },
-    Material { name: "Aluminium", lattice: Lattice::Fcc, elastic: &[108.2, 61.3, 28.5], shear_modulus_gpa: 26.0, burgers_m: 2.86e-10, c_over_a: 1.0, families: &[(0, 1.0)], sigma_base_mpa: 0.0, taylor_alpha: 0.3, source: "elastic constants: Simmons and Wang (1971)" },
-    Material { name: "Iron (BCC)", lattice: Lattice::Bcc, elastic: &[231.4, 134.7, 116.4], shear_modulus_gpa: 82.0, burgers_m: 2.48e-10, c_over_a: 1.0, families: &[(1, 1.0), (2, 1.0)], sigma_base_mpa: 0.0, taylor_alpha: 0.3, source: "elastic constants: Simmons and Wang (1971)" },
-    Material { name: "Titanium (HCP)", lattice: Lattice::Hcp, elastic: &[162.4, 92.0, 69.0, 180.7, 46.7], shear_modulus_gpa: 44.0, burgers_m: 2.95e-10, c_over_a: 1.587, families: &[(4, 1.0), (5, 0.7), (6, 1.0), (7, 3.0)], sigma_base_mpa: 0.0, taylor_alpha: 0.3, source: "elastic constants: Simmons and Wang (1971); relative resolved shear stresses typical of alpha titanium" },
-    Material { name: "Magnesium (HCP)", lattice: Lattice::Hcp, elastic: &[59.4, 25.6, 21.4, 61.6, 16.4], shear_modulus_gpa: 17.0, burgers_m: 3.21e-10, c_over_a: 1.624, families: &[(4, 1.0), (5, 10.0), (6, 10.0), (7, 15.0)], sigma_base_mpa: 0.0, taylor_alpha: 0.3, source: "elastic constants: Simmons and Wang (1971); relative resolved shear stresses typical of magnesium" },
+    Material {
+        name: "IN718",
+        lattice: Lattice::Fcc,
+        elastic: &[250.0, 160.0, 120.0],
+        shear_modulus_gpa: 77.2,
+        burgers_m: 2.54e-10,
+        c_over_a: 1.0,
+        families: &[(0, 1.0)],
+        sigma_base_mpa: 647.6,
+        taylor_alpha: 0.3,
+        source: "AM orientation toolkit, materials/in718.json (NIST AM Bench 2022 IN718)",
+    },
+    Material {
+        name: "CoNi GammaPrint-700",
+        lattice: Lattice::Fcc,
+        elastic: &[250.0, 160.0, 120.0],
+        shear_modulus_gpa: 80.0,
+        burgers_m: 2.54e-10,
+        c_over_a: 1.0,
+        families: &[(0, 1.0)],
+        sigma_base_mpa: 400.0,
+        taylor_alpha: 0.3,
+        source: "AM orientation toolkit, materials/coni.json",
+    },
+    Material {
+        name: "Nickel",
+        lattice: Lattice::Fcc,
+        elastic: &[246.5, 147.3, 124.7],
+        shear_modulus_gpa: 76.0,
+        burgers_m: 2.49e-10,
+        c_over_a: 1.0,
+        families: &[(0, 1.0)],
+        sigma_base_mpa: 0.0,
+        taylor_alpha: 0.3,
+        source: "elastic constants: Simmons and Wang (1971)",
+    },
+    Material {
+        name: "Copper",
+        lattice: Lattice::Fcc,
+        elastic: &[168.4, 121.4, 75.4],
+        shear_modulus_gpa: 48.0,
+        burgers_m: 2.56e-10,
+        c_over_a: 1.0,
+        families: &[(0, 1.0)],
+        sigma_base_mpa: 0.0,
+        taylor_alpha: 0.3,
+        source: "elastic constants: Simmons and Wang (1971)",
+    },
+    Material {
+        name: "Aluminium",
+        lattice: Lattice::Fcc,
+        elastic: &[108.2, 61.3, 28.5],
+        shear_modulus_gpa: 26.0,
+        burgers_m: 2.86e-10,
+        c_over_a: 1.0,
+        families: &[(0, 1.0)],
+        sigma_base_mpa: 0.0,
+        taylor_alpha: 0.3,
+        source: "elastic constants: Simmons and Wang (1971)",
+    },
+    Material {
+        name: "Iron (BCC)",
+        lattice: Lattice::Bcc,
+        elastic: &[231.4, 134.7, 116.4],
+        shear_modulus_gpa: 82.0,
+        burgers_m: 2.48e-10,
+        c_over_a: 1.0,
+        families: &[(1, 1.0), (2, 1.0)],
+        sigma_base_mpa: 0.0,
+        taylor_alpha: 0.3,
+        source: "elastic constants: Simmons and Wang (1971)",
+    },
+    Material {
+        name: "Titanium (HCP)",
+        lattice: Lattice::Hcp,
+        elastic: &[162.4, 92.0, 69.0, 180.7, 46.7],
+        shear_modulus_gpa: 44.0,
+        burgers_m: 2.95e-10,
+        c_over_a: 1.587,
+        families: &[(4, 1.0), (5, 0.7), (6, 1.0), (7, 3.0)],
+        sigma_base_mpa: 0.0,
+        taylor_alpha: 0.3,
+        source: "elastic constants: Simmons and Wang (1971); relative resolved shear stresses typical of alpha titanium",
+    },
+    Material {
+        name: "Magnesium (HCP)",
+        lattice: Lattice::Hcp,
+        elastic: &[59.4, 25.6, 21.4, 61.6, 16.4],
+        shear_modulus_gpa: 17.0,
+        burgers_m: 3.21e-10,
+        c_over_a: 1.624,
+        families: &[(4, 1.0), (5, 10.0), (6, 10.0), (7, 15.0)],
+        sigma_base_mpa: 0.0,
+        taylor_alpha: 0.3,
+        source: "elastic constants: Simmons and Wang (1971); relative resolved shear stresses typical of magnesium",
+    },
 ];
 
 /// The Taylor factor of a random FCC polycrystal (Kocks), the toolkit's reference.

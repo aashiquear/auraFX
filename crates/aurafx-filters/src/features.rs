@@ -55,7 +55,8 @@ impl Vox {
     }
     pub fn on_boundary(&self, c: usize) -> bool {
         let p = self.ijk(c);
-        (0..3).any(|a| !self.flat[a] && self.n[a] > 1 && (p[a] == 0 || p[a] + 1 == self.n[a])) || (0..2).any(|a| self.flat[2] && (p[a] == 0 || p[a] + 1 == self.n[a]))
+        (0..3).any(|a| !self.flat[a] && self.n[a] > 1 && (p[a] == 0 || p[a] + 1 == self.n[a]))
+            || (0..2).any(|a| self.flat[2] && (p[a] == 0 || p[a] + 1 == self.n[a]))
     }
     /// Centre of cell `c`.
     pub fn center(&self, c: usize) -> [f64; 3] {
@@ -443,7 +444,8 @@ pub fn feature_sizes(ds: &DataSet, ids_name: &str) -> Result<DataSet> {
     let two_d = v.is_2d();
     let cell = if two_d { (0..3).filter(|a| !(v.flat[*a] || v.n[*a] == 1)).map(|a| v.sp[a]).product::<f64>() } else { v.sp.iter().product() };
     let vol: Vec<f64> = count.iter().map(|c| *c as f64 * cell).collect();
-    let esd: Vec<f64> = vol.iter().map(|v| if two_d { 2.0 * (v / std::f64::consts::PI).sqrt() } else { 2.0 * (v * 3.0 / (4.0 * std::f64::consts::PI)).cbrt() }).collect();
+    let esd: Vec<f64> =
+        vol.iter().map(|v| if two_d { 2.0 * (v / std::f64::consts::PI).sqrt() } else { 2.0 * (v * 3.0 / (4.0 * std::f64::consts::PI)).cbrt() }).collect();
     let mut out = img.clone();
     out.field_data.insert(Array::new("NumElements", 1, ArrayData::I32(count)));
     out.field_data.insert(Array::scalars_f64("Volumes", vol));
@@ -596,7 +598,8 @@ pub fn shapes(v: &Vox, ids: &[i32], scheme: Moments, cents: &[[f64; 3]]) -> Vec<
             // Rows: principal directions of the longest (smallest inertia), middle, shortest axes.
             let col = |j: usize| [vecs[0][j], vecs[1][j], vecs[2][j]];
             let mut dirs = [col(2), col(1), col(0)];
-            let det = dirs[0][0] * (dirs[1][1] * dirs[2][2] - dirs[1][2] * dirs[2][1]) - dirs[0][1] * (dirs[1][0] * dirs[2][2] - dirs[1][2] * dirs[2][0]) + dirs[0][2] * (dirs[1][0] * dirs[2][1] - dirs[1][1] * dirs[2][0]);
+            let det = dirs[0][0] * (dirs[1][1] * dirs[2][2] - dirs[1][2] * dirs[2][1]) - dirs[0][1] * (dirs[1][0] * dirs[2][2] - dirs[1][2] * dirs[2][0])
+                + dirs[0][2] * (dirs[1][0] * dirs[2][1] - dirs[1][1] * dirs[2][0]);
             if det < 0.0 {
                 dirs[2] = dirs[2].map(|x| -x);
             }
@@ -710,7 +713,13 @@ pub fn average_quats(o: &Orients, ids: &[i32], nf: usize) -> Vec<Option<Quat>> {
 }
 
 /// Average Orientations: AvgQuats (x, y, z, w) and AvgEulerAngles per feature.
-pub fn average_orientations(ds: &DataSet, ids_name: &str, orientations: Option<(Association, String)>, structure: &str, phases: Option<&str>) -> Result<DataSet> {
+pub fn average_orientations(
+    ds: &DataSet,
+    ids_name: &str,
+    orientations: Option<(Association, String)>,
+    structure: &str,
+    phases: Option<&str>,
+) -> Result<DataSet> {
     let img = image(ds)?;
     let ids = cell_i32(img, ids_name)?;
     let o = Orients::of(ds, orientations, structure, phases)?;
@@ -735,7 +744,13 @@ fn avg_quats_field(img: &ImageData, nf: usize) -> Result<Vec<Option<Quat>>> {
 /// Reference Misorientations: each cell's misorientation (degrees) from its feature's average
 /// orientation (FeatureReferenceMisorientations) and the feature means
 /// (FeatureAvgMisorientations).
-pub fn reference_misorientations(ds: &DataSet, ids_name: &str, orientations: Option<(Association, String)>, structure: &str, phases: Option<&str>) -> Result<DataSet> {
+pub fn reference_misorientations(
+    ds: &DataSet,
+    ids_name: &str,
+    orientations: Option<(Association, String)>,
+    structure: &str,
+    phases: Option<&str>,
+) -> Result<DataSet> {
     let img = image(ds)?;
     let ids = cell_i32(img, ids_name)?;
     let o = Orients::of(ds, orientations, structure, phases)?;
@@ -812,7 +827,14 @@ pub fn kam_kernel(v: &Vox, o: &Orients, ids: &[i32], lo: [i64; 3], hi: [i64; 3],
         .collect()
 }
 
-pub fn kernel_average_misorientation(ds: &DataSet, ids_name: &str, kernel: [i64; 3], orientations: Option<(Association, String)>, structure: &str, phases: Option<&str>) -> Result<DataSet> {
+pub fn kernel_average_misorientation(
+    ds: &DataSet,
+    ids_name: &str,
+    kernel: [i64; 3],
+    orientations: Option<(Association, String)>,
+    structure: &str,
+    phases: Option<&str>,
+) -> Result<DataSet> {
     let img = image(ds)?;
     let v = Vox::of(img);
     let ids = cell_i32(img, ids_name)?;
@@ -901,7 +923,8 @@ pub fn feature_neighbors(ds: &DataSet, ids_name: &str) -> Result<DataSet> {
                 }
             }
         }
-        out.field_data.insert(Array::scalars_f64("AvgMisorientations", sum.iter().zip(&cnt).map(|(s, n)| if *n > 0 { s / *n as f64 } else { f64::NAN }).collect()));
+        out.field_data
+            .insert(Array::scalars_f64("AvgMisorientations", sum.iter().zip(&cnt).map(|(s, n)| if *n > 0 { s / *n as f64 } else { f64::NAN }).collect()));
     }
     Ok(DataSet::ImageData(out))
 }
@@ -1089,7 +1112,16 @@ pub fn merge_twins(ds: &DataSet, ids_name: &str, axis_tol: f64, angle_tol: f64) 
 /// face, and Twin (1 where it is a twin boundary, cubic m-3m, within the tolerances). With
 /// `outer`, faces against cells without a feature and the edge of the volume are included
 /// (FeatureIdA 0).
-pub fn feature_boundaries(ds: &DataSet, ids_name: &str, outer: bool, axis_tol: f64, angle_tol: f64, orientations: Option<(Association, String)>, structure: &str, phases: Option<&str>) -> Result<DataSet> {
+pub fn feature_boundaries(
+    ds: &DataSet,
+    ids_name: &str,
+    outer: bool,
+    axis_tol: f64,
+    angle_tol: f64,
+    orientations: Option<(Association, String)>,
+    structure: &str,
+    phases: Option<&str>,
+) -> Result<DataSet> {
     let img = image(ds)?;
     let v = Vox::of(img);
     let ids = cell_i32(img, ids_name)?;
@@ -1124,9 +1156,33 @@ pub fn feature_boundaries(ds: &DataSet, ids_name: &str, outer: bool, axis_tol: f
             if !(interior && (nb[slot].unwrap() > c) || external) {
                 continue;
             }
-            let base = { let mut q = p; if plus { q[axis] += 1; } q };
+            let base = {
+                let mut q = p;
+                if plus {
+                    q[axis] += 1;
+                }
+                q
+            };
             let (u, w) = ((axis + 1) % 3, (axis + 2) % 3);
-            let corners = [base, { let mut q = base; q[u] += 1; q }, { let mut q = base; q[u] += 1; q[w] += 1; q }, { let mut q = base; q[w] += 1; q }];
+            let corners = [
+                base,
+                {
+                    let mut q = base;
+                    q[u] += 1;
+                    q
+                },
+                {
+                    let mut q = base;
+                    q[u] += 1;
+                    q[w] += 1;
+                    q
+                },
+                {
+                    let mut q = base;
+                    q[w] += 1;
+                    q
+                },
+            ];
             let ids4: Vec<u32> = corners.iter().map(|q| point(*q, &mut pts)).collect();
             polys.push(CellType::Quad, &ids4);
             let (a, b) = if external { (0, f) } else { (f.min(g), f.max(g)) };
@@ -1227,10 +1283,13 @@ mod tests {
         let d = distance_transform(&v, &seed);
         for c in 0..v.len() {
             let p = v.center(c);
-            let want = (0..v.len()).filter(|s| seed[*s]).map(|s| {
-                let q = v.center(s);
-                (0..3).map(|a| (p[a] - q[a]).powi(2)).sum::<f64>()
-            }).fold(f64::INFINITY, f64::min);
+            let want = (0..v.len())
+                .filter(|s| seed[*s])
+                .map(|s| {
+                    let q = v.center(s);
+                    (0..3).map(|a| (p[a] - q[a]).powi(2)).sum::<f64>()
+                })
+                .fold(f64::INFINITY, f64::min);
             assert!((d[c] - want).abs() < 1e-9, "{c}: {} vs {want}", d[c]);
         }
     }

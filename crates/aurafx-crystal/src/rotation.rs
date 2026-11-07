@@ -92,11 +92,7 @@ pub fn euler_to_matrix(e: [f64; 3]) -> Mat3 {
     let (s1, c1) = e[0].sin_cos();
     let (s, c) = e[1].sin_cos();
     let (s2, c2) = e[2].sin_cos();
-    [
-        [c1 * c2 - s1 * s2 * c, s1 * c2 + c1 * s2 * c, s2 * s],
-        [-c1 * s2 - s1 * c2 * c, -s1 * s2 + c1 * c2 * c, c2 * s],
-        [s1 * s, -c1 * s, c],
-    ]
+    [[c1 * c2 - s1 * s2 * c, s1 * c2 + c1 * s2 * c, s2 * s], [-c1 * s2 - s1 * c2 * c, -s1 * s2 + c1 * c2 * c, c2 * s], [s1 * s, -c1 * s, c]]
 }
 
 /// Bunge angles of an orientation matrix: φ1 and φ2 in [0, 2π), Φ in [0, π].

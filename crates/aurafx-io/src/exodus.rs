@@ -394,7 +394,11 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
         let n = nc.dim_len(count_dim).unwrap_or(0);
         let names = nc.read_strings(names_var).unwrap_or_default();
         for i in 0..n {
-            let name = names.get(i).filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| format!("{} {}", if kind == "SideSet" { "sideset" } else { "nodeset" }, i + 1));
+            let name = names
+                .get(i)
+                .filter(|s| !s.is_empty())
+                .cloned()
+                .unwrap_or_else(|| format!("{} {}", if kind == "SideSet" { "sideset" } else { "nodeset" }, i + 1));
             if kind == "SideSet" {
                 let (Ok(e), Ok(s)) = (nc.read_f64(&format!("elem_ss{}", i + 1), None), nc.read_f64(&format!("side_ss{}", i + 1), None)) else { continue };
                 let v: Vec<i32> = e.iter().zip(&s).flat_map(|(e, s)| [*e as i32 - 1, *s as i32]).collect();

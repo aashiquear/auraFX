@@ -247,7 +247,8 @@ fn build(layer: &Layer, features: &[Feature], filled: bool, ids: bool, keep_empt
         pd.cell_data.insert(Array::new(name.clone(), 1, data));
     }
     if ids {
-        pd.cell_data.insert_active(AttributeKind::PedigreeIds, Array::new("_vtkPedigreeIds", 1, ArrayData::I64(order.iter().map(|&k| features[k].fid).collect())));
+        pd.cell_data
+            .insert_active(AttributeKind::PedigreeIds, Array::new("_vtkPedigreeIds", 1, ArrayData::I64(order.iter().map(|&k| features[k].fid).collect())));
     }
     Some(pd)
 }
@@ -486,7 +487,9 @@ fn shape(r: &[u8]) -> Result<Option<Geom>> {
             need(40 + 16 * n)?;
             let zs = 40 + 16 * n + 16;
             let has_z = t == 18 && r.len() >= zs + 8 * n;
-            Some(Geom::Collection((0..n).map(|i| Geom::Point([le_f64(r, 40 + 16 * i), le_f64(r, 48 + 16 * i), if has_z { le_f64(r, zs + 8 * i) } else { 0.0 }])).collect()))
+            Some(Geom::Collection(
+                (0..n).map(|i| Geom::Point([le_f64(r, 40 + 16 * i), le_f64(r, 48 + 16 * i), if has_z { le_f64(r, zs + 8 * i) } else { 0.0 }])).collect(),
+            ))
         }
         3 | 13 | 23 | 5 | 15 | 25 => {
             need(44)?;
@@ -504,7 +507,11 @@ fn shape(r: &[u8]) -> Result<Option<Geom>> {
                 })
                 .collect();
             if matches!(t, 3 | 13 | 23) {
-                Some(if parts.len() == 1 { Geom::Line(parts.into_iter().next().unwrap()) } else { Geom::Collection(parts.into_iter().map(Geom::Line).collect()) })
+                Some(if parts.len() == 1 {
+                    Geom::Line(parts.into_iter().next().unwrap())
+                } else {
+                    Geom::Collection(parts.into_iter().map(Geom::Line).collect())
+                })
             } else {
                 Some(polygons_from_rings(parts))
             }
@@ -590,7 +597,9 @@ pub fn read_dbf(path: &Path) -> Result<(Vec<(String, FieldType)>, Rows)> {
                     _ => Value::Null,
                 },
                 ('D', _) if text.len() == 8 => Value::Text(format!("{}/{}/{}", &text[..4], &text[4..6], &text[6..8])),
-                (_, FieldType::Int | FieldType::Int64) => text.parse::<i64>().map(Value::Int).or_else(|_| text.parse::<f64>().map(|f| Value::Int(f as i64))).unwrap_or(Value::Null),
+                (_, FieldType::Int | FieldType::Int64) => {
+                    text.parse::<i64>().map(Value::Int).or_else(|_| text.parse::<f64>().map(|f| Value::Int(f as i64))).unwrap_or(Value::Null)
+                }
                 (_, FieldType::Real) => text.parse::<f64>().map(Value::Real).unwrap_or(Value::Null),
                 _ if text.is_empty() => Value::Null,
                 _ => Value::Text(text),
@@ -650,8 +659,12 @@ fn json_geom(g: &serde_json::Value) -> Result<Option<Geom>> {
         "LineString" => Geom::Line(json_line(c)?),
         "MultiLineString" => Geom::Collection(list(c).iter().map(|l| json_line(l).map(Geom::Line)).collect::<Result<_>>()?),
         "Polygon" => Geom::Polygon(list(c).iter().map(json_line).collect::<Result<_>>()?),
-        "MultiPolygon" => Geom::Collection(list(c).iter().map(|p| list(p).iter().map(json_line).collect::<Result<_>>().map(Geom::Polygon)).collect::<Result<_>>()?),
-        "GeometryCollection" => Geom::Collection(list(g.get("geometries").unwrap_or(&serde_json::Value::Null)).iter().filter_map(|x| json_geom(x).transpose()).collect::<Result<_>>()?),
+        "MultiPolygon" => {
+            Geom::Collection(list(c).iter().map(|p| list(p).iter().map(json_line).collect::<Result<_>>().map(Geom::Polygon)).collect::<Result<_>>()?)
+        }
+        "GeometryCollection" => Geom::Collection(
+            list(g.get("geometries").unwrap_or(&serde_json::Value::Null)).iter().filter_map(|x| json_geom(x).transpose()).collect::<Result<_>>()?,
+        ),
         t => bail!("unknown GeoJSON geometry type {t:?}"),
     }))
 }
@@ -736,7 +749,11 @@ pub fn read_geojson(path: &Path) -> Result<Layer> {
         let geom = json_geom(f.get("geometry").unwrap_or(&serde_json::Value::Null)).with_context(|| format!("{}: feature {k}", path.display()))?;
         features.push(Feature { fid, geom, values });
     }
-    let name = root.get("name").and_then(|n| n.as_str()).map(str::to_string).unwrap_or_else(|| path.file_stem().and_then(|s| s.to_str()).unwrap_or("layer").to_string());
+    let name = root
+        .get("name")
+        .and_then(|n| n.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| path.file_stem().and_then(|s| s.to_str()).unwrap_or("layer").to_string());
     // Old-style named crs ("urn:ogc:def:crs:EPSG::3857"); RFC 7946 files are WGS 84.
     let projection = root
         .pointer("/crs/properties/name")
@@ -780,7 +797,11 @@ type ZipEntry = (String, u16, usize, usize);
 fn zip_entries(b: &[u8]) -> Result<Vec<ZipEntry>> {
     let u16_at = |i: usize| -> Result<u16> { Ok(u16::from_le_bytes(b.get(i..i + 2).ok_or_else(|| anyhow!("truncated"))?.try_into().unwrap())) };
     let u32_at = |i: usize| -> Result<u32> { Ok(u32::from_le_bytes(b.get(i..i + 4).ok_or_else(|| anyhow!("truncated"))?.try_into().unwrap())) };
-    let eocd = (0..b.len().saturating_sub(21)).rev().take(65557).find(|&i| b[i..i + 4] == [0x50, 0x4b, 0x05, 0x06]).ok_or_else(|| anyhow!("no end of central directory"))?;
+    let eocd = (0..b.len().saturating_sub(21))
+        .rev()
+        .take(65557)
+        .find(|&i| b[i..i + 4] == [0x50, 0x4b, 0x05, 0x06])
+        .ok_or_else(|| anyhow!("no end of central directory"))?;
     let count = u16_at(eocd + 10)? as usize;
     let mut at = u32_at(eocd + 16)? as usize;
     let mut out = Vec::with_capacity(count);
@@ -961,7 +982,10 @@ fn gpkg_tables(path: &Path) -> Result<Vec<(String, String)>> {
     let contents = db.rows("gpkg_contents").context("not a GeoPackage (no gpkg_contents table)")?;
     let ccols = db.columns("gpkg_contents")?;
     let ci = |n: &str| ccols.iter().position(|(c, _)| c.eq_ignore_ascii_case(n));
-    let (tn, dt) = (ci("table_name").ok_or_else(|| anyhow!("gpkg_contents has no table_name"))?, ci("data_type").ok_or_else(|| anyhow!("gpkg_contents has no data_type"))?);
+    let (tn, dt) = (
+        ci("table_name").ok_or_else(|| anyhow!("gpkg_contents has no table_name"))?,
+        ci("data_type").ok_or_else(|| anyhow!("gpkg_contents has no data_type"))?,
+    );
     let geo = db.rows("gpkg_geometry_columns")?;
     let gcols = db.columns("gpkg_geometry_columns")?;
     let gi = |n: &str| gcols.iter().position(|(c, _)| c.eq_ignore_ascii_case(n));
@@ -972,7 +996,10 @@ fn gpkg_tables(path: &Path) -> Result<Vec<(String, String)>> {
             continue;
         }
         let name = row.get(tn).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let col = geo.iter().find(|(_, g)| g.get(gt).and_then(|v| v.as_str()).is_some_and(|t| t.eq_ignore_ascii_case(&name))).and_then(|(_, g)| g.get(gc).and_then(|v| v.as_str()).map(str::to_string));
+        let col = geo
+            .iter()
+            .find(|(_, g)| g.get(gt).and_then(|v| v.as_str()).is_some_and(|t| t.eq_ignore_ascii_case(&name)))
+            .and_then(|(_, g)| g.get(gc).and_then(|v| v.as_str()).map(str::to_string));
         if let Some(c) = col {
             out.push((name, c));
         }
@@ -1160,7 +1187,9 @@ impl<'a> Fb<'a> {
     fn field(&self, i: usize) -> Result<Option<usize>> {
         let soff = i32::from_le_bytes(self.b.get(self.t..self.t + 4).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap());
         let vt = (self.t as i64 - soff as i64) as usize;
-        let le16 = |i: usize| -> Result<usize> { Ok(u16::from_le_bytes(self.b.get(i..i + 2).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap()) as usize) };
+        let le16 = |i: usize| -> Result<usize> {
+            Ok(u16::from_le_bytes(self.b.get(i..i + 2).ok_or_else(|| anyhow!("FlatBuffer out of bounds"))?.try_into().unwrap()) as usize)
+        };
         let vsize = le16(vt)?;
         if 4 + 2 * i + 2 > vsize {
             return Ok(None);
@@ -1373,11 +1402,14 @@ pub fn read_flatgeobuf(path: &Path) -> Result<Layer> {
 /// Geographic CRSs whose EPSG definition puts latitude first: GML in the URN/URI forms
 /// (urn:ogc:def:crs:EPSG::4326, http://www.opengis.net/def/crs/EPSG/0/4326) follows it, and
 /// coordinates are swapped back to longitude, latitude (as GDAL does).
-const LAT_FIRST: &[u32] = &[4326, 4258, 4269, 4267, 4283, 4230, 4277, 4612, 6318, 4171, 4674, 4019, 4979, 4937, 4617, 4148, 4152, 4170, 4189, 4190, 4167, 4314, 4807];
+const LAT_FIRST: &[u32] =
+    &[4326, 4258, 4269, 4267, 4283, 4230, 4277, 4612, 6318, 4171, 4674, 4019, 4979, 4937, 4617, 4148, 4152, 4170, 4189, 4190, 4167, 4314, 4807];
 
 fn gml_srs(name: &str) -> (Option<String>, bool) {
     let code = |s: &str| s.trim().parse::<u32>().ok();
-    if let Some(c) = name.rsplit_once("EPSG::").and_then(|(_, c)| code(c)).or_else(|| name.split("/EPSG/").nth(1).and_then(|r| r.rsplit('/').next()).and_then(code)) {
+    if let Some(c) =
+        name.rsplit_once("EPSG::").and_then(|(_, c)| code(c)).or_else(|| name.split("/EPSG/").nth(1).and_then(|r| r.rsplit('/').next()).and_then(code))
+    {
         return (Some(format!("EPSG:{c}")), LAT_FIRST.contains(&c));
     }
     if let Some(c) = name.rsplit_once("EPSG:").and_then(|(_, c)| code(c)).or_else(|| name.rsplit_once('#').and_then(|(_, c)| code(c))) {
@@ -1397,7 +1429,20 @@ pub fn read_gml(path: &Path) -> Result<Vec<Layer>> {
         n.rsplit(':').next().unwrap_or(n)
     }
     const GEOMS: &[&str] = &[
-        "Point", "LineString", "LinearRing", "Polygon", "MultiPoint", "MultiLineString", "MultiCurve", "MultiPolygon", "MultiSurface", "MultiGeometry", "Curve", "Surface", "CompositeCurve", "CompositeSurface",
+        "Point",
+        "LineString",
+        "LinearRing",
+        "Polygon",
+        "MultiPoint",
+        "MultiLineString",
+        "MultiCurve",
+        "MultiPolygon",
+        "MultiSurface",
+        "MultiGeometry",
+        "Curve",
+        "Surface",
+        "CompositeCurve",
+        "CompositeSurface",
     ];
     // Field types from the schema: element name -> type, per feature type.
     let mut schema: std::collections::HashMap<String, Vec<(String, FieldType)>> = std::collections::HashMap::new();
@@ -1475,7 +1520,11 @@ pub fn read_gml(path: &Path) -> Result<Vec<Layer>> {
         for c in &e.children {
             match c.name.rsplit(':').next().unwrap_or("") {
                 "posList" | "pos" => {
-                    let d = c.attr("srsDimension").or_else(|| c.attr("dimension")).and_then(|d| d.parse().ok()).unwrap_or(if c.name.ends_with("pos") { 0 } else { dim });
+                    let d = c.attr("srsDimension").or_else(|| c.attr("dimension")).and_then(|d| d.parse().ok()).unwrap_or(if c.name.ends_with("pos") {
+                        0
+                    } else {
+                        dim
+                    });
                     let v: Vec<f64> = c.text.split_whitespace().filter_map(|t| t.parse().ok()).collect();
                     let d = if d == 0 { v.len().clamp(2, 3) } else { d.max(2) };
                     out.extend(v.chunks_exact(d).map(mk));
@@ -1575,11 +1624,19 @@ pub fn read_gml(path: &Path) -> Result<Vec<Layer>> {
             }
             "Surface" => {
                 let p: Vec<Geom> = kids(&["patches"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect();
-                if p.len() == 1 { p.into_iter().next() } else { Some(Geom::Collection(p)) }
+                if p.len() == 1 {
+                    p.into_iter().next()
+                } else {
+                    Some(Geom::Collection(p))
+                }
             }
             "MultiPoint" => Some(Geom::Collection(kids(&["pointMember", "pointMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
-            "MultiLineString" | "MultiCurve" | "CompositeCurve" => Some(Geom::Collection(kids(&["lineStringMember", "curveMember", "curveMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
-            "MultiPolygon" | "MultiSurface" | "CompositeSurface" => Some(Geom::Collection(kids(&["polygonMember", "surfaceMember", "surfaceMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
+            "MultiLineString" | "MultiCurve" | "CompositeCurve" => {
+                Some(Geom::Collection(kids(&["lineStringMember", "curveMember", "curveMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect()))
+            }
+            "MultiPolygon" | "MultiSurface" | "CompositeSurface" => {
+                Some(Geom::Collection(kids(&["polygonMember", "surfaceMember", "surfaceMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect()))
+            }
             "MultiGeometry" => Some(Geom::Collection(kids(&["geometryMember", "geometryMembers"]).into_iter().filter_map(|c| geom(c, dim, swap_o)).collect())),
             _ => None,
         }
@@ -1647,7 +1704,8 @@ pub fn read_gml(path: &Path) -> Result<Vec<Layer>> {
                         },
                     })
                     .collect();
-                let gs: Vec<Geom> = f.children.iter().filter(|c| is_geom_prop(c)).flat_map(|c| c.children.iter()).filter_map(|g| geom(g, 2, swap_all)).collect();
+                let gs: Vec<Geom> =
+                    f.children.iter().filter(|c| is_geom_prop(c)).flat_map(|c| c.children.iter()).filter_map(|g| geom(g, 2, swap_all)).collect();
                 let geom = match gs.len() {
                     0 => None,
                     1 => gs.into_iter().next(),
@@ -1829,7 +1887,15 @@ fn tab_object(b: &[u8], ptr: usize, block: usize, t: &MapTransform) -> Result<Op
             } else {
                 (0, 0)
             };
-            let version = if ty < 0x2e { 300 } else if ty < 0x34 { 450 } else if ty < 0x3a { 650 } else { 800 };
+            let version = if ty < 0x2e {
+                300
+            } else if ty < 0x34 {
+                450
+            } else if ty < 0x3a {
+                650
+            } else {
+                800
+            };
             let mut c = CoordStream::new(b, coord_ptr, block);
             if matches!(ty, 0x07 | 0x08) {
                 let n = data_size / if compressed { 4 } else { 8 };
@@ -2260,7 +2326,9 @@ pub fn read_mif(path: &Path) -> Result<Layer> {
 
 /// The `.gdb` folder of a file geodatabase: the folder itself, or a file inside it.
 pub fn gdb_dir(path: &Path) -> Option<PathBuf> {
-    let is_gdb = |p: &Path| p.is_dir() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("gdb")) && p.join("a00000001.gdbtable").is_file();
+    let is_gdb = |p: &Path| {
+        p.is_dir() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("gdb")) && p.join("a00000001.gdbtable").is_file()
+    };
     if is_gdb(path) {
         return Some(path.to_path_buf());
     }
@@ -2537,7 +2605,11 @@ fn gdb_row(t: &GdbTable, row: &[u8]) -> Result<Vec<GdbValue>> {
             4 | 12 => {
                 let n = gdb_varuint(row, &mut at)? as usize;
                 let s = take(&mut at, n)?;
-                GdbValue::Text(if t.utf8 || f.ty == 12 { String::from_utf8_lossy(s).into_owned() } else { String::from_utf16_lossy(&s.chunks(2).map(|c| u16::from_le_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect::<Vec<_>>()) })
+                GdbValue::Text(if t.utf8 || f.ty == 12 {
+                    String::from_utf8_lossy(s).into_owned()
+                } else {
+                    String::from_utf16_lossy(&s.chunks(2).map(|c| u16::from_le_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect::<Vec<_>>())
+                })
             }
             7 | 8 => {
                 let n = gdb_varuint(row, &mut at)? as usize;

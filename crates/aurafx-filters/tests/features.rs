@@ -234,7 +234,13 @@ fn twins_segmentation_and_cleanup() {
     for _k in 0..nz {
         for _j in 0..ny {
             for i in 0..nx {
-                let q = if i < 4 { a } else if i < 8 { twin } else { other };
+                let q = if i < 4 {
+                    a
+                } else if i < 8 {
+                    twin
+                } else {
+                    other
+                };
                 eul.extend(cx::quat_to_euler(q).map(|v| v as f32));
                 val.push(if i < 6 { 1.0 } else { 5.0 });
             }

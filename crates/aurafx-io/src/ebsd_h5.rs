@@ -143,7 +143,11 @@ fn columns(data: &Group, n: usize, skip: &[&str], rename: &[(&str, &str)]) -> Re
     let mut out = Vec::new();
     for d in data.datasets()? {
         let name = d.name().rsplit('/').next().unwrap_or("").to_string();
-        if skip.contains(&name.as_str()) || d.shape().len() > 2 || d.shape().first().copied().unwrap_or(0) as usize != n || d.shape().get(1).is_some_and(|c| *c != 1) {
+        if skip.contains(&name.as_str())
+            || d.shape().len() > 2
+            || d.shape().first().copied().unwrap_or(0) as usize != n
+            || d.shape().get(1).is_some_and(|c| *c != 1)
+        {
             continue;
         }
         let Ok((a, _)) = crate::vtkhdf::read(&d) else { continue };
@@ -163,7 +167,8 @@ fn need(g: &Group, names: &[&str], what: &str) -> Result<Vec<f64>> {
 /// The phases of a header: subgroups named 1, 2, ... of the first group found in `groups`.
 fn phases(header: &Group, groups: &[&str], laue: &dyn Fn(&Group) -> Option<Laue>, name: &[&str]) -> Vec<Phase> {
     let Some(pg) = groups.iter().find_map(|g| header.group(g).ok()) else { return Vec::new() };
-    let mut list: Vec<(i64, Group)> = pg.groups().unwrap_or_default().into_iter().filter_map(|g| g.name().rsplit('/').next().and_then(|n| n.parse().ok()).map(|k| (k, g))).collect();
+    let mut list: Vec<(i64, Group)> =
+        pg.groups().unwrap_or_default().into_iter().filter_map(|g| g.name().rsplit('/').next().and_then(|n| n.parse().ok()).map(|k| (k, g))).collect();
     list.sort_by_key(|(k, _)| *k);
     list.iter()
         .map(|(_, g)| {
@@ -191,7 +196,6 @@ fn hkl_laue(g: &Group) -> Option<Laue> {
 fn bruker_laue(g: &Group) -> Option<Laue> {
     num(g, &["IT"]).and_then(|s| Laue::from_space_group(s as i64))
 }
-
 
 /// TSL data (an `.h5ebsd` slice or an EDAX scan): angles in radians.
 fn tsl_map(header: &Group, data: &Group, edax: bool) -> Result<(Map, Vec<Phase>)> {
@@ -324,7 +328,8 @@ fn stack(maps: Vec<Map>, zstep: f64, z0: f64, phases: &[Phase]) -> Result<DataSe
     cells.insert(Array::new("EulerAngles", 3, ArrayData::F32(euler)));
     cells.insert(Array::new("Phases", 1, ArrayData::I32(maps.iter().flat_map(|m| m.phase[..n].iter().copied()).collect())));
     for (k, (name, _)) in m0.extra.iter().enumerate() {
-        let parts: Vec<ArrayData> = maps.iter().filter_map(|m| m.extra.get(k).filter(|(nm, _)| nm == name).map(|(_, a)| a.gather(1, &(0..n).collect::<Vec<_>>()))).collect();
+        let parts: Vec<ArrayData> =
+            maps.iter().filter_map(|m| m.extra.get(k).filter(|(nm, _)| nm == name).map(|(_, a)| a.gather(1, &(0..n).collect::<Vec<_>>()))).collect();
         if parts.len() != maps.len() {
             continue;
         }
@@ -353,7 +358,8 @@ pub fn read(path: &Path) -> Result<DataSet> {
         for z in z0..=z1 {
             let g = root.group(&z.to_string()).with_context(|| format!("{}: slice {z} missing", path.display()))?;
             let (header, data) = (g.group("Header")?, g.group("Data")?);
-            let (map, ph) = if m == "TSL" { tsl_map(&header, &data, false) } else { hkl_map(&header, &data) }.with_context(|| format!("{}: slice {z}", path.display()))?;
+            let (map, ph) =
+                if m == "TSL" { tsl_map(&header, &data, false) } else { hkl_map(&header, &data) }.with_context(|| format!("{}: slice {z}", path.display()))?;
             if phases_all.is_empty() {
                 phases_all = ph;
             }
@@ -373,7 +379,10 @@ pub fn read(path: &Path) -> Result<DataSet> {
         return Ok(ds);
     }
     let all = scans(&f);
-    let scan = option("scan").filter(|s| all.contains(s)).or_else(|| all.first().cloned()).ok_or_else(|| anyhow!("{}: no scan (a group holding EBSD)", path.display()))?;
+    let scan = option("scan")
+        .filter(|s| all.contains(s))
+        .or_else(|| all.first().cloned())
+        .ok_or_else(|| anyhow!("{}: no scan (a group holding EBSD)", path.display()))?;
     let ebsd = root.group(&scan)?.group("EBSD")?;
     let (header, data) = (ebsd.group("Header")?, ebsd.group("Data")?);
     let (map, ph) = if m.contains("Bruker") {
@@ -514,7 +523,8 @@ pub fn read_dream3d(path: &Path) -> Result<DataSet> {
         bail!("{}: no data container with a geometry", path.display());
     }
     let pick = option("data_container").filter(|s| s != ALL && list.iter().any(|(n, _)| n == s));
-    let wanted: Option<Vec<String>> = option("arrays").map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>()).filter(|v| !v.is_empty());
+    let wanted: Option<Vec<String>> =
+        option("arrays").map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>()).filter(|v| !v.is_empty());
     let dcs = f.group("DataContainers")?;
     let one = |name: &str| read_container(&dcs.group(name)?, &wanted).with_context(|| format!("{}: data container {name}", path.display()));
     if let Some(p) = pick {

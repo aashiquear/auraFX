@@ -19,13 +19,30 @@ use std::f64::consts::PI;
 /// A body star-shaped about its centre: one surface point along every direction.
 #[derive(Clone, Debug)]
 pub enum StarShape {
-    Sphere { centre: P3, radius: f64 },
+    Sphere {
+        centre: P3,
+        radius: f64,
+    },
     /// `rotation` maps body axes to world axes (columns are the body axes).
-    Ellipsoid { centre: P3, semi_axes: P3, rotation: Option<[[f64; 3]; 3]> },
+    Ellipsoid {
+        centre: P3,
+        semi_axes: P3,
+        rotation: Option<[[f64; 3]; 3]>,
+    },
     /// (|x/a|^r + |y/b|^r)^(t/r) + |z/c|^t = 1.
-    Superquadric { centre: P3, semi_axes: P3, exponent_xy: f64, exponent_z: f64, rotation: Option<[[f64; 3]; 3]> },
+    Superquadric {
+        centre: P3,
+        semi_axes: P3,
+        exponent_xy: f64,
+        exponent_z: f64,
+        rotation: Option<[[f64; 3]; 3]>,
+    },
     /// r = R (1 + sum a_lm Y_lm), the perturbation clamped to [-0.6, 2].
-    Harmonic { centre: P3, radius: f64, coefficients: Vec<(i32, i32, f64)> },
+    Harmonic {
+        centre: P3,
+        radius: f64,
+        coefficients: Vec<(i32, i32, f64)>,
+    },
 }
 
 fn normalize(d: P3) -> P3 {
@@ -48,13 +65,19 @@ fn to_body(d: P3, m: &Option<[[f64; 3]; 3]>) -> P3 {
 impl StarShape {
     pub fn centre(&self) -> P3 {
         match self {
-            StarShape::Sphere { centre, .. } | StarShape::Ellipsoid { centre, .. } | StarShape::Superquadric { centre, .. } | StarShape::Harmonic { centre, .. } => *centre,
+            StarShape::Sphere { centre, .. }
+            | StarShape::Ellipsoid { centre, .. }
+            | StarShape::Superquadric { centre, .. }
+            | StarShape::Harmonic { centre, .. } => *centre,
         }
     }
     pub fn with_centre(&self, c: P3) -> StarShape {
         let mut s = self.clone();
         match &mut s {
-            StarShape::Sphere { centre, .. } | StarShape::Ellipsoid { centre, .. } | StarShape::Superquadric { centre, .. } | StarShape::Harmonic { centre, .. } => *centre = c,
+            StarShape::Sphere { centre, .. }
+            | StarShape::Ellipsoid { centre, .. }
+            | StarShape::Superquadric { centre, .. }
+            | StarShape::Harmonic { centre, .. } => *centre = c,
         }
         s
     }
@@ -112,14 +135,21 @@ impl StarShape {
     pub fn volume_estimate(&self) -> f64 {
         let cs = CubedSphere::new([64; 3], Spacing::Equiangular);
         let c = self.centre();
-        let p: Vec<P3> = cs.directions.iter().map(|d| {
-            let s = self.surface_point(*d);
-            [s[0] - c[0], s[1] - c[1], s[2] - c[2]]
-        }).collect();
-        cs.quads.iter().map(|q| {
-            let [a, b, cc, d] = q.map(|i| p[i as usize]);
-            (crate::hex::dot(a, crate::hex::cross(b, cc)) + crate::hex::dot(a, crate::hex::cross(cc, d))) / 6.0
-        }).sum()
+        let p: Vec<P3> = cs
+            .directions
+            .iter()
+            .map(|d| {
+                let s = self.surface_point(*d);
+                [s[0] - c[0], s[1] - c[1], s[2] - c[2]]
+            })
+            .collect();
+        cs.quads
+            .iter()
+            .map(|q| {
+                let [a, b, cc, d] = q.map(|i| p[i as usize]);
+                (crate::hex::dot(a, crate::hex::cross(b, cc)) + crate::hex::dot(a, crate::hex::cross(cc, d))) / 6.0
+            })
+            .sum()
     }
 }
 
@@ -428,7 +458,16 @@ pub fn macro_block(shape: &StarShape, lo: [i64; 3], k: [usize; 3], h: f64, origi
     for i in 0..kx {
         for j in 0..ky {
             for l in 0..kz {
-                cells.push([lat(i, j, l), lat(i + 1, j, l), lat(i + 1, j + 1, l), lat(i, j + 1, l), lat(i, j, l + 1), lat(i + 1, j, l + 1), lat(i + 1, j + 1, l + 1), lat(i, j + 1, l + 1)]);
+                cells.push([
+                    lat(i, j, l),
+                    lat(i + 1, j, l),
+                    lat(i + 1, j + 1, l),
+                    lat(i, j + 1, l),
+                    lat(i, j, l + 1),
+                    lat(i + 1, j, l + 1),
+                    lat(i + 1, j + 1, l + 1),
+                    lat(i, j + 1, l + 1),
+                ]);
             }
         }
     }
@@ -438,7 +477,16 @@ pub fn macro_block(shape: &StarShape, lo: [i64; 3], k: [usize; 3], h: f64, origi
             for i in 0..mi - 1 {
                 for j in 0..mj - 1 {
                     let q = [ids[i * mj + j], ids[(i + 1) * mj + j], ids[(i + 1) * mj + j + 1], ids[i * mj + j + 1]];
-                    cells.push([inner[q[0] as usize], inner[q[1] as usize], inner[q[2] as usize], inner[q[3] as usize], outer[q[0] as usize], outer[q[1] as usize], outer[q[2] as usize], outer[q[3] as usize]]);
+                    cells.push([
+                        inner[q[0] as usize],
+                        inner[q[1] as usize],
+                        inner[q[2] as usize],
+                        inner[q[3] as usize],
+                        outer[q[0] as usize],
+                        outer[q[1] as usize],
+                        outer[q[2] as usize],
+                        outer[q[3] as usize],
+                    ]);
                 }
             }
         }
@@ -499,7 +547,16 @@ impl Grid {
             for j in 0..ny {
                 for l in 0..nz {
                     if alive[(i * ny + j) * nz + l] {
-                        cells.push([id(i, j, l), id(i + 1, j, l), id(i + 1, j + 1, l), id(i, j + 1, l), id(i, j, l + 1), id(i + 1, j, l + 1), id(i + 1, j + 1, l + 1), id(i, j + 1, l + 1)]);
+                        cells.push([
+                            id(i, j, l),
+                            id(i + 1, j, l),
+                            id(i + 1, j + 1, l),
+                            id(i, j + 1, l),
+                            id(i, j, l + 1),
+                            id(i + 1, j, l + 1),
+                            id(i + 1, j + 1, l + 1),
+                            id(i, j + 1, l + 1),
+                        ]);
                     }
                 }
             }
@@ -564,7 +621,18 @@ pub struct PackingSpec {
 
 impl Default for PackingSpec {
     fn default() -> Self {
-        PackingSpec { count: 10, radius_mean: 0.08, radius_std: 0.0, radius_min: None, radius_max: None, box_ratio: 1.35, gap_cells: 2, wall_cells: 1, min_radius_cells: 1.5, max_tries: 4000 }
+        PackingSpec {
+            count: 10,
+            radius_mean: 0.08,
+            radius_std: 0.0,
+            radius_min: None,
+            radius_max: None,
+            box_ratio: 1.35,
+            gap_cells: 2,
+            wall_cells: 1,
+            min_radius_cells: 1.5,
+            max_tries: 4000,
+        }
     }
 }
 
@@ -715,7 +783,15 @@ pub fn assemble(grid: &Grid, inclusions: &[Placed], block: &BlockOptions, opt: &
 /// largest unplaced box wherever it now fits. Every state keeps the boxes `gap_cells` apart and
 /// `wall_cells` from the faces, so the result always meshes; it never places fewer than the
 /// first pass.
-pub fn pack_collective(grid: &Grid, spec: &PackingSpec, rng: &mut Rng, make: &dyn Fn(f64, &mut Rng) -> StarShape, max_steps: usize, kinetic: f64, jump: i64) -> Vec<Placed> {
+pub fn pack_collective(
+    grid: &Grid,
+    spec: &PackingSpec,
+    rng: &mut Rng,
+    make: &dyn Fn(f64, &mut Rng) -> StarShape,
+    max_steps: usize,
+    kinetic: f64,
+    jump: i64,
+) -> Vec<Placed> {
     let h = grid.h;
     let lo_r = spec.radius_min.unwrap_or(spec.radius_mean - 3.0 * spec.radius_std).max(spec.min_radius_cells * h).max(1e-12);
     let hi_r = spec.radius_max.unwrap_or(spec.radius_mean + 3.0 * spec.radius_std).max(lo_r);

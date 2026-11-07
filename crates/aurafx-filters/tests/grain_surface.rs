@@ -133,11 +133,13 @@ fn gbcd_of_coherent_twins() {
     let mrd = gb.point_data().unwrap().get("MRD").unwrap();
     let dirs = gb.point_data().unwrap().get("CrystalDirection").unwrap();
     let at = |d: [f64; 3]| -> f64 {
-        let k = (0..dirs.len()).max_by(|a, b| {
-            let da: f64 = (0..3).map(|j| dirs.get(*a, j) * d[j]).sum();
-            let db: f64 = (0..3).map(|j| dirs.get(*b, j) * d[j]).sum();
-            da.total_cmp(&db)
-        }).unwrap();
+        let k = (0..dirs.len())
+            .max_by(|a, b| {
+                let da: f64 = (0..3).map(|j| dirs.get(*a, j) * d[j]).sum();
+                let db: f64 = (0..3).map(|j| dirs.get(*b, j) * d[j]).sum();
+                da.total_cmp(&db)
+            })
+            .unwrap();
         mrd.get(k, 0)
     };
     let (p111, p100, p110) = (at(c), at([0.0, 0.0, 1.0]), at([0.0, 1.0 / 2f64.sqrt(), 1.0 / 2f64.sqrt()]));
@@ -153,7 +155,11 @@ fn gbcd_of_coherent_twins() {
     // A random microstructure has no preferred misorientation: about 1 at 45 degrees about
     // [100] within 10 degrees.
     let v = run("voronoi_grains", None, &[("cells", serde_json::json!([60, 60, 60])), ("grains", 1500.into())]);
-    let r = run("gbcd_section", Some(&run("quick_surface_mesh", Some(&v), &[])), &[("angle", 45.0.into()), ("axis", serde_json::json!([1, 0, 0])), ("tolerance", 10.0.into())]);
+    let r = run(
+        "gbcd_section",
+        Some(&run("quick_surface_mesh", Some(&v), &[])),
+        &[("angle", 45.0.into()), ("axis", serde_json::json!([1, 0, 0])), ("tolerance", 10.0.into())],
+    );
     let mr = field(&r, "MisorientationMRD")[0];
     eprintln!("random: misorientation MRD {mr:.2}");
     assert!(mr > 0.4 && mr < 2.5, "{mr}");
@@ -208,7 +214,11 @@ fn gbcd_normalisation() {
     pd.field_data.insert(Array::new("FeaturePhases", 1, ArrayData::I32(std::iter::once(0).chain(std::iter::repeat_n(1, 2 * n)).collect())));
     pd.field_data.insert(Array::new("CrystalStructures", 1, ArrayData::U32(vec![999, 1])));
     for (angle, axis, tol) in [(45.0, [1.0, 0.0, 0.0], 10.0), (60.0, [1.0, 1.0, 1.0], 8.0), (30.0, [1.0, 1.0, 0.0], 10.0)] {
-        let g = run("gbcd_section", Some(&DataSet::PolyData(pd.clone())), &[("angle", angle.into()), ("axis", serde_json::json!(axis)), ("tolerance", tol.into()), ("sigma", 15.0.into())]);
+        let g = run(
+            "gbcd_section",
+            Some(&DataSet::PolyData(pd.clone())),
+            &[("angle", angle.into()), ("axis", serde_json::json!(axis)), ("tolerance", tol.into()), ("sigma", 15.0.into())],
+        );
         let mis = field(&g, "MisorientationMRD")[0];
         let mrd = g.point_data().unwrap().get("MRD").unwrap();
         let mean: f64 = (0..mrd.len()).map(|i| mrd.get(i, 0)).sum::<f64>() / mrd.len() as f64;

@@ -83,7 +83,8 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 None => return Err(PyValueError::new_err("color_by takes an array name or None")),
             },
             "component" if !is_param => {
-                let c = if val.is_null() { None } else { Some(val.as_u64().ok_or_else(|| PyValueError::new_err("component takes an index or None"))? as usize) };
+                let c =
+                    if val.is_null() { None } else { Some(val.as_u64().ok_or_else(|| PyValueError::new_err("component takes an index or None"))? as usize) };
                 s.set_display(id, |d| {
                     if let Some(cb) = d.color_by.as_mut() {
                         cb.component = c;
@@ -221,7 +222,8 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
             _ => {
                 // Readers take only the options their file offers (a reader on a server is
                 // checked once the server has said what they are).
-                let reader = s.nodes.get(&id).is_some_and(|n| matches!(n.kind, aurafx_pipeline::NodeKind::Reader { .. } | aurafx_pipeline::NodeKind::Remote { .. }));
+                let reader =
+                    s.nodes.get(&id).is_some_and(|n| matches!(n.kind, aurafx_pipeline::NodeKind::Reader { .. } | aurafx_pipeline::NodeKind::Remote { .. }));
                 if let Some(specs) = s.reader_specs(id).filter(|_| reader) {
                     if !specs.iter().any(|p| p.key == key) {
                         let keys: Vec<&str> = specs.iter().map(|p| p.key.as_str()).collect();
@@ -527,7 +529,9 @@ impl PyNode {
         let p = std::path::Path::new(&path);
         if all_times {
             if !aurafx_pipeline::Session::holds_all_times(p) {
-                return Err(PyValueError::new_err("all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case), Xdmf (.xmf) or CGNS (.cgns) file name"));
+                return Err(PyValueError::new_err(
+                    "all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case), Xdmf (.xmf) or CGNS (.cgns) file name",
+                ));
             }
             return session().lock().save_all_times(self.id, p).map(|_| ()).map_err(err);
         }
@@ -1569,7 +1573,11 @@ fn case_options(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<aurafx_pipeline:
                 "temperature" => o.temperature = v.extract()?,
                 "dump_every" => o.dump_every = v.extract()?,
                 "seed" => o.seed = v.extract()?,
-                k => return Err(PyValueError::new_err(format!("unknown case option {k}: material, axis, strain, steps, end_time, fixed, loaded, mc_steps, temperature, dump_every, seed"))),
+                k => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown case option {k}: material, axis, strain, steps, end_time, fixed, loaded, mc_steps, temperature, dump_every, seed"
+                    )))
+                }
             }
         }
     }
@@ -1584,7 +1592,13 @@ fn case_options(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<aurafx_pipeline:
 /// dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.
 #[pyfunction]
 #[pyo3(signature = (node, solver, folder, **kwargs))]
-fn simulation_case<'py>(py: Python<'py>, node: PyRef<'_, PyNode>, solver: String, folder: String, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Bound<'py, PyDict>> {
+fn simulation_case<'py>(
+    py: Python<'py>,
+    node: PyRef<'_, PyNode>,
+    solver: String,
+    folder: String,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Bound<'py, PyDict>> {
     let o = case_options(kwargs)?;
     let ds = node.output()?;
     let c = aurafx_pipeline::cases::write_case(&ds, &solver, std::path::Path::new(&folder), &o).map_err(err)?;

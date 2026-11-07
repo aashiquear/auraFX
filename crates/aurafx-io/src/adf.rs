@@ -100,11 +100,7 @@ impl AdfFile {
 
     /// A 12-byte disk pointer as an absolute position (None for the null pointer).
     fn ptr(&self, b: &[u8]) -> Option<u64> {
-        let (block, off) = if self.hex {
-            (hexnum(&b[..8]).ok()?, hexnum(&b[8..12]).ok()?)
-        } else {
-            (self.uint(&b[..8]), self.uint(&b[8..12]))
-        };
+        let (block, off) = if self.hex { (hexnum(&b[..8]).ok()?, hexnum(&b[8..12]).ok()?) } else { (self.uint(&b[..8]), self.uint(&b[8..12])) };
         if off >= BLOCK {
             return None;
         }

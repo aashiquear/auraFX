@@ -38,7 +38,19 @@ pub struct CaseOptions {
 
 impl Default for CaseOptions {
     fn default() -> Self {
-        Self { material: "Aluminium".into(), axis: 0, strain: 0.02, steps: 50, end_time: 1.0, fixed: String::new(), loaded: String::new(), mc_steps: 100.0, temperature: 0.0, dump_every: 10.0, seed: 12345 }
+        Self {
+            material: "Aluminium".into(),
+            axis: 0,
+            strain: 0.02,
+            steps: 50,
+            end_time: 1.0,
+            fixed: String::new(),
+            loaded: String::new(),
+            mc_steps: 100.0,
+            temperature: 0.0,
+            dump_every: 10.0,
+            seed: 12345,
+        }
     }
 }
 
@@ -55,15 +67,22 @@ pub struct Case {
 }
 
 fn material(name: &str) -> Result<&'static aurafx_crystal::mechanics::Material> {
-    aurafx_crystal::mechanics::MATERIALS.iter().find(|m| m.name.eq_ignore_ascii_case(name) || m.name.to_ascii_lowercase().starts_with(&name.to_ascii_lowercase())).ok_or_else(|| {
-        anyhow!("unknown material {name}; one of: {}", aurafx_crystal::mechanics::MATERIALS.iter().map(|m| m.name).collect::<Vec<_>>().join(", "))
-    })
+    aurafx_crystal::mechanics::MATERIALS
+        .iter()
+        .find(|m| m.name.eq_ignore_ascii_case(name) || m.name.to_ascii_lowercase().starts_with(&name.to_ascii_lowercase()))
+        .ok_or_else(|| {
+            anyhow!("unknown material {name}; one of: {}", aurafx_crystal::mechanics::MATERIALS.iter().map(|m| m.name).collect::<Vec<_>>().join(", "))
+        })
 }
 
 /// The grain mesh: grain ids per element, one block per grain, set names without spaces.
 fn grain_mesh(ds: &DataSet) -> Result<(UnstructuredGrid, Vec<i32>)> {
-    let mut ug = ds.to_unstructured().filter(|u| !u.cells.is_empty()).ok_or_else(|| anyhow!("a solver case needs a mesh: run Assign Grains (or Overlay Mesh of a microstructure) first"))?;
-    let g = ug.cell_data.get("grain_id").or_else(|| ug.cell_data.get("FeatureIds")).ok_or_else(|| anyhow!("the mesh has no grain_id: run Assign Grains first"))?;
+    let mut ug = ds
+        .to_unstructured()
+        .filter(|u| !u.cells.is_empty())
+        .ok_or_else(|| anyhow!("a solver case needs a mesh: run Assign Grains (or Overlay Mesh of a microstructure) first"))?;
+    let g =
+        ug.cell_data.get("grain_id").or_else(|| ug.cell_data.get("FeatureIds")).ok_or_else(|| anyhow!("the mesh has no grain_id: run Assign Grains first"))?;
     let gid: Vec<i32> = (0..g.len()).map(|i| g.get(i, 0) as i32).collect();
     if gid.iter().any(|g| *g <= 0) {
         bail!("some elements have grain id 0 (no grain): every element needs a grain for a polycrystal case");
@@ -212,7 +231,14 @@ pub fn write_case(ds: &DataSet, solver: &str, folder: &Path, o: &CaseOptions) ->
                 dtmin = o.end_time / o.steps.max(1) as f64 / 64.0,
             );
             write(folder, "polycrystal.i", &deck, &mut files)?;
-            Ok(Case { folder: folder.into(), files, template: "moose_polycrystal", input: "polycrystal.i".into(), command: "mpiexec -n {np} {exe} -i polycrystal.i".into(), outputs: "polycrystal_out.e".into() })
+            Ok(Case {
+                folder: folder.into(),
+                files,
+                template: "moose_polycrystal",
+                input: "polycrystal.i".into(),
+                command: "mpiexec -n {np} {exe} -i polycrystal.i".into(),
+                outputs: "polycrystal_out.e".into(),
+            })
         }
         "spparks" => {
             let DataSet::ImageData(img) = ds else { bail!("a SPPARKS case is made from a microstructure volume (image data with FeatureIds)") };
@@ -254,7 +280,14 @@ run             {steps}\n",
                 steps = o.mc_steps,
             );
             write(folder, "in.potts", &deck, &mut files)?;
-            Ok(Case { folder: folder.into(), files, template: "spparks", input: "in.potts".into(), command: "mpirun -np {np} {exe} -in in.potts".into(), outputs: "dump.potts".into() })
+            Ok(Case {
+                folder: folder.into(),
+                files,
+                template: "spparks",
+                input: "in.potts".into(),
+                command: "mpirun -np {np} {exe} -in in.potts".into(),
+                outputs: "dump.potts".into(),
+            })
         }
         "pinnacle" => {
             let m = material(&o.material)?;
@@ -325,7 +358,14 @@ run             {steps}\n",
                 snap = (o.steps / 4).max(1),
             );
             write(folder, "case.i", &deck, &mut files)?;
-            Ok(Case { folder: folder.into(), files, template: "pinnacle", input: "case.i".into(), command: "{exe} run case.i".into(), outputs: "solver/fields.pvd".into() })
+            Ok(Case {
+                folder: folder.into(),
+                files,
+                template: "pinnacle",
+                input: "case.i".into(),
+                command: "{exe} run case.i".into(),
+                outputs: "solver/fields.pvd".into(),
+            })
         }
         s => bail!("unknown solver {s}: one of moose, spparks, pinnacle"),
     }

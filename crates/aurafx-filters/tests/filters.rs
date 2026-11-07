@@ -868,7 +868,11 @@ fn amr_gaussian_pulse_matches_paraview() {
     use serde_json::json;
     let cell_sum = |d: &DataSet, name: &str| -> f64 {
         match d {
-            DataSet::MultiBlock(mb) => mb.leaves().iter().map(|(_, l)| l.cell_data().and_then(|c| c.get(name)).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum::<f64>()).unwrap_or(0.0)).sum(),
+            DataSet::MultiBlock(mb) => mb
+                .leaves()
+                .iter()
+                .map(|(_, l)| l.cell_data().and_then(|c| c.get(name)).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum::<f64>()).unwrap_or(0.0))
+                .sum(),
             d => d.cell_data().and_then(|c| c.get(name)).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum()).unwrap_or(0.0),
         }
     };
@@ -926,7 +930,11 @@ fn amr_gaussian_pulse_matches_paraview() {
     // Cell to point data averages within each box (covered cells included), as ParaView.
     let pts = run("cell_data_to_point_data", Some(&amr), &[]);
     let psum: f64 = match &pts {
-        DataSet::MultiBlock(mb) => mb.leaves().iter().map(|(_, l)| l.point_data().and_then(|p| p.get("Gaussian-Pulse")).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum::<f64>()).unwrap_or(0.0)).sum(),
+        DataSet::MultiBlock(mb) => mb
+            .leaves()
+            .iter()
+            .map(|(_, l)| l.point_data().and_then(|p| p.get("Gaussian-Pulse")).map(|a| (0..a.len()).map(|i| a.get(i, 0)).sum::<f64>()).unwrap_or(0.0))
+            .sum(),
         _ => panic!(),
     };
     close(psum, 17.109011619129443, "cell to point sum");
@@ -1053,7 +1061,11 @@ fn hyper_tree_grids_match_paraview() {
         .map(|c| {
             let q = sp.polys.cell(c);
             let p: Vec<[f64; 3]> = q.iter().map(|&i| sp.points.get(i as usize)).collect();
-            0.5 * ((p[0][0] * p[1][1] - p[1][0] * p[0][1]) + (p[1][0] * p[2][1] - p[2][0] * p[1][1]) + (p[2][0] * p[3][1] - p[3][0] * p[2][1]) + (p[3][0] * p[0][1] - p[0][0] * p[3][1])).abs()
+            0.5 * ((p[0][0] * p[1][1] - p[1][0] * p[0][1])
+                + (p[1][0] * p[2][1] - p[2][0] * p[1][1])
+                + (p[2][0] * p[3][1] - p[3][0] * p[2][1])
+                + (p[3][0] * p[0][1] - p[0][0] * p[3][1]))
+                .abs()
         })
         .sum();
     assert!((area - 18.0).abs() < 1e-9, "area {area}");
@@ -1063,14 +1075,16 @@ fn hyper_tree_grids_match_paraview() {
     assert_eq!(
         ids,
         vec![
-            2, 3, 9, 10, 14, 15, 16, 5, 6, 7, 8, 17, 27, 28, 29, 30, 31, 32, 33, 34, 20, 21, 22, 23, 24, 35, 36, 37, 38, 39, 40, 42, 26, 44, 45, 55, 56, 57, 58, 59, 60, 61, 62, 48, 49, 50,
-            51, 52, 53, 63, 64, 65, 66, 67, 68, 69, 70, 72, 73, 74, 75
+            2, 3, 9, 10, 14, 15, 16, 5, 6, 7, 8, 17, 27, 28, 29, 30, 31, 32, 33, 34, 20, 21, 22, 23, 24, 35, 36, 37, 38, 39, 40, 42, 26, 44, 45, 55, 56, 57,
+            58, 59, 60, 61, 62, 48, 49, 50, 51, 52, 53, 63, 64, 65, 66, 67, 68, 69, 70, 72, 73, 74, 75
         ]
     );
     // Generate Fields: (file, CellSize, ValidCell, CellCenter sums, TotalVisibleVolume).
-    for (file, size, valid, center, total) in
-        [("htg/tree3d.htg", 16.40625, 68.0, 236.2, 12.6), ("htg/tree2d.htg", 26.666666667, 65.0, 315.0, 18.0), ("htg/tree3d_mask.htg", 16.40625, 61.0, 218.325, 10.303125)]
-    {
+    for (file, size, valid, center, total) in [
+        ("htg/tree3d.htg", 16.40625, 68.0, 236.2, 12.6),
+        ("htg/tree2d.htg", 26.666666667, 65.0, 315.0, 18.0),
+        ("htg/tree3d_mask.htg", 16.40625, 61.0, 218.325, 10.303125),
+    ] {
         let g = run("hyper_tree_grid_generate_fields", Some(&td(file)), &[]);
         assert!((sum(&g, "CellSize", true) - size).abs() < 1e-8, "{file} CellSize {}", sum(&g, "CellSize", true));
         close(sum(&g, "ValidCell", true), valid, file);
@@ -1079,13 +1093,25 @@ fn hyper_tree_grids_match_paraview() {
     }
     // Evaluate Coarse on the masked file (default 0.5), Depth sums.
     let m = td("htg/tree3d_mask.htg");
-    for (op, want) in [("Min", 106.0), ("Max", 115.0), ("Sum", 261.0), ("Average", 111.375), ("Unmasked Average", 111.375), ("Elder Child", 113.0), ("Splatting Average", 126.0)] {
+    for (op, want) in [
+        ("Min", 106.0),
+        ("Max", 115.0),
+        ("Sum", 261.0),
+        ("Average", 111.375),
+        ("Unmasked Average", 111.375),
+        ("Elder Child", 113.0),
+        ("Splatting Average", 126.0),
+    ] {
         let e = run("hyper_tree_grid_evaluate_coarse", Some(&m), &[("operator", json!(op)), ("default", json!(0.5))]);
         close(sum(&e, "Depth", true), want, op);
     }
     // The descriptor source builds the same grids as the files ParaView wrote from it.
     let d3 = "R.R. ..R. .... | ...R .... R... ..R. R... ...R | .... .... .... .... .... .... .... .... .... ....";
-    let s = run("hyper_tree_grid", None, &[("dimensions", json!([4, 3, 3])), ("max_depth", json!(4)), ("descriptor", json!(d3)), ("grid_scale", json!([1.5, 1.0, 0.7]))]);
+    let s = run(
+        "hyper_tree_grid",
+        None,
+        &[("dimensions", json!([4, 3, 3])), ("max_depth", json!(4)), ("descriptor", json!(d3)), ("grid_scale", json!([1.5, 1.0, 0.7]))],
+    );
     assert_eq!((s.n_cells(), leaves(&s)), (76, 68));
     close(sum(&s, "Depth", true), 104.0, "source");
     let sug = run("hyper_tree_grid_to_unstructured_grid", Some(&s), &[]);
@@ -1093,11 +1119,28 @@ fn hyper_tree_grids_match_paraview() {
     let pts = |d: &DataSet| d.points().unwrap();
     assert_eq!((0..pts(&sug).len()).map(|i| pts(&sug).get(i)).collect::<Vec<_>>(), (0..pts(&fug).len()).map(|i| pts(&fug).get(i)).collect::<Vec<_>>());
     let d2 = "R..R.R..R | .R....... ......... R........ ..R...... | ......... ......... .........";
-    let s2 = run("hyper_tree_grid", None, &[("dimensions", json!([4, 4, 1])), ("branch_factor", json!("3")), ("max_depth", json!(3)), ("descriptor", json!(d2)), ("grid_scale", json!([1.0, 2.0, 1.0]))]);
+    let s2 = run(
+        "hyper_tree_grid",
+        None,
+        &[
+            ("dimensions", json!([4, 4, 1])),
+            ("branch_factor", json!("3")),
+            ("max_depth", json!(3)),
+            ("descriptor", json!(d2)),
+            ("grid_scale", json!([1.0, 2.0, 1.0])),
+        ],
+    );
     assert_eq!((s2.n_cells(), leaves(&s2)), (72, 65));
     // The random source with VTK's random sequence: ParaView's defaults and one other setting.
     for (set, cells, nleaves, dsum, leaf_sum, first_ids) in [
-        (vec![], 65354, 57191, 305288.0, 275290.0, vec![0i64, 14571, 14587, 14588, 14589, 14595, 14596, 14603, 14604, 14605, 14606, 14607, 14608, 14609, 14610]),
+        (
+            vec![],
+            65354,
+            57191,
+            305288.0,
+            275290.0,
+            vec![0i64, 14571, 14587, 14588, 14589, 14595, 14596, 14603, 14604, 14605, 14606, 14607, 14608, 14609, 14610],
+        ),
         (
             vec![("seed", json!(7)), ("max_depth", json!(3)), ("split_fraction", json!(0.4)), ("dimensions", json!([4, 3, 1]))],
             34,
@@ -1117,7 +1160,6 @@ fn hyper_tree_grids_match_paraview() {
     }
 }
 
-
 /// Molecules: the CML reader and Compute Molecule Bonds against ParaView 6.1.1 (its CML
 /// reader and bond perceiver on testdata/molecules/test.cml).
 #[test]
@@ -1132,7 +1174,8 @@ fn molecule_bonds_match_paraview() {
     assert_eq!(orders, vec![2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     let bonds = |d: &DataSet| -> Vec<(u32, u32)> {
         let DataSet::PolyData(p) = d else { panic!() };
-        let mut v: Vec<(u32, u32)> = (0..p.lines.len()).map(|c| (p.lines.cell(c)[0].min(p.lines.cell(c)[1]), p.lines.cell(c)[0].max(p.lines.cell(c)[1]))).collect();
+        let mut v: Vec<(u32, u32)> =
+            (0..p.lines.len()).map(|c| (p.lines.cell(c)[0].min(p.lines.cell(c)[1]), p.lines.cell(c)[0].max(p.lines.cell(c)[1]))).collect();
         v.sort();
         v
     };
@@ -1145,7 +1188,11 @@ fn molecule_bonds_match_paraview() {
     let mut with_extra = file_bonds.clone();
     with_extra.extend([(11, 12), (16, 19)]);
     with_extra.sort();
-    for (set, want) in [(vec![], with_extra.clone()), (vec![("tolerance", json!(0.1))], file_bonds.clone()), (vec![("absolute", json!(false)), ("tolerance", json!(1.1))], file_bonds.clone())] {
+    for (set, want) in [
+        (vec![], with_extra.clone()),
+        (vec![("tolerance", json!(0.1))], file_bonds.clone()),
+        (vec![("absolute", json!(false)), ("tolerance", json!(1.1))], file_bonds.clone()),
+    ] {
         assert_eq!(bonds(&run("compute_molecule_bonds", Some(&atoms), &set)), want, "{set:?}");
     }
     // On the file's molecule the file's bonds stay and only the new ones are added (with order 1).
@@ -1160,7 +1207,10 @@ fn molecule_bonds_match_paraview() {
 #[test]
 fn cell_grids_match_paraview() {
     use serde_json::{json, Value};
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/paraview_reference.json")).unwrap()).unwrap();
+    let reference: Value = serde_json::from_str(
+        &std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/paraview_reference.json")).unwrap(),
+    )
+    .unwrap();
     let close = |a: f64, b: f64| (a - b).abs() <= 1e-9 * (1.0 + b.abs());
     for (file, want) in reference.as_object().unwrap() {
         let g = td(&format!("cellgrid/{file}"));
@@ -1243,7 +1293,10 @@ fn hyper_tree_grid_files_round_trip() {
         ("tree2d", td("htg/tree2d.htg")),
         ("tree3d_mask", td("htg/tree3d_mask.htg")),
         ("random", run("random_hyper_tree_grid", None, &[("seed", json!(7)), ("max_depth", json!(4)), ("split_fraction", json!(0.4))])),
-        ("descriptor", run("hyper_tree_grid", None, &[("dimensions", json!([4, 3, 1])), ("max_depth", json!(3)), ("descriptor", json!("R..R.. | .R.. R... | ........"))])),
+        (
+            "descriptor",
+            run("hyper_tree_grid", None, &[("dimensions", json!([4, 3, 1])), ("max_depth", json!(3)), ("descriptor", json!("R..R.. | .R.. R... | ........"))]),
+        ),
     ];
     // The descriptor source with a mask against ParaView 6.1.1: (cells, visible leaves, Depth sum).
     for (k, (dims, depth, desc, mask, want)) in [
@@ -1254,7 +1307,11 @@ fn hyper_tree_grid_files_round_trip() {
     .into_iter()
     .enumerate()
     {
-        let g = run("hyper_tree_grid", None, &[("dimensions", json!(dims)), ("max_depth", json!(depth)), ("descriptor", json!(desc)), ("use_mask", json!(true)), ("mask", json!(mask))]);
+        let g = run(
+            "hyper_tree_grid",
+            None,
+            &[("dimensions", json!(dims)), ("max_depth", json!(depth)), ("descriptor", json!(desc)), ("use_mask", json!(true)), ("mask", json!(mask))],
+        );
         let DataSet::HyperTreeGrid(h) = &g else { panic!() };
         let u = run("hyper_tree_grid_to_unstructured_grid", Some(&g), &[]);
         let d = u.cell_data().unwrap().get("Depth").unwrap();
@@ -1270,7 +1327,11 @@ fn hyper_tree_grid_files_round_trip() {
             _ => panic!(),
         };
         let DataSet::HyperTreeGrid(b) = &back else { panic!("{name}: read back as {}", back.type_name()) };
-        assert_eq!((b.n_vertices(), b.n_leaves(), b.max_depth(), b.branch_factor, b.coords.clone()), (h.n_vertices(), h.n_leaves(), h.max_depth(), h.branch_factor, h.coords.clone()), "{name}");
+        assert_eq!(
+            (b.n_vertices(), b.n_leaves(), b.max_depth(), b.branch_factor, b.coords.clone()),
+            (h.n_vertices(), h.n_leaves(), h.max_depth(), h.branch_factor, h.coords.clone()),
+            "{name}"
+        );
         // What ParaView 6.1.1 reads from our files: (cells, visible leaves, leaf Depth sum).
         let pv = match name {
             "descriptor" => Some((22, 18, 22.0)),
@@ -1307,7 +1368,9 @@ fn hyper_tree_grid_files_round_trip() {
 #[test]
 fn hyper_tree_grid_dual_matches_paraview() {
     use serde_json::{json, Value};
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/dual_reference.json")).unwrap()).unwrap();
+    let reference: Value =
+        serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/dual_reference.json")).unwrap())
+            .unwrap();
     let source = |dims: [i64; 3], depth: i64, desc: &str, mask: Option<&str>| {
         let mut p = vec![("dimensions", json!(dims)), ("max_depth", json!(depth)), ("descriptor", json!(desc))];
         if let Some(m) = mask {
@@ -1326,8 +1389,34 @@ fn hyper_tree_grid_dual_matches_paraview() {
         ("plane_mask2", source([4, 4, 1], 2, "R...R.... | ........", Some("111011111 | 11111011"))),
         ("box_mask", source([3, 3, 3], 2, "R....R.. | ................", Some("10111111 | 1111111111111110"))),
         ("box_mask2", source([3, 3, 3], 3, "R......R | .......R ........ | ........", Some("11101111 | 11111111 11011111 | 11111110"))),
-        ("random_mask2d", run("random_hyper_tree_grid", None, &[("dimensions", json!([5, 5, 1])), ("seed", json!(3)), ("max_depth", json!(3)), ("split_fraction", json!(0.5)), ("masked_fraction", json!(0.4))])),
-        ("random_mask3d", run("random_hyper_tree_grid", None, &[("dimensions", json!([3, 3, 3])), ("seed", json!(5)), ("max_depth", json!(3)), ("split_fraction", json!(0.5)), ("masked_fraction", json!(0.4))])),
+        (
+            "random_mask2d",
+            run(
+                "random_hyper_tree_grid",
+                None,
+                &[
+                    ("dimensions", json!([5, 5, 1])),
+                    ("seed", json!(3)),
+                    ("max_depth", json!(3)),
+                    ("split_fraction", json!(0.5)),
+                    ("masked_fraction", json!(0.4)),
+                ],
+            ),
+        ),
+        (
+            "random_mask3d",
+            run(
+                "random_hyper_tree_grid",
+                None,
+                &[
+                    ("dimensions", json!([3, 3, 3])),
+                    ("seed", json!(5)),
+                    ("max_depth", json!(3)),
+                    ("split_fraction", json!(0.5)),
+                    ("masked_fraction", json!(0.4)),
+                ],
+            ),
+        ),
     ];
     for (name, g) in inputs {
         let want = reference[name]["cells"].as_array().unwrap();
@@ -1336,7 +1425,10 @@ fn hyper_tree_grid_dual_matches_paraview() {
         if u.cells.len() != want.len() {
             for c in 0..u.cells.len() {
                 let p: Vec<[f64; 3]> = u.cells.cell(c).iter().map(|&i| u.points.get(i as usize)).collect();
-                eprintln!("ours {c}: {p:?} depth {:?}", u.cells.cell(c).iter().map(|&i| u.point_data.get("Depth").unwrap().get(i as usize, 0)).collect::<Vec<_>>());
+                eprintln!(
+                    "ours {c}: {p:?} depth {:?}",
+                    u.cells.cell(c).iter().map(|&i| u.point_data.get("Depth").unwrap().get(i as usize, 0)).collect::<Vec<_>>()
+                );
             }
             for (c, w) in want.iter().enumerate() {
                 eprintln!("pv {c}: {} depth {}", w["points"], w["depth"]);
@@ -1374,7 +1466,13 @@ fn random_hyper_tree_grid_mask_matches_paraview() {
         let g = run(
             "random_hyper_tree_grid",
             None,
-            &[("dimensions", json!(dims)), ("seed", json!(seed)), ("max_depth", json!(depth)), ("split_fraction", json!(split)), ("masked_fraction", json!(frac))],
+            &[
+                ("dimensions", json!(dims)),
+                ("seed", json!(seed)),
+                ("max_depth", json!(depth)),
+                ("split_fraction", json!(split)),
+                ("masked_fraction", json!(frac)),
+            ],
         );
         let DataSet::HyperTreeGrid(h) = &g else { panic!() };
         let u = run("hyper_tree_grid_to_unstructured_grid", Some(&g), &[]);
@@ -1391,7 +1489,9 @@ fn random_hyper_tree_grid_mask_matches_paraview() {
 #[test]
 fn resample_amr_matches_paraview() {
     use serde_json::{json, Value};
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/amr/resample_reference.json")).unwrap()).unwrap();
+    let reference: Value =
+        serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/amr/resample_reference.json")).unwrap())
+            .unwrap();
     for (key, want) in reference.as_object().unwrap() {
         let input = match key.as_str() {
             "pulse2d" => run("amr_gaussian_pulse", None, &[("dimension", json!("2D"))]),
@@ -1422,11 +1522,19 @@ fn resample_amr_matches_paraview() {
             for k in 0..n[2] {
                 for j in 0..n[1] {
                     for i in 0..n[0] {
-                        let q = [img.origin[0] + (i as f64 + 0.5) * img.spacing[0], img.origin[1] + (j as f64 + 0.5) * img.spacing[1], img.origin[2] + (k as f64 + 0.5) * img.spacing[2]];
+                        let q = [
+                            img.origin[0] + (i as f64 + 0.5) * img.spacing[0],
+                            img.origin[1] + (j as f64 + 0.5) * img.spacing[1],
+                            img.origin[2] + (k as f64 + 0.5) * img.spacing[2],
+                        ];
                         let id = i + n[0] * (j + n[1] * k);
                         let fine = (q[0] <= -1.0 && q[1] <= -0.5) || (q[0] >= -0.5 && q[1] >= -1.0);
                         let half = if fine { 0.125 } else { 0.25 };
-                        assert!((0..3).all(|a| (c.get(id, a) - q[a]).abs() <= half + 1e-12), "{key} cell {id}: centroid {:?} for center {q:?}", (0..3).map(|a| c.get(id, a)).collect::<Vec<_>>());
+                        assert!(
+                            (0..3).all(|a| (c.get(id, a) - q[a]).abs() <= half + 1e-12),
+                            "{key} cell {id}: centroid {:?} for center {q:?}",
+                            (0..3).map(|a| c.get(id, a)).collect::<Vec<_>>()
+                        );
                     }
                 }
             }
@@ -1454,7 +1562,9 @@ fn resample_amr_matches_paraview() {
 #[test]
 fn hyper_tree_grid_surfaces_match_paraview() {
     use serde_json::{json, Value};
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/surface_reference.json")).unwrap()).unwrap();
+    let reference: Value =
+        serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/surface_reference.json")).unwrap())
+            .unwrap();
     let source = |dims: [i64; 3], depth: i64, desc: &str, mask: Option<&str>| {
         let mut p = vec![("dimensions", json!(dims)), ("max_depth", json!(depth)), ("descriptor", json!(desc))];
         if let Some(m) = mask {
@@ -1464,7 +1574,17 @@ fn hyper_tree_grid_surfaces_match_paraview() {
         run("hyper_tree_grid", None, &p)
     };
     let random = |dims: [i64; 3], seed: i64, depth: i64, split: f64, frac: f64| {
-        run("random_hyper_tree_grid", None, &[("dimensions", json!(dims)), ("seed", json!(seed)), ("max_depth", json!(depth)), ("split_fraction", json!(split)), ("masked_fraction", json!(frac))])
+        run(
+            "random_hyper_tree_grid",
+            None,
+            &[
+                ("dimensions", json!(dims)),
+                ("seed", json!(seed)),
+                ("max_depth", json!(depth)),
+                ("split_fraction", json!(split)),
+                ("masked_fraction", json!(frac)),
+            ],
+        )
     };
     let inputs: Vec<(&str, DataSet)> = vec![
         ("tree3d.htg", td("htg/tree3d.htg")),
@@ -1518,7 +1638,10 @@ fn transform_matches_paraview() {
 #[test]
 fn cell_grid_filters_match_paraview() {
     use serde_json::{json, Value};
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/filters_reference.json")).unwrap()).unwrap();
+    let reference: Value = serde_json::from_str(
+        &std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/filters_reference.json")).unwrap(),
+    )
+    .unwrap();
     let check = |key: &str, g: &DataSet| {
         let want = &reference[key];
         let ug = run("cell_grid_to_unstructured_grid", Some(g), &[]);
@@ -1528,7 +1651,9 @@ fn cell_grid_filters_match_paraview() {
         assert_eq!(pts.len(), wp.len(), "{key} points");
         for (wi, w) in wp.iter().enumerate() {
             let w: Vec<f64> = w.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
-            let i = (0..pts.len()).find(|&i| (0..3).all(|k| (pts.get(i)[k] - w[k]).abs() <= 1e-5 * (1.0 + w[k].abs()))).unwrap_or_else(|| panic!("{key}: no point at {w:?}"));
+            let i = (0..pts.len())
+                .find(|&i| (0..3).all(|k| (pts.get(i)[k] - w[k]).abs() <= 1e-5 * (1.0 + w[k].abs())))
+                .unwrap_or_else(|| panic!("{key}: no point at {w:?}"));
             for (name, vals) in want["arrays"].as_object().unwrap() {
                 let a = ug.point_data().unwrap().get(name).unwrap_or_else(|| panic!("{key}: no {name}"));
                 for (c, v) in vals[wi].as_array().unwrap().iter().enumerate() {
@@ -1577,7 +1702,9 @@ fn cell_grid_probe_matches_paraview() {
     // same cells; its Newton step fails on 2-D cells (a singular Jacobian: NaN parameters
     // unless the point is the parametric origin) and reads uninitialized memory for edges,
     // so there auraFX's coordinates are checked against the points instead.
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/probe_reference.json")).unwrap()).unwrap();
+    let reference: Value =
+        serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/probe_reference.json")).unwrap())
+            .unwrap();
     let nums = |v: &Value| -> Vec<f64> { v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect() };
     let mut checked = 0;
     for (file, r) in reference.as_object().unwrap() {
@@ -1643,7 +1770,9 @@ fn cell_grid_probe_matches_paraview() {
         let (op, cell, shape) = (out.points().unwrap(), pd.get("ContainingCellID").unwrap(), pd.get("shape").unwrap());
         let cp = centers.points().unwrap();
         for c in 0..cp.len() {
-            let i = (0..op.len()).find(|&i| cell.get(i, 0) as usize == c && (0..3).all(|k| (op.get(i)[k] - cp.get(c)[k]).abs() < 1e-5)).unwrap_or_else(|| panic!("{file}: center {c} not found"));
+            let i = (0..op.len())
+                .find(|&i| cell.get(i, 0) as usize == c && (0..3).all(|k| (op.get(i)[k] - cp.get(c)[k]).abs() < 1e-5))
+                .unwrap_or_else(|| panic!("{file}: center {c} not found"));
             (0..3).for_each(|k| assert!((shape.get(i, k) - cp.get(c)[k]).abs() < 1e-5, "{file}: center {c}"));
         }
     }
@@ -1660,7 +1789,9 @@ fn cell_grid_probe_matches_paraview() {
 #[test]
 fn cell_grid_compute_sides_matches_paraview() {
     use serde_json::{json, Value};
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/sides_reference.json")).unwrap()).unwrap();
+    let reference: Value =
+        serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cellgrid/sides_reference.json")).unwrap())
+            .unwrap();
     let include = |f: u64| match f {
         37 => "Next lowest dimension",
         32 => "Surfaces of inputs",
@@ -1724,12 +1855,15 @@ fn cell_grid_compute_sides_matches_paraview() {
                 let ug = g.to_unstructured();
                 assert_eq!(ug.cells.len(), cells.len(), "{key} cells");
                 let pts = &ug.points;
-                let mut ours: Vec<(u8, Vec<[f64; 3]>)> = (0..ug.cells.len()).map(|i| (ug.cells.cell_type(i) as u8, ug.cells.cell(i).iter().map(|&p| pts.get(p as usize)).collect())).collect();
+                let mut ours: Vec<(u8, Vec<[f64; 3]>)> =
+                    (0..ug.cells.len()).map(|i| (ug.cells.cell_type(i) as u8, ug.cells.cell(i).iter().map(|&p| pts.get(p as usize)).collect())).collect();
                 for c in cells {
                     let ty = c[0].as_u64().unwrap() as u8;
                     let corners: Vec<[f64; 3]> = c[1].as_array().unwrap().iter().map(|p| std::array::from_fn(|k| p[k].as_f64().unwrap())).collect();
                     // ParaView lists quadratic cells' other nodes after the corners.
-                    let same = |o: &(u8, Vec<[f64; 3]>)| o.0 == ty && o.1.len() <= corners.len() && o.1.iter().zip(&corners).all(|(a, b)| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-9));
+                    let same = |o: &(u8, Vec<[f64; 3]>)| {
+                        o.0 == ty && o.1.len() <= corners.len() && o.1.iter().zip(&corners).all(|(a, b)| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-9))
+                    };
                     let i = ours.iter().position(same).unwrap_or_else(|| panic!("{key}: no cell {ty} {corners:?}"));
                     ours.swap_remove(i);
                 }
@@ -1773,7 +1907,9 @@ fn cell_grid_compute_sides_matches_paraview() {
 #[test]
 fn hyper_tree_grid_interfaces_match_paraview() {
     use serde_json::{json, Value};
-    let reference: Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/interface_reference.json")).unwrap()).unwrap();
+    let reference: Value =
+        serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/htg/interface_reference.json")).unwrap())
+            .unwrap();
     let mut checked = 0;
     for (key, want) in reference.as_object().unwrap() {
         let (name, fill) = key.split_once('#').unwrap();
@@ -1826,7 +1962,9 @@ fn hyper_tree_grid_interfaces_match_paraview() {
 #[test]
 fn grains_orientation_filters() {
     use aurafx_crystal::{self as cx, Laue};
-    let exp: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ebsd/ebsd_expected.json")).unwrap()).unwrap();
+    let exp: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ebsd/ebsd_expected.json")).unwrap())
+            .unwrap();
     // Nickel: one color per grain (each grain turns by at most 2 degrees across the map).
     let ni = td("ebsd/ni_map.ang");
     let c = run("orientation_colors", Some(&ni), &[]);
@@ -1866,7 +2004,11 @@ fn grains_orientation_filters() {
     assert!(black > 20 && hex > 100, "{black} {hex}");
     // Euler -> quaternions (fundamental zone) -> Euler describes the same orientations.
     let q = run("convert_orientations", Some(&ni), &[("output_type", "Quaternions".into()), ("reduce", true.into())]);
-    let back = run("convert_orientations", Some(&q), &[("orientations", "Quats".into()), ("input_type", "Quaternions".into()), ("output_type", "Euler angles".into()), ("name", "E2".into())]);
+    let back = run(
+        "convert_orientations",
+        Some(&q),
+        &[("orientations", "Quats".into()), ("input_type", "Quaternions".into()), ("output_type", "Euler angles".into()), ("name", "E2".into())],
+    );
     let (e1, e2) = (back.cell_data().unwrap().get("EulerAngles").unwrap(), back.cell_data().unwrap().get("E2").unwrap());
     let qa = back.cell_data().unwrap().get("Quats").unwrap();
     for k in (0..e1.len()).step_by(37) {
@@ -2063,7 +2205,8 @@ fn td_path(p: &std::path::Path) -> DataSet {
 /// Box Mesh, Inclusion Mesh, Elevate and Mesh Quality's hexahedron metrics.
 #[test]
 fn structured_hex_meshes() {
-    let b = run("box_mesh", None, &[("size", serde_json::json!([2, 1, 1])), ("cells", serde_json::json!([4, 2, 2])), ("grading", serde_json::json!([3, 1, 1]))]);
+    let b =
+        run("box_mesh", None, &[("size", serde_json::json!([2, 1, 1])), ("cells", serde_json::json!([4, 2, 2])), ("grading", serde_json::json!([3, 1, 1]))]);
     assert_eq!((b.n_points(), b.n_cells()), (5 * 3 * 3, 16));
     assert_eq!(b.field_data().get("SideSet x-").unwrap().len(), 4);
     let q = run("mesh_quality", Some(&b), &[]);
@@ -2094,7 +2237,8 @@ fn structured_hex_meshes() {
     assert!((t.columns.get("Min").unwrap().get(row, 0) - min).abs() < 1e-12);
     assert_eq!(t.columns.get("CellsOutside").unwrap().get(row, 0), 0.0);
     // HEX27 with the curved interface: same elements, more nodes.
-    let m27 = run("inclusion_mesh", None, &[("count", 6.into()), ("radius", 0.08.into()), ("cells", 20.into()), ("seed", 3.into()), ("element", "HEX27".into())]);
+    let m27 =
+        run("inclusion_mesh", None, &[("count", 6.into()), ("radius", 0.08.into()), ("cells", 20.into()), ("seed", 3.into()), ("element", "HEX27".into())]);
     assert_eq!(m27.n_cells(), m.n_cells());
     assert!(m27.n_points() > 6 * m.n_points());
     // Extract Set: the interface faces as a surface.
@@ -2111,7 +2255,11 @@ fn structured_hex_meshes() {
     let bottom = run("extract_set", Some(&pl), &[("set", "z-".into())]);
     let thick = run("sweep_quads", Some(&bottom), &[("distance", 4.0.into()), ("layers", 3.into())]);
     assert_eq!(thick.n_cells(), 3 * 860);
-    let g = run("geometry", None, &[("commands", "brick x 2 y 1 z 1; cylinder radius 0.3 height 1; move body 2 x 3; mesh body 1 2 size 0.25".into()), ("output", "Hex mesh".into())]);
+    let g = run(
+        "geometry",
+        None,
+        &[("commands", "brick x 2 y 1 z 1; cylinder radius 0.3 height 1; move body 2 x 3; mesh body 1 2 size 0.25".into()), ("output", "Hex mesh".into())],
+    );
     assert!(g.field_data().get("SideSet brick 1 x+").is_some() && g.field_data().get("SideSet cylinder 2 side").is_some());
     let dense = run("inclusion_mesh", None, &[("count", 30.into()), ("radius", 0.07.into()), ("cells", 24.into()), ("packing", "Collective".into())]);
     let sparse = run("inclusion_mesh", None, &[("count", 30.into()), ("radius", 0.07.into()), ("cells", 24.into())]);
@@ -2182,6 +2330,13 @@ fn tet_meshing_filters() {
     assert!((0..md.len()).all(|i| md.get(i, 0) > 5.0));
     let r = run("refine_region", Some(&t), &[("box_min", serde_json::json!([0.0, -1.0, -1.0])), ("box_max", serde_json::json!([1.0, 1.0, 1.0]))]);
     assert!(r.n_cells() > 3 * t.n_cells());
-    let g = run("geometry", None, &[("commands", "brick x 2 y 1 z 1; cylinder radius 0.3 height 2; subtract body 2 from body 1; mesh body 1 size 0.1".into()), ("output", "Tet mesh".into())]);
+    let g = run(
+        "geometry",
+        None,
+        &[
+            ("commands", "brick x 2 y 1 z 1; cylinder radius 0.3 height 2; subtract body 2 from body 1; mesh body 1 size 0.1".into()),
+            ("output", "Tet mesh".into()),
+        ],
+    );
     assert!(g.field_data().get("SideSet cylinder 2 side").is_some() && g.field_data().get("SideSet brick 1 z+").is_some());
 }

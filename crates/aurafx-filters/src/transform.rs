@@ -11,7 +11,8 @@ pub fn affine(translate: [f64; 3], rotate_deg: [f64; 3], scale: [f64; 3]) -> imp
     let rxm = [[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]];
     let rym = [[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]];
     let rzm = [[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]];
-    let mul = |a: [[f64; 3]; 3], b: [[f64; 3]; 3]| -> [[f64; 3]; 3] { std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| a[i][k] * b[k][j]).sum())) };
+    let mul =
+        |a: [[f64; 3]; 3], b: [[f64; 3]; 3]| -> [[f64; 3]; 3] { std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| a[i][k] * b[k][j]).sum())) };
     let m = mul(mul(rzm, rxm), rym);
     move |p: [f64; 3]| -> [f64; 3] {
         let s = [p[0] * scale[0], p[1] * scale[1], p[2] * scale[2]];

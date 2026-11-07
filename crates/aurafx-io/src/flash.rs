@@ -138,7 +138,11 @@ pub fn read_particles(path: &Path) -> Result<PolyData> {
                     Datatype::FloatingPoint { size: 4, .. } => f32::from_le_bytes(rec[o..o + 4].try_into().unwrap()) as f64,
                     Datatype::FixedPoint { size: 4, signed, .. } => {
                         let b: [u8; 4] = rec[o..o + 4].try_into().unwrap();
-                        if *signed { i32::from_le_bytes(b) as f64 } else { u32::from_le_bytes(b) as f64 }
+                        if *signed {
+                            i32::from_le_bytes(b) as f64
+                        } else {
+                            u32::from_le_bytes(b) as f64
+                        }
                     }
                     Datatype::FixedPoint { size: 8, .. } => i64::from_le_bytes(rec[o..o + 8].try_into().unwrap()) as f64,
                     _ => f64::NAN,
@@ -260,12 +264,7 @@ pub fn read(path: &Path) -> Result<DataSet> {
         let l = (levels[b] as usize).saturating_sub(1);
         let (lo, hi) = bounds[b];
         let spacing: [f64; 3] = std::array::from_fn(|k| if dims[k] > 1 { (hi[k] - lo[k]) / (dims[k] as f64 - 1.0) } else { 1.0 });
-        let mut img = ImageData {
-            origin: lo,
-            spacing,
-            extent: [0, dims[0] as i64 - 1, 0, dims[1] as i64 - 1, 0, dims[2] as i64 - 1],
-            ..Default::default()
-        };
+        let mut img = ImageData { origin: lo, spacing, extent: [0, dims[0] as i64 - 1, 0, dims[1] as i64 - 1, 0, dims[2] as i64 - 1], ..Default::default() };
         for (name, v) in &fields {
             img.cell_data.insert(Array::scalars_f64(name.clone(), v[b * per_block..(b + 1) * per_block].to_vec()));
         }

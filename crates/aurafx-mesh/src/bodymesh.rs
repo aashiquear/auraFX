@@ -2,7 +2,7 @@
 //! and cylinders as swept O-grid disks, each moved, turned and scaled like its body. Every
 //! boundary face is tagged with the body face it lies on, giving a side set per named face.
 
-use crate::hex::{HexMesh, P3, HEX8_SIDES};
+use crate::hex::{HexMesh, HEX8_SIDES, P3};
 use crate::model::Model;
 use crate::shape::Shape;
 use crate::structured::{box_mesh, disk_quads, sweep_quads, Division};
@@ -23,7 +23,8 @@ impl Affine {
     }
     fn inverse(&self) -> Affine {
         let a = &self.m;
-        let det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+        let det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+            + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
         let c = |i: usize, j: usize| -> f64 {
             let (r0, r1) = ((i + 1) % 3, (i + 2) % 3);
             let (c0, c1) = ((j + 1) % 3, (j + 2) % 3);
@@ -209,7 +210,8 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
         out.add_side_set(name, fs);
     }
     for (_, name, faces) in &model.user_nodesets {
-        let nodes: Vec<u32> = face_of.iter().filter(|x| faces.contains(&x.2)).flat_map(|x| HEX8_SIDES[x.1 as usize - 1].map(|k| out.cell(x.0 as usize)[k])).collect();
+        let nodes: Vec<u32> =
+            face_of.iter().filter(|x| faces.contains(&x.2)).flat_map(|x| HEX8_SIDES[x.1 as usize - 1].map(|k| out.cell(x.0 as usize)[k])).collect();
         out.add_node_set(name, nodes);
     }
     if npe > 8 {

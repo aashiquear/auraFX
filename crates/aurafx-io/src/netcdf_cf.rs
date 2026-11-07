@@ -169,9 +169,18 @@ fn lon_lat_2d(f: &NcFile, g: &Grid) -> Option<(Vec<f64>, Vec<f64>)> {
     }
     let want: Vec<&str> = g.dims[g.dims.len() - 2..].iter().map(|d| d.0.as_str()).collect();
     let vars = f.variables().ok()?;
-    let names: Vec<String> = g.vars.iter().filter_map(|n| vars.iter().find(|v| v.name() == n)).filter_map(|v| text(v, "coordinates")).flat_map(|c| c.split_whitespace().map(String::from).collect::<Vec<_>>()).collect();
+    let names: Vec<String> = g
+        .vars
+        .iter()
+        .filter_map(|n| vars.iter().find(|v| v.name() == n))
+        .filter_map(|v| text(v, "coordinates"))
+        .flat_map(|c| c.split_whitespace().map(String::from).collect::<Vec<_>>())
+        .collect();
     let pick = |axis: Axis| {
-        names.iter().filter_map(|n| vars.iter().find(|v| v.name() == n)).find(|v| v.dimensions().iter().map(|d| d.name.as_str()).eq(want.iter().copied()) && axis_of(Some(v), "") == axis)
+        names
+            .iter()
+            .filter_map(|n| vars.iter().find(|v| v.name() == n))
+            .find(|v| v.dimensions().iter().map(|d| d.name.as_str()).eq(want.iter().copied()) && axis_of(Some(v), "") == axis)
     };
     let (lo, la) = (pick(Axis::Lon)?, pick(Axis::Lat)?);
     Some((read_all(f, lo.name()).ok()?, read_all(f, la.name()).ok()?))
@@ -188,7 +197,11 @@ fn vertical_radius(f: &NcFile, g: &Grid, ndims: usize) -> Option<Vec<f64>> {
         Ok(v) if v.dimensions().len() == 1 => {
             let down = text(v, "positive").is_some_and(|p| p.to_ascii_lowercase().contains("down"));
             let vals = read_all(f, name).ok()?;
-            if down { vals.into_iter().map(|x| -x).collect() } else { vals }
+            if down {
+                vals.into_iter().map(|x| -x).collect()
+            } else {
+                vals
+            }
         }
         _ => (0..*n).map(|i| i as f64).collect::<Vec<_>>(),
     };
@@ -273,7 +286,8 @@ fn read_grid(path: &Path, step: usize) -> Result<DataSet> {
             // is below zero (the deepest level lies closest to the center).
             let mut axes = axes.clone();
             if let Some(v) = iv {
-                let down = vars.iter().find(|x| x.name() == rev[v].0).and_then(|x| text(x, "positive")).is_some_and(|p| p.to_ascii_lowercase().contains("down"));
+                let down =
+                    vars.iter().find(|x| x.name() == rev[v].0).and_then(|x| text(x, "positive")).is_some_and(|p| p.to_ascii_lowercase().contains("down"));
                 if down {
                     axes[v].iter_mut().for_each(|x| *x = -*x);
                 }

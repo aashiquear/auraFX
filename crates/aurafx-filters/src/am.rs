@@ -51,7 +51,11 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
     }
     let x = p / 100.0 * (sorted.len() - 1) as f64;
     let (i, f) = (x.floor() as usize, x - x.floor());
-    if i + 1 < sorted.len() { sorted[i] + f * (sorted[i + 1] - sorted[i]) } else { sorted[i] }
+    if i + 1 < sorted.len() {
+        sorted[i] + f * (sorted[i + 1] - sorted[i])
+    } else {
+        sorted[i]
+    }
 }
 
 pub struct SrodRules {
@@ -95,7 +99,8 @@ pub fn srod(ds: &DataSet, ids_name: &str, rules: &SrodRules) -> Result<Srod> {
     let img = image(ds)?;
     let v = Vox::of(img);
     let ids = ids_of(img, ids_name)?;
-    let o = crate::features::Orients::of(ds, None, crate::crystal::FROM_PHASES, None).or_else(|_| crate::features::Orients::of(ds, None, "Cubic m-3m", None))?;
+    let o =
+        crate::features::Orients::of(ds, None, crate::crystal::FROM_PHASES, None).or_else(|_| crate::features::Orients::of(ds, None, "Cubic m-3m", None))?;
     let laue = o.laue.iter().find(|l| **l != 255).and_then(|l| Laue::from_code(*l as u32)).ok_or_else(|| anyhow!("no indexed orientations"))?;
     let (dx, dy, dz) = (v.sp[0], v.sp[1], v.sp[2]);
     let vox = dx * dy * dz;
@@ -143,7 +148,15 @@ pub fn srod(ds: &DataSet, ids_name: &str, rules: &SrodRules) -> Result<Srod> {
             }
             let reference = normalise(sum);
             let (zb, zt) = (zc[zmin], zc[zmax]);
-            let class = if zt <= 0.0 { 0 } else if zb <= 0.0 { 1 } else if zb < rules.interface_um { 2 } else { 3 };
+            let class = if zt <= 0.0 {
+                0
+            } else if zb <= 0.0 {
+                1
+            } else if zb < rules.interface_um {
+                2
+            } else {
+                3
+            };
             // Cells: SROD and the equivalent nearest the reference; bins above the base.
             let mut vals = Vec::with_capacity(cs.len());
             let mut bins: std::collections::BTreeMap<usize, (Vec<f64>, [f64; 4])> = Default::default();
@@ -284,7 +297,8 @@ pub fn nye_gnd(ds: &DataSet, ids_name: &str, burgers_m: f64, kernel: usize, min_
     let img = image(ds)?;
     let v = Vox::of(img);
     let ids = ids_of(img, ids_name)?;
-    let o = crate::features::Orients::of(ds, None, crate::crystal::FROM_PHASES, None).or_else(|_| crate::features::Orients::of(ds, None, "Cubic m-3m", None))?;
+    let o =
+        crate::features::Orients::of(ds, None, crate::crystal::FROM_PHASES, None).or_else(|_| crate::features::Orients::of(ds, None, "Cubic m-3m", None))?;
     let laue = o.laue.iter().find(|l| **l != 255).and_then(|l| Laue::from_code(*l as u32)).ok_or_else(|| anyhow!("no indexed orientations"))?;
     if kernel < 3 || kernel % 2 == 0 {
         bail!("the kernel must be an odd number of cells, 3 or more");
@@ -379,7 +393,8 @@ pub fn nye_gnd(ds: &DataSet, ids_name: &str, burgers_m: f64, kernel: usize, min_
 }
 
 fn inv3(m: [[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
-    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
     if det.abs() < 1e-300 {
         return None;
     }

@@ -2,11 +2,11 @@
 //! orientations of a dataset (see `aurafx_crystal::texture` for the definitions).
 
 use crate::crystal::{classes_of, orientation_array, Repr};
+use crate::Association;
 use anyhow::{anyhow, bail, Result};
 use aurafx_crystal::texture as tx;
 use aurafx_crystal::{Laue, Quat};
 use aurafx_data::*;
-use crate::Association;
 
 pub const STEREOGRAPHIC: &str = "Stereographic";
 pub const EQUAL_AREA: &str = "Equal area";
@@ -226,16 +226,27 @@ pub fn ipf_directions(choice: &str) -> Vec<(&'static str, [f64; 3])> {
 
 /// Inverse Pole Figure: the density of the crystal directions along each sample direction, on
 /// the standard sector of the class, side by side.
-pub fn inverse_pole_figures(ds: &DataSet, sel: &Selection, directions: &str, projection: &str, sigma_deg: f64, bin_deg: f64, resolution: usize) -> Result<DataSet> {
+pub fn inverse_pole_figures(
+    ds: &DataSet,
+    sel: &Selection,
+    directions: &str,
+    projection: &str,
+    sigma_deg: f64,
+    bin_deg: f64,
+    resolution: usize,
+) -> Result<DataSet> {
     let s = sample(ds, sel)?;
     let sector = tx::sector_of(s.laue);
     let n = resolution.clamp(4, 400);
     let grid = tx::sector_grid(&sector, n);
     let at: Vec<[f64; 3]> = grid.iter().map(|(e, c)| [c.sin() * e.cos(), c.sin() * e.sin(), c.cos()]).collect();
-    let pts0: Vec<[f64; 3]> = grid.iter().map(|(e, c)| {
-        let r = radius(*c, projection);
-        [r * e.cos(), r * e.sin(), 0.0]
-    }).collect();
+    let pts0: Vec<[f64; 3]> = grid
+        .iter()
+        .map(|(e, c)| {
+            let r = radius(*c, projection);
+            [r * e.cos(), r * e.sin(), 0.0]
+        })
+        .collect();
     let mut cells = Cells::new();
     for r in 0..n {
         for k in 0..n {
@@ -411,14 +422,13 @@ pub fn texture_components(ds: &DataSet, sel: &Selection, families: &str, sample_
     for (name, hkl) in &fams {
         let fam = tx::pole_family(*hkl, s.laue);
         for (an, a) in &ax {
-            let n = s
-                .q
-                .iter()
-                .filter(|g| {
-                    let c = aurafx_crystal::rotate(**g, *a);
-                    fam.iter().any(|p| (c[0] * p[0] + c[1] * p[1] + c[2] * p[2]) / (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() >= cmin)
-                })
-                .count();
+            let n =
+                s.q.iter()
+                    .filter(|g| {
+                        let c = aurafx_crystal::rotate(**g, *a);
+                        fam.iter().any(|p| (c[0] * p[0] + c[1] * p[1] + c[2] * p[2]) / (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() >= cmin)
+                    })
+                    .count();
             dname.push(format!("<{name}>"));
             aname.push(an.clone());
             frac.push(n as f64 / s.q.len() as f64);
@@ -426,12 +436,7 @@ pub fn texture_components(ds: &DataSet, sel: &Selection, families: &str, sample_
         }
     }
     Ok(table(
-        vec![
-            Array::new("Direction", 1, ArrayData::String(dname)),
-            Array::new("Axis", 1, ArrayData::String(aname)),
-            col("Fraction", frac),
-            col("Count", count),
-        ],
+        vec![Array::new("Direction", 1, ArrayData::String(dname)), Array::new("Axis", 1, ArrayData::String(aname)), col("Fraction", frac), col("Count", count)],
         vec![("Orientations", s.q.len() as f64), ("Cone", cone_deg)],
     ))
 }
@@ -477,7 +482,16 @@ pub const HISTOGRAM: &str = "Histogram";
 /// Chord Lengths: grain-boundary chords along lines in x, y (and z for volumes) every
 /// `spacing` length units, as a list or a histogram, with the mean per direction.
 #[allow(clippy::too_many_arguments)]
-pub fn chord_lengths(ds: &DataSet, sel: &Selection, threshold_deg: f64, spacing: f64, max_gap: usize, despeckle: bool, output: &str, bin: f64) -> Result<DataSet> {
+pub fn chord_lengths(
+    ds: &DataSet,
+    sel: &Selection,
+    threshold_deg: f64,
+    spacing: f64,
+    max_gap: usize,
+    despeckle: bool,
+    output: &str,
+    bin: f64,
+) -> Result<DataSet> {
     let img = crate::features::image(ds)?;
     let v = crate::features::Vox::of(img);
     let (q, laue) = selected(ds, sel)?;
@@ -486,7 +500,13 @@ pub fn chord_lengths(ds: &DataSet, sel: &Selection, threshold_deg: f64, spacing:
     }
     let th = threshold_deg.to_radians();
     let n = v.n;
-    let every = |a: usize| -> usize { if spacing > 0.0 { ((spacing / v.sp[a]).round() as usize).max(1) } else { 1 } };
+    let every = |a: usize| -> usize {
+        if spacing > 0.0 {
+            ((spacing / v.sp[a]).round() as usize).max(1)
+        } else {
+            1
+        }
+    };
     let at = |i: usize, j: usize, k: usize| q[i + n[0] * (j + n[1] * k)];
     let mut chords: Vec<Vec<f64>> = vec![Vec::new(); 3];
     let dirs: Vec<usize> = (0..3).filter(|a| n[*a] > 1).collect();
@@ -525,7 +545,11 @@ pub fn chord_lengths(ds: &DataSet, sel: &Selection, threshold_deg: f64, spacing:
         let top = chords.iter().flatten().cloned().fold(0.0, f64::max);
         let w = if bin > 0.0 { bin } else { (top / 30.0).max(1e-12) };
         let nb = ((top / w).floor() as usize + 1).max(1);
-        let mut cols = vec![col("bin_start", (0..nb).map(|k| k as f64 * w).collect()), col("bin_end", (0..nb).map(|k| (k + 1) as f64 * w).collect()), col("bin_center", (0..nb).map(|k| (k as f64 + 0.5) * w).collect())];
+        let mut cols = vec![
+            col("bin_start", (0..nb).map(|k| k as f64 * w).collect()),
+            col("bin_end", (0..nb).map(|k| (k + 1) as f64 * w).collect()),
+            col("bin_center", (0..nb).map(|k| (k as f64 + 0.5) * w).collect()),
+        ];
         for &a in &dirs {
             let mut h = vec![0.0; nb];
             for c in &chords[a] {

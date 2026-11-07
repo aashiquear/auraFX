@@ -113,7 +113,9 @@ pub fn compute_bonds(ds: &DataSet, array: Option<&str>, tolerance: f64, absolute
 fn fill_array(a: &Array, idx: &[usize]) -> Array {
     let fill = if a.name.to_ascii_lowercase().contains("order") { 1.0 } else { 0.0 };
     let data = match &a.data {
-        ArrayData::String(v) => ArrayData::String(idx.iter().flat_map(|&i| (0..a.ncomp).map(move |c| if i == usize::MAX { String::new() } else { v[i * a.ncomp + c].clone() })).collect()),
+        ArrayData::String(v) => ArrayData::String(
+            idx.iter().flat_map(|&i| (0..a.ncomp).map(move |c| if i == usize::MAX { String::new() } else { v[i * a.ncomp + c].clone() })).collect(),
+        ),
         d => {
             let vals: Vec<f64> = idx.iter().flat_map(|&i| (0..a.ncomp).map(move |c| if i == usize::MAX { fill } else { d.get_f64(i * a.ncomp + c) })).collect();
             ArrayData::from_f64(d.scalar_type(), &vals)

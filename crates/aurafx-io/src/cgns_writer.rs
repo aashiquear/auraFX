@@ -280,7 +280,10 @@ fn sections(ug: &UnstructuredGrid, wide: bool, skipped: &mut usize) -> Sections 
 enum Mesh {
     /// Point counts along the axes that have more than one point (i fastest).
     Structured(Vec<usize>),
-    Unstructured { cells: Cells, sections: Sections },
+    Unstructured {
+        cells: Cells,
+        sections: Sections,
+    },
 }
 
 struct Zone {

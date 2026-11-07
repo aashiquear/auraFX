@@ -675,6 +675,97 @@ g = s.gbcd_section(angle=60, axis=(1, 1, 1), tolerance=5)
 
 ![The Sigma 3 GBCD of a synthetic volume of twin lamellae, peaking at (111)](images/gbcd_section.png)
 
+## Mechanics and additive manufacturing
+
+### Crystal Mechanics
+
+**Crystal Mechanics** works out, for every orientation and a **Loading direction** in the
+sample, three quantities:
+- **`SchmidFactor`:** the largest Schmid factor of the material's slip systems, with the
+  system in `SlipSystem` (numbered as in the field array `SlipSystemNames`).
+- **`TaylorFactor`:** the full-constraint Taylor factor for straining along the direction. It
+  is exact: every set of five independent slip systems is tried, weighted by the relative
+  resistance of their families.
+- **`YoungsModulus`:** in GPa, from the elastic constants.
+
+The field data gives the means, the Voigt (`YoungsModulusVoigt`), Reuss and Hill averages of
+the modulus, and, for materials with a known base strength, a yield estimate:
+
+> σy = σbase · M / 3.06 + α μ b M √ρ
+
+Here M is the mean Taylor factor, 3.06 is a random texture's, and ρ is the mean of an
+optional dislocation-density array (from GND Density). The result is in
+`YieldEstimateMPa`, with its two parts in `YieldTextureMPa` and `YieldDislocationMPa`.
+
+| Material | Lattice | Slip families (relative resistance) | Base strength |
+|---|---|---|---|
+| IN718, CoNi GammaPrint-700 | FCC | {111}<110> | 647.6 MPa, 400 MPa |
+| Nickel, Copper, Aluminium | FCC | {111}<110> | |
+| Iron (BCC) | BCC | {110}<111>, {112}<111> | |
+| Titanium (HCP) | HCP, c/a 1.587 | basal 1, prismatic 0.7, pyramidal <a> 1, pyramidal <c+a> 3 | |
+| Magnesium (HCP) | HCP, c/a 1.624 | basal 1, prismatic 10, pyramidal <a> 10, pyramidal <c+a> 15 | |
+
+**Custom** takes the lattice, the elastic constants (C11 C12 C44, or C11 C12 C13 C33 C44 for
+hexagonal crystals), the shear modulus, the Burgers vector, c/a and the slip families
+(written like `Basal <a>=1, Prismatic <a>=0.7`). The families available are {111}<110> for
+FCC; {110}, {112} and {123}<111> for BCC; basal, prismatic and pyramidal <a>, and pyramidal
+<c+a>, for HCP.
+
+```python
+m = volume.crystal_mechanics(material="IN718", direction=(0, 0, 1))
+print(m.array("YieldEstimateMPa", "field"))
+```
+
+![A measured nickel-superalloy volume colored by the Taylor factor for loading along the build direction](images/crystal_mechanics.png)
+
+### SROD
+
+In an additive build, a grain's orientation turns slowly as it grows layer by layer. **SROD**
+measures, for every grain, how far its orientation has turned from the orientation it
+started with, with z the build direction.
+- **Reference.** A grain's starting orientation is the mean of its lowest sections that hold
+  the **Reference volume** (at most a few sections).
+- **Cells.** Every cell gets its disorientation from that reference (`SROD`, degrees). Cells
+  of grains smaller than **Smallest grain** are left out and drawn grey.
+- **Bins.** Bins of one **Layer thickness**, counted from the grain's lowest section, give
+  the disorientation of their mean orientation.
+- **Rate.** A grain's rate (`SRODRate`, degrees per layer) is the straight-line slope of its
+  bins after the first.
+- **Classes**, by where a grain starts relative to the **Plate top**:
+  - *plate*: wholly below it;
+  - *epitaxial*: growing out of the plate;
+  - *interface*: starting within **Interface height** of it;
+  - *originating*: starting higher in the build.
+
+**Output** *Volume* keeps the volume with `SROD` and the per-grain field arrays (class, base,
+top, bins, first-bin and largest SROD, rate). *Bins* gives one row per grain and bin, with the
+spread of its cells (mean and 10th to 90th percentiles). *By height* gives the mean SROD of
+each class layer by layer, for the Charts panel.
+
+```python
+s = volume.srod(layer=40, plate_top=0)
+by_height = volume.srod(layer=40, plate_top=0, output="By height")
+```
+
+![A measured nickel-superalloy volume colored by each cell's SROD](images/srod.png)
+
+### GND Density
+
+**GND Density** estimates the density of geometrically necessary dislocations in every
+cell (`GND`, 1/m²):
+- **Nye tensor** fits the lattice curvature inside the grain over a **Kernel** of cells, by
+  least squares on the small rotations to the neighbouring cells. It turns the curvature
+  into Nye's dislocation tensor and sums its entries over the **Burgers vector**. Cells with
+  too few neighbours in their grain are left empty.
+- **From KAM** converts a kernel average misorientation array (Kernel Average
+  Misorientation) as KAM / (step · b).
+
+The field data gives the mean, median and 90th percentile.
+
+```python
+g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
+```
+
 ## Limits
 
 - Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
@@ -699,6 +790,9 @@ g = s.gbcd_section(angle=60, axis=(1, 1, 1), tolerance=5)
   for many passes on very thin features.
 - The GBCD is shown one misorientation at a time; the full five-parameter distribution is
   not stored as an array.
+- The Taylor factor takes at most 30 slip systems (all of FCC, of {110} and {112} BCC, and of
+  the four HCP families together). Twinning is not counted. The yield estimate is the
+  texture and dislocation scaling above, not a crystal-plasticity calculation.
 - The feature filters copy the volume they work on: a volume of 80 million cells needs several
   gigabytes of memory. Segmentation of such a volume takes about 10 seconds.
 - The orientation mathematics is checked against independent references: rotations from

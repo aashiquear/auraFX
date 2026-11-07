@@ -7,11 +7,13 @@ pub mod params;
 pub mod registry;
 pub mod simplex;
 
+pub mod am;
 pub mod amr;
 pub mod analysis;
 pub mod append;
 pub mod crystal;
 pub mod crystal_texture;
+pub mod mechanics;
 pub mod synthetic;
 pub mod features;
 pub mod geometry_model;

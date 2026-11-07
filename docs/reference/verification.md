@@ -384,6 +384,16 @@ Boundaries against a brute-force distance.
   0.2 and 0.1 of the radius) and -3.0 % and -0.7 % (torus, tube radius 0.35) of the exact
   volume; the smallest dihedral angle is 21-30 degrees. Refine Region on the upper half of the
   sphere keeps the mesh positive and conforming (smallest angle 13.6 degrees).
+- Crystal mechanics against the AM orientation toolkit (am_build_campaign) on 2000 AM Bench
+  orientations, along z and x: full-constraint Taylor factor, largest Schmid factor and
+  Young's modulus agree within 1e-14 (testdata/crystal/mechanics_reference.json). A random FCC
+  texture gives a mean Taylor factor of 3.067 (Kocks: 3.06) and a mean largest Schmid factor
+  of 0.452.
+- SROD and Nye GND against the toolkit's am_ebsd3d_analysis on the 1 um AM Bench feature
+  window: the same 79 grains with the same classes and numbers of bins, the same 580 bins
+  with the same cell counts, every SROD (grain, bin, cell, rate) within 3e-5 degrees; the Nye
+  GND density within 2.3e-6 relative with the same empty cells
+  (testdata/crystal/am_reference.json).
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

@@ -13,6 +13,7 @@
 
 pub mod ipf;
 pub mod laue;
+pub mod mechanics;
 pub mod rotation;
 pub mod texture;
 

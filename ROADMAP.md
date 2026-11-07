@@ -286,7 +286,7 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
   - [x] G4a: Voronoi/Laguerre grains, columnar AM grains (the toolkit's generator, voxel for voxel), Add Orientation Noise, Jumble Orientations, Generate Ensemble Statistics (iteration 63).
   - [x] G4b: Pack Grains (goal statistics, four shapes, matrix phase, calibration), Pack Like, Insert Precipitates, Match Crystallography (iteration 64).
 - [x] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
-- [ ] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
+- [x] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
 - [ ] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
 
 ## 12. Geometry and mesh generator
@@ -477,6 +477,13 @@ split by coning from their lowest-numbered vertex) for geometry bodies (Geometry
 mesh) and closed surfaces (Tet Mesh), local refinement of tetrahedra with centre-point
 closure (Refine Region). Smallest dihedral angles 21-30 degrees on the test shapes. Guide
 chapter: Geometry and meshing. Next: G6.
+
+Done in iteration 68 (G6): aurafx-crystal mechanics.rs (FCC, BCC and HCP slip families
+expanded by symmetry, Schmid factors, exact full-constraint Taylor factors with family
+weights, directional Young's modulus from the 6 x 6 compliance, a materials table with the
+toolkit's IN718 and CoNi), filters Crystal Mechanics (yield estimate), SROD (grain classes,
+bins, by-height table) and GND Density (Nye tensor, from KAM); Taylor, Schmid, modulus, SROD
+and Nye GND match the AM orientation toolkit. Guide chapter: Grains and crystals. Next: M5.
 
 ## Status (2026-11-05)
 

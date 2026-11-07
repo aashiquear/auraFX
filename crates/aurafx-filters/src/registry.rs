@@ -3373,6 +3373,112 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "crystal_mechanics",
+            label: "Crystal Mechanics",
+            category: "Grains",
+            description: "Schmid factor, Taylor factor and directional Young's modulus of every orientation for a loading direction, from a material's slip systems and elastic constants, with volume means and a yield-strength estimate.",
+            keywords: &["schmid factor", "taylor factor", "youngs modulus", "elastic anisotropy", "slip systems", "yield strength", "crystal plasticity", "fcc bcc hcp"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: {
+                let mut v = vec![
+                    choice("material", "Material", &crate::mechanics::material_names(), "IN718"),
+                    v3("direction", "Loading direction", [0.0, 0.0, 1.0]),
+                    b("taylor", "Taylor factor", true).help("The full-constraint Taylor factor (slower: every set of five independent slip systems is tried)."),
+                    cell_arr("gnd", "Dislocation density (1/m2)").help("Optional: its mean adds the Taylor hardening alpha mu b M sqrt(rho) to the yield estimate.").advanced(),
+                    choice("lattice", "Custom: lattice", &["FCC", "BCC", "HCP"], "FCC").advanced(),
+                    ParamSpec::new("elastic", "Custom: elastic constants (GPa)", ParamKind::Floats, ParamValue::Floats(vec![250.0, 160.0, 120.0])).help("Cubic: C11 C12 C44. Hexagonal: C11 C12 C13 C33 C44.").advanced(),
+                    f("shear_modulus", "Custom: shear modulus (GPa)", 80.0, 0.0, f64::INFINITY).advanced(),
+                    f("burgers", "Custom: Burgers vector (m)", 2.5e-10, 0.0, f64::INFINITY).advanced(),
+                    f("c_over_a", "Custom: c/a", 1.633, 0.1, 10.0).advanced(),
+                    s("families", "Custom: slip families", "").help("Like 'Basal <a>=1, Prismatic <a>=0.7, Pyramidal <c+a>=3' (relative resolved shear stresses). Empty: the lattice's first family.").advanced(),
+                    f("sigma_base", "Custom: base yield strength (MPa)", 0.0, 0.0, f64::INFINITY).advanced(),
+                ];
+                v.extend(texture_selection_params(10_000_000).into_iter().filter(|p| p.key != "max_orientations"));
+                v
+            },
+            apply: |input, p| {
+                let (st, ph, mk) = (p.str("structure"), p.array("phases").map(|x| x.1), p.array("mask").map(|x| x.1));
+                let sel = texture_selection(p, &st, ph.as_deref(), mk.as_deref(), i64::MAX);
+                let custom = crate::mechanics::CustomMaterial {
+                    lattice: p.str("lattice"),
+                    elastic: p.floats("elastic"),
+                    shear_modulus_gpa: p.f64("shear_modulus", 80.0),
+                    burgers_m: p.f64("burgers", 2.5e-10),
+                    c_over_a: p.f64("c_over_a", 1.633),
+                    families: p.str("families"),
+                    sigma_base_mpa: p.f64("sigma_base", 0.0),
+                };
+                let gnd = p.array("gnd").map(|x| x.1);
+                crate::mechanics::crystal_mechanics(input.unwrap(), &sel, &p.str("material"), &custom, p.vec3("direction", [0.0, 0.0, 1.0]), p.bool("taylor", true), gnd.as_deref())
+            },
+        },
+        FilterDef {
+            id: "srod",
+            label: "SROD",
+            category: "Grains",
+            description: "How far each grain's orientation has turned from the one it started with, by height above its base in an additive build (z the build direction), with the grain's class (plate, epitaxial, interface, originating).",
+            keywords: &["srod", "orientation shift", "misorientation from start", "additive manufacturing", "build height", "columnar grains", "lattice rotation", "layer"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("layer", "Layer thickness", 40.0, 1e-9, f64::INFINITY).help("The height of a bin, in the volume's length unit."),
+                f("plate_top", "Plate top (z)", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).help("Height of the base plate's top; empty: the bottom of the volume."),
+                f("interface", "Interface height", f64::NAN, 0.0, f64::INFINITY).help("Grains starting below this height above the plate are 'interface' grains; empty: one layer."),
+                choice("output", "Output", &[crate::am::OUT_VOLUME, crate::am::OUT_BINS, crate::am::OUT_HEIGHT], crate::am::OUT_VOLUME),
+                f("min_volume", "Smallest grain (volume)", 212.0, 0.0, f64::INFINITY).advanced(),
+                f("reference_volume", "Reference volume", 106.0, 0.0, f64::INFINITY).help("The grain's lowest sections holding this volume give its starting orientation.").advanced(),
+                i("reference_sections", "At most this many sections", 5, 1, 1000).advanced(),
+                f("min_bin_volume", "Smallest bin (volume)", 424.0, 0.0, f64::INFINITY).advanced(),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+            ],
+            apply: |input, p| {
+                let d = input.unwrap();
+                let img = crate::features::image(d)?;
+                let bottom = img.origin[2] + img.extent[4] as f64 * img.spacing[2];
+                let layer = p.f64("layer", 40.0);
+                let pt = p.f64("plate_top", f64::NAN);
+                let itf = p.f64("interface", f64::NAN);
+                let rules = crate::am::SrodRules {
+                    layer_um: layer,
+                    plate_top: if pt.is_finite() { pt } else { bottom },
+                    interface_um: if itf.is_finite() { itf } else { layer },
+                    min_volume: p.f64("min_volume", 212.0),
+                    reference_volume: p.f64("reference_volume", 106.0),
+                    reference_sections: p.i64("reference_sections", 5).max(1) as usize,
+                    min_bin_volume: p.f64("min_bin_volume", 424.0),
+                };
+                crate::am::srod_filter(d, &p.str("feature_ids"), &rules, &p.str("output"))
+            },
+        },
+        FilterDef {
+            id: "gnd_density",
+            label: "GND Density",
+            category: "Grains",
+            description: "Density of geometrically necessary dislocations in every cell (1/m2): from Nye's tensor of the lattice curvature inside each grain, or from a kernel average misorientation.",
+            keywords: &["gnd", "geometrically necessary dislocations", "nye tensor", "dislocation density", "lattice curvature", "kam", "stored energy"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("method", "Method", &[crate::am::GND_NYE, crate::am::GND_KAM], crate::am::GND_NYE),
+                f("burgers", "Burgers vector (m)", 2.54e-10, 1e-12, 1e-8),
+                i("kernel", "Kernel (cells)", 3, 3, 15).help("Nye tensor: the curvature is fitted over this many cells across (odd)."),
+                cell_arr("kam", "KAM array (degrees)").advanced(),
+                f("step", "Step for KAM (micrometres)", 0.0, 0.0, f64::INFINITY).help("0: the smallest cell size.").advanced(),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+            ],
+            apply: |input, p| {
+                let kam = p.array("kam").map(|x| x.1).filter(|x| !x.is_empty()).unwrap_or_else(|| "KernelAverageMisorientations".into());
+                crate::am::gnd_density(input.unwrap(), &p.str("feature_ids"), &p.str("method"), p.f64("burgers", 2.54e-10), p.i64("kernel", 3).max(3) as usize, &kam, p.f64("step", 0.0))
+            },
+        },
+        FilterDef {
             id: "pack_grains",
             label: "Pack Grains",
             category: "Sources",

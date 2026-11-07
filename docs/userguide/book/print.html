@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d8ec7292.js";
+            window.path_to_searchindex_js = "searchindex-6619bb23.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1384fa24.js"></script>
+        <script src="toc-a8fafe43.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3316,6 +3316,95 @@ small grains lose some volume: a voxel sphere 5 voxels in radius comes out about
 smaller than the exact sphere.</li>
 <li>Overlay meshing of 100 000 voxels takes about 3 seconds.</li>
 <li>Gmsh files carry no node sets.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="cad-modeling"><a class="header" href="#cad-modeling">CAD modeling</a></h1>
+<p>auraFX has a parametric part modeler. A part is a short list of <strong>features</strong> (a sketch
+extruded, a hole cut, a boss added) with <strong>named dimensions</strong>. Change a dimension and the whole
+part rebuilds, and everything built on it (meshes, grains, solver cases) can be re-run. The part
+keeps <strong>named faces</strong>, so a later step can say “the wall of the bore” instead of a number that
+changes when the part does.</p>
+<p>It sits beside the command-based Geometry source of the previous chapter. Use Geometry for
+quick specimens written as text; use a CAD model when the part has dimensions you want to
+change, sketches, patterns and holes.</p>
+<h2 id="the-cad-model-source"><a class="header" href="#the-cad-model-source">The CAD Model source</a></h2>
+<p>Add one with <strong>Sources › CAD Model</strong> (or the command palette, <code>Ctrl+K</code>). It starts as a plate.
+Its Properties show:</p>
+<ul>
+<li><strong>Dimensions</strong>: the part’s named dimensions. Type a new value or an expression such as
+<code>width / 2</code> and press <strong>Enter</strong>; the part and everything downstream update. The value the
+expression gives is shown next to it. <strong>reset</strong> returns to the value stored in the part.
+A dimension changed here belongs to this node and leaves the part untouched, so two nodes
+can show two sizes of one part.</li>
+<li><strong>Configuration</strong>: shown when the part has configurations (named sets of dimensions such as
+<em>small</em> and <em>large</em>); pick one to build that variant.</li>
+<li><strong>Features</strong>: the part’s history in order. The checkbox suppresses a feature (the part is
+rebuilt without it).</li>
+<li><strong>Faces</strong>: every face of the result with its number and name, its volume and area.</li>
+<li><strong>Resolution</strong> and <strong>Output</strong>: cells along the longest side when the surface is drawn, and
+<em>Surface</em> or <em>Distance field</em> (the signed distance to the part, negative inside).</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_part.png" alt="A flange from the templates, colored by face: the bolt holes, the counterbore and the plate each have their own faces"><span class="img-wrapper"><img src="images/cad_part.png" alt="A flange from the templates, colored by face: the bolt holes, the counterbore and the plate each have their own faces"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_panel.png" alt="The CAD Model in the window: Properties list the dimensions with their values, the configuration, the features and the faces"><span class="img-wrapper"><img src="images/cad_panel.png" alt="The CAD Model in the window: Properties list the dimensions with their values, the configuration, the features and the faces"></span></label></p>
+<h2 id="faces-and-their-names"><a class="header" href="#faces-and-their-names">Faces and their names</a></h2>
+<p>The surface has the cell arrays <code>BodyId</code> and <code>FaceId</code>, and the field arrays <code>FaceNames</code>
+(indexed by face number), <code>BodyNames</code>, <code>Volume</code> and <code>SurfaceArea</code>: the same layout as the
+Geometry source, so everything that works on a Geometry result works on a CAD model. Color by
+<code>FaceId</code> to see the faces.</p>
+<p>A face is named after the feature that made it and its place on that feature: a brick has
+<code>x-</code>, <code>x+</code>, <code>y-</code>, <code>y+</code>, <code>z-</code> and <code>z+</code>; a cylinder or a hole has <code>side</code>, <code>bottom</code> and <code>top</code>; an
+extruded sketch has <code>bottom</code>, <code>top</code> and one <code>side N</code> for each line, arc or circle of the
+sketch (the sketch’s own order). <code>Bore side</code> is the wall of a hole named <em>Bore</em>; <code>Base z+</code> is
+the top of a brick named <em>Base</em>. Rename a feature and its faces are renamed with it, which the
+later <em>downstream check</em> uses to follow them.</p>
+<h2 id="python-2"><a class="header" href="#python-2">Python</a></h2>
+<pre><code class="language-python">m = afx.cad_model()                                   # a plate; or afx.cad_model("part.afxcad"),
+                                                      # afx.cad_model(template="flange")
+m.cad.parameter("width", "60 mm")                     # a named dimension
+m.cad.hole(diameter="width / 10", depth=20, name="Bore", at=(0, 0, 12))   # cuts down from z = 12
+m.cad.fillet(0.8)                                     # round the whole part
+print(m.cad.volume(), [f["name"] for f in m.cad.faces()])
+m.set(width=80)                                       # a dimension, without editing the part
+</code></pre>
+<p>Any number may be an expression of the dimensions (<code>"width / 2"</code>): the field then follows the
+dimension. The calls:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Call</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m.cad.parameter(name, expr)</code></td><td>names a dimension (units allowed: <code>"1.5 in"</code>)</td></tr>
+<tr><td><code>m.cad.box</code>, <code>sphere</code>, <code>cylinder</code>, <code>cone</code>, <code>torus</code></td><td>add (<code>op="add"</code>), cut (<code>"cut"</code>) or intersect (<code>"intersect"</code>) a solid; <code>at=(x, y, z)</code> and <code>rotate=(rx, ry, rz)</code> place it</td></tr>
+<tr><td><code>m.cad.hole(diameter, depth, kind=...)</code></td><td>a hole cut downward from <code>at</code>: <code>simple</code>, <code>drilled</code>, <code>counterbore</code>, <code>countersink</code>, <code>tapped</code></td></tr>
+<tr><td><code>m.cad.thread(major_diameter, pitch, length)</code></td><td>a helical thread</td></tr>
+<tr><td><code>s = m.cad.sketch(plane="XY")</code>, then <code>.rectangle(w, h, center=...)</code>, <code>.circle(r)</code>, <code>.polygon(points)</code>, <code>.regular(sides, r)</code></td><td>a sketch with its dimensions</td></tr>
+<tr><td><code>m.cad.extrude(s, depth, end="blind")</code></td><td>extrude a sketch (<code>"midplane"</code>, <code>"through_all"</code>; <code>draft</code>, <code>top={"fillet": 1}</code>)</td></tr>
+<tr><td><code>m.cad.revolve(s, angle=360)</code></td><td>revolve a sketch about its vertical axis (x is the radius)</td></tr>
+<tr><td><code>m.cad.fillet(r)</code>, <code>shell(t)</code>, <code>linear_pattern</code>, <code>grid_pattern</code>, <code>circular_pattern</code>, <code>mirror</code>, <code>split</code>, <code>scale</code></td><td>modifiers on a feature (<code>feature="Base"</code>) or the whole part</td></tr>
+<tr><td><code>m.cad.suppress(name)</code>, <code>remove</code>, <code>rename</code>, <code>move</code></td><td>edit the history</td></tr>
+<tr><td><code>m.cad.configuration("small", width=20)</code>, <code>activate("small")</code></td><td>named variants</td></tr>
+<tr><td><code>m.cad.faces()</code>, <code>volume()</code>, <code>features()</code>, <code>parameters()</code></td><td>read the result</td></tr>
+<tr><td><code>m.cad.save("part.afxcad")</code>, <code>m.cad.load(path)</code></td><td>files</td></tr>
+</tbody>
+</table>
+</div>
+<p>Every call is one undo step, and is recorded in the Python trace.</p>
+<h2 id="files"><a class="header" href="#files">Files</a></h2>
+<p>A part is saved as an <strong><code>.afxcad</code></strong> file: readable JSON with a format version, so a later
+auraFX opens an earlier file, and an earlier one says plainly that a file is from a newer
+version. The state files (<code>.afx</code>) hold the part inside, so a session reopens with it.</p>
+<h2 id="meshing-a-part"><a class="header" href="#meshing-a-part">Meshing a part</a></h2>
+<p>A CAD model feeds the same tools as Geometry: <strong>Overlay Mesh</strong> turns its surface into
+hexahedra, <strong>Tet Mesh</strong> into tetrahedra, <strong>Assign Grains</strong> and the solver cases follow.
+Face names carry through: an extracted set or a boundary layer can name <code>Bore side</code>.</p>
+<h2 id="limits-2"><a class="header" href="#limits-2">Limits</a></h2>
+<ul>
+<li>The kernel used here describes the part as a distance field. It never fails on a hard
+combination of features, but edges are not exact lines: the faces it reports are labelled
+regions of the surface, and the same labels come back after every rebuild.</li>
+<li>A part is one body. The Python calls above need the CAD environment’s windows (feature
+properties, a sketch canvas) only for interactive editing, which later versions add.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="settings-and-keyboard-shortcuts"><a class="header" href="#settings-and-keyboard-shortcuts">Settings and keyboard shortcuts</a></h1>

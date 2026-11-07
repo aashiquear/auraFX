@@ -20,6 +20,7 @@
 pub mod analysis;
 pub mod assembly;
 pub mod document;
+pub mod edit;
 pub mod expr;
 pub mod file;
 pub mod kernel;
@@ -60,6 +61,8 @@ pub enum CadError {
     Kernel { kernel: &'static str, reason: String },
     #[error("the {0} kernel refused: {1}")]
     KernelRefused(&'static str, String),
+    #[error("{0}")]
+    Edit(String),
 }
 
 /// A stable identity of a feature, sketch entity or body: never reused within a document, so

@@ -288,7 +288,7 @@ impl Sketch {
         self.points.push(SPoint { x, y, fixed: true });
         self.points.len() - 1
     }
-    fn push(&mut self, e: Entity) -> usize {
+    pub fn push(&mut self, e: Entity) -> usize {
         self.entities.push(e);
         self.entities.len() - 1
     }
@@ -482,6 +482,25 @@ impl Sketch {
         self.chains().0
     }
     /// Open chains (e.g. sweep paths, engraving).
+    /// The flattened outline of every drawing (non-construction) entity, in entity order: what
+    /// the kernels use to tell the side faces of an extrusion apart (one face per entity).
+    pub fn entity_paths(&self) -> Vec<Polyline> {
+        self.entities
+            .iter()
+            .filter(|e| !e.construction())
+            .map(|e| match e {
+                Entity::Line { a, b, .. } => Polyline::open(vec![self.point(*a), self.point(*b)]),
+                Entity::Circle { center, radius, .. } => shapes::circle(self.point(*center), *radius),
+                Entity::Arc { center, start, end, .. } => Polyline::open(arc_points(self.point(*center), self.point(*start), self.point(*end))),
+                Entity::Spline { ctrl, closed, .. } => {
+                    let p: Vec<DVec2> = ctrl.iter().map(|i| self.point(*i)).collect();
+                    Polyline::new(catmull_rom(&p, *closed), *closed)
+                }
+                Entity::Polyline { pts, closed, .. } => Polyline::new(pts.iter().map(|p| DVec2::new(p[0], p[1])).collect(), *closed),
+            })
+            .collect()
+    }
+
     pub fn open_paths(&self) -> Vec<Polyline> {
         self.chains().1
     }

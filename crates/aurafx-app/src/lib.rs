@@ -4,6 +4,7 @@ mod animation;
 mod app;
 mod assistant;
 mod axes_grid;
+mod cad;
 mod charts;
 mod colormap_editor;
 mod console;

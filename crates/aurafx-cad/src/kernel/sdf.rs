@@ -841,6 +841,24 @@ pub fn grid_bounds(s: &Sdf) -> (DVec3, DVec3) {
     (lo.clamp(DVec3::splat(-GRID_LIMIT), DVec3::splat(GRID_LIMIT)), hi.clamp(DVec3::splat(-GRID_LIMIT), DVec3::splat(GRID_LIMIT)))
 }
 
+/// The field of one feature on its own: its shape, its modifiers and its placement.
+pub fn feature_sdf(f: &crate::document::Feature) -> Sdf {
+    let mut s = shape(&f.shape);
+    for m in f.modifiers.iter().filter(|m| !m.is_world()) {
+        s = modify(s, m);
+    }
+    s = Sdf::Transform { inner: Box::new(s), translate: f.placement.translate, rotate_deg: f.placement.rotate_deg };
+    for m in f.modifiers.iter().filter(|m| m.is_world()) {
+        s = modify(s, m);
+    }
+    s
+}
+
+/// Rotation of a feature placement (XYZ Euler degrees).
+pub fn placement_rotation(deg: [f64; 3]) -> DMat3 {
+    rot(deg)
+}
+
 impl Document {
     /// Build the SDF tree. Parameters, bindings and sketch constraints are resolved first
     /// ([`Document::resolved`]); if that fails the raw feature values are used.
@@ -857,14 +875,7 @@ impl Document {
     pub fn raw_sdf(&self) -> Option<Sdf> {
         let mut body: Option<Sdf> = None;
         for f in self.features.iter().filter(|f| !f.suppressed) {
-            let mut s = shape(&f.shape);
-            for m in f.modifiers.iter().filter(|m| !m.is_world()) {
-                s = modify(s, m);
-            }
-            s = Sdf::Transform { inner: Box::new(s), translate: f.placement.translate, rotate_deg: f.placement.rotate_deg };
-            for m in f.modifiers.iter().filter(|m| m.is_world()) {
-                s = modify(s, m);
-            }
+            let s = feature_sdf(f);
             let chamfer = f.blend_kind == BlendKind::Chamfer && f.blend > 0.0;
             body = match (body.take(), f.op) {
                 (None, BooleanOp::Add) => Some(s),

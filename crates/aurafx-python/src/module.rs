@@ -234,7 +234,12 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                         }));
                     }
                 }
-                s.set_param_json(id, &key, &val)
+                // The parameters of a CAD document are the node's parameters: node.set(width=50).
+                if s.is_cad_model(id) && s.nodes.get(&id).is_some_and(|n| n.params.get(&key).is_none()) {
+                    s.cad_set_parameter(id, &key, &val).map_err(|e| PyValueError::new_err(format!("{e:#}")))?;
+                } else {
+                    s.set_param_json(id, &key, &val)
+                }
             }
         }
     }
@@ -478,6 +483,16 @@ impl PyNode {
         let json = serde_json::to_string(&info).map_err(err)?;
         let m = py.import("json")?;
         m.call_method1("loads", (json,))
+    }
+
+    /// The CAD document of a CAD Model node: `node.cad.parameter("width", 40)`, `node.cad.box(...)`.
+    #[getter]
+    fn cad(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if !session().lock().is_cad_model(self.id) {
+            return Err(pyo3::exceptions::PyAttributeError::new_err("only a CAD Model node has .cad: afx.cad_model() makes one"));
+        }
+        let m = py.import("aurafx")?;
+        Ok(m.getattr("_CadApi")?.call1((self.clone(),))?.unbind())
     }
 
     #[getter]
@@ -1458,6 +1473,75 @@ fn define_colormap(name: String, points: Vec<[f64; 4]>) -> PyResult<String> {
     Ok(name)
 }
 
+// ------------------------------------------------------------------ CAD
+
+fn cad_err(e: impl std::fmt::Display) -> PyErr {
+    PyValueError::new_err(format!("{e:#}"))
+}
+
+/// One edit of a CAD Model node's document: operation name and JSON arguments; returns JSON.
+#[pyfunction]
+fn _cad_edit(node: PyRef<PyNode>, op: String, args: String) -> PyResult<String> {
+    let args: serde_json::Value = serde_json::from_str(&args).map_err(cad_err)?;
+    let out = session().lock().cad_edit(node.id, &op, &args).map_err(cad_err)?;
+    Ok(out.to_string())
+}
+
+/// The document of a CAD Model node as `.afxcad` text.
+#[pyfunction]
+fn _cad_document(node: PyRef<PyNode>) -> PyResult<String> {
+    let doc = session().lock().cad_document(node.id).map_err(cad_err)?;
+    Ok(aurafx_cad::CadFile::new(doc).to_json())
+}
+
+/// Replace the document of a CAD Model node by `.afxcad` text.
+#[pyfunction]
+fn _cad_set_document(node: PyRef<PyNode>, text: String) -> PyResult<()> {
+    let doc = aurafx_cad::Document::from_afxcad(&text).map_err(cad_err)?;
+    session().lock().cad_set_document(node.id, &doc);
+    Ok(())
+}
+
+/// What the document has: parameters (with values), features, configurations, overrides.
+#[pyfunction]
+fn _cad_info(node: PyRef<PyNode>) -> PyResult<String> {
+    let s = session().lock();
+    let doc = s.cad_document(node.id).map_err(cad_err)?;
+    let eff = s.cad_effective_document(node.id).ok();
+    let vals = eff.as_ref().and_then(|d| d.parameter_values().ok());
+    let params: Vec<serde_json::Value> = doc
+        .parameters
+        .iter()
+        .map(|p| serde_json::json!({ "name": p.name, "expr": p.expr, "comment": p.comment, "value": vals.as_ref().and_then(|v| v.get(&p.name)) }))
+        .collect();
+    Ok(serde_json::json!({
+        "name": doc.name,
+        "parameters": params,
+        "features": doc.feature_list(),
+        "finish": doc.finish.len(),
+        "configurations": doc.configurations.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+        "active_configuration": doc.active_configuration,
+        "overrides": s.cad_overrides(node.id),
+    })
+    .to_string())
+}
+
+/// Evaluate the part (with the node's overrides) now: volume, bounds and the faces.
+#[pyfunction]
+#[pyo3(signature = (node, resolution=64))]
+fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let ev = aurafx_filters::cad::evaluate(&doc, resolution, true).map_err(cad_err)?;
+    let faces: Vec<serde_json::Value> = ev
+        .faces()
+        .map(|(_, f)| {
+            serde_json::json!({ "id": f.face_id, "name": f.name, "kind": f.kind.label(), "area": f.area, "centroid": f.centroid, "direction": f.direction, "feature": (f.id.0).0 })
+        })
+        .collect();
+    let b = &ev.bodies[0];
+    Ok(serde_json::json!({ "kernel": ev.kernel, "volume": ev.volume(), "area": b.area, "centroid": b.centroid, "bounds": [b.bounds.0, b.bounds.1], "faces": faces }).to_string())
+}
+
 /// Check geometry commands: the bodies they make (id, name, history lines, faces as
 /// (id, name), bounds), or the error with the line it is on.
 #[pyfunction]
@@ -1506,6 +1590,171 @@ class _MeshModule:
         return _MeshGeometry(commands)
 
 mesh = _MeshModule()
+"#;
+
+
+/// `afx.cad_model()` and the `cad` object of a CAD Model node.
+const CAD_API: &str = r#"
+import json as _json
+
+class _CadSketch:
+    """A sketch described item by item; pass it to extrude() or revolve()."""
+    def __init__(self, plane="XY", offset=0):
+        self.plane, self.offset, self.items = plane, offset, []
+    def rectangle(self, w, h, corner=None, center=None):
+        d = {"w": w, "h": h}
+        if center is not None: d["center"] = list(center)
+        elif corner is not None: d["corner"] = list(corner)
+        else: d["center"] = [0, 0]
+        self.items.append({"rectangle": d}); return self
+    def circle(self, r, center=(0, 0)):
+        self.items.append({"circle": {"r": r, "center": list(center)}}); return self
+    def polygon(self, points):
+        self.items.append({"polygon": [list(p) for p in points]}); return self
+    def regular(self, sides, r, center=(0, 0)):
+        self.items.append({"regular": {"sides": sides, "r": r, "center": list(center)}}); return self
+    def spec(self):
+        return {"plane": self.plane, "offset": self.offset, "items": self.items}
+
+class _CadApi:
+    """The parametric document of a CAD Model node. Numbers can be expressions of the document's
+    parameters ("width / 2"): the geometry then follows the parameter."""
+    def __init__(self, node):
+        self._node = node
+    def edit(self, op, args=None, **kw):
+        a = dict(args or {}); a.update(kw)
+        return _json.loads(_cad_edit(self._node, op, _json.dumps(a)))
+    # parameters and configurations
+    def parameter(self, name, expr, comment=""):
+        return self.edit("parameter", name=name, expr=expr, comment=comment)
+    def remove_parameter(self, name):
+        return self.edit("remove_parameter", name=name)
+    def parameters(self):
+        return {p["name"]: p["value"] for p in self.info()["parameters"]}
+    def configuration(self, name, **overrides):
+        return self.edit("configuration", name=name, overrides=overrides)
+    def activate(self, name=None):
+        return self.edit("activate", name=name)
+    # solids
+    def _prim(self, kind, name, op, at, rotate, blend, kw):
+        a = dict(kw); a.update(kind=kind, op=op, at=list(at), rotate=list(rotate))
+        if name: a["name"] = name
+        if blend: a["blend"] = blend
+        return self.edit("add", a)
+    def box(self, size=(10, 10, 10), name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), corner_radius=0, blend=0):
+        return self._prim("box", name, op, at, rotate, blend, {"size": list(size), "corner_radius": corner_radius})
+    def sphere(self, radius=5, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("sphere", name, op, at, rotate, blend, {"radius": radius})
+    def cylinder(self, radius=5, height=10, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("cylinder", name, op, at, rotate, blend, {"radius": radius, "height": height})
+    def cone(self, r_bottom=5, r_top=0, height=10, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("cone", name, op, at, rotate, blend, {"r_bottom": r_bottom, "r_top": r_top, "height": height})
+    def torus(self, major=10, minor=2, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("torus", name, op, at, rotate, blend, {"major": major, "minor": minor})
+    def hole(self, diameter=5, depth=10, kind="simple", name=None, at=(0, 0, 0), rotate=(0, 0, 0), **kw):
+        """A hole cut downward (-z) from `at`: kind simple, drilled, counterbore (cb_diameter, cb_depth),
+        countersink (cs_diameter, cs_angle) or tapped (pitch)."""
+        k = dict(kw); k.update(diameter=diameter, depth=depth, hole=kind)
+        return self._prim("hole", name, "cut", at, rotate, 0, k)
+    def thread(self, major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op="add", at=(0, 0, 0)):
+        return self._prim("thread", name, op, at, (0, 0, 0), 0, {"major_diameter": major_diameter, "pitch": pitch, "length": length, "internal": internal})
+    def sketch(self, plane="XY", offset=0):
+        return _CadSketch(plane, offset)
+    def extrude(self, sketch, depth=10, name=None, op="add", end="blind", draft=0, reverse=False, at=(0, 0, 0), top=None, bottom=None):
+        """Extrude a sketch along its plane's normal. end: blind, midplane or through_all.
+        top / bottom: {"fillet": r} or {"chamfer": d} on the cap edges."""
+        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch, "depth": depth, "op": op, "end": end, "draft": draft, "reverse": reverse, "at": list(at)}
+        if name: a["name"] = name
+        if top: a["top"] = top
+        if bottom: a["bottom"] = bottom
+        return self.edit("sketch_extrude", a)
+    def revolve(self, sketch, angle=360, name=None, op="add", at=(0, 0, 0)):
+        """Revolve a sketch about its local y axis (on the XZ plane: the world z axis); x is the radius."""
+        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch, "angle": angle, "op": op, "at": list(at)}
+        if name: a["name"] = name
+        return self.edit("sketch_revolve", a)
+    # modifiers: on a feature (by name), or on the whole part when feature is None
+    def modifier(self, kind, feature=None, **kw):
+        m = {"kind": kind}; m.update(kw)
+        return self.edit("modifier", feature=feature, modifier=m)
+    def fillet(self, radius, feature=None):
+        return self.modifier("Fillet", feature, radius=radius)
+    def shell(self, thickness, feature=None, open_top=None):
+        if open_top is None: return self.modifier("Shell", feature, thickness=thickness)
+        return self.modifier("ShellOpen", feature, thickness=thickness, open_top=open_top)
+    def linear_pattern(self, count, step, feature=None):
+        return self.modifier("LinearPattern", feature, count=count, step=list(step))
+    def grid_pattern(self, counts, step, feature=None):
+        return self.modifier("GridPattern", feature, counts=list(counts), step=list(step))
+    def circular_pattern(self, count, total_deg=360, axis="Z", feature=None):
+        return self.modifier("CircularPatternAngle", feature, count=count, total_deg=total_deg, axis=axis)
+    def mirror(self, plane="YZ", feature=None):
+        return self.modifier("Mirror", feature, plane=plane)
+    def split(self, plane="XY", offset=0, keep_positive=True, feature=None):
+        return self.modifier("Split", feature, plane=plane, offset=offset, keep_positive=keep_positive)
+    def scale(self, factor, feature=None):
+        return self.modifier("Scale", feature, factor=factor)
+    # the timeline
+    def suppress(self, feature, suppressed=True):
+        return self.edit("suppress", feature=feature, suppressed=suppressed)
+    def remove(self, feature):
+        return self.edit("remove", feature=feature)
+    def rename(self, feature, to):
+        return self.edit("rename", feature=feature, to=to)
+    def move(self, feature, to):
+        return self.edit("move", feature=feature, to=to)
+    def bind(self, feature, path, expr):
+        """Drive a numeric field of a feature by an expression; path is a JSON pointer such as /shape/size/0."""
+        return self.edit("bind", feature=feature, path=path, expr=expr)
+    def set(self, feature, path, value):
+        return self.edit("set", feature=feature, path=path, value=value)
+    def template(self, name):
+        """Start from a template: enclosure, flange, knob, threaded rod, vase or bracket."""
+        return self.edit("template", name=name)
+    def clear(self, name="Part"):
+        return self.edit("new", name=name)
+    # reading
+    def info(self):
+        return _json.loads(_cad_info(self._node))
+    def features(self):
+        return self.info()["features"]
+    def evaluate(self, resolution=64):
+        """Build the part now: volume, area, centroid, bounds and the faces (name, kind, area, centroid, direction)."""
+        return _json.loads(_cad_evaluate(self._node, resolution))
+    def faces(self, resolution=64):
+        return self.evaluate(resolution)["faces"]
+    def volume(self, resolution=64):
+        return self.evaluate(resolution)["volume"]
+    def apply(self):
+        """Bring the node up to date and return its summary."""
+        return self._node.update()
+    # files
+    def document(self):
+        return _cad_document(self._node)
+    def save(self, path):
+        """Write the document as an .afxcad file."""
+        open(path, "w").write(_cad_document(self._node)); return path
+    def load(self, path):
+        """Replace the document by an .afxcad file."""
+        _cad_set_document(self._node, open(path).read()); return self._node
+    def __repr__(self):
+        i = self.info()
+        return "<cad %r: %d features, %d parameters>" % (i["name"], len(i["features"]), len(i["parameters"]))
+
+def cad_model(source=None, template=None, name=None, **kw):
+    """A parametric part. afx.cad_model() starts a plate; afx.cad_model("part.afxcad") opens a
+    document; template="flange" starts from a template. The returned node's .cad builds the part
+    and node.set(width=50) changes a parameter."""
+    node = apply("cad_model", None)
+    if source is not None:
+        node.cad.load(source)
+    elif template is not None:
+        node.cad.template(template)
+    if name:
+        node.cad.edit("rename_document", name=name)
+    if kw:
+        node.set(**kw)
+    return node
 "#;
 
 /// Build a source function for each registered source so `afx.sphere(radius=2)` works.
@@ -1919,9 +2168,15 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_filter_kind, m)?)?;
     m.add_function(wrap_pyfunction!(plugins, m)?)?;
     m.add_function(wrap_pyfunction!(_mesh_check, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_edit, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_document, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_set_document, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_info, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_evaluate, m)?)?;
     // Decorators (@afx.filter, @afx.source, @afx.reader) and helpers are plain Python.
     m.py().run(&std::ffi::CString::new(crate::plugins::PY_API).unwrap(), Some(&m.dict()), None)?;
     m.py().run(&std::ffi::CString::new(MESH_API).unwrap(), Some(&m.dict()), None)?;
+    m.py().run(&std::ffi::CString::new(CAD_API).unwrap(), Some(&m.dict()), None)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__doc__", "auraFX scripting: afx.load(path), node.slice(...), node.color_by('T'), afx.screenshot('out.png'). See afx.filters().")?;
     let _ = PyTuple::empty(py);

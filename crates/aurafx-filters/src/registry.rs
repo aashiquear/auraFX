@@ -3671,6 +3671,30 @@ fn build() -> Vec<FilterDef> {
             apply: |_, p| crate::geometry_model::geometry(&p.str("commands"), p.i64("resolution", 64).max(2) as usize, &p.str("output"), p.bool("project", true)),
         },
         FilterDef {
+            id: "cad_model",
+            label: "CAD Model",
+            category: "Sources",
+            description: "A parametric part: sketches, features and parameters that rebuild the solid when a dimension changes, with named faces. Change a dimension from Properties or Python without opening the CAD environment.",
+            keywords: &["cad", "parametric", "part", "sketch", "feature", "extrude", "revolve", "fillet", "hole", "solid model", "step", "dimension", "design"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                ParamSpec::new("document", "Document", ParamKind::Code, ParamValue::Str(crate::cad::default_document_json()))
+                    .help("The part as an .afxcad document (JSON). Edit it with the CAD environment or with node.cad in Python."),
+                ParamSpec::new("parameters", "Parameter overrides", ParamKind::Str, ParamValue::Str(String::new()))
+                    .help("A JSON object of parameter name to expression that replaces the document's own values, for example {\"width\": \"50 mm\"}."),
+                ParamSpec::new("configuration", "Configuration", ParamKind::Str, ParamValue::Str(String::new()))
+                    .help("The name of a configuration of the document (a named set of parameter values); empty: the document's own."),
+                i("resolution", "Resolution", 64, 8, 1024).help("Cells along the longest side of the part when drawing its surface."),
+                choice("output", "Output", &[crate::cad::OUT_SURFACE, crate::cad::OUT_DISTANCE], crate::cad::OUT_SURFACE)
+                    .help("Surface: the part's surface with BodyId and FaceId and the face names. Distance field: the signed distance to the part on a grid."),
+                b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface.").advanced(),
+            ],
+            apply: |_, p| crate::cad::cad_model(&p.str("document"), &p.str("parameters"), &p.str("configuration"), p.i64("resolution", 64).max(8) as usize, &p.str("output"), p.bool("project", true)),
+        },
+        FilterDef {
             id: "signed_distance",
             label: "Signed Distance Field",
             category: "Mesh",

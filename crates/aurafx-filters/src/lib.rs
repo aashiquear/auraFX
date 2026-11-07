@@ -21,6 +21,7 @@ pub mod crystal_texture;
 pub mod edges;
 pub mod features;
 pub mod geometry;
+pub mod cad;
 pub mod geometry_model;
 pub mod glyph;
 pub mod grain_grid;

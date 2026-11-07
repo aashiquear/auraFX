@@ -928,6 +928,81 @@ impl Session {
         }
     }
 
+    // ------------------------------------------------------------------ CAD models
+
+    /// Whether the node is a CAD Model source.
+    pub fn is_cad_model(&self, id: NodeId) -> bool {
+        self.nodes.get(&id).is_some_and(|n| matches!(&n.kind, NodeKind::Source { def } if def.id == "cad_model"))
+    }
+
+    /// The document of a CAD Model node (without the node's parameter overrides).
+    pub fn cad_document(&self, id: NodeId) -> Result<aurafx_cad::Document> {
+        if !self.is_cad_model(id) {
+            anyhow::bail!("the node is not a CAD Model (afx.cad_model() makes one)");
+        }
+        let n = &self.nodes[&id];
+        aurafx_filters::cad::parse_document(&n.params.str("document"))
+    }
+
+    /// The document with the node's overrides and configuration applied: what the node draws.
+    pub fn cad_effective_document(&self, id: NodeId) -> Result<aurafx_cad::Document> {
+        self.cad_document(id)?;
+        let n = &self.nodes[&id];
+        aurafx_filters::cad::effective_document(&n.params.str("document"), &n.params.str("parameters"), &n.params.str("configuration"))
+    }
+
+    /// The overrides the node applies to the document's parameters: name and expression.
+    pub fn cad_overrides(&self, id: NodeId) -> Vec<(String, String)> {
+        self.nodes.get(&id).map(|n| aurafx_filters::cad::parse_overrides(&n.params.str("parameters")).unwrap_or_default()).unwrap_or_default()
+    }
+
+    /// Replace the document of a CAD Model node (one undo step).
+    pub fn cad_set_document(&mut self, id: NodeId, doc: &aurafx_cad::Document) {
+        let text = aurafx_cad::CadFile::new(doc.clone()).to_json();
+        self.set_param(id, "document", aurafx_filters::ParamValue::Str(text));
+    }
+
+    /// Edit the document of a CAD Model node by one named operation (see `aurafx_cad::edit`):
+    /// one undo step, recorded in the Python trace as `node.cad.edit("op", {...})`.
+    pub fn cad_edit(&mut self, id: NodeId, op: &str, args: &serde_json::Value) -> Result<serde_json::Value> {
+        let mut doc = self.cad_document(id)?;
+        let out = aurafx_cad::edit::apply_op(&mut doc, op, args).map_err(|e| anyhow::anyhow!("{e}"))?;
+        // The edit is shown at once when it cannot be drawn (an error says what to change).
+        let text = aurafx_cad::CadFile::new(doc).to_json();
+        let var = self.py_var(id);
+        if let Some(n) = self.nodes.get(&id) {
+            if n.params.str("document") != text {
+                self.checkpoint(format!("CAD: {op}"));
+            }
+        }
+        if let Some(n) = self.nodes.get_mut(&id) {
+            n.params.set("document", aurafx_filters::ParamValue::Str(text));
+            n.forget_reader_step();
+        }
+        self.mark_dirty(id);
+        self.trace.push(format!("{var}.cad.edit({}, {})", py_str(op), json_to_py(args)));
+        Ok(out)
+    }
+
+    /// Set a parameter of the CAD document from the node (the Properties panel, `node.set(width=50)`):
+    /// the document itself is not changed, the node carries the override.
+    pub fn cad_set_parameter(&mut self, id: NodeId, name: &str, value: &serde_json::Value) -> Result<()> {
+        let doc = self.cad_document(id)?;
+        if !doc.parameters.iter().any(|p| p.name == name) {
+            let names: Vec<_> = doc.parameters.iter().map(|p| p.name.as_str()).collect();
+            anyhow::bail!("the CAD document has no parameter '{name}' (its parameters are: {})", names.join(", "));
+        }
+        let mut map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&self.nodes[&id].params.str("parameters")).ok().and_then(|v: serde_json::Value| v.as_object().cloned()).unwrap_or_default();
+        if value.is_null() {
+            map.remove(name);
+        } else {
+            map.insert(name.to_string(), serde_json::Value::String(value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())));
+        }
+        self.set_param(id, "parameters", aurafx_filters::ParamValue::Str(serde_json::Value::Object(map).to_string()));
+        Ok(())
+    }
+
     pub fn set_visible(&mut self, id: NodeId, visible: bool) {
         if let Some(label) = self.nodes.get(&id).filter(|n| n.visible != visible).map(|n| format!("{} {}", if visible { "Show" } else { "Hide" }, n.name)) {
             self.checkpoint(label);
@@ -1959,6 +2034,18 @@ pub fn option_specs(options: Vec<aurafx_io::ReaderOption>) -> Vec<aurafx_filters
 }
 
 /// A Python string literal for `s` (triple-quoted when it spans lines).
+/// A JSON value written as a Python literal.
+pub fn json_to_py(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "None".into(),
+        serde_json::Value::Bool(b) => if *b { "True" } else { "False" }.into(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => py_str(s),
+        serde_json::Value::Array(a) => format!("[{}]", a.iter().map(json_to_py).collect::<Vec<_>>().join(", ")),
+        serde_json::Value::Object(o) => format!("{{{}}}", o.iter().map(|(k, v)| format!("{}: {}", py_str(k), json_to_py(v))).collect::<Vec<_>>().join(", ")),
+    }
+}
+
 pub fn py_str(s: &str) -> String {
     if s.contains('\n') && !s.contains("\"\"\"") && !s.contains('\\') && !s.ends_with('"') {
         format!("\"\"\"{s}\"\"\"")

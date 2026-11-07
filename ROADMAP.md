@@ -326,7 +326,7 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 
 - [x] C0 Skeleton: crate `aurafx-cad` (kernel trait, `Evaluated` contract, errors, `Id`), the expression evaluator ported with its tests, the design document, this section (iteration 72).
 - [x] C1 Document (iteration 73): `document.rs` (Feature, Shape, Modifier, Parameter, Binding, Configuration, Document, resolution of parameters and configurations), `sketch.rs` + `path.rs` (entities, constraints, dimensions, the Levenberg-Marquardt solver with its DOF report), `templates.rs`, `analysis.rs` (mass properties, interference, sections), `assembly.rs`; `.afxcad` JSON files with a format version. Tests: EZ-YX-craft's, plus every template through a JSON round trip.
-- [ ] C2 Implicit kernel and the node: `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
+- [x] C2 Implicit kernel and the node (iteration 74): `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
 - [ ] C3 Environment shell: `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
 - [ ] C5 Downstream check (before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
 - [ ] C4 Sketching: the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
@@ -635,6 +635,29 @@ with a format version (older files load; a newer one is refused with a message),
 documents accepted, optional assembly. Every template survives the file round trip.
 50 tests. The guide chapter CAD modeling starts with C2, when the document becomes reachable
 from a source node and Python. Next: C2.
+
+Done in iteration 74 (C2, the implicit kernel and the node): `kernel/implicit.rs` turns a
+document into bodies with named faces, a surface and a distance function. The surface is
+drawn by marching tetrahedra over a grid with the points moved onto the exact surface (volumes
+of boxes, cylinders, spheres, tori, extruded and revolved sketches are within 1 % of the
+closed forms at 96 cells); every triangle belongs to the feature whose own field is nearest
+and to the face of that feature's shape its normal points along (a brick's six sides, a
+cylinder's or hole's side, bottom and top, an extruded sketch's bottom, top and one side per
+sketch line, arc or circle, a revolve's one face per profile entity), so faces keep stable
+`(feature id, index)` identities and names like `Base z+` or `Bore side` across rebuilds.
+`edit.rs` is the operation API shared by Python, the assistant and the later environment
+(parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move,
+bind, set, configuration, template; numbers may be expressions of the parameters, which
+become bindings; mistakes read as sentences). The CAD Model source (`cad_model`, Sources ›
+CAD Model) keeps the document as `.afxcad` JSON in a parameter (so state files, undo and the
+trace carry it without a new node kind; this replaces the planned `NodeKind::Cad`), takes
+parameter overrides and a configuration from the node, and outputs the Surface (layout of the
+Geometry source) or the Distance field. Python: `afx.cad_model()`, `node.cad.*` (solids,
+sketches, extrude, revolve, modifiers, timeline, configurations, faces, volume, save/load),
+`node.set(width=50)`. Properties show the dimensions (editable expressions), configuration,
+features (checkbox to suppress) and faces. A flange template meshed by Overlay Mesh has no
+inverted element. Guide chapter: CAD modeling (`cad_part`, `cad_panel` pictures); assistant
+help added. 73 new tests across the crates. Next: C3.
 
 ## Status (2026-11-05)
 

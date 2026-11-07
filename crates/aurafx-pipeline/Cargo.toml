@@ -9,6 +9,7 @@ description = "Pipeline graph, session state and execution for auraFX"
 aurafx-data.workspace = true
 aurafx-io.workspace = true
 aurafx-filters.workspace = true
+aurafx-cad.workspace = true
 anyhow.workspace = true
 indexmap.workspace = true
 serde.workspace = true

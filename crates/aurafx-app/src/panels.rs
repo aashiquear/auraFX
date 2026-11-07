@@ -786,6 +786,10 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                             if (spec.advanced && !adv) || matches!(spec.kind, ParamKind::Code) {
                                 continue;
                             }
+                            // A CAD Model shows its dimensions and configuration in its own section.
+                            if def.id == "cad_model" && matches!(spec.key.as_str(), "parameters" | "configuration") {
+                                continue;
+                            }
                             let label = ui.label(&spec.label);
                             if !spec.help.is_empty() {
                                 label.on_hover_text(&spec.help);
@@ -797,12 +801,15 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.end_row();
                         }
                     });
-                    for spec in def.params.iter().filter(|p| matches!(p.kind, ParamKind::Code)) {
+                    for spec in def.params.iter().filter(|p| matches!(p.kind, ParamKind::Code) && !(def.id == "cad_model" && p.key == "document")) {
                         ui.label(RichText::new(&spec.label).strong());
                         let value = params.get(&spec.key).and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
                         if let Some(nv) = text_param(ui, id, &spec.key, &value, TextKind::Code(14)) {
                             state.session.lock().set_param(id, &spec.key, ParamValue::Str(nv));
                         }
+                    }
+                    if def.id == "cad_model" {
+                        crate::cad::properties_ui(state, ui, id);
                     }
                     if def.id == "geometry" {
                         let cmds = params.get("commands").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();

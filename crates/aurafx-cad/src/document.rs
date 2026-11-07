@@ -461,7 +461,6 @@ pub fn demo_part() -> Document {
 mod tests {
     use super::*;
     use crate::sketch::SketchPlane;
-    use crate::templates;
     use glam::DVec3;
 
     #[test]

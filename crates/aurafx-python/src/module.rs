@@ -1560,12 +1560,67 @@ fn _cad_enter(node: PyRef<PyNode>) -> PyResult<()> {
     session().lock().cad_enter(node.id).map_err(cad_err)
 }
 
-/// Apply the environment's working copy to the node; `keep` stays in the environment.
+fn conflict_json(c: &aurafx_pipeline::Conflict) -> serde_json::Value {
+    serde_json::json!({
+        "node": c.node, "node_name": c.node_name, "param": c.param, "value": c.value, "reference": c.reference,
+        "kind": c.kind.label(), "may_reference": c.may_reference,
+        "fix": c.fix.as_ref().map(|f| serde_json::json!({ "value": f.value, "reason": f.reason, "check": f.check })),
+    })
+}
+
+/// The downstream check of the environment's working copy: what changed, the nodes below the
+/// part, the conflicts with their default fixes, and the prompt for the assistant.
 #[pyfunction]
-#[pyo3(signature = (keep=false))]
-fn _cad_apply(keep: bool) -> PyResult<String> {
-    let a = session().lock().cad_apply(keep).map_err(cad_err)?;
-    Ok(serde_json::json!({ "features": a.features, "kept_editing": a.kept_editing }).to_string())
+fn _cad_check() -> PyResult<String> {
+    let s = session().lock();
+    let r = s.cad_check().map_err(cad_err)?;
+    Ok(serde_json::json!({
+        "changed": !r.diff.is_empty(),
+        "diff": r.diff.describe(),
+        "downstream": r.downstream,
+        "conflicts": r.conflicts.iter().map(conflict_json).collect::<Vec<_>>(),
+        "prompt": s.cad_check_prompt(&r),
+    })
+    .to_string())
+}
+
+/// Read fixes out of an assistant's answer (a JSON list of node, param, value, reason).
+#[pyfunction]
+fn _cad_parse_fixes(answer: String) -> PyResult<String> {
+    let s = session().lock();
+    let f = aurafx_pipeline::cad_check::parse_ai_fixes(&s, &answer).map_err(cad_err)?;
+    Ok(serde_json::to_string(&f).map_err(cad_err)?)
+}
+
+/// Apply the environment's working copy to the node. `fix`: "default", "none" or a JSON list of
+/// fixes; `run`: "now" or "later"; `keep` stays in the environment.
+#[pyfunction]
+#[pyo3(signature = (keep=false, fix="default".to_string(), run="now".to_string()))]
+fn _cad_apply(keep: bool, fix: String, run: String) -> PyResult<String> {
+    let mode = match fix.as_str() {
+        "default" => aurafx_pipeline::FixMode::Default,
+        "none" => aurafx_pipeline::FixMode::None,
+        list => aurafx_pipeline::FixMode::Fixes(serde_json::from_str(list).map_err(|_| PyValueError::new_err("fix is 'default', 'none' or a list of fixes"))?),
+    };
+    let run = match run.as_str() {
+        "now" => aurafx_pipeline::RunMode::Now,
+        "later" => aurafx_pipeline::RunMode::Later,
+        _ => return Err(PyValueError::new_err("run is 'now' or 'later'")),
+    };
+    let a = session().lock().cad_apply_with(keep, mode, run).map_err(cad_err)?;
+    Ok(serde_json::json!({ "features": a.features, "kept_editing": a.kept_editing, "fixes": a.fixes, "held": a.held }).to_string())
+}
+
+/// Send a command to the app's window (the Apply button's dialog).
+#[pyfunction]
+fn _cad_app_command(cmd: String) {
+    session().lock().app_commands.push(cmd);
+}
+
+/// Let the nodes held back by a postponed re-run run.
+#[pyfunction]
+fn _cad_run_held() {
+    session().lock().cad_run_held();
 }
 
 /// Leave the environment without applying.
@@ -1798,12 +1853,32 @@ class _CadApi:
         return self.evaluate(resolution)["faces"]
     def volume(self, resolution=64):
         return self.evaluate(resolution)["volume"]
-    def apply(self, keep_editing=False):
-        """Inside the CAD environment: hand the part to the node and leave (keep_editing=True stays).
-        Outside it: bring the node up to date and return its summary."""
+    def apply(self, keep_editing=False, fix="default", run="now"):
+        """Inside the CAD environment: hand the part to the node and leave (keep_editing=True stays),
+        after the downstream check. fix: "default" (apply the default fixes), "none" (leave what the
+        check found as it is), a list of {"node", "param", "value"} fixes, or the text of an assistant's
+        answer (a JSON list). run: "now", or "later" (the nodes below wait for run_held()).
+        Returns {"features", "fixes", "held", "kept_editing"}. Outside the environment: bring the
+        node up to date and return its summary."""
         if self.editing():
-            return _json.loads(_cad_apply(keep_editing))
+            if isinstance(fix, str) and fix not in ("default", "none"):
+                fix = _cad_parse_fixes(fix)           # an assistant's answer
+            elif not isinstance(fix, str):
+                fix = _json.dumps(fix)
+            return _json.loads(_cad_apply(keep_editing, fix, run))
         return self._node.update()
+    def ask_apply(self, keep_editing=False):
+        """What the Apply button does in the window: run the downstream check and open its dialog
+        when the nodes below are affected (only useful from a script running in the app)."""
+        _cad_app_command("cad_apply keep" if keep_editing else "cad_apply")
+    def check(self):
+        """The downstream check of the changes made in the environment: what changed, the nodes below
+        the part, the conflicts (node, param, reference, what happened, the default fix) and the
+        prompt to ask an assistant for more fixes."""
+        return _json.loads(_cad_check())
+    def run_held(self):
+        """Run the nodes a postponed apply held back."""
+        _cad_run_held()
     # the environment
     def editing(self):
         """True while the CAD environment is open on this node."""
@@ -1834,6 +1909,10 @@ class _CadApi:
     def __repr__(self):
         i = self.info()
         return "<cad %r: %d features, %d parameters>" % (i["name"], len(i["features"]), len(i["parameters"]))
+
+def cad_check(node=None):
+    """The downstream check of the CAD environment that is open (see node.cad.check())."""
+    return _json.loads(_cad_check())
 
 def _edit_cad(node):
     """Open the CAD environment on a CAD Model node: the pipeline pauses, node.cad.* edits a
@@ -2271,6 +2350,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_cad_edit, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_enter, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_apply, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_check, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_parse_fixes, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_run_held, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_app_command, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_discard, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_state, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_env, m)?)?;

@@ -19,6 +19,7 @@
 
 pub mod analysis;
 pub mod assembly;
+pub mod diff;
 pub mod document;
 pub mod edit;
 pub mod expr;

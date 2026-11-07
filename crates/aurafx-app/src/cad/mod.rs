@@ -5,6 +5,7 @@
 //! document being edited lives in the session (`CadEdit`); this module draws it and turns
 //! clicks into the same operations Python makes (`aurafx_cad::edit`).
 
+mod conflicts;
 mod feature_manager;
 mod property_manager;
 mod ribbon;
@@ -16,6 +17,7 @@ use aurafx_pipeline::NodeId;
 use egui::RichText;
 use serde_json::{json, Value};
 
+pub use conflicts::hold_banner;
 pub use feature_manager::feature_manager_ui;
 pub use property_manager::property_manager_ui;
 pub use ribbon::ribbon_ui;
@@ -64,6 +66,10 @@ pub struct CadUi {
     /// A feature being renamed in the FeatureManager.
     pub rename: Option<(Id, String)>,
     pub new_param: (String, String),
+    /// Apply is waiting for the user's answer about the nodes below the part.
+    pub apply_dialog: Option<conflicts::ApplyDialog>,
+    /// Re-run the nodes below right after Apply (the dialog's checkbox).
+    pub rerun_now: bool,
 }
 
 impl Default for CadUi {
@@ -81,6 +87,8 @@ impl Default for CadUi {
             section_area: None,
             rename: None,
             new_param: (String::new(), String::new()),
+            apply_dialog: None,
+            rerun_now: true,
         }
     }
 }
@@ -125,11 +133,25 @@ pub fn op(state: &mut State, name: &str, args: Value) -> Option<Value> {
     }
 }
 
-/// Apply (and leave, or keep editing).
+/// Apply (and leave, or keep editing): the downstream check first; when the nodes below are
+/// affected a dialog asks what to do.
 pub fn apply(state: &mut State, keep: bool) {
-    let r = state.session.lock().cad_apply(keep);
+    state.cad.leave_dialog = false;
+    conflicts::request_apply(state, keep);
+}
+
+/// Apply with the given fixes and run mode, without asking.
+pub fn apply_now(state: &mut State, keep: bool, fix: aurafx_pipeline::FixMode, run: aurafx_pipeline::RunMode) {
+    let r = state.session.lock().cad_apply_with(keep, fix, run);
     match r {
-        Ok(a) => state.status = if a.kept_editing { "CAD: applied; still editing".into() } else { "CAD: applied; the pipeline resumes".into() },
+        Ok(a) => {
+            state.status = match (a.kept_editing, a.fixes, a.held) {
+                (true, ..) => "CAD: applied; still editing".into(),
+                (false, 0, 0) => "CAD: applied; the pipeline resumes".into(),
+                (false, f, 0) => format!("CAD: applied with {f} fix(es); the pipeline resumes"),
+                (false, _, h) => format!("CAD: applied; {h} node(s) below wait to be re-run"),
+            }
+        }
         Err(e) => state.toast(format!("{e:#}"), true),
     }
     state.cad.leave_dialog = false;
@@ -180,13 +202,14 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
     if state.cad.running {
         ctx.request_repaint_after(std::time::Duration::from_millis(60));
     }
-    if !ctx.text_edit_focused() && !state.cad.leave_dialog && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+    if !ctx.text_edit_focused() && !state.cad.leave_dialog && !state.cad.dialog_open() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         state.cad.leave_dialog = true;
     }
 }
 
 /// The "leave the CAD environment?" dialog (Esc).
 pub fn dialogs_ui(state: &mut State, ctx: &egui::Context) {
+    conflicts::dialog_ui(state, ctx);
     if !state.cad.leave_dialog || !editing(state) {
         state.cad.leave_dialog = false;
         return;
@@ -288,6 +311,7 @@ pub fn number_or_expr(text: &str) -> Value {
 
 /// The Properties of a CAD Model node.
 pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
+    hold_banner(state, ui);
     let (doc, effective, overrides) = {
         let s = state.session.lock();
         (s.cad_document(id), s.cad_effective_document(id), s.cad_overrides(id))

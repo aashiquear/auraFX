@@ -185,7 +185,18 @@ pub fn sketch_from_spec(doc: &Document, spec: &Value) -> Result<Sketch, CadError
                     Some(c) => (c[0].as_f64().unwrap_or(0.0) - wd.value / 2.0, c[1].as_f64().unwrap_or(0.0) - hd.value / 2.0),
                     None => (x0, y0),
                 };
-                let p = [s.add_fixed_point(x0, y0), s.add_point(x0 + wd.value, y0), s.add_point(x0 + wd.value, y0 + hd.value), s.add_point(x0, y0 + hd.value)];
+                // A rectangle given by its center stays centered when its dimensions change: the
+                // center is fixed and is the midpoint of a diagonal. One given by a corner keeps that corner.
+                let p = if let Some(c) = center {
+                    let (cx, cy) = (c[0].as_f64().unwrap_or(0.0), c[1].as_f64().unwrap_or(0.0));
+                    let p = [s.add_point(x0, y0), s.add_point(x0 + wd.value, y0), s.add_point(x0 + wd.value, y0 + hd.value), s.add_point(x0, y0 + hd.value)];
+                    let cp = s.add_fixed_point(cx, cy);
+                    let diag = s.add_construction_line(p[0], p[2]);
+                    s.constrain(Constraint::Midpoint(cp, diag));
+                    p
+                } else {
+                    [s.add_fixed_point(x0, y0), s.add_point(x0 + wd.value, y0), s.add_point(x0 + wd.value, y0 + hd.value), s.add_point(x0, y0 + hd.value)]
+                };
                 let l: Vec<usize> = (0..4).map(|i| s.add_line(p[i], p[(i + 1) % 4])).collect();
                 s.constrain(Constraint::Horizontal(l[0]));
                 s.constrain(Constraint::Vertical(l[1]));

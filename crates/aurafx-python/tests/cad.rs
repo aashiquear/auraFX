@@ -94,6 +94,28 @@ print(len(p.cad.features()))
     let out = rt.run("q = afx.cad_model(); q.edit_cad(); other = afx.cad_model(); other.edit_cad()");
     assert!(out.error.unwrap().contains("already open"));
     run(&rt, "q.cad.discard()");
+    // The downstream check from Python: rename the hole, see the conflict, apply the default fix.
+    let o = run(
+        &rt,
+        r#"
+c = afx.cad_model()
+c.cad.hole(diameter=8, depth=20, name="Bore", at=(0, 0, 12))
+w = c.extract_set(set="Bore side")
+e = c.edit_cad()
+e.rename("Bore", "Pin hole")
+chk = afx.cad_check(c)
+print(len(chk["conflicts"]), chk["conflicts"][0]["kind"], chk["conflicts"][0]["fix"]["value"])
+print("Bore side" in chk["diff"] and "Pin hole side" in chk["diff"], "JSON array" in chk["prompt"])
+r = e.apply()
+print(r["fixes"], w.params["set"])
+e = c.edit_cad()
+e.remove("Pin hole")
+r2 = e.apply(fix="none", run="later")
+print(r2["fixes"], r2["held"], w.params["set"])
+c.cad.run_held()
+"#,
+    );
+    assert_eq!(o, "1 renamed to 'Pin hole side' Pin hole side\nTrue True\n1 Pin hole side\n0 1 Pin hole side", "{o}");
     let trace = session.lock().trace.join("\n");
     assert!(trace.contains(".cad.edit('add'"), "{trace}");
     std::fs::remove_file("/tmp/afx_cad_py_test.afxcad").ok();

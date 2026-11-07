@@ -8,6 +8,7 @@ use egui::RichText;
 // ------------------------------------------------------------------ pipeline
 
 pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
+    crate::cad::hold_banner(state, ui);
     ui.horizontal(|ui| {
         if ui.button(crate::icons::FOLDER_OPEN).on_hover_text("Open file").clicked() {
             state.open_file_dialog();

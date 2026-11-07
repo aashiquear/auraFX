@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-97796c98.js";
+            window.path_to_searchindex_js = "searchindex-d9f7e955.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -3404,6 +3404,46 @@ e.evaluate()                   # build it now (the window does this by itself)
 e.rollback(1)                  # build only the first feature
 e.undo(); e.redo()
 e.apply()                      # or e.apply(keep_editing=True) / e.discard()
+</code></pre>
+<h2 id="what-the-nodes-below-depend-on"><a class="header" href="#what-the-nodes-below-depend-on">What the nodes below depend on</a></h2>
+<p>Other nodes refer to a part by the names inside it: an Extract Set that names <code>Bore side</code>, a
+mesh command that names a face, a clip plane placed inside the plate. Editing the part can
+break these. So <strong>Apply checks them first</strong>. It compares the part as the nodes below were built
+against with the part you made, finds what they refer to that changed, and opens a dialog:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_check.png" alt="Applying the CAD changes affects 3 downstream objects: the Extract Set whose face was renamed, a clip and a slice that now fall outside the narrower plate"><span class="img-wrapper"><img src="images/cad_check.png" alt="Applying the CAD changes affects 3 downstream objects: the Extract Set whose face was renamed, a clip and a slice that now fall outside the narrower plate"></span></label></p>
+<ul>
+<li><strong>What changed in the part</strong> lists faces that were renamed, replaced, removed or moved,
+dimensions added or removed, and the new bounds and volume.</li>
+<li>Each row is something below the part that refers to a changed thing: the object, its
+parameter, what happened to the thing it refers to (<em>renamed to…</em>, <em>removed</em>, <em>now outside
+the part</em>, <em>one of several</em>), the <strong>default fix</strong>, the <strong>assistant’s fix</strong> when you asked for
+one, and a choice per row (<em>default</em>, <em>assistant</em>, <em>leave</em>).</li>
+<li>The default fixes are the safe ones. A renamed face is renamed where it is used, including
+inside command and expression text (whole names only: <code>Bore side</code> is not found inside <code>Bore sides</code>). A face that is gone but has one successor in the same place is replaced by it, and
+marked <em>(check)</em> because that is a guess. A position that fell outside the part is moved onto
+its nearest point. A face that is simply gone, or has several possible successors, has no
+default: you choose, or ask the assistant.</li>
+<li><strong>Ask the assistant</strong> sends the changes, the conflicts and each affected node’s filter and
+parameters to the assistant, which answers with a list of changes; they appear in the
+<em>Assistant’s fix</em> column and the same chat shows its reasoning.</li>
+<li><strong>Apply fixes and re-run</strong> applies the part and your choices, together, as one undo step;
+<strong>Apply without fixing</strong> applies the part and leaves the references (those nodes will show
+their own errors); <strong>Back to CAD</strong> returns; <strong>Discard CAD changes</strong> closes the environment
+as it was. The checkbox <em>re-run the nodes below now</em> postpones their re-run: they keep their
+old results, marked by a banner with <strong>Run now</strong>.</li>
+</ul>
+<p>When nothing below is affected the dialog is only the question <em>Re-run N downstream filters?</em>
+with <strong>Run now</strong>, <strong>Later</strong> and <strong>Back to CAD</strong>. A Python filter’s code is searched for the
+names as text: such rows say <em>(in code)</em> and have no default fix, because the name may not be
+a reference.</p>
+<p>From Python:</p>
+<pre><code class="language-python">e = part.edit_cad()
+e.rename("Bore", "Pin hole")
+report = e.check()             # {'diff': ..., 'conflicts': [...], 'downstream': [...], 'prompt': ...}
+e.apply()                      # fix="default": applies the default fixes
+e.apply(fix="none")            # leave what the check found as it is
+e.apply(fix=answer_text)       # the text of an assistant's answer (a JSON list of fixes)
+e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs them
 </code></pre>
 <h2 id="python-2"><a class="header" href="#python-2">Python</a></h2>
 <pre><code class="language-python">m = afx.cad_model()                                   # a plate; or afx.cad_model("part.afxcad"),

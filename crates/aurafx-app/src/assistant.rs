@@ -31,6 +31,10 @@ pub struct Assistant {
 }
 
 impl Assistant {
+    /// Whether an answer is still arriving.
+    pub fn busy(&self) -> bool {
+        self.stream.is_some()
+    }
     pub fn reset_agent_steps(&mut self) {
         self.agent_steps = 0;
     }

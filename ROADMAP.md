@@ -328,7 +328,7 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 - [x] C1 Document (iteration 73): `document.rs` (Feature, Shape, Modifier, Parameter, Binding, Configuration, Document, resolution of parameters and configurations), `sketch.rs` + `path.rs` (entities, constraints, dimensions, the Levenberg-Marquardt solver with its DOF report), `templates.rs`, `analysis.rs` (mass properties, interference, sections), `assembly.rs`; `.afxcad` JSON files with a format version. Tests: EZ-YX-craft's, plus every template through a JSON round trip.
 - [x] C2 Implicit kernel and the node (iteration 74): `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
 - [x] C3 Environment shell (iteration 75): `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
-- [ ] C5 Downstream check (before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
+- [x] C5 Downstream check (iteration 76; before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
 - [ ] C4 Sketching: the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
 - [ ] C6 B-rep kernel and CAD files, shipped in the repository: `vendor/solidcraft` and `vendor/solidcore` added with `git subtree` at a recorded tag (decided: the subtree route; one squashed commit for the whole upstream tree, then a prune commit that deletes directories only, so later pulls merge) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`; `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP written here measures the same through the vendored engine and, where installed, an independent STEP reader; the Linux package builds offline from a clean clone.
 - [ ] C7 Edge operations and assemblies: picking faces and edges on the B-rep tessellation; fillet and chamfer on picked edges, draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties, a measure tool. Tests: fillet volume against SolidCraft's measure; interference of two boxes analytic.
@@ -680,7 +680,34 @@ Sources › CAD Model…, Edit in CAD… (Pipeline context menu, Properties butt
 evaluate, undo, rollback, refused apply, apply as one undo step, discard, keep editing), the
 Python flow, and `scripts/cad/env_test.sh`, an app-driven script that enters, adds a box and
 a blind hole, applies and finds the node's surface with 7 faces more. The Assemble tab comes
-with C7. Guide: CAD modeling › The CAD environment (`cad_environment`). Next: C5.
+with C7. Guide: CAD modeling › The CAD environment (`cad_environment`).
+
+Done in iteration 76 (C5, the downstream check): `aurafx-cad/src/diff.rs` compares two builds
+by stable face ids, then names, then place (kind, direction within 25 degrees, centroid within
+a third of the part, area within a factor of three): each old face is the same, renamed,
+replaced by one successor, ambiguous between several, or removed; bodies and dimensions are
+tracked too. `aurafx-pipeline/src/cad_check.rs` collects what the nodes below refer to from
+their parameters: face and body names as whole values or whole words inside command and
+expression text (Python filters' code is reported as "may reference"), face and body numbers,
+positions inside the old bounds that are outside the new ones, and the part's own overrides of
+dimensions that were removed; it classifies each (Removed, Renamed, Moved, Ambiguous, Count)
+and gives default fixes that are plain parameter changes (renamed: certain; one successor:
+marked check; moved: onto the new bounds); `ai_prompt` writes the assistant's question and
+`parse_ai_fixes` reads its JSON answer (code fence or bare; node by id or name; bad answers are
+refused with the reason). Apply runs the check, applies the part and the chosen fixes as the
+entry's single undo step, and can postpone the re-run (`RunMode::Later`: the nodes below wait,
+a banner offers Run now). The dialog (`aurafx-app/src/cad/conflicts.rs`): the diff, a table of
+object, parameter, what changed, default fix, assistant's fix and a choice per row, Ask the
+assistant (its answer from the chat fills the column), Apply fixes and re-run, Apply without
+fixing, Back to CAD, Discard; with no conflicts the question Re-run N downstream filters?
+Python: `cad.check()`, `afx.cad_check()`, `cad.apply(fix='default'|'none'|list|answer text,
+run='now'|'later')`, `cad.run_held()`. Centered rectangles made by the operation API stay
+centered when their dimensions change. Tests: a renamed hole is fixed by default and undone
+together in one step, a removed hole is offered without a fix, a replaced hole names its
+successor as a guess, a refinement box outside the narrowed plate is moved onto it, the
+assistant's prompt and a canned answer (parsed, applied, bad answers refused), whole-name
+matching in command text and postponed re-runs, and the Python flow. Guide: CAD modeling ›
+What the nodes below depend on (`cad_check`). Next: C4.
 
 ## Status (2026-11-05)
 

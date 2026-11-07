@@ -7,6 +7,8 @@
 
 use crate::session::{LogLevel, NodeId, Session};
 use anyhow::{anyhow, bail, Result};
+use crate::cad_check::{self, CheckReport, FixMode, RunMode};
+use aurafx_cad::diff::GeometrySnapshot;
 use aurafx_cad::{CadFile, Document, Id};
 use aurafx_data::{DataSet, DataSetInfo};
 use std::sync::Arc;
@@ -48,6 +50,8 @@ pub struct CadEdit {
     pub error: Option<String>,
     /// Whether the working copy differs from what the node holds.
     pub changed: bool,
+    /// The part as the nodes below it were built against (for the downstream check).
+    pub baseline: Option<GeometrySnapshot>,
 }
 
 impl CadEdit {
@@ -67,6 +71,10 @@ pub struct CadApplied {
     pub node: NodeId,
     pub features: usize,
     pub kept_editing: bool,
+    /// Fixes applied to nodes below the part.
+    pub fixes: usize,
+    /// Nodes below the part that wait for `cad_run_held` (when the run was postponed).
+    pub held: usize,
 }
 
 impl Session {
@@ -85,6 +93,11 @@ impl Session {
             bail!("the CAD environment is already open on '{}': apply or discard it first", self.nodes.get(&e.node).map(|n| n.name.as_str()).unwrap_or("another part"));
         }
         let document = self.cad_document(id)?;
+        // What the nodes below were built against, for the check at Apply.
+        let baseline = self
+            .cad_effective_document(id)
+            .ok()
+            .and_then(|d| aurafx_filters::cad::evaluate(&d, 40, true).ok().map(|ev| GeometrySnapshot::of(&ev, &d)));
         self.checkpoint("Edit CAD");
         let n = self.nodes.get_mut(&id).ok_or_else(|| anyhow!("no such node"))?;
         let edit = CadEdit {
@@ -103,6 +116,7 @@ impl Session {
             summary: None,
             error: None,
             changed: false,
+            baseline,
         };
         n.visible = true;
         self.active = Some(id);
@@ -248,26 +262,72 @@ impl Session {
         }
     }
 
-    /// Hand the working copy to the node: one undo step, the pipeline resumes, the node and
-    /// everything downstream re-run. With `keep_editing` the environment stays open.
+    /// The downstream check of the working copy against the part the nodes below were built on:
+    /// what changed, what the nodes refer to that did, and the default fixes.
+    pub fn cad_check(&self) -> Result<CheckReport> {
+        let e = self.cad_edit.as_ref().ok_or_else(|| anyhow!("the CAD environment is not open (node.edit_cad() opens it)"))?;
+        let baseline = e.baseline.clone().ok_or_else(|| anyhow!("the part as it was could not be built, so nothing can be compared"))?;
+        let mut doc = e.document.clone();
+        for (name, expr) in self.cad_overrides(e.node) {
+            if doc.parameters.iter().any(|p| p.name == name) {
+                doc.set_parameter(&name, &expr);
+            }
+        }
+        let ev = aurafx_filters::cad::evaluate(&doc, 40, true).map_err(|x| anyhow!("the part does not build: {x:#}"))?;
+        let new = GeometrySnapshot::of(&ev, &doc);
+        Ok(cad_check::collect(self, e.node, &baseline, &new))
+    }
+
+    /// The assistant's prompt for fixes to a report.
+    pub fn cad_check_prompt(&self, report: &CheckReport) -> String {
+        cad_check::ai_prompt(self, report)
+    }
+
+    /// Hand the working copy to the node and apply the default fixes: see [`Session::cad_apply_with`].
     pub fn cad_apply(&mut self, keep_editing: bool) -> Result<CadApplied> {
+        self.cad_apply_with(keep_editing, FixMode::Default, RunMode::Now)
+    }
+
+    /// Hand the working copy to the node: one undo step (the entry's), the fixes chosen for the
+    /// conflicts, the pipeline resumes (or, with `RunMode::Later`, the nodes below wait until
+    /// `cad_run_held`). With `keep_editing` the environment stays open.
+    pub fn cad_apply_with(&mut self, keep_editing: bool, fix: FixMode, run: RunMode) -> Result<CadApplied> {
         let e = self.cad_edit.as_ref().ok_or_else(|| anyhow!("the CAD environment is not open"))?;
         let (node, doc) = (e.node, e.document.clone());
         // The model must build, or the pipeline would only show an error.
         let overrides = self.cad_overrides(node);
         evaluate_document(doc.clone(), &overrides, 16).map_err(|m| anyhow!("the part does not build: {m}"))?;
+        let fixes = match fix {
+            FixMode::None => Vec::new(),
+            FixMode::Fixes(f) => f,
+            FixMode::Default => self.cad_check().map(|r| r.default_fixes()).unwrap_or_default(),
+        };
         let text = CadFile::new(doc.clone()).to_json();
         let n = self.nodes.get_mut(&node).ok_or_else(|| anyhow!("the node is gone"))?;
         n.params.set("document", aurafx_filters::ParamValue::Str(text.clone()));
         n.dirty = true;
         n.error = None;
         let features = doc.features.len();
+        // The fixes are part of the same undo step as the edit.
+        for f in &fixes {
+            if let Some(nd) = self.nodes.get_mut(&f.node) {
+                if nd.params.get(&f.param).is_some() {
+                    nd.params.set_json(&f.param, &f.value);
+                    nd.forget_reader_step();
+                }
+            }
+        }
         if keep_editing {
+            let ev = aurafx_filters::cad::evaluate(&self.cad_effective_document(node).unwrap_or(doc.clone()), 40, true).ok();
             let e = self.cad_edit.as_mut().unwrap();
             e.original_text = text;
             e.original_output = None;
             e.original_info = None;
             e.changed = false;
+            if let Some(ev) = ev {
+                let d = e.document.clone();
+                e.baseline = Some(GeometrySnapshot::of(&ev, &d));
+            }
         } else {
             self.cad_edit = None;
         }
@@ -275,7 +335,21 @@ impl Session {
         self.trace.push(format!("{var}.cad.apply()"));
         self.log(LogLevel::Info, if keep_editing { "CAD: applied, still editing" } else { "CAD environment closed: the pipeline resumes" });
         self.mark_dirty(node);
-        Ok(CadApplied { node, features, kept_editing: keep_editing })
+        let below: Vec<NodeId> = self.downstream(node).into_iter().filter(|n| *n != node).collect();
+        let held = if run == RunMode::Later && !below.is_empty() {
+            self.cad_hold = Some(node);
+            below.len()
+        } else {
+            0
+        };
+        Ok(CadApplied { node, features, kept_editing: keep_editing, fixes: fixes.len(), held })
+    }
+
+    /// Let the nodes that were held back after Apply run.
+    pub fn cad_run_held(&mut self) {
+        if let Some(n) = self.cad_hold.take() {
+            self.mark_dirty(n);
+        }
     }
 
     /// Leave without applying: the node, its output and the pipeline are as they were.

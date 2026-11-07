@@ -224,7 +224,7 @@ pub struct RemoteStatus {
 
 impl Node {
     /// A reader whose options changed must read its current step again.
-    fn forget_reader_step(&mut self) {
+    pub(crate) fn forget_reader_step(&mut self) {
         if matches!(self.kind, NodeKind::Reader { .. }) {
             self.output_time_index = None;
         }
@@ -407,6 +407,8 @@ pub struct Session {
     pub nodes: IndexMap<NodeId, Node>,
     /// The CAD environment's edit in progress (the pipeline is paused while it is open).
     pub cad_edit: Option<crate::cad_edit::CadEdit>,
+    /// After an Apply that postponed the re-run: the CAD node whose descendants wait.
+    pub cad_hold: Option<NodeId>,
     pub(crate) next_id: NodeId,
     pub active: Option<NodeId>,
     /// Union of all time values across readers, sorted.
@@ -1370,10 +1372,14 @@ impl Session {
         if self.cad_edit.is_some() {
             return None;
         }
+        let held: Vec<NodeId> = match self.cad_hold {
+            Some(h) => self.downstream(h).into_iter().filter(|n| *n != h).collect(),
+            None => Vec::new(),
+        };
         let order: Vec<NodeId> = self.nodes.keys().copied().collect();
         for id in order {
             let n = &self.nodes[&id];
-            if !n.dirty || n.running {
+            if !n.dirty || n.running || held.contains(&id) {
                 continue;
             }
             if let Some(inp) = n.input {

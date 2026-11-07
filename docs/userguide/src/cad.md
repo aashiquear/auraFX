@@ -101,6 +101,53 @@ e.undo(); e.redo()
 e.apply()                      # or e.apply(keep_editing=True) / e.discard()
 ```
 
+## What the nodes below depend on
+
+Other nodes refer to a part by the names inside it: an Extract Set that names `Bore side`, a
+mesh command that names a face, a clip plane placed inside the plate. Editing the part can
+break these. So **Apply checks them first**. It compares the part as the nodes below were built
+against with the part you made, finds what they refer to that changed, and opens a dialog:
+
+![Applying the CAD changes affects 3 downstream objects: the Extract Set whose face was renamed, a clip and a slice that now fall outside the narrower plate](images/cad_check.png)
+
+- **What changed in the part** lists faces that were renamed, replaced, removed or moved,
+  dimensions added or removed, and the new bounds and volume.
+- Each row is something below the part that refers to a changed thing: the object, its
+  parameter, what happened to the thing it refers to (*renamed to…*, *removed*, *now outside
+  the part*, *one of several*), the **default fix**, the **assistant's fix** when you asked for
+  one, and a choice per row (*default*, *assistant*, *leave*).
+- The default fixes are the safe ones. A renamed face is renamed where it is used, including
+  inside command and expression text (whole names only: `Bore side` is not found inside `Bore
+  sides`). A face that is gone but has one successor in the same place is replaced by it, and
+  marked *(check)* because that is a guess. A position that fell outside the part is moved onto
+  its nearest point. A face that is simply gone, or has several possible successors, has no
+  default: you choose, or ask the assistant.
+- **Ask the assistant** sends the changes, the conflicts and each affected node's filter and
+  parameters to the assistant, which answers with a list of changes; they appear in the
+  *Assistant's fix* column and the same chat shows its reasoning.
+- **Apply fixes and re-run** applies the part and your choices, together, as one undo step;
+  **Apply without fixing** applies the part and leaves the references (those nodes will show
+  their own errors); **Back to CAD** returns; **Discard CAD changes** closes the environment
+  as it was. The checkbox *re-run the nodes below now* postpones their re-run: they keep their
+  old results, marked by a banner with **Run now**.
+
+When nothing below is affected the dialog is only the question *Re-run N downstream filters?*
+with **Run now**, **Later** and **Back to CAD**. A Python filter's code is searched for the
+names as text: such rows say *(in code)* and have no default fix, because the name may not be
+a reference.
+
+From Python:
+
+```python
+e = part.edit_cad()
+e.rename("Bore", "Pin hole")
+report = e.check()             # {'diff': ..., 'conflicts': [...], 'downstream': [...], 'prompt': ...}
+e.apply()                      # fix="default": applies the default fixes
+e.apply(fix="none")            # leave what the check found as it is
+e.apply(fix=answer_text)       # the text of an assistant's answer (a JSON list of fixes)
+e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs them
+```
+
 ## Python
 
 ```python

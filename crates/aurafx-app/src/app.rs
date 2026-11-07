@@ -1712,6 +1712,12 @@ impl eframe::App for AuraApp {
                         _ => {}
                     }
                 }
+                // What the Apply button does: the downstream check, then the dialog when needed.
+                "cad_apply" => {
+                    if crate::cad::editing(&self.state) {
+                        crate::cad::apply(&mut self.state, arg == "keep");
+                    }
+                }
                 "link" => self.state.link_all_views(arg != "off"),
                 "match" => self.state.camera_match_from = Some(self.state.active_view),
                 "activate" => {

@@ -212,6 +212,7 @@ pub(crate) fn is_internal(name: &str) -> bool {
             | "vtkOriginalCellIds"
             | "vtkOriginalPointIds"
             | "vtkGhostType"
+            | "ElementBlock"
     )
 }
 
@@ -227,6 +228,8 @@ fn exodus_type(t: CellType, n: usize) -> Option<(&'static str, Vec<usize>)> {
         CellType::Tetra => ("TETRA4", first(4)),
         CellType::QuadraticTetra if n == 10 => ("TETRA10", first(10)),
         CellType::QuadraticTetra => ("TETRA4", first(4)),
+        CellType::QuadraticHexahedron if n == 20 => ("HEX20", vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 12, 13, 14, 15]),
+        CellType::TriquadraticHexahedron if n == 27 => ("HEX27", vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 12, 13, 14, 15, 26, 24, 25, 20, 21, 22, 23]),
         CellType::Hexahedron | CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron | CellType::BiquadraticQuadraticHexahedron => {
             ("HEX8", first(8))
         }
@@ -243,6 +246,8 @@ struct Block {
     /// 1-based global node ids, row-major (n_elem × nodes_per).
     connect: Vec<i64>,
     nodes_per: usize,
+    /// Element block id from an `ElementBlock` cell array, if any.
+    id: Option<i64>,
     /// Index of the source leaf and, per element, the source cell index.
     leaf: usize,
     cells: Vec<usize>,
@@ -337,6 +342,13 @@ pub fn write_exodus_steps(steps: &[(f64, &DataSet)], path: &Path) -> Result<()> 
     let mut skipped = 0usize;
     for (li, (name, ug)) in base.iter().enumerate() {
         let mut mine: Vec<usize> = Vec::new();
+        // Element blocks given by an ElementBlock cell array (and their names in field data).
+        let eb = ug.cell_data.get("ElementBlock");
+        let eb_name = |id: i64| -> Option<String> {
+            let ids = ug.field_data.get("ElementBlockIds")?;
+            let ArrayData::String(names) = &ug.field_data.get("ElementBlockNames")?.data else { return None };
+            (0..ids.len()).find(|i| ids.get(*i, 0) as i64 == id).and_then(|i| names.get(i).cloned())
+        };
         for (t, ids, src) in simple_cells(ug) {
             let Some((et, order)) = exodus_type(t, ids.len()) else {
                 skipped += 1;
@@ -346,10 +358,15 @@ pub fn write_exodus_steps(steps: &[(f64, &DataSet)], path: &Path) -> Result<()> 
                 skipped += 1;
                 continue;
             }
-            let bi = match mine.iter().copied().find(|&b| blocks[b].elem_type == et) {
+            let bid = eb.map(|a| a.get(src, 0) as i64);
+            let bi = match mine.iter().copied().find(|&b| blocks[b].elem_type == et && blocks[b].id == bid) {
                 Some(b) => b,
                 None => {
-                    blocks.push(Block { name: name.clone(), elem_type: et, connect: vec![], nodes_per: order.len(), leaf: li, cells: vec![] });
+                    let bname = match bid {
+                        Some(id) => eb_name(id).unwrap_or_else(|| format!("block_{id}")),
+                        None => name.clone(),
+                    };
+                    blocks.push(Block { name: bname, elem_type: et, connect: vec![], nodes_per: order.len(), id: bid, leaf: li, cells: vec![] });
                     mine.push(blocks.len() - 1);
                     blocks.len() - 1
                 }
@@ -358,7 +375,7 @@ pub fn write_exodus_steps(steps: &[(f64, &DataSet)], path: &Path) -> Result<()> 
             b.connect.extend(order.iter().map(|&k| (node_off[li] + ids[k] as usize + 1) as i64));
             b.cells.push(src);
         }
-        if mine.len() > 1 {
+        if mine.len() > 1 && eb.is_none() {
             for &b in &mine {
                 blocks[b].name = format!("{name} {}", blocks[b].elem_type);
             }
@@ -433,7 +450,15 @@ pub fn write_exodus_steps(steps: &[(f64, &DataSet)], path: &Path) -> Result<()> 
         data: VarData::Records(steps.iter().map(|(t, _)| be_f64(&[*t])).collect()),
     });
     w.vars.push(fixed("eb_status", vec![d_blk], NC_INT, be_i32(&vec![1; blocks.len()]), vec![]));
-    w.vars.push(fixed("eb_prop1", vec![d_blk], NC_INT, be_i32(&(1..=blocks.len() as i64).collect::<Vec<_>>()), vec![("name".into(), Att::Text("ID".into()))]));
+    // Block ids: the ElementBlock ids when every block has a distinct one, else 1, 2, ...
+    let mut ids: Vec<i64> = blocks.iter().map(|b| b.id.unwrap_or(0)).collect();
+    let mut sorted = ids.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    if blocks.iter().any(|b| b.id.is_none()) || sorted.len() != ids.len() {
+        ids = (1..=blocks.len() as i64).collect();
+    }
+    w.vars.push(fixed("eb_prop1", vec![d_blk], NC_INT, be_i32(&ids), vec![("name".into(), Att::Text("ID".into()))]));
     w.vars.push(fixed("eb_names", vec![d_blk, d_len_name], NC_CHAR, names_bytes(&blocks.iter().map(|b| b.name.clone()).collect::<Vec<_>>(), LEN_NAME), vec![]));
     w.vars.push(fixed("coor_names", vec![d_dim, d_len_name], NC_CHAR, names_bytes(&["X".into(), "Y".into(), "Z".into()], LEN_NAME), vec![]));
 
@@ -466,6 +491,65 @@ pub fn write_exodus_steps(steps: &[(f64, &DataSet)], path: &Path) -> Result<()> 
     for (i, b) in blocks.iter().enumerate() {
         let (de, dn) = blk_dims[i];
         w.vars.push(fixed(&format!("connect{}", i + 1), vec![de, dn], NC_INT, be_i32(&b.connect), vec![("elem_type".into(), Att::Text(b.elem_type.into()))]));
+    }
+
+    // Side sets and node sets of a single-leaf mesh (field arrays "SideSet <name>": cell index
+    // and side; "NodeSet <name>": node indices), in Exodus' 1-based numbering.
+    if base.len() == 1 {
+        let fd = &base[0].1.field_data;
+        let mut elem_no = vec![0i64; base[0].1.cells.len()];
+        let mut next = 1i64;
+        for b in &blocks {
+            for &c in &b.cells {
+                if c < elem_no.len() && elem_no[c] == 0 {
+                    elem_no[c] = next;
+                }
+                next += 1;
+            }
+        }
+        let side_sets: Vec<(String, Vec<i64>, Vec<i64>)> = fd
+            .iter()
+            .filter_map(|a| a.name.strip_prefix("SideSet ").map(|n| (n, a)))
+            .filter(|(_, a)| a.ncomp == 2 && !a.is_empty())
+            .map(|(n, a)| {
+                let (mut e, mut s) = (Vec::new(), Vec::new());
+                for i in 0..a.len() {
+                    let c = a.get(i, 0) as usize;
+                    if let Some(no) = elem_no.get(c).filter(|x| **x > 0) {
+                        e.push(*no);
+                        s.push(a.get(i, 1) as i64);
+                    }
+                }
+                (n.to_string(), e, s)
+            })
+            .filter(|(_, e, _)| !e.is_empty())
+            .collect();
+        let node_sets: Vec<(String, Vec<i64>)> = fd
+            .iter()
+            .filter_map(|a| a.name.strip_prefix("NodeSet ").map(|n| (n.to_string(), (0..a.len()).map(|i| a.get(i, 0) as i64 + 1).collect::<Vec<_>>())))
+            .filter(|(_, v)| !v.is_empty())
+            .collect();
+        if !side_sets.is_empty() {
+            let d = w.dim("num_side_sets", side_sets.len());
+            w.vars.push(fixed("ss_status", vec![d], NC_INT, be_i32(&vec![1; side_sets.len()]), vec![]));
+            w.vars.push(fixed("ss_prop1", vec![d], NC_INT, be_i32(&(1..=side_sets.len() as i64).collect::<Vec<_>>()), vec![("name".into(), Att::Text("ID".into()))]));
+            w.vars.push(fixed("ss_names", vec![d, d_len_name], NC_CHAR, names_bytes(&side_sets.iter().map(|s| s.0.clone()).collect::<Vec<_>>(), LEN_NAME), vec![]));
+            for (i, (_, e, s)) in side_sets.iter().enumerate() {
+                let dd = w.dim(&format!("num_side_ss{}", i + 1), e.len());
+                w.vars.push(fixed(&format!("elem_ss{}", i + 1), vec![dd], NC_INT, be_i32(e), vec![]));
+                w.vars.push(fixed(&format!("side_ss{}", i + 1), vec![dd], NC_INT, be_i32(s), vec![]));
+            }
+        }
+        if !node_sets.is_empty() {
+            let d = w.dim("num_node_sets", node_sets.len());
+            w.vars.push(fixed("ns_status", vec![d], NC_INT, be_i32(&vec![1; node_sets.len()]), vec![]));
+            w.vars.push(fixed("ns_prop1", vec![d], NC_INT, be_i32(&(1..=node_sets.len() as i64).collect::<Vec<_>>()), vec![("name".into(), Att::Text("ID".into()))]));
+            w.vars.push(fixed("ns_names", vec![d, d_len_name], NC_CHAR, names_bytes(&node_sets.iter().map(|s| s.0.clone()).collect::<Vec<_>>(), LEN_NAME), vec![]));
+            for (i, (_, v)) in node_sets.iter().enumerate() {
+                let dd = w.dim(&format!("num_nod_ns{}", i + 1), v.len());
+                w.vars.push(fixed(&format!("node_ns{}", i + 1), vec![dd], NC_INT, be_i32(v), vec![]));
+            }
+        }
     }
 
     // Nodal variables, one record variable per component.

@@ -150,3 +150,35 @@ fn command_errors_say_where() {
     assert_eq!(m.journal, vec!["brick 1", "sphere radius 1", "body 2 name 'ball'"]);
     assert_eq!(m.bodies[&2].name, "ball");
 }
+
+/// Hexahedron quality metrics against ParaView 6.1.1's Mesh Quality (Verdict) on 24 hexahedra
+/// (testdata/mesh/hex_quality_reference.json, scripts/hex_quality_reference.py).
+#[test]
+fn hex_quality_matches_reference() {
+    use aurafx_mesh::quality::{hex_metric, HexMetric};
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/mesh/hex_quality_reference.json");
+    let r: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+    let hexes: Vec<[[f64; 3]; 8]> = r["hexes"].as_array().unwrap().iter().map(|h| std::array::from_fn(|i| std::array::from_fn(|k| h[i][k].as_f64().unwrap() as f32 as f64))).collect();
+    let vols: Vec<f64> = hexes.iter().map(|h| hex_metric(HexMetric::Volume, h, 0.0)).collect();
+    let avg = vols.iter().sum::<f64>() / vols.len() as f64;
+    let names = [
+        ("Diagonal", HexMetric::Diagonal), ("Dimension", HexMetric::Dimension), ("Distortion", HexMetric::Distortion), ("Edge Ratio", HexMetric::EdgeRatio),
+        ("Jacobian", HexMetric::Jacobian), ("Maximum Aspect Frobenius", HexMetric::MaxAspectFrobenius), ("Maximum Edge Ratio", HexMetric::MaxEdgeRatio),
+        ("Mean Aspect Frobenius", HexMetric::MeanAspectFrobenius), ("Oddy", HexMetric::Oddy), ("Relative Size Squared", HexMetric::RelativeSizeSquared),
+        ("Scaled Jacobian", HexMetric::ScaledJacobian), ("Shape", HexMetric::Shape), ("Shape and Size", HexMetric::ShapeAndSize), ("Shear", HexMetric::Shear),
+        ("Shear and Size", HexMetric::ShearAndSize), ("Skew", HexMetric::Skew), ("Stretch", HexMetric::Stretch), ("Taper", HexMetric::Taper), ("Volume", HexMetric::Volume),
+    ];
+    let mut bad = Vec::new();
+    for (name, m) in names {
+        let want = r["measures"][name].as_array().unwrap_or_else(|| panic!("{name}"));
+        for (i, h) in hexes.iter().enumerate() {
+            let w = want[i].as_f64().unwrap();
+            let g = hex_metric(m, h, avg);
+            // ParaView keeps points and results in 32-bit floats.
+            if (g - w).abs() > 2e-6 * w.abs().max(1.0) {
+                bad.push(format!("{name} #{i}: {g} vs {w}"));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} differ:\n{}", bad.len(), bad.join("\n"));
+}

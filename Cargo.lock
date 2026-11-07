@@ -305,7 +305,9 @@ dependencies = [
  "anyhow",
  "aurafx-data",
  "aurafx-io",
+ "flate2",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]

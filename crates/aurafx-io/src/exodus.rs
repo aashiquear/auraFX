@@ -157,10 +157,12 @@ fn map_type(elem_type: &str, nodes_per: usize) -> (CellType, usize, Option<&'sta
     let t = elem_type.to_ascii_uppercase();
     let base: String = t.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
     const HEX20: [usize; 20] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 12, 13, 14, 15];
+    const HEX27: [usize; 27] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 18, 19, 12, 13, 14, 15, 23, 24, 25, 26, 21, 22, 20];
     const WEDGE15: [usize; 15] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 9, 10, 11];
     match (base.as_str(), nodes_per) {
         ("HEX" | "HEXAHEDRON", 8) => (CellType::Hexahedron, 8, None),
         ("HEX" | "HEXAHEDRON", 20) => (CellType::QuadraticHexahedron, 20, Some(&HEX20)),
+        ("HEX" | "HEXAHEDRON", 27) => (CellType::TriquadraticHexahedron, 27, Some(&HEX27)),
         ("HEX" | "HEXAHEDRON", n) if n >= 8 => (CellType::Hexahedron, 8, None),
         ("TETRA" | "TET", 4) => (CellType::Tetra, 4, None),
         ("TETRA" | "TET", 10) => (CellType::QuadraticTetra, 10, None),
@@ -384,6 +386,22 @@ pub fn read_step(path: &Path, step: usize) -> Result<DataSet> {
     if let Some(r) = rec {
         if let Ok(t) = nc.read_f64("time_whole", Some(r)) {
             mb.field_data.insert(Array::scalars_f64("TimeValue", t));
+        }
+    }
+    // Side sets (element index in file order, from 0, and side 1..6) and node sets (node index
+    // from 0), as field arrays named "SideSet <name>" and "NodeSet <name>".
+    for (kind, count_dim, names_var) in [("SideSet", "num_side_sets", "ss_names"), ("NodeSet", "num_node_sets", "ns_names")] {
+        let n = nc.dim_len(count_dim).unwrap_or(0);
+        let names = nc.read_strings(names_var).unwrap_or_default();
+        for i in 0..n {
+            let name = names.get(i).filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| format!("{} {}", if kind == "SideSet" { "sideset" } else { "nodeset" }, i + 1));
+            if kind == "SideSet" {
+                let (Ok(e), Ok(s)) = (nc.read_f64(&format!("elem_ss{}", i + 1), None), nc.read_f64(&format!("side_ss{}", i + 1), None)) else { continue };
+                let v: Vec<i32> = e.iter().zip(&s).flat_map(|(e, s)| [*e as i32 - 1, *s as i32]).collect();
+                mb.field_data.insert(Array::new(format!("SideSet {name}"), 2, ArrayData::I32(v)));
+            } else if let Ok(nodes) = nc.read_f64(&format!("node_ns{}", i + 1), None) {
+                mb.field_data.insert(Array::new(format!("NodeSet {name}"), 1, ArrayData::I32(nodes.iter().map(|x| *x as i32 - 1).collect())));
+            }
         }
     }
     if let Some(title) = nc.global_text("title") {

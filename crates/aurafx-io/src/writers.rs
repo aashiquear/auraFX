@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// (extensions, description) of writable formats.
 pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
     let mut v = match ds {
-        DataSet::UnstructuredGrid(_) => vec![("vtu", "VTK unstructured grid")],
+        DataSet::UnstructuredGrid(_) => vec![("vtu", "VTK unstructured grid"), ("inp", "Abaqus input (blocks, node sets, surfaces)"), ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)")],
         DataSet::PolyData(_) => vec![("vtp", "VTK polygonal data"), ("stl", "STL surface"), ("ply", "PLY surface")],
         DataSet::ImageData(_) => vec![("vti", "VTK image data")],
         DataSet::RectilinearGrid(_) => vec![("vtr", "VTK rectilinear grid")],
@@ -66,6 +66,8 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
         "vtkhdf" | "hdf" => crate::vtkhdf::write_vtkhdf(ds, path),
         "case" | "encas" => crate::ensight_writer::write_ensight(ds, path),
         "cgns" => crate::cgns_writer::write_cgns(ds, path),
+        "inp" => crate::mesh_writers::write_abaqus(ds, path),
+        "msh" => crate::mesh_writers::write_gmsh(ds, path),
         "xmf" | "xdmf" | "xdmf3" => crate::xdmf_writer::write_xdmf(ds, path),
         e => bail!("don't know how to write .{e} files"),
     };

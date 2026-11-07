@@ -2059,3 +2059,46 @@ fn td_path(p: &std::path::Path) -> DataSet {
         _ => panic!(),
     }
 }
+
+/// Box Mesh, Inclusion Mesh, Elevate and Mesh Quality's hexahedron metrics.
+#[test]
+fn structured_hex_meshes() {
+    let b = run("box_mesh", None, &[("size", serde_json::json!([2, 1, 1])), ("cells", serde_json::json!([4, 2, 2])), ("grading", serde_json::json!([3, 1, 1]))]);
+    assert_eq!((b.n_points(), b.n_cells()), (5 * 3 * 3, 16));
+    assert_eq!(b.field_data().get("SideSet x-").unwrap().len(), 4);
+    let q = run("mesh_quality", Some(&b), &[]);
+    let sj = q.cell_data().unwrap().get("ScaledJacobian").unwrap();
+    assert!((0..sj.len()).all(|i| (sj.get(i, 0) - 1.0).abs() < 1e-12));
+    let e = run("elevate", Some(&b), &[("element", "HEX20".into())]);
+    assert_eq!(e.n_points(), 45 + (4 * 3 * 3 + 5 * 2 * 3 + 5 * 3 * 2));
+    // Spheres in a cube: the elements fill it, the scaled Jacobian stays at 1/sqrt(3) or
+    // above, interface nodes lie on the spheres.
+    let m = run("inclusion_mesh", None, &[("count", 6.into()), ("radius", 0.08.into()), ("cells", 20.into()), ("seed", 3.into())]);
+    let placed = m.field_data().get("InclusionsPlaced").unwrap().get(0, 0);
+    assert!(placed >= 4.0, "{placed}");
+    let v = run("cell_size", Some(&m), &[]);
+    let vol = v.cell_data().unwrap().get("Volume").unwrap();
+    let total: f64 = (0..vol.len()).map(|i| vol.get(i, 0)).sum();
+    assert!((total - 1.0).abs() < 1e-9, "{total}");
+    let q = run("mesh_quality", Some(&m), &[]);
+    let sj = q.cell_data().unwrap().get("ScaledJacobian").unwrap();
+    let min = (0..sj.len()).map(|i| sj.get(i, 0)).fold(f64::INFINITY, f64::min);
+    assert!(min > 0.577, "{min}");
+    let t = run("mesh_quality", Some(&m), &[("output", "Summary table".into())]);
+    let DataSet::Table(t) = t else { panic!() };
+    let names = match &t.columns.get("Metric").unwrap().data {
+        ArrayData::String(s) => s.clone(),
+        _ => panic!(),
+    };
+    let row = names.iter().position(|n| n == "ScaledJacobian").unwrap();
+    assert!((t.columns.get("Min").unwrap().get(row, 0) - min).abs() < 1e-12);
+    assert_eq!(t.columns.get("CellsOutside").unwrap().get(row, 0), 0.0);
+    // HEX27 with the curved interface: same elements, more nodes.
+    let m27 = run("inclusion_mesh", None, &[("count", 6.into()), ("radius", 0.08.into()), ("cells", 20.into()), ("seed", 3.into()), ("element", "HEX27".into())]);
+    assert_eq!(m27.n_cells(), m.n_cells());
+    assert!(m27.n_points() > 6 * m.n_points());
+    // Extract Set: the interface faces as a surface.
+    let s = run("extract_set", Some(&m), &[("set", "interface".into())]);
+    assert_eq!(s.n_cells(), m.field_data().get("SideSet interface").unwrap().len());
+    assert!(s.cell_data().unwrap().get("particle_id").is_some());
+}

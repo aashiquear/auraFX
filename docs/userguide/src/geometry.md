@@ -2,8 +2,11 @@
 
 auraFX builds solid geometry from short commands: primitives, booleans, outlines extruded,
 revolved or swept, and imported surfaces. Each body keeps named faces, so later steps can
-refer to the top of a plate or the side of a hole. This chapter covers the geometry. Meshing
-it into hexahedra and other elements comes in the following releases.
+refer to the top of a plate or the side of a hole. It also makes structured hexahedral meshes:
+boxes, and boxes of matrix holding inclusions whose surfaces the elements follow exactly. The
+meshes carry element blocks, side sets and node sets, check their quality, and write Exodus,
+Abaqus and Gmsh files for solvers. Meshing the Geometry source's bodies themselves comes in a
+later release.
 
 ## The Geometry source
 
@@ -120,6 +123,131 @@ threshold it to keep the inside.
 d = afx.load("part.stl").signed_distance(resolution=128, margin=0.1)
 ```
 
+## Meshes, blocks and sets
+
+A generated mesh is an unstructured grid of hexahedra with the cell array `ElementBlock` (the
+block each element belongs to) and field arrays for the rest: `ElementBlockIds` and
+`ElementBlockNames`, one `SideSet <name>` per side set (element index and Exodus side number
+1 to 6 per face) and one `NodeSet <name>` per node set (node indices). Exodus files keep all
+of them, as do Abaqus files (element sets, node sets and surfaces). Gmsh files keep the blocks
+and side sets as physical groups. Exodus files written elsewhere read back the same way, with
+their side sets and node sets.
+
+**Filters › Mesh › Extract Set** shows one set: a side set's faces as a surface (with the
+owning element's block and element variables) or a node set's nodes as points.
+
+```python
+walls = mesh.extract_set(set="x-")
+mesh.save("part.e")          # or part.inp, part.msh
+```
+
+## Box Mesh
+
+**Sources › Box Mesh** makes a box of hexahedra: its **Size**, **Origin** and **Cells** along
+x, y and z, optionally **Graded**. The grading is the ratio of the largest to the smallest
+interval along each axis, with the small intervals at the **Start**, the **End** or **Both**
+ends. It has one block, `block_1`, and side sets and node sets `x-`, `x+`, `y-`, `y+`,
+`z-` and `z+` on its faces. **Element** gives HEX8, HEX20 or HEX27 elements.
+
+```python
+b = afx.box_mesh(size=(2, 1, 1), cells=(40, 20, 20), grading=(3, 1, 1), cluster="Start")
+```
+
+## Inclusion Mesh
+
+**Sources › Inclusion Mesh** makes a box of matrix with randomly placed inclusions, meshed with
+conforming hexahedra. This is the method of hexaform, a structured mesher written by the
+author of auraFX:
+
+- **Background grid.** A grid of cubic cells covers the box. **Cells along the shortest side**
+  sets the cell size.
+- **Packing.** Each inclusion gets a box of whole grid cells. The boxes are placed at random,
+  largest first, at least **Cells between boxes** apart and **Cells from the walls** away from
+  the box faces. So anything that is placed can be meshed.
+- **Blocks.** Each inclusion box is filled with a block:
+  - a core filled from its six sides;
+  - layers out to the exact inclusion surface, where every node lies on the surface;
+  - layers out to the flat box faces, whose nodes are the grid's own.
+- **Welding.** The pieces are welded exactly, so there are no hanging nodes and the elements
+  fill the box exactly.
+
+**Shape** chooses spheres, ellipsoids or superquadrics (with **Semi-axes / radius** and the
+superquadric **Exponents**), or harmonic grains with a random surface of the given
+**Roughness**. **Radius** and **Radius spread** set the size distribution, and **Random
+orientation** turns the non-spherical shapes. **Seed** fixes the placement.
+
+The mesh has:
+- block 1 `matrix` (the grid and the outer layers) and block 100 `inclusions`, or one block per
+  inclusion with **One block per inclusion**;
+- side sets `x-` … `z+` on the box faces and `interface` (the matrix side of every inclusion
+  surface), and node sets `x-` … `z+`;
+- the element variable `particle_id`: the inclusion's number inside it, minus that number in
+  its outer layers, 0 elsewhere;
+- field arrays `InclusionsPlaced`, `InclusionsRequested`, `VolumeFraction` and `CellSize`.
+
+With **Element** HEX20 or HEX27, the new nodes on the inclusion surfaces are placed on the
+exact surface too. **Periodic** pairs every node on a box face with the node opposite it
+(matched by their other two coordinates). It adds node sets `x-_node_set`/`x+_node_set` (and
+y, z) listing the pairs in the same order, and the field arrays `PeriodicPairs x` (and y, z),
+for periodic boundary conditions.
+
+The advanced settings shape the blocks:
+- the number of layers inside and outside the surface, and their grading;
+- the core size and roundness;
+- the box size relative to the inclusion;
+- the spacing of the nodes on the surface.
+
+The default blocks have a smallest scaled Jacobian of 1/√3 = 0.577, at the corners of the
+inclusion boxes.
+
+```python
+m = afx.inclusion_mesh(size=(1, 1, 1), cells=24, count=8, radius=0.075, shape="Sphere", seed=7)
+m.save("rve.e")
+```
+
+![Eight spheres meshed in a cube: the inclusion elements, and three walls of the box showing the background grid](images/inclusion_mesh.png)
+
+## Elevate
+
+**Filters › Mesh › Elevate** turns 8-node hexahedra into 20-node (edge midpoints) or 27-node
+(also face and cell centres) ones. Neighbouring elements share their new nodes, and the
+blocks, sets and element variables are kept. The new nodes lie at the midpoints. Inclusion
+Mesh's own **Element** setting also puts those on the inclusion surfaces onto the surface.
+
+## Mesh Quality
+
+**Filters › Data › Mesh Quality** gives every cell its edge ratio (longest over shortest edge)
+and smallest corner angle. For hexahedra it also adds the quality metrics as cell arrays:
+`Volume`, `Jacobian`, `ScaledJacobian`, `MaxEdgeRatio`, `MaxAspectFrobenius`,
+`MeanAspectFrobenius`, `Skew`, `Taper`, `Stretch`, `Diagonal`, `Dimension`, `Oddy`, `Shear`,
+`Shape`, `RelativeSizeSquared`, `ShapeAndSize`, `ShearAndSize` and `Distortion`. They follow
+the definitions of the Verdict library (Sandia National Laboratories), which most mesh tools
+share. **Output › Summary table** gives instead one row per metric: its minimum, maximum and
+mean over the hexahedra, its acceptable range and how many cells fall outside it.
+
+| Metric | Acceptable | Perfect cube |
+|---|---|---|
+| ScaledJacobian | 0.5 to 1 | 1 |
+| MaxAspectFrobenius, MeanAspectFrobenius | 1 to 3 | 1 |
+| MaxEdgeRatio | 1 to 1.3 | 1 |
+| Skew, Taper, Oddy | 0 to 0.5 | 0 |
+| Stretch | 0.25 to 1 | 1 |
+| Diagonal | 0.65 to 1 | 1 |
+| Shear, Shape | 0.3 to 1 | 1 |
+| RelativeSizeSquared, Distortion | 0.5 to 1 | 1 |
+| ShapeAndSize, ShearAndSize | 0.2 to 1 | 1 |
+| Volume, Jacobian, Dimension | above 0 | |
+
+A negative Jacobian or scaled Jacobian marks an inverted element. HEX20 and HEX27 elements are
+measured by their corners.
+
+```python
+q = m.mesh_quality()                              # cell arrays
+t = m.mesh_quality(output="Summary table")        # one row per metric
+```
+
+![The quality summary of an inclusion mesh with harmonic grains in the Spreadsheet, and the mesh colored by scaled Jacobian](images/mesh_quality_table.png)
+
 ## Limits
 
 - Surfaces are drawn by contouring each body's distance field, so sharp edges are rounded
@@ -130,3 +258,9 @@ d = afx.load("part.stl").signed_distance(resolution=128, margin=0.1)
 - Sweeps along sharply bent paths join the pieces with a mitre, not a rounded bend.
 - Imported surfaces must be closed. Their inside is found from the direction the triangles
   face.
+- Inclusions must be star-shaped (one surface point along every direction from their
+  centre) and cannot touch: each lies in its own box of grid cells. Very dense packings
+  (beyond roughly 20 % of the volume for equal spheres) do not fit; placing collectively,
+  plates with holes, dog-bone specimens and sweeping 2-D meshes come in the next release.
+- The Geometry source's bodies are not meshed yet.
+- Gmsh files carry no node sets.

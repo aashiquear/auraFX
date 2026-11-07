@@ -10,3 +10,7 @@ aurafx-data.workspace = true
 aurafx-io.workspace = true
 anyhow.workspace = true
 rayon.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+flate2 = "1"

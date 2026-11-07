@@ -1,0 +1,257 @@
+//! Structured hexahedral meshes (box, inclusions in a box), elevation to HEX20/HEX27 and the
+//! hexahedron quality metrics.
+
+use anyhow::{anyhow, bail, Result};
+use aurafx_data::*;
+use aurafx_mesh::hex::HexMesh;
+use aurafx_mesh::inclusions::{self as inc, StarShape};
+use aurafx_mesh::quality::{hex_metric, HexMetric};
+use aurafx_mesh::structured::{box_mesh as box_hex, Division};
+
+pub const ELEMENT_TYPES: [&str; 3] = ["HEX8", "HEX20", "HEX27"];
+
+pub fn nodes_per_element(t: &str) -> usize {
+    match t {
+        "HEX20" => 20,
+        "HEX27" => 27,
+        _ => 8,
+    }
+}
+
+/// Box Mesh: a box of hexahedra, `cells` along x, y, z, graded by `ratio` (largest over
+/// smallest interval) towards `cluster`.
+pub fn box_mesh(origin: [f64; 3], size: [f64; 3], cells: [usize; 3], ratio: [f64; 3], cluster: &str, element: &str) -> Result<DataSet> {
+    if size.iter().any(|s| !(*s > 0.0)) || cells.iter().any(|c| *c == 0) {
+        bail!("the size and the cell counts must be positive");
+    }
+    let div: Vec<Division> = (0..3).map(|a| Division { cells: cells[a], ratio: ratio[a].max(1e-9), cluster: cluster.to_lowercase() }).collect();
+    let hi = std::array::from_fn(|a| origin[a] + size[a]);
+    let mut m = box_hex(origin, hi, [&div[0], &div[1], &div[2]]);
+    m.elevate(nodes_per_element(element), &[], &|_, p| p);
+    Ok(m.to_dataset())
+}
+
+pub const SHAPES: [&str; 4] = ["Sphere", "Ellipsoid", "Superquadric", "Harmonic grain"];
+
+/// Parameters of Inclusion Mesh.
+pub struct InclusionParams {
+    pub length: [f64; 3],
+    pub cells: usize,
+    pub count: usize,
+    pub radius_mean: f64,
+    pub radius_std: f64,
+    pub shape: String,
+    /// Semi-axes of ellipsoids and superquadrics relative to the radius.
+    pub aspect: [f64; 3],
+    pub exponents: [f64; 2],
+    pub roughness: f64,
+    pub random_orientation: bool,
+    pub seed: u64,
+    pub box_ratio: f64,
+    pub gap_cells: usize,
+    pub wall_cells: usize,
+    pub n_inner: usize,
+    pub n_outer: usize,
+    pub inner_grading: f64,
+    pub outer_grading: f64,
+    pub core_fraction: f64,
+    pub core_roundness: f64,
+    pub patch_blend: f64,
+    pub separate_blocks: bool,
+    pub element: String,
+    pub periodic: bool,
+}
+
+fn random_rotation(rng: &mut inc::Rng) -> [[f64; 3]; 3] {
+    let q = aurafx_crystal::random_quat(rng.uniform(), rng.uniform(), rng.uniform());
+    aurafx_crystal::quat_to_matrix(q)
+}
+
+/// Inclusion Mesh: a box of matrix with randomly placed star-shaped inclusions (packed on the
+/// background grid with whole-cell gaps), meshed with conforming hexahedra.
+pub fn inclusion_mesh(p: &InclusionParams) -> Result<DataSet> {
+    let h = p.length.iter().cloned().fold(f64::INFINITY, f64::min) / p.cells.max(1) as f64;
+    let div: [usize; 3] = std::array::from_fn(|a| (p.length[a] / h).round().max(1.0) as usize);
+    let grid = inc::Grid { div, origin: [0.0; 3], h };
+    let spec = inc::PackingSpec { count: p.count, radius_mean: p.radius_mean, radius_std: p.radius_std, box_ratio: p.box_ratio, gap_cells: p.gap_cells, wall_cells: p.wall_cells, ..Default::default() };
+    let mut rng = inc::Rng::new(p.seed);
+    let shape = p.shape.clone();
+    let (aspect, ex, rough, rot) = (p.aspect, p.exponents, p.roughness, p.random_orientation);
+    let make = move |r: f64, rng: &mut inc::Rng| -> StarShape {
+        let rotation = if rot { Some(random_rotation(rng)) } else { None };
+        match shape.as_str() {
+            "Ellipsoid" => StarShape::Ellipsoid { centre: [0.0; 3], semi_axes: aspect.map(|a| a * r), rotation },
+            "Superquadric" => StarShape::Superquadric { centre: [0.0; 3], semi_axes: aspect.map(|a| a * r), exponent_xy: ex[0], exponent_z: ex[1], rotation },
+            "Harmonic grain" => {
+                // Coefficients decaying as 1/l^2 from degree 2 to 4, scaled by the roughness.
+                let mut c = Vec::new();
+                for l in 2..=4i32 {
+                    for m in -l..=l {
+                        c.push((l, m, rough / (l * l) as f64 * rng.normal()));
+                    }
+                }
+                StarShape::Harmonic { centre: [0.0; 3], radius: r, coefficients: c }
+            }
+            _ => StarShape::Sphere { centre: [0.0; 3], radius: r },
+        }
+    };
+    let placed = inc::pack(&grid, &spec, &mut rng, &make);
+    let block = inc::BlockOptions {
+        core_fraction: p.core_fraction,
+        core_roundness: p.core_roundness,
+        n_inner: p.n_inner.max(1),
+        n_outer: p.n_outer.max(1),
+        inner_grading: p.inner_grading,
+        outer_grading: p.outer_grading,
+        spacing: inc::Spacing::Blend(p.patch_blend),
+    };
+    let opt = inc::AssemblyOptions { separate_blocks: p.separate_blocks, nodes_per_element: nodes_per_element(&p.element), periodic: p.periodic };
+    let m = inc::assemble(&grid, &placed, &block, &opt).map_err(|e| anyhow!(e))?;
+    let mut ds = m.to_dataset();
+    let fd = ds.field_data_mut_any();
+    let vol: f64 = placed.iter().map(|q| q.shape.volume_estimate()).sum();
+    let domain: f64 = (0..3).map(|a| div[a] as f64 * h).product();
+    fd.insert(Array::scalars_f64("InclusionsPlaced", vec![placed.len() as f64]));
+    fd.insert(Array::scalars_f64("InclusionsRequested", vec![p.count as f64]));
+    fd.insert(Array::scalars_f64("VolumeFraction", vec![vol / domain]));
+    fd.insert(Array::scalars_f64("CellSize", vec![h]));
+    Ok(ds)
+}
+
+/// Elevate: HEX8 elements to HEX20 or HEX27 (new nodes at edge, face and cell centres, shared
+/// between neighbouring elements).
+pub fn elevate(ds: &DataSet, element: &str) -> Result<DataSet> {
+    let mut m = HexMesh::from_dataset(ds).map_err(|e| anyhow!(e))?;
+    if m.npe != 8 {
+        bail!("the mesh already has {}-node elements", m.npe);
+    }
+    m.elevate(nodes_per_element(element), &[], &|_, p| p);
+    let mut out = m.to_dataset();
+    // Keep the input's other field arrays.
+    for a in ds.field_data().iter() {
+        if out.field_data().get(&a.name).is_none() {
+            out.field_data_mut_any().insert(a.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// Corners (Exodus/VTK order) of every hexahedral cell; None for other cells.
+fn hex_corners(ds: &DataSet) -> Result<Vec<Option<[[f64; 3]; 8]>>> {
+    let ug = ds.to_unstructured().ok_or_else(|| anyhow!("mesh quality needs a mesh"))?;
+    Ok(ug
+        .cells
+        .iter()
+        .map(|(t, ids)| {
+            let order: Option<[usize; 8]> = match t {
+                CellType::Hexahedron | CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron | CellType::BiquadraticQuadraticHexahedron => Some([0, 1, 2, 3, 4, 5, 6, 7]),
+                CellType::Voxel => Some([0, 1, 3, 2, 4, 5, 7, 6]),
+                _ => None,
+            };
+            order.filter(|_| ids.len() >= 8).map(|o| o.map(|k| ug.points.get(ids[k] as usize)))
+        })
+        .collect())
+}
+
+/// The hexahedron metrics computed by Mesh Quality (the generic edge ratio is kept instead
+/// of the hexahedron one).
+pub fn hex_metrics() -> Vec<HexMetric> {
+    HexMetric::ALL.iter().copied().filter(|m| *m != HexMetric::EdgeRatio).collect()
+}
+
+/// Mesh Quality: the generic measures of every cell plus, for hexahedra, the full metric set
+/// (NaN for other cells); or, with `summary`, a table of each metric over the hexahedra: its
+/// minimum, maximum and mean, the acceptable range and how many cells fall outside it.
+pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
+    let base = crate::geometry::mesh_quality(ds)?;
+    let hexes = hex_corners(&base)?;
+    let vols: Vec<f64> = hexes.iter().flatten().map(|p| hex_metric(HexMetric::Volume, p, 0.0)).collect();
+    let avg = if vols.is_empty() { 0.0 } else { vols.iter().sum::<f64>() / vols.len() as f64 };
+    let metrics = hex_metrics();
+    let values: Vec<Vec<f64>> = metrics.iter().map(|m| hexes.iter().map(|h| h.as_ref().map(|p| hex_metric(*m, p, avg)).unwrap_or(f64::NAN)).collect()).collect();
+    if summary {
+        let mut t = Table::default();
+        let mut rows: Vec<(String, f64, f64, f64, f64, f64, f64, f64)> = Vec::new();
+        let er = base.cell_data().and_then(|c| c.get("EdgeRatio"));
+        let er_vals: Vec<f64> = er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&hexes).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
+        let mut add = |name: &str, v: &[f64], range: Option<(f64, f64)>| {
+            let v: Vec<f64> = v.iter().copied().filter(|x| !x.is_nan()).collect();
+            if v.is_empty() {
+                return;
+            }
+            let (mn, mx) = v.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| (a.min(*x), b.max(*x)));
+            let mean = v.iter().sum::<f64>() / v.len() as f64;
+            let (lo, hi) = range.unwrap_or((f64::NAN, f64::NAN));
+            // A little slack for rounding (a perfect cube scores 1 plus or minus an ulp).
+            let out = if range.is_some() { v.iter().filter(|x| **x < lo - 1e-9 * lo.abs().max(1.0) || **x > hi + 1e-9 * hi.abs().max(1.0)).count() as f64 } else { f64::NAN };
+            rows.push((name.to_string(), mn, mx, mean, lo, hi, out, out / v.len() as f64));
+        };
+        add("EdgeRatio", &er_vals, None);
+        for (m, v) in metrics.iter().zip(&values) {
+            add(m.name(), v, m.acceptable());
+        }
+        t.columns.insert(Array::new("Metric", 1, ArrayData::String(rows.iter().map(|r| r.0.clone()).collect())));
+        for (k, name) in ["Min", "Max", "Mean", "AcceptableMin", "AcceptableMax", "CellsOutside", "FractionOutside"].iter().enumerate() {
+            t.columns.insert(Array::scalars_f64(*name, rows.iter().map(|r| [r.1, r.2, r.3, r.4, r.5, r.6, r.7][k]).collect()));
+        }
+        return Ok(DataSet::Table(t));
+    }
+    let mut out = base;
+    if hexes.iter().any(|h| h.is_some()) {
+        let cd = out.cell_data_mut().ok_or_else(|| anyhow!("no cell data"))?;
+        for (m, v) in metrics.iter().zip(values) {
+            cd.insert(Array::scalars_f64(m.name(), v));
+        }
+    }
+    Ok(out)
+}
+
+/// Extract Set: a side set's faces as a surface (with the owning element's block and element
+/// variables as cell data), or a node set's nodes as points. `name` is the set's name.
+pub fn extract_set(ds: &DataSet, name: &str) -> Result<DataSet> {
+    let fd = ds.field_data();
+    let list = || -> String {
+        fd.iter().filter_map(|a| a.name.strip_prefix("SideSet ").or_else(|| a.name.strip_prefix("NodeSet "))).collect::<Vec<_>>().join(", ")
+    };
+    let m = HexMesh::from_dataset(ds).map_err(|e| anyhow!(e))?;
+    if let Some(faces) = m.side_set(name) {
+        let mut polys = Cells::new();
+        let mut used: std::collections::BTreeMap<u32, u32> = Default::default();
+        let mut pts = Vec::new();
+        let (mut block, mut fields): (Vec<i32>, Vec<Vec<f64>>) = (Vec::new(), vec![Vec::new(); m.elem_fields.len()]);
+        for (e, s) in faces {
+            let ids: Vec<u32> = m
+                .side_corners(*e as usize, *s)
+                .iter()
+                .map(|n| {
+                    *used.entry(*n).or_insert_with(|| {
+                        pts.extend_from_slice(&m.points[*n as usize]);
+                        (pts.len() / 3 - 1) as u32
+                    })
+                })
+                .collect();
+            polys.push(CellType::Quad, &ids);
+            block.push(m.block[*e as usize]);
+            for (k, (_, v)) in m.elem_fields.iter().enumerate() {
+                fields[k].push(v[*e as usize]);
+            }
+        }
+        let mut pd = PolyData { points: Points::new_f64(pts), polys, ..Default::default() };
+        pd.cell_data.insert(Array::new("ElementBlock", 1, ArrayData::I32(block)));
+        for ((n, _), v) in m.elem_fields.iter().zip(fields) {
+            pd.cell_data.insert(Array::scalars_f64(n.clone(), v));
+        }
+        return Ok(DataSet::PolyData(pd));
+    }
+    if let Some(nodes) = m.node_set(name) {
+        let pts: Vec<f64> = nodes.iter().flat_map(|n| m.points[*n as usize]).collect();
+        let mut verts = Cells::new();
+        for i in 0..nodes.len() as u32 {
+            verts.push(CellType::Vertex, &[i]);
+        }
+        let mut pd = PolyData { points: Points::new_f64(pts), verts, ..Default::default() };
+        pd.point_data.insert(Array::new("NodeId", 1, ArrayData::I32(nodes.iter().map(|n| *n as i32).collect())));
+        return Ok(DataSet::PolyData(pd));
+    }
+    bail!("no set named {name:?} (the mesh has: {})", list())
+}

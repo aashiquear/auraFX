@@ -300,6 +300,24 @@ Merge Twins, Feature Boundaries' twin flags, scalar and c-axis segmentation, Fil
 Minimum Size are also checked on synthetic grids with known answers, and Distance to
 Boundaries against a brute-force distance.
 
+## Hexahedral meshes
+
+- Inclusion Mesh reproduces hexaform's meshes node for node: on four hand-placed inclusions
+  (sphere, rotated ellipsoid, superquadric, spherical-harmonic grain) in a 12³ grid, the
+  points (to 1e-12), connectivity, blocks, side sets, node sets and `particle_id` are the same
+  for HEX8 and HEX27 (`testdata/hexaform`, `scripts/hexaform_reference.py`). hexaform's own
+  Exodus file reads back as the same mesh.
+- hexaform's periodic node sets use background-grid node numbers after the weld renumbered
+  the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
+- Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in
+  ParaView 6.1.1 with the same blocks and sets, and HEX27 nodes in the right places. ParaView's
+  Cell Size gives triquadratic hexahedra wrong (negative) volumes even for straight cubes, so
+  it cannot check them.
+- The hexahedron quality metrics match ParaView 6.1.1's Mesh Quality (Verdict) on 24 test
+  hexahedra to 32-bit precision for all 19 measures (`testdata/mesh/hex_quality_reference.json`).
+  Like Verdict, the hexahedron edge ratio takes its maximum over six of the twelve edges only;
+  auraFX shows the generic edge ratio (all edges) instead.
+
 ## Geometry
 
 The geometry kernel is checked against closed forms (`crates/aurafx-mesh/tests/geometry.rs`,

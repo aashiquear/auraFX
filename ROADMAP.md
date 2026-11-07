@@ -292,6 +292,8 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
 
 - [x] M1 Geometry kernel: implicit primitives, transforms, CSG, 2-D outlines extruded/revolved/swept, STL and existing surfaces as signed distance fields, named faces; the Geometry source and the `afx.mesh` command language (journals through the trace).
 - [ ] M2 Structured hex: box, mapped blocks, cube with packed inclusions (cubed-sphere O-grid macro-blocks, transfinite cores, graded shells, weld), plate with hole, dog-bone, 2-D sweep, Elevate to HEX20/27, blocks/side sets/node sets, periodic pairs; Mesh Quality with the full metric set and acceptable ranges; Exodus, VTK, Abaqus `.inp`, Gmsh `.msh` writers.
+  - [x] M2a: hex mesh model (blocks, side sets, node sets, element variables), box and mapped blocks with grading, the inclusion mesher (grid packing, cubed-sphere O-grid blocks, transfinite cores, graded shells, exact weld; spheres, ellipsoids, superquadrics, harmonic grains), HEX20/HEX27 with surface projection, periodic pairs by coordinates, Extract Set, Mesh Quality with the full hexahedron metric set and a summary table, Exodus sets and HEX20/27, Abaqus `.inp`, Gmsh `.msh` (iteration 57).
+  - [ ] M2b: plate with hole, dog-bone, 2-D quad sweep, collective packing, mesh commands (`mesh volume`, `block`, `sideset`) in the geometry language, the benchmark's meshes as references.
 - [ ] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
 - [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
 - [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
@@ -378,6 +380,18 @@ field arrays with a row per feature id; Feature Table turns them into a table. C
 against DREAM.3D's stored results on a window of the AM Bench IN718 1 µm volume
 (`testdata/dream3d/am_bench_features.dream3d`) and synthetic shapes; the full 2 µm volume
 segments in 9 s. Guide chapter: Grains and crystals. Next: M2.
+
+Done in iteration 57 (M2a): the hexahedral mesh model in `aurafx-mesh` (element blocks, side
+sets, node sets, element variables; exact weld; orientation; HEX20/HEX27 elevation with shared
+nodes and surface projection; periodic pairing by coordinates), structured box and mapped
+blocks with grading, and the inclusion mesher after hexaform (background grid, packing of
+whole-cell boxes, cubed-sphere O-grid blocks with transfinite cores and graded shells; spheres,
+ellipsoids, superquadrics, harmonic grains). Sources Box Mesh and Inclusion Mesh; Mesh filters
+Elevate and Extract Set; Mesh Quality with the 19 hexahedron metrics and a summary table with
+acceptable ranges. Exodus gains HEX20/HEX27, blocks from `ElementBlock`, side sets and node
+sets (read and written); new Abaqus `.inp` and Gmsh `.msh` writers. Checked node for node
+against hexaform's own meshes (HEX8 and HEX27) and against ParaView's Mesh Quality on 24
+hexahedra. Guide chapter: Geometry and meshing. Next: M2b.
 
 ## Status (2026-11-05)
 

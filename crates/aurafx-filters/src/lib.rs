@@ -13,6 +13,7 @@ pub mod append;
 pub mod crystal;
 pub mod features;
 pub mod geometry_model;
+pub mod mesh_gen;
 pub mod grain_grid;
 pub mod attributes;
 pub mod calculator;

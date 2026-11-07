@@ -2,7 +2,11 @@
 //! outlines extruded, revolved or swept, closed triangle surfaces as signed distance fields,
 //! and the geometry command language (`model`).
 
+pub mod hex;
+pub mod inclusions;
 pub mod model;
+pub mod quality;
+pub mod structured;
 pub mod outline;
 pub mod shape;
 pub mod trimesh;

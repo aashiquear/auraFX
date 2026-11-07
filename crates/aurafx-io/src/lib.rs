@@ -19,6 +19,7 @@ pub mod ensight_writer;
 pub mod exodus;
 pub mod flash;
 pub mod exodus_writer;
+pub mod mesh_writers;
 pub mod hdf5w;
 pub mod images;
 pub mod lammps;

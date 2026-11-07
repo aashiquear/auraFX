@@ -639,7 +639,9 @@ mesh, so curved cells come out straight.
 | VTK cell grid | `.dg` | the JSON layout VTK writes: arrays, attributes and cell types |
 | VTK legacy | `.vtk` | |
 | VTKHDF | `.vtkhdf` | all dataset kinds; multiblocks as a collection; time series with `all_times=True`; written with auraFX's own HDF5 encoder (read by h5py and VTK) |
-| Exodus II | `.exo` | blocks, nodal and element variables, every time step with `all_times=True` |
+| Exodus II | `.exo` | blocks, nodal and element variables, every time step with `all_times=True`; HEX20 and HEX27 elements; the element blocks, side sets and node sets of generated meshes (see [Geometry and meshing](geometry.md#meshes-blocks-and-sets)) |
+| Abaqus input | `.inp` | nodes, elements (C3D8, C3D20, C3D27, tetrahedra, wedges, pyramids) in one element set per block, node sets, side sets as element-based surfaces |
+| Gmsh | `.msh` | version 4.1 ASCII: one physical volume per element block, one physical surface of quadrilaterals per side set (node sets are not part of the format) |
 | EnSight Gold | `.case` | C binary; one part per block (image, rectilinear and structured grids as blocks, the rest as elements of every standard type, polygons and polyhedra); every time step with `all_times=True`, the geometry written once when it does not change |
 | CGNS | `.cgns` | HDF5 storage (CGNS 4): a zone per block, image/rectilinear/structured grids as structured zones, the rest as one element section (MIXED when the cell types differ) plus NGON/NFACE for polygons and polyhedra; vectors as `NameX/NameY/NameZ`; with `all_times=True` one solution per step (and coordinates per step when the points move), but the cells must stay the same |
 | Xdmf 3 | `.xmf` + `.h5` | the description in the `.xmf`, the arrays in an HDF5 file beside it; block trees as spatial collections, time steps as a temporal collection that shares unchanged points and cells |

@@ -476,6 +476,20 @@ impl DataSet {
         }
     }
 
+    pub fn field_data_mut_any(&mut self) -> &mut Attributes {
+        match self {
+            DataSet::ImageData(d) => &mut d.field_data,
+            DataSet::RectilinearGrid(d) => &mut d.field_data,
+            DataSet::StructuredGrid(d) => &mut d.field_data,
+            DataSet::PolyData(d) => &mut d.field_data,
+            DataSet::UnstructuredGrid(d) => &mut d.field_data,
+            DataSet::Table(t) => &mut t.field_data,
+            DataSet::MultiBlock(m) => &mut m.field_data,
+            DataSet::HyperTreeGrid(h) => &mut h.field_data,
+            DataSet::CellGrid(g) => &mut g.field_data,
+        }
+    }
+
     /// Explicit point coordinates for any geometric dataset (generated for implicit grids).
     pub fn points(&self) -> Option<Points> {
         match self {

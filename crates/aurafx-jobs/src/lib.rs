@@ -692,11 +692,14 @@ mod tests {
     }
 
     fn wait(jobs: &SharedJobs, id: JobId) -> JobState {
-        for _ in 0..200 {
-            let st = jobs.lock().jobs.iter().find(|j| j.id == id).unwrap().state.clone();
-            if !st.is_active() {
-                // Allow output collection to finish.
-                std::thread::sleep(Duration::from_millis(100));
+        for _ in 0..600 {
+            let (st, settled) = {
+                let m = jobs.lock();
+                let j = m.jobs.iter().find(|j| j.id == id).unwrap();
+                (j.state.clone(), j.settled)
+            };
+            // The run has ended and its result files are collected.
+            if settled {
                 return st;
             }
             std::thread::sleep(Duration::from_millis(50));

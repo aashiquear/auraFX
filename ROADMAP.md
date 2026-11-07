@@ -280,6 +280,8 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
   - [x] G1b: `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` readers; Crop, Change Resolution, Align Sections (iteration 54).
 - [x] G2 Features: Segment Features (misorientation, scalar, C-axis), Find Sizes/Neighbors/Shapes/Centroids/Boundary Cells/Surface Features/Average Orientations/Misorientations/Kernel Average Misorientation/Reference Misorientations/Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; Features and Ensembles tables.
 - [ ] G3 Texture: pole figures, inverse pole figures, ODF sections and texture index, MDF, texture fractions, chord lengths (charts, pictures, CSV).
+  - [x] G3a: pole figures (stereographic, equal area), inverse pole figures, ODF sections, texture index, CSV of multi-panel output (iteration 59).
+  - [ ] G3b: misorientation distribution, texture component fractions, chord lengths.
 - [ ] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
 - [ ] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [ ] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
@@ -400,6 +402,14 @@ packing for Inclusion Mesh; `mesh body`, `block`, `sideset` and `nodeset` comman
 bricks and cylinders (O-grid disks swept along the axis, curved HEX20/27 nodes on the surface)
 with a side set per geometry face; the Geometry source's Hex mesh output. Guide chapter:
 Geometry and meshing. Next: G3.
+
+Done in iteration 59 (G3a): Pole Figure (kernel density in MRD, stereographic or equal-area
+disks, any crystal directions), Inverse Pole Figure (density on the standard triangle for X, Y,
+Z), ODF Sections (φ2 sections, texture index and maximum on a midpoint grid over a whole
+number of copies of orientation space), the exact uniform kernel value from the random
+disorientation distribution of every class; pole figures and ODF values match the AM
+orientation toolkit within 1e-9 on the AM Bench window; CSV of multi-panel output with a Block
+column. Guide chapter: Grains and crystals. Next: G3b.
 
 ## Status (2026-11-05)
 

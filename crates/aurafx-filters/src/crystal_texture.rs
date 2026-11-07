@@ -1,0 +1,288 @@
+//! Texture filters: pole figures, inverse pole figure densities and ODF sections of the
+//! orientations of a dataset (see `aurafx_crystal::texture` for the definitions).
+
+use crate::crystal::{classes_of, orientation_array, Repr};
+use anyhow::{anyhow, bail, Result};
+use aurafx_crystal::texture as tx;
+use aurafx_crystal::{Laue, Quat};
+use aurafx_data::*;
+use crate::Association;
+
+pub const STEREOGRAPHIC: &str = "Stereographic";
+pub const EQUAL_AREA: &str = "Equal area";
+
+/// Which orientations to use: one phase (0: every indexed point), an optional mask, and at
+/// most `max` of them (a seeded random subset when there are more).
+pub struct Selection<'a> {
+    pub orientations: Option<(Association, String)>,
+    pub structure: &'a str,
+    pub phases: Option<&'a str>,
+    pub phase: i64,
+    pub mask: Option<&'a str>,
+    pub max: usize,
+    pub seed: u64,
+}
+
+/// The orientations chosen, their class, and how many there were before subsampling.
+pub struct Sample {
+    pub q: Vec<Quat>,
+    pub laue: Laue,
+    pub available: usize,
+}
+
+pub fn sample(ds: &DataSet, sel: &Selection) -> Result<Sample> {
+    let (assoc, a) = orientation_array(ds, sel.orientations.clone())?;
+    let repr = Repr::guess(a.ncomp).ok_or_else(|| anyhow!("{}: {} components is not an orientation array (3, 4 or 9)", a.name, a.ncomp))?;
+    let n = a.len();
+    let cls = classes_of(ds, assoc, n, sel.structure, sel.phases)?;
+    let attrs = match assoc {
+        Association::Cells => ds.cell_data(),
+        Association::Points => ds.point_data(),
+    };
+    let pname = sel.phases.filter(|p| !p.is_empty()).unwrap_or("Phases");
+    let ph = attrs.and_then(|x| x.get(pname));
+    let mask = match sel.mask.filter(|m| !m.is_empty()) {
+        Some(m) => Some(attrs.and_then(|x| x.get(m)).ok_or_else(|| anyhow!("no mask array {m}"))?),
+        None => None,
+    };
+    let mut idx = Vec::new();
+    let mut laue: Option<Laue> = None;
+    for i in 0..n {
+        let p = ph.map(|p| p.get(i, 0) as i64).unwrap_or(1);
+        if p <= 0 || (sel.phase > 0 && p != sel.phase) || mask.is_some_and(|m| m.get(i, 0) == 0.0) {
+            continue;
+        }
+        let Some(l) = cls[i] else { continue };
+        match laue {
+            None => laue = Some(l),
+            Some(k) if k != l => bail!("the points belong to more than one crystal class: choose a phase"),
+            _ => {}
+        }
+        idx.push(i);
+    }
+    let laue = laue.ok_or_else(|| anyhow!("no indexed orientations to analyse (check the phase and the mask)"))?;
+    let available = idx.len();
+    if idx.len() > sel.max.max(1) {
+        // A seeded partial shuffle.
+        let mut s = sel.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        let m = sel.max.max(1);
+        for k in 0..m {
+            let j = k + (next() % (idx.len() - k) as u64) as usize;
+            idx.swap(k, j);
+        }
+        idx.truncate(m);
+        idx.sort_unstable();
+    }
+    let q = idx.iter().map(|i| repr.decode_values(a, *i)).collect();
+    Ok(Sample { q, laue, available })
+}
+
+/// Crystal directions written like `100, 110, -111` or `1 0 0; 1 1 2`.
+pub fn parse_families(s: &str) -> Result<Vec<(String, [f64; 3])>> {
+    let mut out = Vec::new();
+    for tok in s.split([',', ';']).map(str::trim).filter(|t| !t.is_empty()) {
+        let nums: Vec<f64> = if tok.contains(char::is_whitespace) {
+            tok.split_whitespace().map(|x| x.parse::<f64>().map_err(|_| anyhow!("{tok}: not three numbers"))).collect::<Result<_>>()?
+        } else {
+            let mut v = Vec::new();
+            let mut neg = false;
+            for c in tok.chars() {
+                match c {
+                    '-' => neg = true,
+                    d if d.is_ascii_digit() => {
+                        let x = d.to_digit(10).unwrap() as f64;
+                        v.push(if neg { -x } else { x });
+                        neg = false;
+                    }
+                    _ => bail!("{tok}: write directions like 100, 110, -111 or 1 0 0"),
+                }
+            }
+            v
+        };
+        if nums.len() != 3 || nums.iter().all(|x| *x == 0.0) {
+            bail!("{tok}: a direction needs three indices, not all zero");
+        }
+        out.push((tok.replace(char::is_whitespace, ""), [nums[0], nums[1], nums[2]]));
+    }
+    if out.is_empty() {
+        bail!("no directions given");
+    }
+    Ok(out)
+}
+
+/// Radius in the projection of a direction at polar angle `t` (1 at 90 degrees).
+fn radius(t: f64, projection: &str) -> f64 {
+    if projection == EQUAL_AREA {
+        std::f64::consts::SQRT_2 * (t / 2.0).sin()
+    } else {
+        (t / 2.0).tan()
+    }
+}
+
+fn polar_angle(r: f64, projection: &str) -> f64 {
+    if projection == EQUAL_AREA {
+        2.0 * (r / std::f64::consts::SQRT_2).clamp(-1.0, 1.0).asin()
+    } else {
+        2.0 * r.atan()
+    }
+}
+
+/// A disk of `n` rings (the upper hemisphere in projection): plane points, the directions they
+/// stand for, and its cells.
+fn disk(n: usize, projection: &str) -> (Vec<[f64; 3]>, Vec<[f64; 3]>, Cells) {
+    let m = 4 * n;
+    let mut pts = vec![[0.0, 0.0, 0.0]];
+    let mut dirs = vec![[0.0, 0.0, 1.0]];
+    for k in 1..=n {
+        let r = k as f64 / n as f64;
+        let t = polar_angle(r, projection);
+        for j in 0..m {
+            let p = j as f64 / m as f64 * std::f64::consts::TAU;
+            pts.push([r * p.cos(), r * p.sin(), 0.0]);
+            dirs.push([t.sin() * p.cos(), t.sin() * p.sin(), t.cos()]);
+        }
+    }
+    let id = |k: usize, j: usize| (1 + (k - 1) * m + j % m) as u32;
+    let mut cells = Cells::new();
+    for j in 0..m {
+        cells.push(CellType::Triangle, &[0, id(1, j), id(1, j + 1)]);
+    }
+    for k in 1..n {
+        for j in 0..m {
+            cells.push(CellType::Quad, &[id(k, j), id(k + 1, j), id(k + 1, j + 1), id(k, j + 1)]);
+        }
+    }
+    (pts, dirs, cells)
+}
+
+fn panel(pts: Vec<[f64; 3]>, cells: Cells, name: &str, values: Vec<f64>, extra: Vec<Array>, field: Vec<(&str, f64)>) -> DataSet {
+    let mut pd = PolyData { points: Points::new_f64(pts.into_iter().flatten().collect()), polys: cells, ..Default::default() };
+    let (lo, hi) = values.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
+    pd.point_data.insert(Array::new(name, 1, ArrayData::F64(values)));
+    for a in extra {
+        pd.point_data.insert(a);
+    }
+    pd.field_data.insert(Array::new(&format!("Max{name}"), 1, ArrayData::F64(vec![hi])));
+    pd.field_data.insert(Array::new(&format!("Min{name}"), 1, ArrayData::F64(vec![lo])));
+    for (k, v) in field {
+        pd.field_data.insert(Array::new(k, 1, ArrayData::F64(vec![v])));
+    }
+    DataSet::PolyData(pd)
+}
+
+fn shift(pts: &mut [[f64; 3]], dx: f64, dy: f64) {
+    for p in pts {
+        p[0] += dx;
+        p[1] += dy;
+    }
+}
+
+/// Pole Figure: one disk per family (sample x to the right, y up, z at the centre), side by
+/// side, colored by MRD.
+pub fn pole_figures(ds: &DataSet, sel: &Selection, families: &str, projection: &str, sigma_deg: f64, bin_deg: f64, resolution: usize) -> Result<DataSet> {
+    let fams = parse_families(families)?;
+    let s = sample(ds, sel)?;
+    let (pts0, dirs, cells) = disk(resolution.clamp(4, 400), projection);
+    let mut mb = MultiBlock::default();
+    for (k, (name, hkl)) in fams.iter().enumerate() {
+        let v = tx::pole_figure(&s.q, None, *hkl, s.laue, &dirs, sigma_deg.to_radians(), bin_deg);
+        let mut pts = pts0.clone();
+        shift(&mut pts, 2.3 * k as f64, 0.0);
+        let dir = Array::new("SampleDirection", 3, ArrayData::F64(dirs.iter().flatten().copied().collect()));
+        mb.blocks.push((format!("{{{name}}}"), Some(panel(pts, cells.clone(), "MRD", v, vec![dir], vec![("Orientations", s.q.len() as f64)]))));
+    }
+    mb.field_data.insert(Array::new("Orientations", 1, ArrayData::F64(vec![s.q.len() as f64])));
+    Ok(DataSet::MultiBlock(mb))
+}
+
+/// The sample directions of an Inverse Pole Figure choice.
+pub fn ipf_directions(choice: &str) -> Vec<(&'static str, [f64; 3])> {
+    let all = [("X", [1.0, 0.0, 0.0]), ("Y", [0.0, 1.0, 0.0]), ("Z", [0.0, 0.0, 1.0])];
+    match choice {
+        "X" => vec![all[0]],
+        "Y" => vec![all[1]],
+        "Z" => vec![all[2]],
+        _ => all.to_vec(),
+    }
+}
+
+/// Inverse Pole Figure: the density of the crystal directions along each sample direction, on
+/// the standard sector of the class, side by side.
+pub fn inverse_pole_figures(ds: &DataSet, sel: &Selection, directions: &str, projection: &str, sigma_deg: f64, bin_deg: f64, resolution: usize) -> Result<DataSet> {
+    let s = sample(ds, sel)?;
+    let sector = tx::sector_of(s.laue);
+    let n = resolution.clamp(4, 400);
+    let grid = tx::sector_grid(&sector, n);
+    let at: Vec<[f64; 3]> = grid.iter().map(|(e, c)| [c.sin() * e.cos(), c.sin() * e.sin(), c.cos()]).collect();
+    let pts0: Vec<[f64; 3]> = grid.iter().map(|(e, c)| {
+        let r = radius(*c, projection);
+        [r * e.cos(), r * e.sin(), 0.0]
+    }).collect();
+    let mut cells = Cells::new();
+    for r in 0..n {
+        for k in 0..n {
+            let id = |r: usize, k: usize| (r * (n + 1) + k) as u32;
+            cells.push(CellType::Quad, &[id(r, k), id(r + 1, k), id(r + 1, k + 1), id(r, k + 1)]);
+        }
+    }
+    let (xmin, xmax) = pts0.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), p| (a.min(p[0]), b.max(p[0])));
+    let width = (xmax - xmin).max(0.1) + 0.25;
+    let mut mb = MultiBlock::default();
+    for (k, (name, d)) in ipf_directions(directions).into_iter().enumerate() {
+        let v = tx::inverse_pole_figure(&s.q, None, d, s.laue, &at, sigma_deg.to_radians(), bin_deg);
+        let mut pts = pts0.clone();
+        shift(&mut pts, width * k as f64, 0.0);
+        let dir = Array::new("CrystalDirection", 3, ArrayData::F64(at.iter().flatten().copied().collect()));
+        mb.blocks.push((format!("IPF {name}"), Some(panel(pts, cells.clone(), "MRD", v, vec![dir], vec![("Orientations", s.q.len() as f64)]))));
+    }
+    mb.field_data.insert(Array::new("Orientations", 1, ArrayData::F64(vec![s.q.len() as f64])));
+    Ok(DataSet::MultiBlock(mb))
+}
+
+/// ODF Sections: the ODF on sections of constant φ2 (φ1 to the right, Φ downwards, degrees),
+/// one under the other, with the texture index and the ODF maximum as field data.
+pub fn odf_sections(ds: &DataSet, sel: &Selection, sections: &str, step_deg: f64, sigma_deg: f64, index_step_deg: f64) -> Result<DataSet> {
+    let phi2: Vec<f64> = sections
+        .split([',', ';', ' '])
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| t.trim().parse::<f64>().map_err(|_| anyhow!("{t}: sections are φ2 angles in degrees, like 0, 45, 65")))
+        .collect::<Result<_>>()?;
+    if phi2.is_empty() {
+        bail!("no sections given");
+    }
+    let step = step_deg.clamp(0.5, 30.0);
+    let s = sample(ds, sel)?;
+    let sigma = sigma_deg.to_radians();
+    let (_, phi_max) = tx::euler_region(s.laue);
+    let (j, fmax) = tx::texture_index(&s.q, sigma, s.laue, index_step_deg.clamp(1.0, 30.0).to_radians());
+    let field = vec![("TextureIndex", j), ("MaxODF", fmax), ("Orientations", s.q.len() as f64)];
+    let mut mb = MultiBlock::default();
+    let height = phi_max.to_degrees() + 25.0;
+    for (k, p2) in phi2.iter().enumerate() {
+        let (eul, n1, n2) = tx::section_grid(p2.to_radians(), step.to_radians(), phi_max);
+        let g: Vec<Quat> = eul.iter().map(|e| aurafx_crystal::euler_to_quat(*e)).collect();
+        let v = tx::odf_values(&g, &s.q, sigma, s.laue);
+        let pts: Vec<[f64; 3]> = eul.iter().map(|e| [e[0].to_degrees(), -e[1].to_degrees() - height * k as f64, 0.0]).collect();
+        let mut cells = Cells::new();
+        for r in 0..n2 - 1 {
+            for c in 0..n1 - 1 {
+                let id = |r: usize, c: usize| (r * n1 + c) as u32;
+                cells.push(CellType::Quad, &[id(r, c), id(r, c + 1), id(r + 1, c + 1), id(r + 1, c)]);
+            }
+        }
+        let ang = |c: usize, name: &str| Array::new(name, 1, ArrayData::F64(eul.iter().map(|e| e[c].to_degrees()).collect()));
+        let mut f = field.clone();
+        f.push(("phi2", *p2));
+        mb.blocks.push((format!("phi2 = {p2}"), Some(panel(pts, cells, "ODF", v, vec![ang(0, "phi1"), ang(1, "Phi"), ang(2, "phi2")], f))));
+    }
+    for (k, v) in field {
+        mb.field_data.insert(Array::new(k, 1, ArrayData::F64(vec![v])));
+    }
+    Ok(DataSet::MultiBlock(mb))
+}

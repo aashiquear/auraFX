@@ -11,6 +11,7 @@ pub mod amr;
 pub mod analysis;
 pub mod append;
 pub mod crystal;
+pub mod crystal_texture;
 pub mod features;
 pub mod geometry_model;
 pub mod mesh_gen;

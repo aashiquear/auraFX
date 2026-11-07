@@ -2973,6 +2973,86 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| crate::features::feature_colors(input.unwrap(), &p.str("feature_ids")),
         },
         FilterDef {
+            id: "pole_figure",
+            label: "Pole Figure",
+            category: "Grains",
+            description: "Pole figures of crystal directions (densities in multiples of random) as disks, one per family, sample X right and Y up.",
+            keywords: &["texture", "pole figure", "pf", "mrd", "stereographic", "equal area", "ebsd", "crystallographic texture", "100 110 111"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: {
+                let mut v = vec![
+                    s("families", "Directions", "100, 110, 111").help("Crystal directions, like 100, 110, -111 or 1 1 2, separated by commas; every symmetry equivalent is included."),
+                    choice("projection", "Projection", &[crate::crystal_texture::STEREOGRAPHIC, crate::crystal_texture::EQUAL_AREA], crate::crystal_texture::STEREOGRAPHIC),
+                    f("sigma", "Smoothing (degrees)", 7.5, 0.5, 45.0).help("Width of the Gaussian kernel."),
+                    i("resolution", "Resolution", 40, 4, 400).advanced(),
+                    f("bin", "Bin size (degrees)", 2.0, 0.25, 10.0).advanced(),
+                ];
+                v.extend(texture_selection_params(60_000));
+                v
+            },
+            apply: |input, p| {
+                let (st, ph, mk) = (p.str("structure"), p.array("phases").map(|x| x.1), p.array("mask").map(|x| x.1));
+                let sel = texture_selection(p, &st, ph.as_deref(), mk.as_deref(), 60_000);
+                crate::crystal_texture::pole_figures(input.unwrap(), &sel, &p.str("families"), &p.str("projection"), p.f64("sigma", 7.5), p.f64("bin", 2.0), p.i64("resolution", 40).max(4) as usize)
+            },
+        },
+        FilterDef {
+            id: "inverse_pole_figure",
+            label: "Inverse Pole Figure",
+            category: "Grains",
+            description: "Inverse pole figures: the density (multiples of random) of the crystal directions along sample X, Y or Z, on the standard triangle of the crystal class.",
+            keywords: &["texture", "ipf density", "inverse pole figure", "mrd", "fiber texture", "standard triangle", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: {
+                let mut v = vec![
+                    choice("directions", "Sample directions", &["X, Y and Z", "X", "Y", "Z"], "X, Y and Z"),
+                    choice("projection", "Projection", &[crate::crystal_texture::STEREOGRAPHIC, crate::crystal_texture::EQUAL_AREA], crate::crystal_texture::STEREOGRAPHIC),
+                    f("sigma", "Smoothing (degrees)", 5.0, 0.5, 45.0).help("Width of the Gaussian kernel."),
+                    i("resolution", "Resolution", 40, 4, 400).advanced(),
+                    f("bin", "Bin size (degrees)", 1.0, 0.25, 10.0).advanced(),
+                ];
+                v.extend(texture_selection_params(60_000));
+                v
+            },
+            apply: |input, p| {
+                let (st, ph, mk) = (p.str("structure"), p.array("phases").map(|x| x.1), p.array("mask").map(|x| x.1));
+                let sel = texture_selection(p, &st, ph.as_deref(), mk.as_deref(), 60_000);
+                crate::crystal_texture::inverse_pole_figures(input.unwrap(), &sel, &p.str("directions"), &p.str("projection"), p.f64("sigma", 5.0), p.f64("bin", 1.0), p.i64("resolution", 40).max(4) as usize)
+            },
+        },
+        FilterDef {
+            id: "odf_sections",
+            label: "ODF Sections",
+            category: "Grains",
+            description: "The orientation distribution function on sections of constant phi2 (phi1 across, Phi down, degrees), with the texture index and the ODF maximum.",
+            keywords: &["texture", "odf", "orientation distribution function", "euler space", "texture index", "texture strength", "phi2 sections", "mrd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: {
+                let mut v = vec![
+                    s("sections", "Sections (phi2, degrees)", "0, 45, 65"),
+                    f("step", "Step (degrees)", 5.0, 0.5, 30.0),
+                    f("sigma", "Smoothing (degrees)", 7.5, 1.0, 45.0).help("Width of the Gaussian kernel on the disorientation angle."),
+                    f("index_step", "Texture index step (degrees)", 5.0, 1.0, 30.0).advanced(),
+                ];
+                v.extend(texture_selection_params(10_000));
+                v
+            },
+            apply: |input, p| {
+                let (st, ph, mk) = (p.str("structure"), p.array("phases").map(|x| x.1), p.array("mask").map(|x| x.1));
+                let sel = texture_selection(p, &st, ph.as_deref(), mk.as_deref(), 10_000);
+                crate::crystal_texture::odf_sections(input.unwrap(), &sel, &p.str("sections"), p.f64("step", 5.0), p.f64("sigma", 7.5), p.f64("index_step", 5.0))
+            },
+        },
+        FilterDef {
             id: "ipf_color_key",
             label: "IPF Color Key",
             category: "Sources",
@@ -3297,4 +3377,28 @@ pub fn search(query: &str) -> Vec<Arc<FilterDef>> {
     let mut v: Vec<(u32, Arc<FilterDef>)> = registry().iter().map(|f| (f.search_score(query), f.clone())).filter(|(s, _)| *s > 0).collect();
     v.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.label.cmp(b.1.label)));
     v.into_iter().map(|(_, f)| f).collect()
+}
+
+/// The parameters choosing the orientations of a texture filter.
+fn texture_selection_params(max: i64) -> Vec<ParamSpec> {
+    vec![
+        cell_arr("orientations", "Orientations").help("Euler angles, quaternions or orientation matrices. Empty: EulerAngles, Quats or OrientationMatrix."),
+        choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES),
+        i("phase", "Phase", 1, 0, 255).help("The phase analysed (0: every indexed point, which must all be of one crystal class)."),
+        cell_arr("phases", "Phases").help("Empty: Phases.").advanced(),
+        cell_arr("mask", "Mask").help("Points where this array is 0 are left out.").advanced(),
+        i("max_orientations", "Orientations used at most", max, 100, 10_000_000).help("A random subset (fixed seed) when there are more.").advanced(),
+    ]
+}
+
+fn texture_selection<'a>(p: &crate::params::Params, structure: &'a str, phases: Option<&'a str>, mask: Option<&'a str>, max: i64) -> crate::crystal_texture::Selection<'a> {
+    crate::crystal_texture::Selection {
+        orientations: p.array("orientations"),
+        structure,
+        phases,
+        phase: p.i64("phase", 1),
+        mask,
+        max: p.i64("max_orientations", max).max(1) as usize,
+        seed: 1,
+    }
 }

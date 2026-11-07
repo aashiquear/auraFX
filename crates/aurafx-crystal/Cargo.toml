@@ -6,6 +6,7 @@ license.workspace = true
 description = "Orientation mathematics for auraFX: rotations, crystal symmetries, misorientation and orientation colors"
 
 [dependencies]
+rayon.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -14,6 +14,7 @@
 pub mod ipf;
 pub mod laue;
 pub mod rotation;
+pub mod texture;
 
 pub use ipf::{euler_color, ipf_color, ipf_sector, IpfSector};
 pub use laue::Laue;

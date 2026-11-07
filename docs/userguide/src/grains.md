@@ -312,6 +312,77 @@ feature) are added, and per-feature arrays from an earlier segmentation are remo
 
 ![The per-feature results of an EBSD map in the Spreadsheet as a Feature Table](images/feature_table.png)
 
+## Texture
+
+The texture filters (**Filters › Grains**) describe how the orientations of a map or volume
+are distributed. Every density is in multiples of a random distribution (MRD): 1 is what
+randomly oriented crystals give, 3 means three times as often as random. Each density is a
+smoothed count: every orientation spreads over a Gaussian of the **Smoothing** width.
+
+All three filters work on one phase:
+- **Phase** chooses it. With 0, every indexed point is used, and they must all have one
+  crystal class.
+- **Mask** can leave out more points.
+- **Orientations used at most** caps how many are counted (60 000 for the figures, 10 000 for
+  the ODF). When there are more, a random subset with a fixed seed is taken, so the result is
+  the same each time.
+
+The figures come out as flat panels side by side in the view, colored by `MRD` or `ODF`. To
+keep the numbers, save the output as CSV: every panel goes into one file, with a `Block`
+column naming the panel and the direction or angles of each point.
+
+### Pole Figure
+
+**Pole Figure** shows where the crystal directions of a family point in the sample.
+- **Directions** lists the families, written like `100, 110, 111`, `-112` or `1 2 3`.
+  Every symmetry-equivalent direction and its opposite are counted.
+- Each family is a disk: sample X to the right, Y up, sample Z at the centre and the
+  horizontal plane at the rim.
+- **Projection** is *Stereographic*, which keeps angles, or *Equal area*, which keeps areas.
+- The directions are first gathered in **Bin size** cells (2° by default) before smoothing.
+  This keeps large maps fast.
+
+```python
+pf = ebsd.pole_figure(families="100, 110, 111", projection="Stereographic", sigma=7.5)
+```
+
+![The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume](images/pole_figures.png)
+
+### Inverse Pole Figure
+
+**Inverse Pole Figure** shows which crystal directions lie along a sample direction (X, Y
+or Z, or all three side by side). The density is drawn on the standard triangle of the
+crystal class, the same region the orientation color key uses. A fibre texture shows here
+as one bright corner or spot.
+
+```python
+ipf = ebsd.inverse_pole_figure(directions="X, Y and Z")
+```
+
+![Inverse pole figures for sample X, Y and Z on the cubic standard triangle](images/inverse_pole_figures.png)
+
+### ODF Sections
+
+**ODF Sections** computes the orientation distribution function (ODF): how often each
+orientation occurs, smoothed over the disorientation angle.
+- Each section has a constant φ2 (**Sections**, 0, 45 and 65° by default). φ1 runs across
+  from 0 to 360°, and Φ runs down from 0 to 90° for classes with a two-fold axis across the
+  c axis (otherwise to 180°).
+- Each point's Euler angles are kept with its value.
+- The output also carries the **texture index** `TextureIndex`: the mean of the squared ODF
+  over all orientations. It is 1 for a random texture and grows as the texture sharpens.
+- `MaxODF` is the ODF's largest value. Both come from a grid of **Texture index step**
+  degrees over the whole orientation space.
+- With a finite number of orientations, even a random set gives an index a little above 1:
+  about 1.001 for 20 000 random orientations with 7.5° smoothing.
+
+```python
+odf = ebsd.odf_sections(sections="0, 45, 65", step=5)
+print(odf.field_data["TextureIndex"])
+```
+
+![ODF sections at phi2 = 0, 45 and 65 degrees](images/odf_sections.png)
+
 ## Limits
 
 - Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
@@ -320,6 +391,10 @@ feature) are added, and per-feature arrays from an earlier segmentation are remo
 - Neighbor lists (each feature's neighbours and shared areas) are not kept as arrays; Feature
   Boundaries holds the same information face by face.
 - Merge Twins handles cubic m-3m crystals only.
+- Texture directions are Cartesian crystal directions. For cubic crystals they are the Miller
+  indices. For hexagonal and trigonal crystals, `001` is the c axis and `100` the a1 axis.
+  Four-index Miller-Bravais notation is not read.
+- The texture filters assume no sample symmetry and count every point equally.
 - The feature filters copy the volume they work on: a volume of 80 million cells needs several
   gigabytes of memory. Segmentation of such a volume takes about 10 seconds.
 - The orientation mathematics is checked against independent references: rotations from

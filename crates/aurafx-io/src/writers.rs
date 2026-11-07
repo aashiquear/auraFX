@@ -543,6 +543,31 @@ pub fn write_legacy(ds: &DataSet, path: &Path) -> Result<()> {
 // ------------------------------------------------------------------ CSV / STL / PLY
 
 pub fn write_csv(ds: &DataSet, path: &Path) -> Result<()> {
+    // Blocks with the same arrays (pole figures, ODF sections, ...) go into one file with a
+    // Block column; otherwise the first block is written.
+    if let DataSet::MultiBlock(mb) = ds {
+        let leaves = mb.leaves();
+        let names = |d: &DataSet| -> Vec<String> { d.point_data().map(|a| a.iter().map(|x| format!("{}:{}", x.name, x.ncomp)).collect()).unwrap_or_default() };
+        if leaves.len() > 1 && !matches!(leaves[0].1, DataSet::Table(_)) && leaves.iter().all(|(_, d)| names(d) == names(leaves[0].1) && !matches!(d, DataSet::Table(_))) {
+            let mut text = String::new();
+            for (k, (name, d)) in leaves.iter().enumerate() {
+                let tmp = path.with_extension(format!("part{k}.csv"));
+                write_csv(d, &tmp)?;
+                let body = std::fs::read_to_string(&tmp)?;
+                let _ = std::fs::remove_file(&tmp);
+                let mut lines = body.lines();
+                let head = lines.next().unwrap_or_default();
+                if k == 0 {
+                    text.push_str(&format!("\"Block\",{head}\n"));
+                }
+                for l in lines {
+                    text.push_str(&format!("\"{}\",{l}\n", name.replace('"', "'")));
+                }
+            }
+            std::fs::write(path, text)?;
+            return Ok(());
+        }
+    }
     let leaf = match ds {
         DataSet::MultiBlock(mb) => mb.leaves().into_iter().next().map(|(_, d)| d.clone()).ok_or_else(|| anyhow!("empty dataset"))?,
         d => d.clone(),

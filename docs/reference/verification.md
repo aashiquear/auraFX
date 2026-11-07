@@ -311,6 +311,21 @@ Boundaries against a brute-force distance.
   with hexaform node for node: a plate with a circular hole, one with a 45-degree elliptical
   hole and the nickel dog-bone P.1 with five thickness stations (`testdata/benchmark`), with
   the same blocks, side sets and node sets.
+- Texture (scripts/texture_reference.py, testdata/crystal/texture_reference.json), on the 11 520
+  indexed cells of the AM Bench window, against the AM orientation toolkit (`am_texture`):
+  - pole figures {100}, {110} and {111} on the toolkit's 41 × 41 stereographic grid agree
+    within 1e-9;
+  - the ODF kernel means on the φ2 = 0, 45 and 65° sections agree within 1e-9 relative, and
+    the closed-form cubic disorientation agrees with the search over the 24 operators within
+    1e-12;
+  - the uniform ODF value is computed exactly from the distribution of random disorientation
+    angles (0.0106917 for 7.5°); the toolkit's Monte Carlo estimate is 0.0106425 (0.46 % lower);
+  - texture index: the toolkit's 2.652 comes from a 10° grid that counts φ1 = 0 and 360° twice
+    and Φ = 90° in full. With its grid and uniform value, auraFX reproduces it within 1e-9. The
+    midpoint grid auraFX uses gives 2.4692 at 5° and 2.4696 at 2.5°, so the toolkit's value is
+    7 % high;
+  - the random-disorientation distribution integrates to 1 for all eleven classes, and its
+    cubic maximum is 62.8°.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

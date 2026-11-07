@@ -3,6 +3,7 @@
 use crate::display::{ColorBy, DisplayProps};
 use anyhow::{anyhow, Result};
 use aurafx_data::{DataSet, DataSetInfo, TimeSeries};
+use aurafx_cad::CadFile;
 use aurafx_filters::{FilterDef, Params};
 use aurafx_io::Loaded;
 use indexmap::IndexMap;
@@ -404,6 +405,8 @@ impl WorkItem {
 #[derive(Default)]
 pub struct Session {
     pub nodes: IndexMap<NodeId, Node>,
+    /// The CAD environment's edit in progress (the pipeline is paused while it is open).
+    pub cad_edit: Option<crate::cad_edit::CadEdit>,
     pub(crate) next_id: NodeId,
     pub active: Option<NodeId>,
     /// Union of all time values across readers, sorted.
@@ -940,15 +943,18 @@ impl Session {
         if !self.is_cad_model(id) {
             anyhow::bail!("the node is not a CAD Model (afx.cad_model() makes one)");
         }
+        if let Some(e) = self.cad_edit.as_ref().filter(|e| e.node == id) {
+            return Ok(e.document.clone());
+        }
         let n = &self.nodes[&id];
         aurafx_filters::cad::parse_document(&n.params.str("document"))
     }
 
     /// The document with the node's overrides and configuration applied: what the node draws.
     pub fn cad_effective_document(&self, id: NodeId) -> Result<aurafx_cad::Document> {
-        self.cad_document(id)?;
+        let doc = self.cad_document(id)?;
         let n = &self.nodes[&id];
-        aurafx_filters::cad::effective_document(&n.params.str("document"), &n.params.str("parameters"), &n.params.str("configuration"))
+        aurafx_filters::cad::effective_document(&CadFile::new(doc).to_json(), &n.params.str("parameters"), &n.params.str("configuration"))
     }
 
     /// The overrides the node applies to the document's parameters: name and expression.
@@ -965,6 +971,10 @@ impl Session {
     /// Edit the document of a CAD Model node by one named operation (see `aurafx_cad::edit`):
     /// one undo step, recorded in the Python trace as `node.cad.edit("op", {...})`.
     pub fn cad_edit(&mut self, id: NodeId, op: &str, args: &serde_json::Value) -> Result<serde_json::Value> {
+        // Inside the environment an edit goes to the working copy.
+        if self.cad_editing() == Some(id) {
+            return self.cad_env_edit(op, args);
+        }
         let mut doc = self.cad_document(id)?;
         let out = aurafx_cad::edit::apply_op(&mut doc, op, args).map_err(|e| anyhow::anyhow!("{e}"))?;
         // The edit is shown at once when it cannot be drawn (an error says what to change).
@@ -1356,6 +1366,10 @@ impl Session {
 
     /// Pick the next node that can be executed (its input is clean) and mark it running.
     pub fn take_work(&mut self) -> Option<WorkItem> {
+        // Nothing runs while the CAD environment is open (the environment builds its own part).
+        if self.cad_edit.is_some() {
+            return None;
+        }
         let order: Vec<NodeId> = self.nodes.keys().copied().collect();
         for id in order {
             let n = &self.nodes[&id];

@@ -485,6 +485,12 @@ impl PyNode {
         m.call_method1("loads", (json,))
     }
 
+    /// Open the CAD environment on this node (a CAD Model): `m.edit_cad()`.
+    fn edit_cad(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let m = py.import("aurafx")?;
+        m.getattr("_edit_cad")?.call1((self.clone(),)).map(|o| o.unbind())
+    }
+
     /// The CAD document of a CAD Model node: `node.cad.parameter("width", 40)`, `node.cad.box(...)`.
     #[getter]
     fn cad(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -1530,6 +1536,12 @@ fn _cad_info(node: PyRef<PyNode>) -> PyResult<String> {
 #[pyfunction]
 #[pyo3(signature = (node, resolution=64))]
 fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize) -> PyResult<String> {
+    // Inside the environment the build is shown too (it becomes the node's output).
+    if session().lock().cad_editing() == Some(node.id) {
+        let sum = session().lock().cad_env_evaluate(resolution).map_err(cad_err)?;
+        let faces: Vec<serde_json::Value> = sum.faces.iter().enumerate().map(|(i, f)| serde_json::json!({ "id": i, "name": f.0, "kind": f.1, "area": f.2, "feature": (f.3).0 })).collect();
+        return Ok(serde_json::json!({ "kernel": sum.kernel, "volume": sum.volume, "area": sum.area, "centroid": sum.centroid, "bounds": [sum.bounds.0, sum.bounds.1], "faces": faces }).to_string());
+    }
     let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
     let ev = aurafx_filters::cad::evaluate(&doc, resolution, true).map_err(cad_err)?;
     let faces: Vec<serde_json::Value> = ev
@@ -1540,6 +1552,67 @@ fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize) -> PyResult<String> {
         .collect();
     let b = &ev.bodies[0];
     Ok(serde_json::json!({ "kernel": ev.kernel, "volume": ev.volume(), "area": b.area, "centroid": b.centroid, "bounds": [b.bounds.0, b.bounds.1], "faces": faces }).to_string())
+}
+
+/// Open the CAD environment on a CAD Model node (the pipeline pauses).
+#[pyfunction]
+fn _cad_enter(node: PyRef<PyNode>) -> PyResult<()> {
+    session().lock().cad_enter(node.id).map_err(cad_err)
+}
+
+/// Apply the environment's working copy to the node; `keep` stays in the environment.
+#[pyfunction]
+#[pyo3(signature = (keep=false))]
+fn _cad_apply(keep: bool) -> PyResult<String> {
+    let a = session().lock().cad_apply(keep).map_err(cad_err)?;
+    Ok(serde_json::json!({ "features": a.features, "kept_editing": a.kept_editing }).to_string())
+}
+
+/// Leave the environment without applying.
+#[pyfunction]
+fn _cad_discard() -> PyResult<()> {
+    session().lock().cad_discard().map_err(cad_err)
+}
+
+/// The state of the environment: whether it is open on this node, changes, revision, rollback.
+#[pyfunction]
+fn _cad_state(node: PyRef<PyNode>) -> String {
+    let s = session().lock();
+    match s.cad_edit.as_ref().filter(|e| e.node == node.id) {
+        Some(e) => serde_json::json!({ "editing": true, "changed": e.changed, "revision": e.revision, "rollback": e.rollback, "selected": e.selected.map(|i| i.0), "undo": e.undo.len(), "redo": e.redo.len(), "error": e.error }).to_string(),
+        None => serde_json::json!({ "editing": false, "other": s.cad_editing() }).to_string(),
+    }
+}
+
+/// Undo / redo / rollback / select inside the environment.
+#[pyfunction]
+#[pyo3(signature = (what, arg=None))]
+fn _cad_env(what: String, arg: Option<String>) -> PyResult<bool> {
+    let mut s = session().lock();
+    Ok(match what.as_str() {
+        "undo" => s.cad_env_undo().is_some(),
+        "redo" => s.cad_env_redo().is_some(),
+        "rollback" => {
+            let n = arg.as_deref().filter(|a| !a.is_empty()).map(|a| a.parse::<usize>()).transpose().map_err(|_| PyValueError::new_err("rollback takes a number of features or None"))?;
+            s.cad_env_rollback(n);
+            true
+        }
+        "select" => {
+            let id = match arg.as_deref().filter(|a| !a.is_empty()) {
+                None => None,
+                Some(name) => {
+                    let id = s.cad_edit.as_ref().and_then(|e| e.document.features.iter().find(|f| f.name == name).map(|f| f.id));
+                    if id.is_none() {
+                        return Err(PyValueError::new_err(format!("no feature named '{name}'")));
+                    }
+                    id
+                }
+            };
+            s.cad_env_select(id);
+            true
+        }
+        w => return Err(PyValueError::new_err(format!("unknown environment action '{w}'"))),
+    })
 }
 
 /// Check geometry commands: the bodies they make (id, name, history lines, faces as
@@ -1725,9 +1798,30 @@ class _CadApi:
         return self.evaluate(resolution)["faces"]
     def volume(self, resolution=64):
         return self.evaluate(resolution)["volume"]
-    def apply(self):
-        """Bring the node up to date and return its summary."""
+    def apply(self, keep_editing=False):
+        """Inside the CAD environment: hand the part to the node and leave (keep_editing=True stays).
+        Outside it: bring the node up to date and return its summary."""
+        if self.editing():
+            return _json.loads(_cad_apply(keep_editing))
         return self._node.update()
+    # the environment
+    def editing(self):
+        """True while the CAD environment is open on this node."""
+        return _json.loads(_cad_state(self._node))["editing"]
+    def state(self):
+        return _json.loads(_cad_state(self._node))
+    def discard(self):
+        """Leave the environment without applying."""
+        _cad_discard()
+    def undo(self):
+        return _cad_env("undo")
+    def redo(self):
+        return _cad_env("redo")
+    def rollback(self, features=None):
+        """Build only the first `features` features (None: all), like the timeline's rollback marker."""
+        return _cad_env("rollback", None if features is None else str(features))
+    def select(self, feature=None):
+        return _cad_env("select", feature)
     # files
     def document(self):
         return _cad_document(self._node)
@@ -1740,6 +1834,12 @@ class _CadApi:
     def __repr__(self):
         i = self.info()
         return "<cad %r: %d features, %d parameters>" % (i["name"], len(i["features"]), len(i["parameters"]))
+
+def _edit_cad(node):
+    """Open the CAD environment on a CAD Model node: the pipeline pauses, node.cad.* edits a
+    working copy, node.cad.apply() hands it to the node and node.cad.discard() throws it away."""
+    _cad_enter(node)
+    return node.cad
 
 def cad_model(source=None, template=None, name=None, **kw):
     """A parametric part. afx.cad_model() starts a plate; afx.cad_model("part.afxcad") opens a
@@ -2169,6 +2269,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(plugins, m)?)?;
     m.add_function(wrap_pyfunction!(_mesh_check, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_edit, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_enter, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_apply, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_discard, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_state, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_env, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_document, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_set_document, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_info, m)?)?;

@@ -190,6 +190,10 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                         }
                         ui.close();
                     }
+                    if state.session.lock().is_cad_model(r.id) && ui.button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)).clicked() {
+                        crate::cad::enter(state, r.id);
+                        ui.close();
+                    }
                     ui.separator();
                     let views = state.view_ids();
                     if views.len() > 1 {

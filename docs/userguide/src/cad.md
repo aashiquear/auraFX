@@ -46,6 +46,61 @@ sketch (the sketch's own order). `Bore side` is the wall of a hole named *Bore*;
 the top of a brick named *Base*. Rename a feature and its faces are renamed with it, which the
 later *downstream check* uses to follow them.
 
+## The CAD environment
+
+Editing happens in one mode of the same window. Open it from **Sources › CAD Model…** (which
+adds a new part and opens it), from **Edit in CAD…** (right-click a CAD Model in the Pipeline,
+or the button at the top of its Properties), or from Python with `part.edit_cad()`. While it
+is open:
+
+- the toolbar becomes the **ribbon** with tabs *Sketch*, *Features*, *Modify*, *Inspect* and
+  *Files*. Each button adds a feature with sensible sizes at the top of the part; you then set
+  its numbers in the PropertyManager.
+- the Pipeline panel becomes the **FeatureManager**: the part's dimensions, its features in
+  order (the checkbox suppresses one; double-click renames; right-click for *Suppress*,
+  *Roll back to here*, *Move up*, *Move down*, *Delete*), the modifiers on the whole part and
+  the configurations.
+- the Properties panel becomes the **PropertyManager**: every field of the selected feature.
+  Each number accepts an expression of the dimensions: type `width / 2` instead of a number
+  and the field follows the dimension (the value it gives is shown beside it). Choices (the
+  end condition of an extrusion, the type of a hole, a mirror plane) are menus. With no
+  feature selected it shows the part itself and its faces.
+- the **timeline bar** at the bottom lists the features in order. The orange marker is the
+  *rollback marker*: only the features before it are built, so you can look at the part as it
+  was after the third feature, or insert a hole earlier in the history. ◀ ▶ move it.
+- the menu bar gains a **CAD** menu, and the part is built again after every edit, in the
+  background (the timeline shows the time it took and the part's volume).
+- **the pipeline is paused.** Other 3D views, charts and spreadsheets stay as they were and
+  say so in a grey banner; nothing downstream re-runs on every edit.
+
+![The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline](images/cad_environment.png)
+
+The right end of the ribbon leaves the environment:
+
+- **Apply** hands the part to the CAD Model node and closes the environment; the nodes below
+  it re-run. A part that does not build is refused, with the reason.
+- **Apply, keep editing** does the same and stays.
+- **Discard** (or `Esc`, which asks) closes it and leaves everything as it was.
+
+All the edits of a session are **one undo step** in the main window (*Edit › Undo* after Apply
+takes back the whole session). Inside the environment, *Undo* and *Redo* (`Ctrl+Z`,
+`Ctrl+Y`, the timeline bar, the CAD menu) step through single edits.
+
+The *Inspect* tab reads the part: volume, surface, size, center of volume, mass for a density,
+and the area of a cross-section at a height. The *Files* tab starts from a template, opens an
+`.afxcad` file, or saves the part as one.
+
+From Python:
+
+```python
+e = part.edit_cad()            # open the environment; e is part.cad
+e.box(size=(10, 10, 6), name="Boss", at=(0, 0, 11))
+e.evaluate()                   # build it now (the window does this by itself)
+e.rollback(1)                  # build only the first feature
+e.undo(); e.redo()
+e.apply()                      # or e.apply(keep_editing=True) / e.discard()
+```
+
 ## Python
 
 ```python
@@ -95,5 +150,6 @@ Face names carry through: an extracted set or a boundary layer can name `Bore si
 - The kernel used here describes the part as a distance field. It never fails on a hard
   combination of features, but edges are not exact lines: the faces it reports are labelled
   regions of the surface, and the same labels come back after every rebuild.
-- A part is one body. The Python calls above need the CAD environment's windows (feature
-  properties, a sketch canvas) only for interactive editing, which later versions add.
+- A part is one body, and sketches are made from the shapes the ribbon and Python offer
+  (rectangle, circle, polygon, hexagon, profile); drawing a sketch line by line, with
+  constraints, comes with the sketch canvas in a later version.

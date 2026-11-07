@@ -1,0 +1,273 @@
+//! The ribbon: tabs of buttons that add features and modifiers with sensible defaults (placed
+//! on the top of the part, sized for a small part); their numbers are then edited in the
+//! PropertyManager.
+
+use super::{editing, op, RibbonTab};
+use crate::app::State;
+use egui::RichText;
+use serde_json::{json, Value};
+
+/// Where a new feature goes by default: the middle of the top of the part built so far.
+fn top_center(state: &State) -> ([f64; 3], bool) {
+    let s = state.session.lock();
+    match s.cad_edit.as_ref().and_then(|e| e.summary.as_ref()).filter(|_| s.cad_edit.as_ref().is_some_and(|e| !e.document.features.is_empty())) {
+        Some(sum) => {
+            let (lo, hi) = sum.bounds;
+            ([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, hi[2]], true)
+        }
+        None => ([0.0; 3], false),
+    }
+}
+
+/// A feature name not used yet: "Box", "Box 2", ...
+fn unique(state: &State, base: &str) -> String {
+    let s = state.session.lock();
+    let names: Vec<String> = s.cad_edit.as_ref().map(|e| e.document.features.iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
+    if !names.iter().any(|n| n == base) {
+        return base.to_string();
+    }
+    (2..).map(|k| format!("{base} {k}")).find(|n| !names.contains(n)).unwrap()
+}
+
+fn selected_name(state: &State) -> Option<String> {
+    let s = state.session.lock();
+    let e = s.cad_edit.as_ref()?;
+    let id = e.selected?;
+    e.document.feature(id).map(|f| f.name.clone())
+}
+
+fn button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
+    ui.button(label).on_hover_text(tip).clicked()
+}
+
+pub fn ribbon_ui(state: &mut State, ui: &mut egui::Ui) {
+    if !editing(state) {
+        return;
+    }
+    let (changed, can_apply) = {
+        let s = state.session.lock();
+        (s.cad_edit.as_ref().is_some_and(|e| e.changed), s.cad_edit.as_ref().is_some_and(|e| e.error.is_none()))
+    };
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("{} CAD", crate::icons::CUBE)).strong().color(crate::theme::ACCENT));
+        for t in RibbonTab::ALL {
+            if ui.selectable_label(state.cad.tab == t, t.label()).clicked() {
+                state.cad.tab = t;
+            }
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("Discard").on_hover_text("Leave the CAD environment; the part is as it was (Esc)").clicked() {
+                super::discard(state);
+            }
+            if ui.add_enabled(can_apply, egui::Button::new("Apply, keep editing")).on_hover_text("Hand the part to the pipeline and stay here").clicked() {
+                super::apply(state, true);
+            }
+            let apply = egui::Button::new(RichText::new(format!("{} Apply", crate::icons::CHECK_CIRCLE)).strong());
+            if ui.add_enabled(can_apply, apply).on_hover_text("Hand the part to the pipeline and leave; the nodes below it re-run").clicked() {
+                super::apply(state, false);
+            }
+            if changed {
+                ui.label(RichText::new("unapplied changes").weak().small());
+            }
+        });
+    });
+    ui.separator();
+    let (at, has_part) = top_center(state);
+    let tab = state.cad.tab;
+    ui.horizontal_wrapped(|ui| match tab {
+        RibbonTab::Features => features_tab(state, ui, at, has_part),
+        RibbonTab::Sketch => sketch_tab(state, ui, at, has_part),
+        RibbonTab::Modify => modify_tab(state, ui),
+        RibbonTab::Inspect => inspect_tab(state, ui),
+        RibbonTab::Files => files_tab(state, ui),
+    });
+}
+
+fn features_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool) {
+    let z = |dz: f64| [at[0], at[1], at[2] + dz];
+    let (c, a) = (at, if has_part { 1.0 } else { 0.0 });
+    let _ = c;
+    if button(ui, "Box", "A 20 mm box on top of the part") {
+        let name = unique(state, "Box");
+        op(state, "add", json!({"kind": "box", "name": name, "size": [20, 20, 20], "at": z(10.0 * a)}));
+    }
+    if button(ui, "Cylinder", "A cylinder of radius 8 and height 20 standing on the part") {
+        let name = unique(state, "Cylinder");
+        op(state, "add", json!({"kind": "cylinder", "name": name, "radius": 8, "height": 20, "at": z(0.0)}));
+    }
+    if button(ui, "Sphere", "A sphere of radius 10") {
+        let name = unique(state, "Sphere");
+        op(state, "add", json!({"kind": "sphere", "name": name, "radius": 10, "at": z(10.0 * a)}));
+    }
+    if button(ui, "Cone", "A cone of base radius 10 and height 20") {
+        let name = unique(state, "Cone");
+        op(state, "add", json!({"kind": "cone", "name": name, "r_bottom": 10, "r_top": 2, "height": 20, "at": z(0.0)}));
+    }
+    if button(ui, "Torus", "A torus of major radius 12 and minor radius 3") {
+        let name = unique(state, "Torus");
+        op(state, "add", json!({"kind": "torus", "name": name, "major": 12, "minor": 3, "at": z(3.0 * a)}));
+    }
+    ui.separator();
+    for (label, hole, tip) in [
+        ("Hole", "simple", "A simple hole cut down from the top of the part"),
+        ("Counterbore", "counterbore", "A hole with a flat-bottomed recess for a bolt head"),
+        ("Countersink", "countersink", "A hole with a conical recess for a flat-head screw"),
+        ("Tapped hole", "tapped", "A threaded hole (the thread is modelled; cosmetic threads are a plain tap-drill hole)"),
+        ("Drilled hole", "drilled", "A blind hole with a drill point"),
+    ] {
+        if button(ui, label, tip) {
+            let name = unique(state, "Hole");
+            let mut a = json!({"kind": "hole", "name": name, "hole": hole, "diameter": 6, "depth": 10, "at": z(0.0), "pitch": 1.0, "cb_diameter": 11, "cb_depth": 4, "cs_diameter": 12, "cs_angle": 90});
+            if hole == "tapped" {
+                a["diameter"] = json!(8);
+                a["pitch"] = json!(1.25);
+            }
+            op(state, "add", a);
+        }
+    }
+    if button(ui, "Thread", "A helical thread (an external thread to add, or the void of an internal one to cut)") {
+        let name = unique(state, "Thread");
+        op(state, "add", json!({"kind": "thread", "name": name, "major_diameter": 8, "pitch": 1.25, "length": 12, "at": z(0.0)}));
+    }
+}
+
+fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool) {
+    ui.label(RichText::new("Sketch shapes, extruded or revolved (edit their dimensions on the right):").weak().small());
+    let off = if has_part { at[2] } else { 0.0 };
+    let sk = |item: Value, plane: &str| json!({"plane": plane, "offset": if plane == "XY" { off } else { 0.0 }, "items": [item]});
+    if button(ui, "Rectangle", "A 30 × 20 rectangle extruded 10 mm") {
+        let name = unique(state, "Extrude");
+        op(state, "sketch_extrude", json!({"name": name, "depth": 10, "sketch": sk(json!({"rectangle": {"center": [at[0], at[1]], "w": 30, "h": 20}}), "XY")}));
+    }
+    if button(ui, "Circle", "A circle of radius 10 extruded 10 mm") {
+        let name = unique(state, "Extrude");
+        op(state, "sketch_extrude", json!({"name": name, "depth": 10, "sketch": sk(json!({"circle": {"center": [at[0], at[1]], "r": 10}}), "XY")}));
+    }
+    if button(ui, "Hexagon", "A regular hexagon of radius 12 extruded 10 mm") {
+        let name = unique(state, "Extrude");
+        op(state, "sketch_extrude", json!({"name": name, "depth": 10, "sketch": sk(json!({"regular": {"center": [at[0], at[1]], "r": 12, "sides": 6}}), "XY")}));
+    }
+    if button(ui, "Rectangle cut", "A 10 × 10 pocket cut through the top 5 mm") {
+        let name = unique(state, "Pocket");
+        op(state, "sketch_extrude", json!({"name": name, "op": "cut", "depth": 5, "reverse": true, "sketch": sk(json!({"rectangle": {"center": [at[0], at[1]], "w": 10, "h": 10}}), "XY")}));
+    }
+    ui.separator();
+    if button(ui, "Revolve profile", "A profile of straight lines turned about the vertical axis (a knob)") {
+        let name = unique(state, "Revolve");
+        let pl = json!({"polygon": [[0, 0], [12, 0], [12, 4], [7, 16], [0, 18]]});
+        op(state, "sketch_revolve", json!({"name": name, "angle": 360, "at": [at[0], at[1], off], "sketch": sk(pl, "XZ")}));
+    }
+}
+
+fn modify_tab(state: &mut State, ui: &mut egui::Ui) {
+    let target = selected_name(state);
+    ui.label(RichText::new(match &target {
+        Some(n) => format!("on {n}:"),
+        None => "on the whole part (select a feature to modify only it):".to_string(),
+    })
+    .weak()
+    .small());
+    let t = target.map(Value::String).unwrap_or(Value::Null);
+    let add = |state: &mut State, m: Value| {
+        op(state, "modifier", json!({"feature": t, "modifier": m}));
+    };
+    if button(ui, "Fillet", "Round the edges by 1 mm") {
+        add(state, json!({"kind": "Fillet", "radius": 1}));
+    }
+    if button(ui, "Shell", "Hollow the solid with a 2 mm wall") {
+        add(state, json!({"kind": "Shell", "thickness": 2}));
+    }
+    if button(ui, "Open shell", "Hollow it with a 2 mm wall and open the top (an enclosure)") {
+        add(state, json!({"kind": "ShellOpen", "thickness": 2, "open_top": true}));
+    }
+    ui.separator();
+    if button(ui, "Linear pattern", "Three copies 20 mm apart along x") {
+        add(state, json!({"kind": "LinearPattern", "count": 3, "step": [20, 0, 0]}));
+    }
+    if button(ui, "Grid pattern", "A 3 × 3 grid of copies 15 mm apart") {
+        add(state, json!({"kind": "GridPattern", "counts": [3, 3], "step": [15, 15]}));
+    }
+    if button(ui, "Circular pattern", "Six copies around the vertical axis through the origin") {
+        add(state, json!({"kind": "CircularPatternAngle", "count": 6, "total_deg": 360, "axis": "Z"}));
+    }
+    ui.separator();
+    if button(ui, "Mirror YZ", "Keep the part and add its reflection across the YZ plane") {
+        add(state, json!({"kind": "Mirror", "plane": "YZ"}));
+    }
+    if button(ui, "Mirror XZ", "Keep the part and add its reflection across the XZ plane") {
+        add(state, json!({"kind": "Mirror", "plane": "XZ"}));
+    }
+    if button(ui, "Split", "Keep one side of the YZ plane") {
+        add(state, json!({"kind": "Split", "plane": "YZ", "offset": 0, "keep_positive": true}));
+    }
+    if button(ui, "Scale", "Scale about the origin") {
+        add(state, json!({"kind": "Scale", "factor": 1.0}));
+    }
+}
+
+fn inspect_tab(state: &mut State, ui: &mut egui::Ui) {
+    let summary = state.session.lock().cad_edit.as_ref().and_then(|e| e.summary.clone());
+    let Some(s) = summary else {
+        ui.label(RichText::new("The part has not been built yet.").weak());
+        return;
+    };
+    let size = [s.bounds.1[0] - s.bounds.0[0], s.bounds.1[1] - s.bounds.0[1], s.bounds.1[2] - s.bounds.0[2]];
+    ui.label(format!("volume {} mm³", super::num_text(s.volume)));
+    ui.label(format!("surface {} mm²", super::num_text(s.area)));
+    ui.label(format!("size {} × {} × {} mm", super::num_text(size[0]), super::num_text(size[1]), super::num_text(size[2])));
+    ui.label(format!("center of volume ({}, {}, {})", super::num_text(s.centroid[0]), super::num_text(s.centroid[1]), super::num_text(s.centroid[2])));
+    ui.separator();
+    ui.label("density");
+    ui.add(egui::DragValue::new(&mut state.cad.density).speed(0.05).range(0.01..=30.0).suffix(" g/cm³"));
+    ui.label(format!("mass {} g", super::num_text(s.volume / 1000.0 * state.cad.density)));
+    ui.separator();
+    ui.label("section at z");
+    ui.add(egui::DragValue::new(&mut state.cad.section_z).speed(0.1).suffix(" mm"));
+    if ui.button("Measure").on_hover_text("The area of the part's cross-section at that height").clicked() {
+        let doc = state.session.lock().cad_edit.as_ref().map(|e| e.document_to_build());
+        state.cad.section_area = doc.and_then(|d| d.resolved().ok()).map(|d| d.section_area_at_z(state.cad.section_z, (s.bounds.1[0] - s.bounds.0[0]).max(1.0) / 200.0));
+    }
+    if let Some(a) = state.cad.section_area {
+        ui.label(format!("= {} mm²", super::num_text(a)));
+    }
+}
+
+fn files_tab(state: &mut State, ui: &mut egui::Ui) {
+    ui.menu_button("New from template", |ui| {
+        for (title, _) in aurafx_cad::templates() {
+            if ui.button(title).clicked() {
+                ui.close();
+                let word = title.split([' ', '(']).next().unwrap_or(title).to_string();
+                op(state, "template", json!({"name": word}));
+            }
+        }
+    })
+    .response
+    .on_hover_text("Replace the part by a starter part (Ctrl+Z in the environment takes it back)");
+    if button(ui, "Open .afxcad…", "Replace the part by a CAD document file") {
+        if let Some(p) = crate::dialogs::FileDialog::new().add_filter("auraFX CAD document", &["afxcad"]).pick_file() {
+            match aurafx_cad::Document::load(&p) {
+                Ok(d) => {
+                    let _ = state.session.lock().cad_env_set_document(d);
+                }
+                Err(e) => state.toast(format!("{e}"), true),
+            }
+        }
+    }
+    if button(ui, "Save as .afxcad…", "Write the part being edited to a file") {
+        save_as(state);
+    }
+}
+
+/// Save the working copy as an `.afxcad` file chosen by the user.
+pub fn save_as(state: &mut State) {
+    let doc = state.session.lock().cad_edit.as_ref().map(|e| e.document.clone());
+    let Some(doc) = doc else { return };
+    if let Some(p) = crate::dialogs::FileDialog::new().add_filter("auraFX CAD document", &["afxcad"]).set_file_name("part.afxcad").save_file() {
+        let p = if p.extension().is_none() { p.with_extension("afxcad") } else { p };
+        match doc.save(&p) {
+            Ok(()) => state.toast(format!("Saved {}", p.display()), false),
+            Err(e) => state.toast(format!("{e}"), true),
+        }
+    }
+}

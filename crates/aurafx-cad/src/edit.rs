@@ -411,6 +411,63 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             doc.features[i].bindings.retain(|b| b.path != path);
             Ok(json!({}))
         }
+        "set_json" => {
+            // The general edit the PropertyManager uses for choices (an end condition, a hole
+            // type): any value at a JSON pointer inside the feature, checked by reading it back.
+            let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
+            let path = args.get("path").and_then(|p| p.as_str()).ok_or_else(|| CadError::Edit("set_json needs a JSON pointer \"path\"".into()))?;
+            let mut v = serde_json::to_value(&doc.features[i]).map_err(|e| CadError::Edit(e.to_string()))?;
+            let slot = v.pointer_mut(path).ok_or_else(|| CadError::Edit(format!("no field {path} on '{}'", doc.features[i].name)))?;
+            *slot = args.get("json").cloned().unwrap_or(Value::Null);
+            let f: Feature = serde_json::from_value(v).map_err(|e| CadError::Edit(format!("{path}: {e}")))?;
+            doc.features[i] = f;
+            doc.features[i].bindings.retain(|b| !b.path.starts_with(path));
+            Ok(json!({}))
+        }
+        "set_op" => {
+            let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
+            doc.features[i].op = op_of(&json!({ "op": args.get("to").cloned().unwrap_or(Value::Null), "kind": "" }))?;
+            Ok(json!({}))
+        }
+        "remove_modifier" => {
+            let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
+            let k = args.get("index").and_then(|k| k.as_u64()).unwrap_or(u64::MAX) as usize;
+            if k >= doc.features[i].modifiers.len() {
+                return bad(format!("'{}' has {} modifiers", doc.features[i].name, doc.features[i].modifiers.len()));
+            }
+            doc.features[i].modifiers.remove(k);
+            Ok(json!({}))
+        }
+        "remove_finish" => {
+            let k = args.get("index").and_then(|k| k.as_u64()).unwrap_or(u64::MAX) as usize;
+            if k >= doc.finish.len() {
+                return bad(format!("the part has {} finishing modifiers", doc.finish.len()));
+            }
+            doc.finish.remove(k);
+            Ok(json!({}))
+        }
+        "set_finish" => {
+            let k = args.get("index").and_then(|k| k.as_u64()).unwrap_or(u64::MAX) as usize;
+            let field = args.get("field").and_then(|f| f.as_str()).ok_or_else(|| CadError::Edit("set_finish needs a \"field\"".into()))?;
+            let (x, _) = num(doc, args.get("value").unwrap_or(&Value::Null))?;
+            let m = doc.finish.get(k).ok_or_else(|| CadError::Edit(format!("the part has {} finishing modifiers", doc.finish.len())))?;
+            let mut v = serde_json::to_value(m).map_err(|e| CadError::Edit(e.to_string()))?;
+            let slot = v.get_mut(field).ok_or_else(|| CadError::Edit(format!("no field '{field}' on that modifier")))?;
+            *slot = if slot.is_u64() { json!(x.round().max(0.0) as u64) } else { json!(x) };
+            doc.finish[k] = serde_json::from_value(v).map_err(|e| CadError::Edit(e.to_string()))?;
+            Ok(json!({}))
+        }
+        "set_dim" => {
+            let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
+            let c = args.get("constraint").and_then(|c| c.as_u64()).unwrap_or(u64::MAX) as usize;
+            let d = dim(doc, args.get("value").unwrap_or(&Value::Null))?;
+            let name = doc.features[i].name.clone();
+            let sk = doc.features[i].shape.sketch_mut().ok_or_else(|| CadError::Edit(format!("'{name}' has no sketch")))?;
+            let slot = sk.constraints.get_mut(c).and_then(|k| k.dim_mut()).ok_or_else(|| CadError::Edit(format!("constraint {c} of the sketch of '{name}' is not a dimension")))?;
+            *slot = d;
+            doc.resolved()?; // the sketch must still solve
+            Ok(json!({}))
+        }
         "configuration" => {
             let name = args.get("name").and_then(|n| n.as_str()).ok_or_else(|| CadError::Edit("a configuration needs a name".into()))?;
             let overrides: Vec<Parameter> = args
@@ -433,7 +490,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(json!({}))
         }
         other => bad(format!(
-            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, set, configuration, activate)"
+            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, set, set_op, set_dim, set_json, remove_modifier, remove_finish, set_finish, configuration, activate)"
         )),
     }
 }
@@ -539,5 +596,43 @@ mod tests {
         assert!(d.features.len() >= 3);
         assert!(d.feature_list().iter().all(|f| f["id"].as_u64().unwrap() > 0));
         assert!(apply_op(&mut d, "template", &json!({"name": "zzz"})).unwrap_err().to_string().contains("there are"));
+    }
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+
+    #[test]
+    fn the_properties_operations_edit_what_the_manager_shows() {
+        let mut d = crate::templates::bracket();
+        // A sketch dimension, by number and by expression.
+        let f = d.features.iter().find(|f| matches!(f.shape, Shape::SketchExtrude { .. })).unwrap().name.clone();
+        let (c, before) = {
+            let Shape::SketchExtrude { sketch, .. } = &d.features.iter().find(|x| x.name == f).unwrap().shape else { unreachable!() };
+            let c = sketch.constraints.iter().position(|k| k.dim().is_some()).unwrap();
+            (c, sketch.constraints[c].dim().unwrap().value)
+        };
+        apply_op(&mut d, "set_dim", &json!({"feature": f, "constraint": c, "value": before + 5.0})).unwrap();
+        let Shape::SketchExtrude { sketch, .. } = &d.features.iter().find(|x| x.name == f).unwrap().shape else { unreachable!() };
+        assert_eq!(sketch.constraints[c].dim().unwrap().value, before + 5.0);
+        apply_op(&mut d, "parameter", &json!({"name": "k", "expr": 3})).unwrap();
+        apply_op(&mut d, "set_dim", &json!({"feature": f, "constraint": c, "value": "k * 4"})).unwrap();
+        assert_eq!(d.resolved().unwrap().features.iter().find(|x| x.name == f).and_then(|x| match &x.shape { Shape::SketchExtrude { sketch, .. } => sketch.constraints[c].dim().map(|d| d.value), _ => None }), Some(12.0));
+        assert!(apply_op(&mut d, "set_dim", &json!({"feature": f, "constraint": 9999, "value": 1})).is_err());
+        // Operation, modifiers, finish.
+        let mut d = Document::new("x");
+        apply_op(&mut d, "add", &json!({"kind": "box", "name": "A"})).unwrap();
+        apply_op(&mut d, "set_op", &json!({"feature": "A", "to": "cut"})).unwrap();
+        assert_eq!(d.features[0].op, BooleanOp::Cut);
+        apply_op(&mut d, "modifier", &json!({"feature": "A", "modifier": {"kind": "Fillet", "radius": 1}})).unwrap();
+        apply_op(&mut d, "remove_modifier", &json!({"feature": "A", "index": 0})).unwrap();
+        assert!(d.features[0].modifiers.is_empty());
+        apply_op(&mut d, "modifier", &json!({"modifier": {"kind": "Fillet", "radius": 1}})).unwrap();
+        apply_op(&mut d, "set_finish", &json!({"index": 0, "field": "radius", "value": 2.5})).unwrap();
+        assert_eq!(d.finish[0], Modifier::Fillet { radius: 2.5 });
+        apply_op(&mut d, "remove_finish", &json!({"index": 0})).unwrap();
+        assert!(d.finish.is_empty());
+        assert!(apply_op(&mut d, "remove_finish", &json!({"index": 0})).unwrap_err().to_string().contains("0 finishing"));
     }
 }

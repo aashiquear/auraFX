@@ -1,10 +1,290 @@
-//! The CAD modeling environment's part of the app (roadmap section 13). This file holds what
-//! a CAD Model node shows in the Properties panel: its dimensions (the document's parameters,
-//! editable without entering the environment), its features and the faces of the last result.
+//! The CAD modeling environment's part of the app (roadmap section 13). One mode of the one
+//! window: while a CAD Model is being edited the toolbar becomes the **ribbon**, the Pipeline
+//! panel the **FeatureManager**, Properties the **PropertyManager**, a **timeline bar** appears
+//! at the bottom, and everything else is marked stale because the pipeline is paused. The
+//! document being edited lives in the session (`CadEdit`); this module draws it and turns
+//! clicks into the same operations Python makes (`aurafx_cad::edit`).
 
-use crate::app::State;
+mod feature_manager;
+mod property_manager;
+mod ribbon;
+mod timeline;
+
+use crate::app::{LayoutAction, Pane, State};
+use aurafx_cad::Id;
 use aurafx_pipeline::NodeId;
 use egui::RichText;
+use serde_json::{json, Value};
+
+pub use feature_manager::feature_manager_ui;
+pub use property_manager::property_manager_ui;
+pub use ribbon::ribbon_ui;
+pub use timeline::timeline_ui;
+
+/// The ribbon's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RibbonTab {
+    Sketch,
+    #[default]
+    Features,
+    Modify,
+    Inspect,
+    Files,
+}
+
+impl RibbonTab {
+    pub const ALL: [RibbonTab; 5] = [RibbonTab::Sketch, RibbonTab::Features, RibbonTab::Modify, RibbonTab::Inspect, RibbonTab::Files];
+    pub fn label(self) -> &'static str {
+        match self {
+            RibbonTab::Sketch => "Sketch",
+            RibbonTab::Features => "Features",
+            RibbonTab::Modify => "Modify",
+            RibbonTab::Inspect => "Inspect",
+            RibbonTab::Files => "Files",
+        }
+    }
+}
+
+type EvalResult = (NodeId, u64, Result<(aurafx_data::DataSet, aurafx_pipeline::CadSummary), String>);
+
+/// The environment's interface state (the document itself is in the session).
+pub struct CadUi {
+    pub tab: RibbonTab,
+    tx: std::sync::mpsc::Sender<EvalResult>,
+    rx: std::sync::mpsc::Receiver<EvalResult>,
+    /// The revision an evaluation was started for, and whether one is running.
+    requested: u64,
+    running: bool,
+    /// "Apply, discard or keep editing?" (Esc).
+    pub leave_dialog: bool,
+    /// Density for the mass readout (g/cm³) and the section height of the Inspect tab.
+    pub density: f64,
+    pub section_z: f64,
+    pub section_area: Option<f64>,
+    /// A feature being renamed in the FeatureManager.
+    pub rename: Option<(Id, String)>,
+    pub new_param: (String, String),
+}
+
+impl Default for CadUi {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self {
+            tab: RibbonTab::default(),
+            tx,
+            rx,
+            requested: 0,
+            running: false,
+            leave_dialog: false,
+            density: 7.85,
+            section_z: 0.0,
+            section_area: None,
+            rename: None,
+            new_param: (String::new(), String::new()),
+        }
+    }
+}
+
+/// Whether the environment is open.
+pub fn editing(state: &State) -> bool {
+    state.session.lock().cad_edit.is_some()
+}
+
+/// Enter the environment on a CAD Model node.
+pub fn enter(state: &mut State, id: NodeId) {
+    let r = state.session.lock().cad_enter(id);
+    match r {
+        Ok(()) => {
+            state.cad.requested = 0;
+            state.cad.running = false;
+            state.layout_actions.push(LayoutAction::Show(Pane::Pipeline));
+            state.layout_actions.push(LayoutAction::Show(Pane::Properties));
+            state.status = "CAD environment: the pipeline is paused until you apply or discard".into();
+        }
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+}
+
+/// Enter on the active node when it is a CAD Model.
+pub fn enter_active(state: &mut State) {
+    let id = state.session.lock().active;
+    if let Some(id) = id {
+        enter(state, id);
+    }
+}
+
+/// Run one operation on the working copy; a refusal is shown as a message.
+pub fn op(state: &mut State, name: &str, args: Value) -> Option<Value> {
+    let r = state.session.lock().cad_env_edit(name, &args);
+    match r {
+        Ok(v) => Some(v),
+        Err(e) => {
+            state.toast(format!("{e:#}"), true);
+            None
+        }
+    }
+}
+
+/// Apply (and leave, or keep editing).
+pub fn apply(state: &mut State, keep: bool) {
+    let r = state.session.lock().cad_apply(keep);
+    match r {
+        Ok(a) => state.status = if a.kept_editing { "CAD: applied; still editing".into() } else { "CAD: applied; the pipeline resumes".into() },
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+    state.cad.leave_dialog = false;
+}
+
+/// Leave without applying.
+pub fn discard(state: &mut State) {
+    let r = state.session.lock().cad_discard();
+    match r {
+        Ok(()) => state.status = "CAD: changes discarded".into(),
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+    state.cad.leave_dialog = false;
+}
+
+/// Every frame: collect finished builds, start a new one when the document changed, and ask
+/// what to do on Esc.
+pub fn tick(state: &mut State, ctx: &egui::Context) {
+    while let Ok((node, rev, result)) = state.cad.rx.try_recv() {
+        state.cad.running = false;
+        let _ = state.session.lock().cad_env_deliver(node, rev, result);
+        ctx.request_repaint();
+    }
+    let job = state.session.lock().cad_env_job();
+    let Some((doc, overrides, rev, node)) = job else {
+        state.cad.requested = 0;
+        state.cad.running = false;
+        return;
+    };
+    if rev != state.cad.requested && !state.cad.running {
+        let res = {
+            let s = state.session.lock();
+            s.nodes.get(&node).map(|n| n.params.i64("resolution", 64)).unwrap_or(64).clamp(24, 96) as usize
+        };
+        state.cad.requested = rev;
+        state.cad.running = true;
+        let tx = state.cad.tx.clone();
+        let ctx2 = ctx.clone();
+        std::thread::Builder::new()
+            .name("aurafx-cad".into())
+            .spawn(move || {
+                let r = aurafx_pipeline::cad_edit::evaluate_document(doc, &overrides, res);
+                let _ = tx.send((node, rev, r));
+                ctx2.request_repaint();
+            })
+            .ok();
+    }
+    if state.cad.running {
+        ctx.request_repaint_after(std::time::Duration::from_millis(60));
+    }
+    if !ctx.text_edit_focused() && !state.cad.leave_dialog && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        state.cad.leave_dialog = true;
+    }
+}
+
+/// The "leave the CAD environment?" dialog (Esc).
+pub fn dialogs_ui(state: &mut State, ctx: &egui::Context) {
+    if !state.cad.leave_dialog || !editing(state) {
+        state.cad.leave_dialog = false;
+        return;
+    }
+    let changed = state.session.lock().cad_edit.as_ref().map(|e| e.changed).unwrap_or(false);
+    egui::Window::new("Leave the CAD environment?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        ui.label(if changed { "The part has changes. Apply hands them to the pipeline; discard throws them away." } else { "The part has no changes." });
+        ui.horizontal(|ui| {
+            if ui.button("Apply").clicked() {
+                apply(state, false);
+            }
+            if ui.button(if changed { "Discard" } else { "Leave" }).clicked() {
+                discard(state);
+            }
+            if ui.button("Keep editing").clicked() {
+                state.cad.leave_dialog = false;
+            }
+        });
+    });
+}
+
+/// A grey banner on views and panels that show data the paused pipeline no longer updates.
+pub fn stale_banner(state: &State, ui: &mut egui::Ui) {
+    if !editing(state) {
+        return;
+    }
+    egui::Frame::NONE.fill(egui::Color32::from_gray(70)).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+        ui.label(RichText::new("Pipeline paused while editing CAD: this shows the data as it was.").color(egui::Color32::from_gray(225)).small());
+    });
+}
+
+/// The CAD menu, shown in the menu bar while the environment is open.
+pub fn menu_ui(state: &mut State, ui: &mut egui::Ui) {
+    let (can_undo, can_redo, changed) = {
+        let s = state.session.lock();
+        s.cad_edit.as_ref().map(|e| (!e.undo.is_empty(), !e.redo.is_empty(), e.changed)).unwrap_or_default()
+    };
+    if ui.button("Apply and close").on_hover_text("Hand the part to the pipeline and leave").clicked() {
+        ui.close();
+        apply(state, false);
+    }
+    if ui.button("Apply and keep editing").clicked() {
+        ui.close();
+        apply(state, true);
+    }
+    if ui.button(if changed { "Discard changes" } else { "Close" }).clicked() {
+        ui.close();
+        discard(state);
+    }
+    ui.separator();
+    if ui.add_enabled(can_undo, egui::Button::new("Undo    Ctrl+Z")).clicked() {
+        ui.close();
+        state.session.lock().cad_env_undo();
+    }
+    if ui.add_enabled(can_redo, egui::Button::new("Redo    Ctrl+Y")).clicked() {
+        ui.close();
+        state.session.lock().cad_env_redo();
+    }
+    ui.separator();
+    for t in RibbonTab::ALL {
+        if ui.button(format!("{} tab", t.label())).clicked() {
+            ui.close();
+            state.cad.tab = t;
+        }
+    }
+}
+
+/// A text field for a number or an expression: returns the new text when the user commits it
+/// (Enter, or leaving the field).
+pub fn expr_field(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, current: &str, width: f32) -> Option<String> {
+    let key = ui.make_persistent_id(("cad field", salt));
+    let mut text: String = ui.data_mut(|d| d.get_temp(key)).unwrap_or_else(|| current.to_string());
+    let r = ui.add_sized([width, 20.0], egui::TextEdit::singleline(&mut text));
+    if r.changed() {
+        ui.data_mut(|d| d.insert_temp(key, text.clone()));
+    }
+    if r.lost_focus() {
+        ui.data_mut(|d| d.remove_temp::<String>(key));
+        if text.trim() != current.trim() && !text.trim().is_empty() {
+            return Some(text.trim().to_string());
+        }
+    }
+    None
+}
+
+/// A number as short text.
+pub fn num_text(v: f64) -> String {
+    let s = if v.abs() >= 1000.0 { format!("{v:.1}") } else if v.abs() >= 10.0 { format!("{v:.2}") } else { format!("{v:.4}") };
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// A JSON value for a typed number or expression.
+pub fn number_or_expr(text: &str) -> Value {
+    match text.trim().parse::<f64>() {
+        Ok(x) => json!(x),
+        Err(_) => json!(text.trim()),
+    }
+}
 
 /// The Properties of a CAD Model node.
 pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
@@ -20,6 +300,9 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
         }
     };
     let values = effective.as_ref().ok().and_then(|d| d.parameter_values().ok());
+    if ui.button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)).on_hover_text("Open the CAD environment on this part: ribbon, feature tree, timeline").clicked() {
+        enter(state, id);
+    }
     egui::CollapsingHeader::new(RichText::new("Dimensions").strong()).id_salt(("cad dims", id)).default_open(true).show(ui, |ui| {
         if doc.parameters.is_empty() {
             ui.label(RichText::new("The part has no named dimensions. Add them in Python: node.cad.parameter(\"width\", 40).").weak().small());

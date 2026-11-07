@@ -327,7 +327,7 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 - [x] C0 Skeleton: crate `aurafx-cad` (kernel trait, `Evaluated` contract, errors, `Id`), the expression evaluator ported with its tests, the design document, this section (iteration 72).
 - [x] C1 Document (iteration 73): `document.rs` (Feature, Shape, Modifier, Parameter, Binding, Configuration, Document, resolution of parameters and configurations), `sketch.rs` + `path.rs` (entities, constraints, dimensions, the Levenberg-Marquardt solver with its DOF report), `templates.rs`, `analysis.rs` (mass properties, interference, sections), `assembly.rs`; `.afxcad` JSON files with a format version. Tests: EZ-YX-craft's, plus every template through a JSON round trip.
 - [x] C2 Implicit kernel and the node (iteration 74): `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
-- [ ] C3 Environment shell: `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
+- [x] C3 Environment shell (iteration 75): `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
 - [ ] C5 Downstream check (before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
 - [ ] C4 Sketching: the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
 - [ ] C6 B-rep kernel and CAD files, shipped in the repository: `vendor/solidcraft` and `vendor/solidcore` added with `git subtree` at a recorded tag (decided: the subtree route; one squashed commit for the whole upstream tree, then a prune commit that deletes directories only, so later pulls merge) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`; `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP written here measures the same through the vendored engine and, where installed, an independent STEP reader; the Linux package builds offline from a clean clone.
@@ -658,6 +658,29 @@ sketches, extrude, revolve, modifiers, timeline, configurations, faces, volume, 
 features (checkbox to suppress) and faces. A flange template meshed by Overlay Mesh has no
 inverted element. Guide chapter: CAD modeling (`cad_part`, `cad_panel` pictures); assistant
 help added. 73 new tests across the crates. Next: C3.
+
+Done in iteration 75 (C3, the environment shell): the CAD environment is one mode of the one
+window. The session holds a working copy of the document (`aurafx-pipeline/src/cad_edit.rs`:
+`cad_enter`, `cad_env_edit`, its own undo and redo, the rollback marker, `cad_env_evaluate`,
+`cad_apply`, `cad_discard`); the scheduler pauses while it is open; the environment builds the
+working copy on a worker thread and shows the surface as the node's output (so every view
+works unchanged); Apply gives the node the document and resumes the pipeline as one undo step
+(a part that does not build is refused with the reason), Discard restores the node's output
+and document. The app (`aurafx-app/src/cad/`) swaps the toolbar for the ribbon (Sketch,
+Features, Modify, Inspect, Files; Apply, Apply and keep editing, Discard), the Pipeline panel
+for the FeatureManager (dimensions, features with suppress, rename, reorder, roll back,
+delete, finishing modifiers, configurations), Properties for the PropertyManager (every
+field of the selected feature, numbers or expressions, choices as menus, sketch dimensions,
+placement, modifiers, bindings), adds the timeline bar with the rollback marker, a CAD menu,
+the Esc question and grey banners on the stale views, charts and spreadsheets. Entry:
+Sources › CAD Model…, Edit in CAD… (Pipeline context menu, Properties button), Python
+`node.edit_cad()` with `cad.apply(keep_editing)`, `discard`, `undo`, `redo`, `rollback`,
+`select`, `editing`. New edit operations for the managers: `set_op`, `set_dim`, `set_json`,
+`remove_modifier`, `set_finish`, `remove_finish`. Tests: the session layer (enter, edit,
+evaluate, undo, rollback, refused apply, apply as one undo step, discard, keep editing), the
+Python flow, and `scripts/cad/env_test.sh`, an app-driven script that enters, adds a box and
+a blind hole, applies and finds the node's surface with 7 faces more. The Assemble tab comes
+with C7. Guide: CAD modeling › The CAD environment (`cad_environment`). Next: C5.
 
 ## Status (2026-11-05)
 

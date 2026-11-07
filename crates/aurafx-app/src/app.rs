@@ -126,6 +126,8 @@ pub struct State {
     pub open_panes: Vec<Pane>,
     /// Layout changes requested by menus, applied after the menu bar is drawn.
     pub layout_actions: Vec<LayoutAction>,
+    /// The CAD environment's interface state.
+    pub cad: crate::cad::CadUi,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,6 +378,7 @@ impl AuraApp {
             fit_view_on_activate: None,
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
+            cad: Default::default(),
         };
         // Scripts see that an app with a 3D view is running before the first frame.
         state.session.lock().view_ids = vec![0];
@@ -425,6 +428,11 @@ impl State {
     }
 
     pub fn undo(&mut self) {
+        if crate::cad::editing(self) {
+            let done = self.session.lock().cad_env_undo().is_some();
+            self.status = if done { "Undid the last CAD edit".into() } else { "Nothing to undo in the CAD environment".into() };
+            return;
+        }
         match self.session.lock().undo() {
             Some(l) => self.status = format!("Undid: {l}"),
             None => self.status = "Nothing to undo".into(),
@@ -432,6 +440,11 @@ impl State {
     }
 
     pub fn redo(&mut self) {
+        if crate::cad::editing(self) {
+            let done = self.session.lock().cad_env_redo().is_some();
+            self.status = if done { "Redid the CAD edit".into() } else { "Nothing to redo in the CAD environment".into() };
+            return;
+        }
         match self.session.lock().redo() {
             Some(l) => self.status = format!("Redid: {l}"),
             None => self.status = "Nothing to redo".into(),
@@ -898,12 +911,20 @@ impl State {
             });
             ui.menu_button("Sources", |ui| {
                 for f in aurafx_filters::registry().iter().filter(|f| f.is_source) {
-                    if ui.button(f.label).on_hover_text(f.description).clicked() {
+                    let label = if f.id == "cad_model" { format!("{}…", f.label) } else { f.label.to_string() };
+                    if ui.button(label).on_hover_text(f.description).clicked() {
                         ui.close();
                         self.add_filter(f.id);
+                        // A new CAD Model opens the CAD environment on it.
+                        if f.id == "cad_model" {
+                            crate::cad::enter_active(self);
+                        }
                     }
                 }
             });
+            if crate::cad::editing(self) {
+                ui.menu_button(RichText::new("CAD").color(crate::theme::ACCENT), |ui| crate::cad::menu_ui(self, ui));
+            }
             ui.menu_button("Filters", |ui| {
                 let mut cats: Vec<&str> = aurafx_filters::registry().iter().filter(|f| !f.is_source).map(|f| f.category).collect();
                 cats.dedup();
@@ -1399,17 +1420,30 @@ struct TreeBehavior<'a> {
 impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: egui_tiles::TileId, pane: &mut Pane) -> egui_tiles::UiResponse {
         match pane {
+            Pane::Pipeline if crate::cad::editing(self.state) => crate::cad::feature_manager_ui(self.state, ui),
+            Pane::Properties if crate::cad::editing(self.state) => crate::cad::property_manager_ui(self.state, ui),
             Pane::Pipeline => crate::panels::pipeline_ui(self.state, ui),
             Pane::Properties => crate::panels::properties_ui(self.state, ui),
             Pane::Viewport => self.state.view_pane_ui(ui, 0),
-            Pane::View(id) => self.state.view_pane_ui(ui, *id),
+            Pane::View(id) => {
+                if *id != self.state.active_view {
+                    crate::cad::stale_banner(self.state, ui);
+                }
+                self.state.view_pane_ui(ui, *id)
+            }
             Pane::Python => crate::console::console_ui(self.state, ui),
             Pane::Assistant => crate::assistant::assistant_ui(self.state, ui),
             Pane::Log => crate::panels::log_ui(self.state, ui),
-            Pane::Spreadsheet => crate::panels::spreadsheet_ui(self.state, ui),
+            Pane::Spreadsheet => {
+                crate::cad::stale_banner(self.state, ui);
+                crate::panels::spreadsheet_ui(self.state, ui)
+            }
             Pane::Information => crate::panels::information_ui(self.state, ui),
             Pane::Jobs => crate::jobs_panel::jobs_ui(self.state, ui),
-            Pane::Charts => crate::charts::charts_ui(self.state, ui),
+            Pane::Charts => {
+                crate::cad::stale_banner(self.state, ui);
+                crate::charts::charts_ui(self.state, ui)
+            }
         }
         egui_tiles::UiResponse::None
     }
@@ -1432,6 +1466,13 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
                 String::new()
             };
             return format!("{} {name}{link}{mark}", pane.icon()).into();
+        }
+        if crate::cad::editing(self.state) {
+            match pane {
+                Pane::Pipeline => return format!("{} FeatureManager", pane.icon()).into(),
+                Pane::Properties => return format!("{} PropertyManager", pane.icon()).into(),
+                _ => {}
+            }
         }
         format!("{} {}", pane.icon(), pane.title()).into()
     }
@@ -1551,12 +1592,21 @@ impl eframe::App for AuraApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
+        crate::cad::tick(st, ctx);
+        let cad_open = crate::cad::editing(st);
         egui::Panel::top("menu").show(root_ui, |ui| st.menu_bar(ui));
         egui::Panel::top("toolbar").show(root_ui, |ui| {
-            st.toolbar(ui);
-            st.time_bar(ui);
+            if cad_open {
+                crate::cad::ribbon_ui(st, ui);
+            } else {
+                st.toolbar(ui);
+                st.time_bar(ui);
+            }
         });
         egui::Panel::bottom("status").show(root_ui, |ui| st.status_bar(ui));
+        if cad_open {
+            egui::Panel::bottom("cad_timeline").show(root_ui, |ui| crate::cad::timeline_ui(st, ui));
+        }
 
         // Commands from Python / the AI assistant.
         let cmds = std::mem::take(&mut self.state.session.lock().app_commands);
@@ -1752,6 +1802,7 @@ impl eframe::App for AuraApp {
         if let Some(p) = crate::dialogs::file_browser_ui(&mut st.file_browser, ctx) {
             st.open_file(p);
         }
+        crate::cad::dialogs_ui(st, ctx);
         crate::palette::palette_ui(st, ctx);
         st.settings_window(ctx);
         st.about_window(ctx);

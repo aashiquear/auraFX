@@ -66,6 +66,34 @@ print(len(u.cad.features()) == n)
 "#,
     );
     assert_eq!(o, "True\nTrue\nTrue\nTrue", "{o}");
+    // The environment: enter, add a blind hole (two faces more), apply.
+    let o = run(
+        &rt,
+        r#"
+p = afx.cad_model()
+p.update()
+n0 = len(p.cad.faces())
+e = p.edit_cad()
+print(e.editing())
+e.hole(diameter=6, depth=3, name="Pocket", at=(0, 0, 8))
+print(len(e.faces()) - n0)
+e.rollback(1)
+print(len(e.faces()) == n0)
+e.rollback(None)
+e.undo(); e.redo()
+print(e.state()["changed"], e.state()["undo"] >= 1)
+r = e.apply()
+print(r["features"], p.cad.editing())
+p.update()
+print(len(p.cad.faces()) - n0)
+e2 = p.edit_cad(); e2.sphere(radius=3, at=(0, 0, 30)); e2.discard()
+print(len(p.cad.features()))
+"#,
+    );
+    assert_eq!(o, "True\n2\nTrue\nTrue True\n2 False\n2\n2", "{o}");
+    let out = rt.run("q = afx.cad_model(); q.edit_cad(); other = afx.cad_model(); other.edit_cad()");
+    assert!(out.error.unwrap().contains("already open"));
+    run(&rt, "q.cad.discard()");
     let trace = session.lock().trace.join("\n");
     assert!(trace.contains(".cad.edit('add'"), "{trace}");
     std::fs::remove_file("/tmp/afx_cad_py_test.afxcad").ok();

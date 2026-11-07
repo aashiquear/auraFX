@@ -17,6 +17,7 @@ pub mod features;
 pub mod geometry_model;
 pub mod mesh_gen;
 pub mod grain_grid;
+pub mod grain_surface;
 pub mod attributes;
 pub mod calculator;
 pub mod cellgrid;

@@ -645,7 +645,7 @@ mesh, so curved cells come out straight.
 | EnSight Gold | `.case` | C binary; one part per block (image, rectilinear and structured grids as blocks, the rest as elements of every standard type, polygons and polyhedra); every time step with `all_times=True`, the geometry written once when it does not change |
 | CGNS | `.cgns` | HDF5 storage (CGNS 4): a zone per block, image/rectilinear/structured grids as structured zones, the rest as one element section (MIXED when the cell types differ) plus NGON/NFACE for polygons and polyhedra; vectors as `NameX/NameY/NameZ`; with `all_times=True` one solution per step (and coordinates per step when the points move), but the cells must stay the same |
 | Xdmf 3 | `.xmf` + `.h5` | the description in the `.xmf`, the arrays in an HDF5 file beside it; block trees as spatial collections, time steps as a temporal collection that shares unchanged points and cells |
-| CSV, STL, PLY | | |
+| CSV, STL, PLY | | a multiblock of surfaces saved as `name.stl` writes one file per block, `name_<block>.stl` (Feature Surfaces gives one per grain) |
 | Scenes | `.glb .obj .x3d .wrl` | see [Exporting](exporting.md) |
 | Pictures | `.png .svg`, GIF/MP4 animations | see [Exporting](exporting.md) |
 

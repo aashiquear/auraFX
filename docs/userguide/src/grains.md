@@ -600,6 +600,81 @@ two distributions before and after the swaps.
 matched = synthetic.match_crystallography(measured)
 ```
 
+## Grain boundary surfaces
+
+These filters work on the boundaries between the features of a segmented volume.
+
+### Quick Surface Mesh
+
+**Quick Surface Mesh** turns every voxel face between two different features into two
+triangles, including the faces on the outside of the volume.
+- **`FaceLabels`** (two per triangle) are the features on either side. The triangle's
+  normal points out of the first and into the second, and -1 is the outside.
+- **`NodeType`** counts the features meeting at each node: 2 on a boundary, 3 on a triple
+  line, 4 at a quadruple point. Nodes on the outer faces of the volume get 10 more (12, 13,
+  14).
+- **Orientations.** When the volume has orientations, the surface keeps each feature's mean
+  orientation (`AvgQuats`) and phase (`FeaturePhases`) for the filters below.
+
+### Smooth Boundaries
+
+**Smooth Boundaries** removes the voxel staircase.
+- **Steps.** Each node moves towards the mean of its neighbours by **Step (lambda)**, and
+  on every other pass back by **Inflating step (mu)**. This is Taubin smoothing, which keeps
+  the grains' volumes. With mu 0 it is plain Laplacian smoothing, which shrinks them.
+- **Triple lines** follow only their neighbours on triple lines, with their own step.
+  **Quadruple points** stay put by default.
+- **Outer faces.** Nodes on the outer faces of the volume move only within those faces.
+
+### Triangle Geometry and Feature Surfaces
+
+**Triangle Geometry** measures each triangle: `FaceAreas`, `FaceNormals`, `FaceCentroids`,
+and `FaceMinimumAngles` (its smallest corner angle, a measure of its quality). For every
+feature it also adds, as field data, the volume its boundary encloses (`SurfaceVolumes`) and
+its boundary area (`SurfaceAreas`).
+
+**Feature Surfaces** gives the closed surface of each feature, its triangles facing
+outwards, one block per feature. Saved as STL (`grains.stl`), it writes one file per
+feature: `grains_feature_1.stl`, `grains_feature_2.stl`, ... **Features** chooses some
+of them.
+
+```python
+s = volume.quick_surface_mesh().smooth_boundaries(iterations=20)
+s.feature_surfaces().save("grains.stl")
+```
+
+![Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane](images/grain_boundary_mesh.png)
+
+### Face Orientation Colors
+
+**Face Orientation Colors** colours each triangle three ways:
+- **`FaceIPFColors`:** the inverse pole figure key of its plane, in the crystal of the
+  feature it faces out of (on the outer surface, the feature inside).
+- **`FaceMisorientations`:** the disorientation angle across it, in degrees.
+- **`FaceMisorientationColors`:** a colour for that disorientation. The hue comes from where
+  its axis falls in the standard triangle, and it is darker for smaller angles.
+
+### GBCD Section
+
+The grain boundary character distribution (GBCD) tells how often each boundary plane occurs
+for each misorientation, in multiples of random. **GBCD Section** shows one misorientation
+(**Misorientation angle** about **Misorientation axis**, within **Tolerance**). It is a disk
+of crystal directions (stereographic or equal area, [001] at the centre), colored by how
+often boundaries of that misorientation lie on each plane.
+- **How it is counted.** Every boundary triangle counts from both sides, with every
+  symmetry-equivalent description of its misorientation, weighted by its area.
+- **Random.** A microstructure with random orientations and planes gives 1 everywhere.
+- **`MisorientationMRD`** is how much more often than random the boundaries have that
+  misorientation at all.
+- **Smooth first.** The voxel staircase points the faces along the grid axes, so a GBCD of
+  an unsmoothed surface smears each plane into a ring. Use Smooth Boundaries first.
+
+```python
+g = s.gbcd_section(angle=60, axis=(1, 1, 1), tolerance=5)
+```
+
+![The Sigma 3 GBCD of a synthetic volume of twin lamellae, peaking at (111)](images/gbcd_section.png)
+
 ## Limits
 
 - Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
@@ -619,6 +694,11 @@ matched = synthetic.match_crystallography(measured)
   faces of a periodic volume are measured as pieces.
 - Match Crystallography matches the boundary misorientation angles, not their axes.
   Precipitates are spheres.
+- Quick Surface Mesh works on volumes; for 2-D maps use Feature Boundaries. Smoothing keeps
+  the volumes to within about 0.5 % but does not stop a triangle from folding when it runs
+  for many passes on very thin features.
+- The GBCD is shown one misorientation at a time; the full five-parameter distribution is
+  not stored as an array.
 - The feature filters copy the volume they work on: a volume of 80 million cells needs several
   gigabytes of memory. Segmentation of such a volume takes about 10 seconds.
 - The orientation mathematics is checked against independent references: rotations from

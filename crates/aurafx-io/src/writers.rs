@@ -14,7 +14,7 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
         DataSet::ImageData(_) => vec![("vti", "VTK image data")],
         DataSet::RectilinearGrid(_) => vec![("vtr", "VTK rectilinear grid")],
         DataSet::StructuredGrid(_) => vec![("vts", "VTK structured grid")],
-        DataSet::MultiBlock(_) => vec![("vtm", "VTK multiblock (folder of pieces)")],
+        DataSet::MultiBlock(_) => vec![("vtm", "VTK multiblock (folder of pieces)"), ("stl", "STL, one file per block (name_block.stl)")],
         DataSet::Table(_) => vec![],
         DataSet::HyperTreeGrid(_) => vec![("htg", "VTK hyper tree grid"), ("vtu", "VTK unstructured grid (the leaves)")],
         DataSet::CellGrid(_) => vec![("dg", "VTK cell grid"), ("vtu", "VTK unstructured grid (values at the corners)")],
@@ -630,6 +630,20 @@ fn surface_triangles(ds: &DataSet) -> Result<(Vec<[f32; 3]>, Vec<[u32; 3]>)> {
 }
 
 pub fn write_stl(ds: &DataSet, path: &Path) -> Result<()> {
+    // Several surfaces (one per feature, say): one file each, named after the block.
+    if let DataSet::MultiBlock(mb) = ds {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("surface").to_string();
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let leaves = mb.leaves();
+        if leaves.is_empty() {
+            bail!("nothing to write");
+        }
+        for (name, d) in leaves {
+            let tag: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+            write_stl(d, &dir.join(format!("{stem}_{tag}.stl")))?;
+        }
+        return Ok(());
+    }
     let (pts, tris) = surface_triangles(ds)?;
     let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
     let mut header = [0u8; 80];

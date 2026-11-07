@@ -361,6 +361,15 @@ Boundaries against a brute-force distance.
   reproduces its size mu (2.344 against 2.342). Match Crystallography against a reference
   whose neighbouring grains are close in orientation lowers the boundary misorientation
   error from 0.99 to 0.03.
+- Grain boundary surfaces (crates/aurafx-filters/tests/grain_surface.rs): on 40 Voronoi grains
+  the volume each feature's boundary encloses equals its voxel volume to 1e-9, each feature
+  surface is closed and consistently oriented, Taubin smoothing (20 passes) changes the
+  volumes by 0.41 % on average against 1.66 % for plain Laplacian smoothing, and no node
+  leaves the box. GBCD normalisation: 40 000 boundaries with random orientations and random
+  planes give 1.03, 0.93 and 1.03 multiples of random at 45 degrees about [100], 60 about
+  [111] and 30 about [110] (sampling noise; 60 000 give 1.007 and 0.974 for two seeds). A
+  stack of coherent Sigma 3 twin layers gives about 39 000 multiples of random at (111) and
+  none at (100) and (110); every twin face measures 60.000 degrees.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

@@ -444,6 +444,90 @@ ch = ebsd.chord_lengths(threshold=10, output="Histogram", bin=2)
 print(ch.array("MeanChordX", "field"))
 ```
 
+## Synthetic microstructures
+
+These sources build microstructures without measured data. They have the same arrays an
+EBSD reader gives: `FeatureIds`, `Phases` and `EulerAngles` per cell, and
+`CrystalStructures`. Every filter in this chapter therefore works on them, and Overlay Mesh
+turns them into a mesh. A fixed **Random seed** gives the same microstructure every time.
+
+### Voronoi Grains
+
+**Sources › Voronoi Grains** places **Grains** seeds at random in a grid of **Cells** and
+gives every cell to its nearest seed.
+- **Size spread** above 0 makes Laguerre grains: each seed gets a radius drawn from a
+  lognormal distribution with that log-sigma, and a cell goes to the seed with the
+  smallest squared distance minus the squared radius. Grain sizes then vary much more than
+  in Voronoi grains.
+- **Periodic** wraps the grains across opposite faces, for representative volume elements.
+- **Orientations** are random, or a fibre with `<100>` or `<111>` along Z, scattered by
+  **Fibre spread** and random about Z.
+- The seed positions are kept as the field array `Seeds`.
+
+```python
+v = afx.voronoi_grains(cells=[64, 64, 64], grains=300, size_sigma=0.4, periodic=True)
+```
+
+![Laguerre grains colored by the inverse pole figure key](images/voronoi_grains.png)
+
+### Columnar Grains
+
+**Sources › Columnar Grains** grows the columnar grains of an additive build along Z:
+- **Columns.** As many columns as fit one **Grain width** apart are alive at every height.
+  Each is tilted at random (**Column tilt**) and grows to a lognormal height (**Median
+  grain height**, **Height spread**).
+- **Ending.** A column also ends when its neighbours grow over it. Each slice of the box is
+  shared among the columns alive there, so a column can lose its whole cross-section.
+- **Renewal.** A column that ends is replaced at that height by a new grain at a random
+  position.
+- **Widths.** **Width spread** and **Width grows with height** make the columns differ in
+  width, with tall grains wider.
+- **Orientations.** By default every grain has a `<100>` direction near Z, as in many
+  additively built cubic metals.
+- **Per-grain field arrays:** `GrainBase`, `GrainTop`, `GrainTilt` and `Originating`
+  (1 for grains that start inside the build rather than on the base plate).
+
+```python
+g = afx.columnar_grains(size=(300, 300, 450), voxel=5, width=50, height=150)
+```
+
+![Columnar grains of an additive build colored by the inverse pole figure key for X](images/columnar_grains.png)
+
+### Add Orientation Noise and Jumble Orientations
+
+**Add Orientation Noise** turns every point's orientation by a small random rotation. The
+rotation is about a random axis, with an angle drawn from a normal distribution with
+standard deviation **Angle**, so the mean turn is about 0.8 times **Angle**. With **One
+rotation per feature**, every point of a grain turns alike.
+
+**Jumble Orientations** gives the grains each other's orientations at random. The texture
+stays the same, but any link between a grain's orientation and its neighbours' or its
+shape is lost. Each grain takes the orientation of the first point of the grain it
+swapped with.
+
+```python
+noisy = v.orientation_noise(sigma=2)
+mixed = v.jumble_orientations()
+```
+
+### Generate Ensemble Statistics
+
+**Generate Ensemble Statistics** describes a segmented microstructure (one with
+`FeatureIds`) as a table of fits:
+- **Size:** a lognormal fit of the equivalent diameters (`ESD mu` and `ESD sigma` of their
+  logarithms), with the mean, smallest and largest diameter.
+- **Shape:** beta-distribution fits of the aspect ratios b/a and c/b.
+- **Neighbours:** a lognormal fit of the neighbour counts.
+
+Features touching the outside are left out unless **Include features on the surface** is
+on, because their size and neighbours are cut short. The values are also field data of the
+table.
+
+```python
+st = v.ensemble_statistics(include_surface=True)
+print(st.array("ESD sigma", "field"))
+```
+
 ## Limits
 
 - Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
@@ -456,6 +540,9 @@ print(ch.array("MeanChordX", "field"))
   indices. For hexagonal and trigonal crystals, `001` is the c axis and `100` the a1 axis.
   Four-index Miller-Bravais notation is not read.
 - The texture filters assume no sample symmetry and count every point equally.
+- Voronoi and Laguerre grains are tessellations of random seeds, and columnar grains are
+  power diagrams slice by slice. Neither packs grains to match given size and shape
+  statistics.
 - The feature filters copy the volume they work on: a volume of 80 million cells needs several
   gigabytes of memory. Segmentation of such a volume takes about 10 seconds.
 - The orientation mathematics is checked against independent references: rotations from

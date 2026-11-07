@@ -343,6 +343,15 @@ Boundaries against a brute-force distance.
   (-0.95 % without edge capture), its eight corners within 0.021 of a mesh node (six of them
   exactly) at cell size 0.1; the turned cube surface (STL) within -0.33 %; the plate with a
   hole within +0.03 %.
+- Columnar Grains replays the random numbers recorded from the AM orientation toolkit's
+  `generate_columns` (testdata/synthetic/columns_reference.json) and gives the same label
+  volume voxel for voxel on two builds (34 and 56 grains, 76 800 voxels each), with the same
+  grain bases.
+- Voronoi Grains (200 periodic grains on 60³ cells) has 15.0 neighbours per grain on average
+  against 15.5 for the exact Poisson-Voronoi tessellation (the voxels hide the smallest
+  faces), and a log-sigma of the diameters of 0.14 (volume coefficient of variation 0.42).
+  Add Orientation Noise of 3 degrees turns orientations by 2.39 degrees on average
+  (3 sqrt(2/pi)).
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

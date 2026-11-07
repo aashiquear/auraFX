@@ -76,7 +76,7 @@ impl Repr {
             Repr::Homochoric => cx::homochoric_to_quat([v[0], v[1], v[2]]),
         }
     }
-    fn encode(self, q: Quat) -> Vec<f64> {
+    pub fn encode(self, q: Quat) -> Vec<f64> {
         match self {
             Repr::Euler => cx::quat_to_euler(q).to_vec(),
             Repr::Quaternion => cx::quat_to_xyzw(q).to_vec(),

@@ -283,6 +283,8 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
   - [x] G3a: pole figures (stereographic, equal area), inverse pole figures, ODF sections, texture index, CSV of multi-panel output (iteration 59).
   - [x] G3b: misorientation distribution, texture component fractions, chord lengths (iteration 60).
 - [ ] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
+  - [x] G4a: Voronoi/Laguerre grains, columnar AM grains (the toolkit's generator, voxel for voxel), Add Orientation Noise, Jumble Orientations, Generate Ensemble Statistics (iteration 63).
+  - [ ] G4b: statistics-driven builder: Initialize Volume, Pack Primary Phases, Matrix Phase, Insert Precipitates, Match Crystallography.
 - [ ] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [ ] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
 - [ ] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
@@ -437,6 +439,12 @@ parallel over colour classes of nodes sharing no element (100 000 voxels in abou
 of 10); convex sharp edges and corners are captured (bisection of the face change along
 surface edges, three-plane corners), with imported surfaces split into patches between
 creases. Guide chapter: Geometry and meshing. Next: G4.
+
+Done in iteration 63 (G4a): Voronoi Grains (Voronoi or Laguerre power tessellation of random
+seeds, periodic, random or fibre orientations), Columnar Grains (the AM toolkit's columnar
+generator, identical voxel for voxel when its random numbers are replayed), Add Orientation
+Noise, Jumble Orientations and Generate Ensemble Statistics (lognormal size and neighbour
+fits, beta shape fits). Guide chapter: Grains and crystals. Next: G4b.
 
 ## Status (2026-11-05)
 

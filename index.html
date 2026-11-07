@@ -31,6 +31,7 @@ header.nav img { height: 30px; }
 header.nav nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
 header.nav nav a { color: var(--fg); font-weight: 500; }
 .hero { padding: 64px 0 36px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; }
+.hero-logo img { width: min(420px, 80%); display: block; margin: 0 0 22px; }
 .hero h1 { font-size: clamp(32px, 4.6vw, 52px); line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.02em; }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .hero p.lead { font-size: 19px; color: var(--muted); margin: 0 0 24px; }
@@ -99,10 +100,13 @@ footer .notice { background: var(--bg2); border: 1px solid var(--line); border-l
 <main id="top">
 <div class="wrap hero">
   <div>
-    <h1>Open your results. <em>See</em> them, <em>measure</em> them, <em>run</em> the next case.</h1>
-    <p class="lead">auraFX is an open-source workbench for scientific data, written in Rust. It reads the files your solvers
-      write, draws them on any GPU, analyses grains, meshes, flows and fields, launches simulations on your machine or a cluster,
-      and puts an AI assistant and an embedded Python next to the 3D view.</p>
+    <picture class="hero-logo">
+      <source media="(prefers-color-scheme: light)" srcset="assets/branding/logo-wordmark-light.png">
+      <img src="assets/branding/logo-wordmark.png" alt="auraFX"></picture>
+    <h1><em>Visualize.</em> <em>Analyze.</em> <em>Orchestrate.</em></h1>
+    <p class="lead">The open-source, AI-enhanced scientific visualization engine built in Rust for seamless local and remote HPC workloads.</p>
+    <p class="lead" style="font-size:16px">It reads the files your solvers write, draws them on any GPU, analyses grains, meshes, flows and fields,
+      launches simulations on your machine or a cluster, and puts an AI assistant and an embedded Python next to the 3D view.</p>
     <div class="btns">
       <a class="btn primary" href="https://github.com/aashiquear/auraFX/releases/latest">Download v0.1.0</a>
       <a class="btn" href="docs/userguide/book/index.html">Read the user guide</a>
@@ -133,7 +137,7 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
       chrome, no retouching.</p>
     <div class="grid g3">
       <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/can_crash.jpg" src="site/media/can_crash.mp4"></video>
-        <div class="body"><div class="kicker">Mechanics</div><h3>Explicit dynamics, 44 time steps</h3><p>A crushed can from an Exodus II file, colored by equivalent plastic strain. Play, scrub, chart any variable over time, export the clip.</p></div></div>
+        <div class="body"><div class="kicker">Mechanics</div><h3>Explicit dynamics</h3><p>A crushed can from an Exodus II file, colored by equivalent plastic strain. Play, scrub, chart any variable over time, export the clip.</p></div></div>
       <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/plate_cp.jpg" src="site/media/plate_cp.mp4"></video>
         <div class="body"><div class="kicker">Crystal plasticity</div><h3>A polycrystal plate under tension</h3><p>Built in auraFX (geometry → hex mesh → 30 grains), run in a crystal-plasticity solver from the Simulations panel, read back with its grain boundaries. Displacements scaled up.</p></div></div>
       <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/spinodal.jpg" src="site/media/spinodal.mp4"></video>

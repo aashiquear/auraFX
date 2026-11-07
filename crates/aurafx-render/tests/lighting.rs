@@ -38,7 +38,10 @@ fn transparency_lighting_and_points() {
     let (_, _, ab) = r.read_pixels().unwrap();
     r.render(&cam, &[draw(2, &b, [0.1, 0.1, 0.9], 0.5), draw(1, &a, [0.9, 0.1, 0.1], 0.5)], &settings);
     let (_, _, ba) = r.read_pixels().unwrap();
-    assert_eq!(ab, ba, "order-independent transparency");
+    // The same picture up to rounding: the blend accumulates in a different order, and software
+    // rasterizers round the accumulation differently from GPUs.
+    let worst = ab.iter().zip(&ba).map(|(x, y)| (*x as i32 - *y as i32).abs()).max().unwrap_or(0);
+    assert!(worst <= 3, "order-independent transparency: pixels differ by up to {worst}");
     let centre = px(&ab, w / 2, h / 2);
     assert!(centre[0] > 40 && centre[2] > 40, "both planes show through: {centre:?}");
     // Translucent in front of opaque: the opaque color shows through.

@@ -165,7 +165,7 @@ fn color_of(m: u32, s: f32) -> vec3<f32> {
     if (mat.range.w < 0.5) {
         return mat.solid.rgb;
     }
-    if (is_nan(s)) {
+    if (is_nan(s) || s < -1.0e37) {
         return vec3<f32>(0.5);
     }
     var lo = mat.range.x;

@@ -69,7 +69,7 @@ impl Material {
         if !self.scalars {
             return self.solid;
         }
-        if s.is_nan() {
+        if s.is_nan() || s < -1.0e37 {
             return Vec3::splat(0.5);
         }
         let (mut lo, mut hi, mut v) = (self.range.0, self.range.1, s);

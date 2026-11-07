@@ -678,7 +678,8 @@ pub fn clear_finished(jobs: &SharedJobs) {
     m.revision += 1;
 }
 
-#[cfg(test)]
+// The runner drives jobs through bash scripts; the tests need a Unix shell.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

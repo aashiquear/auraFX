@@ -160,6 +160,19 @@ fn packed_tcoords(a: &aurafx_data::Array) -> Vec<f32> {
         .collect()
 }
 
+/// The vertex scalar of a point or cell without a value (NaN, missing). A finite sentinel
+/// rather than NaN: some GPU drivers do not carry NaN through vertex interpolation, so the
+/// shaders test for this value (`s < -1e37`) as well as for NaN.
+pub const NO_VALUE: f32 = -3.0e38;
+
+fn no_value(s: f32) -> f32 {
+    if s.is_finite() {
+        s
+    } else {
+        NO_VALUE
+    }
+}
+
 /// Per-point scalar values (component or magnitude) for coloring, or None.
 /// An array drawn as colors: 8-bit unsigned with 3 or 4 components.
 fn is_rgb(a: &aurafx_data::Array) -> bool {
@@ -324,8 +337,8 @@ fn emit_triangles(
                     fnrm
                 };
                 let s = match (cscal, pscal) {
-                    (Some(c), _) => c.get(*cell).copied().unwrap_or(f32::NAN),
-                    (None, Some(ps)) => ps.get(p).copied().unwrap_or(f32::NAN),
+                    (Some(c), _) => no_value(c.get(*cell).copied().unwrap_or(f32::NAN)),
+                    (None, Some(ps)) => no_value(ps.get(p).copied().unwrap_or(f32::NAN)),
                     _ => 0.0,
                 };
                 vs[k] = Vertex { pos: pos[p], scalar: s, normal, _pad: f32::from_bits(cell_ids(*cell)) };
@@ -349,8 +362,8 @@ fn emit_lines(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, cscal: Opt
         for w in c.windows(2) {
             for &id in w {
                 let s = match (cscal, pscal) {
-                    (Some(cs), _) => cs.get(cell_base + i).copied().unwrap_or(f32::NAN),
-                    (None, Some(ps)) => ps.get(id as usize).copied().unwrap_or(f32::NAN),
+                    (Some(cs), _) => no_value(cs.get(cell_base + i).copied().unwrap_or(f32::NAN)),
+                    (None, Some(ps)) => no_value(ps.get(id as usize).copied().unwrap_or(f32::NAN)),
                     _ => 0.0,
                 };
                 out.push(Vertex { pos: pt(id), scalar: s, normal: [0.0, 0.0, 1.0], _pad: 0.0 });

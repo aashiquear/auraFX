@@ -93,7 +93,8 @@ fn lit(shadow: vec4<f32>) -> f32 {
 }
 
 fn scalar_color(s: f32) -> vec3<f32> {
-    if (is_nan(s)) {
+    // NaN, or the no-value sentinel the vertices carry (see tessellate::NO_VALUE).
+    if (is_nan(s) || s < -1.0e37) {
         return vec3<f32>(0.5, 0.5, 0.5);
     }
     var lo = node.range.x;

@@ -5,8 +5,9 @@ revolved or swept, and imported surfaces. Each body keeps named faces, so later 
 refer to the top of a plate or the side of a hole. It also makes structured hexahedral meshes:
 boxes, and boxes of matrix holding inclusions whose surfaces the elements follow exactly. The
 meshes carry element blocks, side sets and node sets, check their quality, and write Exodus,
-Abaqus and Gmsh files for solvers. Meshing the Geometry source's bodies themselves comes in a
-later release.
+Abaqus and Gmsh files for solvers. Plates with holes, dog-bone specimens and swept surfaces
+have their own generators, and bricks and cylinders built with commands can be meshed with
+`mesh body` commands.
 
 ## The Geometry source
 
@@ -92,6 +93,25 @@ straight edges, then `arc 1`, `fillet 1`, `circle`, `spline 1`. Extrusions add `
 A face keeps its name through booleans, so the faces of a hole are still `cylinder 2 side`
 after the cylinder is subtracted, unless you rename them.
 
+### Meshing bodies
+
+These commands make a hexahedral mesh, shown when the Geometry source's **Output** is
+*Hex mesh*:
+
+| Command | Does |
+|---|---|
+| `mesh body 1 2 size 0.1 element HEX20` | meshes bodies with elements of about that size (HEX8 by default) |
+| `block 7 add body 2 name 'rod'` | puts bodies in an element block (by default each body is its own block, with its id and name) |
+| `sideset 1 add face 6 9 name 'top'` | a side set of the mesh faces on those geometry faces |
+| `nodeset 2 add face 1 name 'left'` | a node set of the nodes on those faces |
+
+Bricks become structured boxes, and cylinders become an O-grid disk swept along their axis,
+each moved, turned and scaled like its body. Every geometry face also becomes a side set
+named after it, such as `brick 1 x+` or `cylinder 2 side`. With HEX20 or HEX27 elements, the
+new nodes on a cylinder's side lie on the exact surface. Bodies meshed together are welded
+where their nodes coincide. Other bodies (spheres, booleans, outlines) are not meshed with
+hexahedra yet.
+
 ## Python
 
 `afx.mesh.geometry()` builds geometry command by command. Each command is checked at once,
@@ -171,7 +191,10 @@ author of auraFX:
 - **Welding.** The pieces are welded exactly, so there are no hanging nodes and the elements
   fill the box exactly.
 
-**Shape** chooses spheres, ellipsoids or superquadrics (with **Semi-axes / radius** and the
+**Packing** *Random* places the inclusions once each, largest first. *Collective* then keeps
+moving the placed ones, each by a random step or a push towards free space, to open room for
+the rest. This reaches denser packings, but takes longer. **Shape** chooses spheres,
+ellipsoids or superquadrics (with **Semi-axes / radius** and the
 superquadric **Exponents**), or harmonic grains with a random surface of the given
 **Roughness**. **Radius** and **Radius spread** set the size distribution, and **Random
 orientation** turns the non-spherical shapes. **Seed** fixes the placement.
@@ -206,6 +229,68 @@ m.save("rve.e")
 ```
 
 ![Eight spheres meshed in a cube: the inclusion elements, and three walls of the box showing the background grid](images/inclusion_mesh.png)
+
+## Plate Mesh
+
+**Sources › Plate Mesh** makes a plate of **Cell size** hexahedra, one element through the
+thickness. The width and height must be whole multiples of the cell size. It can have a
+circular or elliptical through-hole, given by its semi-axes **a** and **b**, the ellipse's
+**angle** and its centre (empty for the plate centre).
+
+The hole is meshed by a ring of elements whose inner nodes lie on the exact curve and whose
+outer edge is a rectangle of whole background cells. So the ring hands over to the plate
+without transition elements. The ring's layers grow from about the hole's arc spacing to the
+cell size.
+
+The mesh has:
+- blocks 1 `plate` and 2 `ring`;
+- side sets and node sets `x-` … `z+`;
+- node sets `outer` (the four edges) and `grips` (both x faces);
+- a node set and a side set `hole`.
+
+```python
+p = afx.plate_mesh(size=(100, 50, 1), cell=2.5, hole="Circle", a=2.5)
+```
+
+![A plate with a 45-degree elliptical hole: the plate block and the ring around the hole](images/plate_mesh.png)
+
+## Dog-bone Mesh
+
+**Sources › Dog-bone Mesh** makes a flat tensile specimen as one mapped block:
+- **Planform.** Grips of **Grip width** at both ends and a gage of **Gage width** and **Gage
+  length** in the middle, joined by circular fillets of **Fillet radius**.
+- **Thickness.** Constant in the grips. Along the gage it follows a spline through the
+  **Thickness stations** (pairs of position from the gage start and thickness), and it blends
+  linearly across the fillets.
+- **Cells.** **Cell size** in the gage, growing to **Grip cell size** in the grips, with
+  **Layers through the thickness** layers.
+
+The mesh has:
+- blocks 1 `gage`, 2 `shoulder` and 3 `grip`;
+- side sets and node sets `x-` and `x+`;
+- node sets `grips`, `z-`, `z+`, `edge-`, `edge+`, `gage-` and `gage+`, and `station_1`, … for
+  each thickness station.
+
+```python
+d = afx.dogbone_mesh(stations=[0, 0.37, 4, 0.35, 8, 0.346], layers=2)
+```
+
+![A dog-bone specimen with a thickness profile along the gage: gage, shoulder and grip blocks](images/dogbone_mesh.png)
+
+## Sweep Quads
+
+**Filters › Mesh › Sweep Quads** sweeps a surface of quadrilaterals into layers of hexahedra
+along a **Direction** over a **Distance**. The layers can be graded like Box Mesh's cells.
+Blocks come from the surface's `ElementBlock` array. The side sets are `bottom` (the swept
+surface), `top` and `side` (swept from the surface's boundary edges), with node sets of the
+same names. Any quadrilateral surface can be swept, such as one face of a mesh from Extract
+Set or a surface read from a file.
+
+```python
+thick = plate.extract_set(set="z-").sweep_quads(direction=(0, 0, 1), distance=4, layers=3)
+```
+
+![Bricks and cylinders meshed with 'mesh body' commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block](images/geometry_hex_mesh.png)
 
 ## Elevate
 
@@ -259,8 +344,8 @@ t = m.mesh_quality(output="Summary table")        # one row per metric
 - Imported surfaces must be closed. Their inside is found from the direction the triangles
   face.
 - Inclusions must be star-shaped (one surface point along every direction from their
-  centre) and cannot touch: each lies in its own box of grid cells. Very dense packings
-  (beyond roughly 20 % of the volume for equal spheres) do not fit; placing collectively,
-  plates with holes, dog-bone specimens and sweeping 2-D meshes come in the next release.
-- The Geometry source's bodies are not meshed yet.
+  centre) and cannot touch: each lies in its own box of grid cells, which caps how dense a
+  packing can get even with collective packing.
+- `mesh body` meshes bricks and cylinders only. Other bodies wait for the overlay-grid mesher
+  of a later release.
 - Gmsh files carry no node sets.

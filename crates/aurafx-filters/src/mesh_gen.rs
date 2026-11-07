@@ -60,6 +60,8 @@ pub struct InclusionParams {
     pub separate_blocks: bool,
     pub element: String,
     pub periodic: bool,
+    /// Collective rearrangement instead of one random pass (denser packings).
+    pub collective: bool,
 }
 
 fn random_rotation(rng: &mut inc::Rng) -> [[f64; 3]; 3] {
@@ -95,7 +97,7 @@ pub fn inclusion_mesh(p: &InclusionParams) -> Result<DataSet> {
             _ => StarShape::Sphere { centre: [0.0; 3], radius: r },
         }
     };
-    let placed = inc::pack(&grid, &spec, &mut rng, &make);
+    let placed = if p.collective { inc::pack_collective(&grid, &spec, &mut rng, &make, 2000, 0.5, 3) } else { inc::pack(&grid, &spec, &mut rng, &make) };
     let block = inc::BlockOptions {
         core_fraction: p.core_fraction,
         core_roundness: p.core_roundness,
@@ -254,4 +256,61 @@ pub fn extract_set(ds: &DataSet, name: &str) -> Result<DataSet> {
         return Ok(DataSet::PolyData(pd));
     }
     bail!("no set named {name:?} (the mesh has: {})", list())
+}
+
+/// Plate Mesh: a plate of `cells`-sized hexahedra (one through the thickness) with an optional
+/// circular or elliptical through-hole meshed by a conforming O-grid ring.
+#[allow(clippy::too_many_arguments)]
+pub fn plate_mesh(size: [f64; 3], h: f64, hole: &str, a: f64, b: f64, centre: Option<[f64; 2]>, angle: f64, element: &str) -> Result<DataSet> {
+    use aurafx_mesh::specimens::{plate, Hole, PlateOptions};
+    let hole = match hole {
+        "Circle" => Some(Hole { ellipse: false, a, b: a, centre, angle: 0.0 }),
+        "Ellipse" => Some(Hole { ellipse: true, a, b, centre, angle }),
+        _ => None,
+    };
+    let mut m = plate(&PlateOptions { width: size[0], height: size[1], thickness: size[2], h, hole, ..Default::default() }).map_err(|e| anyhow!(e))?;
+    m.elevate(nodes_per_element(element), &[], &|_, p| p);
+    Ok(m.to_dataset())
+}
+
+/// Dog-bone Mesh: a flat tensile bar with shoulder fillets and an optional thickness profile.
+pub fn dogbone_mesh(o: aurafx_mesh::specimens::DogboneOptions, element: &str) -> Result<DataSet> {
+    let mut m = aurafx_mesh::specimens::dogbone(&o).map_err(|e| anyhow!(e))?;
+    m.elevate(nodes_per_element(element), &[], &|_, p| p);
+    Ok(m.to_dataset())
+}
+
+/// Sweep Quads: a surface of quadrilaterals swept into hexahedra along `direction`.
+pub fn sweep(ds: &DataSet, direction: [f64; 3], distance: f64, layers: usize, ratio: f64, cluster: &str) -> Result<DataSet> {
+    let pd = match ds {
+        DataSet::PolyData(p) => p.clone(),
+        other => crate::surface::extract_surface(other)?,
+    };
+    let pts: Vec<[f64; 3]> = (0..pd.points.len()).map(|i| pd.points.get(i)).collect();
+    let mut quads = Vec::new();
+    let mut blocks = Vec::new();
+    let eb = pd.cell_data.get("ElementBlock");
+    let nv = pd.verts.len() + pd.lines.len();
+    for (i, (_, c)) in pd.polys.iter().enumerate() {
+        if c.len() != 4 {
+            bail!("the surface has a polygon with {} corners: only quadrilaterals can be swept", c.len());
+        }
+        quads.push([c[0], c[1], c[2], c[3]]);
+        blocks.push(eb.map(|a| a.get(nv + i, 0) as i32).unwrap_or(1));
+    }
+    if quads.is_empty() {
+        bail!("no quadrilaterals to sweep");
+    }
+    let div = Division { cells: layers.max(1), ratio, cluster: cluster.to_lowercase() };
+    let m = aurafx_mesh::structured::sweep_quads(&pts, &quads, &blocks, direction, distance, &div).map_err(|e| anyhow!(e))?;
+    Ok(m.to_dataset())
+}
+
+/// The hexahedral mesh of the bodies named by `mesh body` commands.
+pub fn geometry_mesh(commands: &str) -> Result<DataSet> {
+    let model = aurafx_mesh::Model::from_commands(commands, None)?;
+    let m = aurafx_mesh::bodymesh::mesh_model(&model).map_err(|e| anyhow!(e))?;
+    let mut ds = m.to_dataset();
+    ds.field_data_mut_any().insert(Array::new("FaceNames", 1, ArrayData::String(model.faces.clone())));
+    Ok(ds)
 }

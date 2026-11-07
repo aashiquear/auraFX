@@ -1,0 +1,67 @@
+{
+ "n_nodes": 1864,
+ "n_elements": 860,
+ "n_ring_elements": 96,
+ "min_scaled_jacobian": 0.7071067811865476,
+ "max_edge_ratio": 3.2601910609258504,
+ "n_inverted": 0,
+ "width": 100.0,
+ "height": 50.0,
+ "thickness": 1.0,
+ "h": 2.5,
+ "divisions": [
+  40,
+  20,
+  1
+ ],
+ "hole": {
+  "kind": "circle",
+  "a": 2.5,
+  "b": 2.5,
+  "centre": [
+   50.0,
+   25.0
+  ],
+  "angle": 0.0,
+  "transition_cells": [
+   3,
+   3
+  ],
+  "n_r": 4,
+  "grading": 3.0723138942789774,
+  "n_theta": 24,
+  "arc_at_hole": 0.6544984694978736,
+  "first_layer": 0.6544984694978737
+ },
+ "validation": {
+  "passed": true,
+  "quality": {
+   "n_elements": 860,
+   "min_scaled_jacobian": 0.7071067811865476,
+   "mean_scaled_jacobian": 0.9873352331240439,
+   "p01_scaled_jacobian": 0.7588105591754448,
+   "n_inverted": 0,
+   "n_below_threshold": 0,
+   "threshold": 0.2,
+   "max_edge_ratio": 3.2601910609258504,
+   "mean_edge_ratio": 2.4482697889769427,
+   "min_volume": 0.5578864119166624,
+   "total_volume": 4980.613467326322
+  },
+  "topology": {
+   "n_nodes": 1864,
+   "n_elements": 860,
+   "n_duplicate_elements": 0,
+   "n_degenerate_elements": 0,
+   "n_nonmanifold_faces": 0,
+   "n_boundary_faces": 1864,
+   "n_unused_nodes": 0,
+   "n_hanging_nodes": 0,
+   "conforming": true
+  },
+  "geometry": {},
+  "ligaments": {},
+  "phase_field": {},
+  "failures": []
+ }
+}

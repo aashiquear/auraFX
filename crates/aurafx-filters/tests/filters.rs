@@ -2101,4 +2101,19 @@ fn structured_hex_meshes() {
     let s = run("extract_set", Some(&m), &[("set", "interface".into())]);
     assert_eq!(s.n_cells(), m.field_data().get("SideSet interface").unwrap().len());
     assert!(s.cell_data().unwrap().get("particle_id").is_some());
+    // Plate with a hole (the benchmark's default plate), a dog-bone, a sweep and the
+    // Geometry source's hex mesh.
+    let pl = run("plate_mesh", None, &[]);
+    assert_eq!(pl.n_cells(), 860);
+    assert!(pl.field_data().get("SideSet hole").is_some_and(|a| a.len() == 24));
+    let db = run("dogbone_mesh", None, &[("stations", serde_json::json!([0, 0.37, 4, 0.34, 8, 0.36]))]);
+    assert_eq!(db.field_data().get("ElementBlockNames").unwrap().len(), 3);
+    let bottom = run("extract_set", Some(&pl), &[("set", "z-".into())]);
+    let thick = run("sweep_quads", Some(&bottom), &[("distance", 4.0.into()), ("layers", 3.into())]);
+    assert_eq!(thick.n_cells(), 3 * 860);
+    let g = run("geometry", None, &[("commands", "brick x 2 y 1 z 1; cylinder radius 0.3 height 1; move body 2 x 3; mesh body 1 2 size 0.25".into()), ("output", "Hex mesh".into())]);
+    assert!(g.field_data().get("SideSet brick 1 x+").is_some() && g.field_data().get("SideSet cylinder 2 side").is_some());
+    let dense = run("inclusion_mesh", None, &[("count", 30.into()), ("radius", 0.07.into()), ("cells", 24.into()), ("packing", "Collective".into())]);
+    let sparse = run("inclusion_mesh", None, &[("count", 30.into()), ("radius", 0.07.into()), ("cells", 24.into())]);
+    assert!(dense.field_data().get("InclusionsPlaced").unwrap().get(0, 0) >= sparse.field_data().get("InclusionsPlaced").unwrap().get(0, 0));
 }

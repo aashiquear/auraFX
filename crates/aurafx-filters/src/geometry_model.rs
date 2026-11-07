@@ -9,6 +9,7 @@ use rayon::prelude::*;
 
 pub const OUT_SURFACE: &str = "Surface";
 pub const OUT_DISTANCE: &str = "Distance field";
+pub const OUT_MESH: &str = "Hex mesh";
 
 /// An image grid of points covering `lo`..`hi` with `res` cells along the longest side and
 /// two cells of margin, and its spacing.
@@ -201,6 +202,9 @@ fn tri_area(p: &[[f64; 3]], t: &[u32; 3]) -> f64 {
 /// field arrays FaceNames, BodyIds, BodyNames, Volume and SurfaceArea per body) or as their
 /// distance field on a grid (point arrays Distance, BodyId and FaceId).
 pub fn geometry(commands: &str, resolution: usize, output: &str, project: bool) -> Result<DataSet> {
+    if output == OUT_MESH {
+        return crate::mesh_gen::geometry_mesh(commands);
+    }
     let model = Model::from_commands(commands, None)?;
     if model.bodies.is_empty() {
         bail!("the commands make no body (try: brick x 2 y 1 z 1)");

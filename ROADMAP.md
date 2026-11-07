@@ -291,9 +291,9 @@ Implicit geometry, structured hex meshing (hexaform's methods) and an overlay-gr
 arbitrary and voxel geometry, with a command language, quality tables and sets. Design: `docs/design/grains-and-meshing.md`.
 
 - [x] M1 Geometry kernel: implicit primitives, transforms, CSG, 2-D outlines extruded/revolved/swept, STL and existing surfaces as signed distance fields, named faces; the Geometry source and the `afx.mesh` command language (journals through the trace).
-- [ ] M2 Structured hex: box, mapped blocks, cube with packed inclusions (cubed-sphere O-grid macro-blocks, transfinite cores, graded shells, weld), plate with hole, dog-bone, 2-D sweep, Elevate to HEX20/27, blocks/side sets/node sets, periodic pairs; Mesh Quality with the full metric set and acceptable ranges; Exodus, VTK, Abaqus `.inp`, Gmsh `.msh` writers.
+- [x] M2 Structured hex: box, mapped blocks, cube with packed inclusions (cubed-sphere O-grid macro-blocks, transfinite cores, graded shells, weld), plate with hole, dog-bone, 2-D sweep, Elevate to HEX20/27, blocks/side sets/node sets, periodic pairs; Mesh Quality with the full metric set and acceptable ranges; Exodus, VTK, Abaqus `.inp`, Gmsh `.msh` writers.
   - [x] M2a: hex mesh model (blocks, side sets, node sets, element variables), box and mapped blocks with grading, the inclusion mesher (grid packing, cubed-sphere O-grid blocks, transfinite cores, graded shells, exact weld; spheres, ellipsoids, superquadrics, harmonic grains), HEX20/HEX27 with surface projection, periodic pairs by coordinates, Extract Set, Mesh Quality with the full hexahedron metric set and a summary table, Exodus sets and HEX20/27, Abaqus `.inp`, Gmsh `.msh` (iteration 57).
-  - [ ] M2b: plate with hole, dog-bone, 2-D quad sweep, collective packing, mesh commands (`mesh volume`, `block`, `sideset`) in the geometry language, the benchmark's meshes as references.
+  - [x] M2b: plate with hole, dog-bone, 2-D quad sweep, collective packing, mesh commands (`mesh body`, `block`, `sideset`, `nodeset`) in the geometry language for bricks and cylinders, the benchmark's meshes as references (iteration 58).
 - [ ] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
 - [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
 - [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
@@ -392,6 +392,14 @@ acceptable ranges. Exodus gains HEX20/HEX27, blocks from `ElementBlock`, side se
 sets (read and written); new Abaqus `.inp` and Gmsh `.msh` writers. Checked node for node
 against hexaform's own meshes (HEX8 and HEX27) and against ParaView's Mesh Quality on 24
 hexahedra. Guide chapter: Geometry and meshing. Next: M2b.
+
+Done in iteration 58 (M2b, closing M2): Plate Mesh (circular or elliptical through-hole with a
+conforming O-grid ring) and Dog-bone Mesh (fillets, spline thickness profile), both node for
+node with the benchmark study's hexaform meshes (`testdata/benchmark`); Sweep Quads; collective
+packing for Inclusion Mesh; `mesh body`, `block`, `sideset` and `nodeset` commands meshing
+bricks and cylinders (O-grid disks swept along the axis, curved HEX20/27 nodes on the surface)
+with a side set per geometry face; the Geometry source's Hex mesh output. Guide chapter:
+Geometry and meshing. Next: G3.
 
 ## Status (2026-11-05)
 

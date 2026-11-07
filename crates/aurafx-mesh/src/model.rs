@@ -58,6 +58,13 @@ pub struct Model {
     pub journal: Vec<String>,
     /// Folder that relative file names are read from.
     pub base_dir: Option<std::path::PathBuf>,
+    /// Bodies to mesh: (body, element size, nodes per element).
+    pub mesh_requests: Vec<(u32, f64, usize)>,
+    /// Element blocks: (id, name, bodies).
+    pub user_blocks: Vec<(i32, String, Vec<u32>)>,
+    /// Side sets and node sets: (id, name, faces).
+    pub user_sidesets: Vec<(i32, String, Vec<FaceId>)>,
+    pub user_nodesets: Vec<(i32, String, Vec<FaceId>)>,
 }
 
 /// Split a command into words, keeping quoted text together.
@@ -218,7 +225,7 @@ impl Model {
         let verb = a.w[0].to_ascii_lowercase();
         let next = self.next_body;
         match verb.as_str() {
-            "brick" | "box" | "block" => {
+            "brick" | "box" => {
                 let x = a.num("x")?.or(a.num("width")?);
                 let y = a.num("y")?.or(a.num("depth")?);
                 let z = a.num("z")?.or(a.num("height")?);
@@ -502,6 +509,75 @@ impl Model {
             "delete" => {
                 for id in ids_or_err(a.ids("body"))? {
                     self.take(id)?;
+                }
+            }
+            "mesh" => {
+                let mut ids = a.ids("body");
+                if ids.is_empty() {
+                    ids = a.ids("volume");
+                }
+                let ids = ids_or_err(ids)?;
+                let size = a.need("size")?;
+                positive(&[size])?;
+                let npe = match a.text("element").map(|s| s.to_ascii_uppercase()) {
+                    Some(s) if s == "HEX20" => 20,
+                    Some(s) if s == "HEX27" => 27,
+                    Some(s) if s == "HEX8" || s == "HEX" => 8,
+                    Some(s) => bail!("unknown element {s} (HEX8, HEX20, HEX27)"),
+                    None => 8,
+                };
+                for id in ids {
+                    if !self.bodies.contains_key(&id) {
+                        bail!("there is no body {id}");
+                    }
+                    self.mesh_requests.retain(|r| r.0 != id);
+                    self.mesh_requests.push((id, size, npe));
+                }
+            }
+            "block" | "sideset" | "nodeset" => {
+                let id = a.w.get(1).and_then(|x| x.parse::<i32>().ok()).ok_or_else(|| anyhow!("{verb} N add ..."))?;
+                if !a.has("add") && !a.has("name") {
+                    bail!("{verb} {id} add ... [name '<name>']");
+                }
+                let name = a.text("name");
+                if verb == "block" {
+                    let mut bodies = a.ids("body");
+                    if bodies.is_empty() {
+                        bodies = a.ids("volume");
+                    }
+                    let e = match self.user_blocks.iter_mut().find(|b| b.0 == id) {
+                        Some(e) => e,
+                        None => {
+                            self.user_blocks.push((id, format!("block_{id}"), Vec::new()));
+                            self.user_blocks.last_mut().unwrap()
+                        }
+                    };
+                    e.2.extend(bodies);
+                    if let Some(n) = name {
+                        e.1 = n;
+                    }
+                } else {
+                    let mut faces = a.ids("face");
+                    if faces.is_empty() {
+                        faces = a.ids("surface");
+                    }
+                    for f in &faces {
+                        if *f == 0 || *f as usize >= self.faces.len() {
+                            bail!("there is no face {f}");
+                        }
+                    }
+                    let list = if verb == "sideset" { &mut self.user_sidesets } else { &mut self.user_nodesets };
+                    let e = match list.iter_mut().find(|b| b.0 == id) {
+                        Some(e) => e,
+                        None => {
+                            list.push((id, format!("{verb}_{id}"), Vec::new()));
+                            list.last_mut().unwrap()
+                        }
+                    };
+                    e.2.extend(faces);
+                    if let Some(n) = name {
+                        e.1 = n;
+                    }
                 }
             }
             "body" => {

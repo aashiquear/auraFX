@@ -709,3 +709,155 @@ pub fn assemble(grid: &Grid, inclusions: &[Placed], block: &BlockOptions, opt: &
     }
     Ok(m)
 }
+
+/// Collective rearrangement: a largest-first random placement, then rounds that move the placed
+/// boxes (a random step, or a push towards the side with the most free cells) and seat the
+/// largest unplaced box wherever it now fits. Every state keeps the boxes `gap_cells` apart and
+/// `wall_cells` from the faces, so the result always meshes; it never places fewer than the
+/// first pass.
+pub fn pack_collective(grid: &Grid, spec: &PackingSpec, rng: &mut Rng, make: &dyn Fn(f64, &mut Rng) -> StarShape, max_steps: usize, kinetic: f64, jump: i64) -> Vec<Placed> {
+    let h = grid.h;
+    let lo_r = spec.radius_min.unwrap_or(spec.radius_mean - 3.0 * spec.radius_std).max(spec.min_radius_cells * h).max(1e-12);
+    let hi_r = spec.radius_max.unwrap_or(spec.radius_mean + 3.0 * spec.radius_std).max(lo_r);
+    let radii: Vec<f64> = (0..spec.count)
+        .map(|_| {
+            if spec.radius_std <= 0.0 {
+                return spec.radius_mean.clamp(lo_r, hi_r);
+            }
+            for _ in 0..1000 {
+                let r = spec.radius_mean + spec.radius_std * rng.normal();
+                if r >= lo_r && r <= hi_r {
+                    return r;
+                }
+            }
+            spec.radius_mean.clamp(lo_r, hi_r)
+        })
+        .collect();
+    let shapes: Vec<StarShape> = radii.iter().map(|r| make(*r, rng)).collect();
+    let ks: Vec<[usize; 3]> = shapes.iter().map(|s| box_cells(s, h, spec.box_ratio, 4)).collect();
+    let mut order: Vec<usize> = (0..shapes.len()).collect();
+    order.sort_by_key(|i| std::cmp::Reverse(ks[*i].iter().sum::<usize>()));
+    let [nx, ny, nz] = grid.div;
+    let mut owner = vec![usize::MAX; nx * ny * nz];
+    let (g, w) = (spec.gap_cells as i64, spec.wall_cells as i64);
+    let fits = |owner: &[usize], lo: [i64; 3], k: [usize; 3], me: usize| -> bool {
+        for a in 0..3 {
+            if lo[a] < w || lo[a] + k[a] as i64 > grid.div[a] as i64 - w {
+                return false;
+            }
+        }
+        let a0: [usize; 3] = std::array::from_fn(|a| (lo[a] - g).max(0) as usize);
+        let b0: [usize; 3] = std::array::from_fn(|a| ((lo[a] + k[a] as i64 + g) as usize).min(grid.div[a]));
+        for i in a0[0]..b0[0] {
+            for j in a0[1]..b0[1] {
+                for l in a0[2]..b0[2] {
+                    let o = owner[(i * ny + j) * nz + l];
+                    if o != usize::MAX && o != me {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    };
+    let set = |owner: &mut Vec<usize>, lo: [i64; 3], k: [usize; 3], v: usize| {
+        for i in lo[0] as usize..lo[0] as usize + k[0] {
+            for j in lo[1] as usize..lo[1] as usize + k[1] {
+                for l in lo[2] as usize..lo[2] as usize + k[2] {
+                    owner[(i * ny + j) * nz + l] = v;
+                }
+            }
+        }
+    };
+    let random_lo = |rng: &mut Rng, k: [usize; 3]| -> Option<[i64; 3]> {
+        let hi: [i64; 3] = std::array::from_fn(|a| grid.div[a] as i64 - k[a] as i64 - w);
+        if (0..3).any(|a| hi[a] < w) {
+            return None;
+        }
+        Some(std::array::from_fn(|a| rng.int(w, hi[a])))
+    };
+    // (shape index, lower corner) of the placed boxes; the rest wait in order.
+    let mut placed: Vec<(usize, [i64; 3])> = Vec::new();
+    let mut waiting: Vec<usize> = Vec::new();
+    for &idx in &order {
+        let mut ok = false;
+        for _ in 0..400 {
+            let Some(lo) = random_lo(rng, ks[idx]) else { break };
+            if fits(&owner, lo, ks[idx], idx) {
+                set(&mut owner, lo, ks[idx], idx);
+                placed.push((idx, lo));
+                ok = true;
+                break;
+            }
+        }
+        if !ok {
+            waiting.push(idx);
+        }
+    }
+    let mut stall = 0;
+    for _ in 0..max_steps {
+        if waiting.is_empty() || stall > 200 {
+            break;
+        }
+        let moves = ((0.6 * placed.len() as f64).round() as usize).max(1);
+        for _ in 0..moves {
+            let p = (rng.next_u64() % placed.len() as u64) as usize;
+            let (idx, lo) = placed[p];
+            let k = ks[idx];
+            let step: [i64; 3] = if rng.uniform() < kinetic {
+                std::array::from_fn(|_| rng.int(-jump, jump))
+            } else {
+                // Push towards the face with the most free cells beyond it.
+                let mut best = (0i64, 0usize, 0i64);
+                for a in 0..3 {
+                    for dir in [-1i64, 1] {
+                        let mut free = 0;
+                        for s in 1..=jump {
+                            let mut t = lo;
+                            t[a] += dir * s;
+                            if fits(&owner, t, k, idx) {
+                                free = s;
+                            } else {
+                                break;
+                            }
+                        }
+                        if free > best.0 {
+                            best = (free, a, dir);
+                        }
+                    }
+                }
+                let mut s = [0i64; 3];
+                s[best.1] = best.2 * best.0;
+                s
+            };
+            let t: [i64; 3] = std::array::from_fn(|a| lo[a] + step[a]);
+            if step != [0; 3] && fits(&owner, t, k, idx) {
+                set(&mut owner, lo, k, usize::MAX);
+                set(&mut owner, t, k, idx);
+                placed[p].1 = t;
+            }
+        }
+        let idx = waiting[0];
+        let mut seated = false;
+        for _ in 0..200 {
+            let Some(lo) = random_lo(rng, ks[idx]) else { break };
+            if fits(&owner, lo, ks[idx], idx) {
+                set(&mut owner, lo, ks[idx], idx);
+                placed.push((idx, lo));
+                waiting.remove(0);
+                seated = true;
+                break;
+            }
+        }
+        stall = if seated { 0 } else { stall + 1 };
+    }
+    placed
+        .iter()
+        .enumerate()
+        .map(|(n, (idx, lo))| {
+            let k = ks[*idx];
+            let centre: P3 = std::array::from_fn(|a| grid.origin[a] + (lo[a] as f64 + k[a] as f64 / 2.0) * h);
+            Placed { shape: shapes[*idx].with_centre(centre), lo: *lo, k, id: n as u32 + 1 }
+        })
+        .collect()
+}

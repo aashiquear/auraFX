@@ -3002,8 +3002,8 @@ fn build() -> Vec<FilterDef> {
                 ParamSpec::new("commands", "Commands", ParamKind::Code, ParamValue::Str(GEOMETRY_TEMPLATE.into()))
                     .help("One command per line (or separated by ;). See the Geometry and meshing chapter of the user guide, or ask the assistant."),
                 i("resolution", "Resolution", 64, 8, 1024).help("Cells along the longest side of each body when drawing its surface."),
-                choice("output", "Output", &[crate::geometry_model::OUT_SURFACE, crate::geometry_model::OUT_DISTANCE], crate::geometry_model::OUT_SURFACE)
-                    .help("Surface: the bodies' surfaces with BodyId and FaceId. Distance field: the signed distance to the nearest body on a grid."),
+                choice("output", "Output", &[crate::geometry_model::OUT_SURFACE, crate::geometry_model::OUT_DISTANCE, crate::geometry_model::OUT_MESH], crate::geometry_model::OUT_SURFACE)
+                    .help("Surface: the bodies' surfaces with BodyId and FaceId. Distance field: the signed distance to the nearest body on a grid. Hex mesh: the hexahedral mesh of the bodies named by 'mesh body' commands."),
                 b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface.").advanced(),
             ],
             apply: |_, p| crate::geometry_model::geometry(&p.str("commands"), p.i64("resolution", 64).max(2) as usize, &p.str("output"), p.bool("project", true)),
@@ -3071,6 +3071,7 @@ fn build() -> Vec<FilterDef> {
                 i("seed", "Seed", 7, 0, i64::MAX),
                 b("periodic", "Periodic", false).help("Pair the nodes of opposite faces (node sets x-_node_set ... and PeriodicPairs) for periodic boundary conditions."),
                 choice("element", "Element", &crate::mesh_gen::ELEMENT_TYPES, "HEX8").help("HEX20 and HEX27 put their new nodes on the inclusion surfaces too."),
+                choice("packing", "Packing", &["Random", "Collective"], "Random").help("Collective moves the placed inclusions to open room for more (denser packings, slower)."),
                 b("separate_blocks", "One block per inclusion", false).advanced(),
                 f("box_ratio", "Box / inclusion size", 1.35, 1.05, 4.0).advanced(),
                 i("gap_cells", "Cells between boxes", 2, 0, 100).advanced(),
@@ -3110,8 +3111,97 @@ fn build() -> Vec<FilterDef> {
                     separate_blocks: p.bool("separate_blocks", false),
                     element: p.str("element"),
                     periodic: p.bool("periodic", false),
+                    collective: p.str("packing") == "Collective",
                 })
             },
+        },
+        FilterDef {
+            id: "plate_mesh",
+            label: "Plate Mesh",
+            category: "Sources",
+            description: "A plate of hexahedra (one through the thickness) with an optional circular or elliptical through-hole meshed by a conforming ring.",
+            keywords: &["plate with hole", "notch", "specimen", "stress concentration", "hex mesh", "o-grid", "fracture", "phase field"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("size", "Width, height, thickness", [100.0, 50.0, 1.0]),
+                f("cell", "Cell size", 2.5, 1e-9, f64::INFINITY).help("The width and height must be whole multiples of it."),
+                choice("hole", "Hole", &["None", "Circle", "Ellipse"], "Circle"),
+                f("a", "Semi-axis a (radius)", 2.5, 1e-9, f64::INFINITY),
+                f("b", "Semi-axis b", 2.5, 1e-9, f64::INFINITY),
+                f("angle", "Ellipse angle (degrees)", 0.0, -360.0, 360.0),
+                ParamSpec::new("centre", "Hole centre", ParamKind::Floats, ParamValue::Floats(Vec::new())).help("x y of the hole centre; empty: the plate centre."),
+                choice("element", "Element", &crate::mesh_gen::ELEMENT_TYPES, "HEX8"),
+            ],
+            apply: |_, p| {
+                let c = p.floats("centre");
+                let centre = (c.len() >= 2).then(|| [c[0], c[1]]);
+                crate::mesh_gen::plate_mesh(p.vec3("size", [100.0, 50.0, 1.0]), p.f64("cell", 2.5), &p.str("hole"), p.f64("a", 2.5), p.f64("b", 2.5), centre, p.f64("angle", 0.0), &p.str("element"))
+            },
+        },
+        FilterDef {
+            id: "dogbone_mesh",
+            label: "Dog-bone Mesh",
+            category: "Sources",
+            description: "A flat dog-bone tensile specimen of hexahedra with shoulder fillets and an optional thickness profile along the gage.",
+            keywords: &["tensile specimen", "dogbone", "dog bone", "coupon", "gage", "hex mesh", "test specimen"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("length", "Total length", 25.4, 1e-9, f64::INFINITY),
+                f("gage_length", "Gage length", 8.0, 1e-9, f64::INFINITY),
+                f("gage_width", "Gage width", 1.85, 1e-9, f64::INFINITY),
+                f("grip_width", "Grip width", 4.8, 1e-9, f64::INFINITY),
+                f("fillet_radius", "Fillet radius", 3.175, 1e-9, f64::INFINITY),
+                f("thickness", "Grip thickness", 0.35, 1e-9, f64::INFINITY),
+                ParamSpec::new("stations", "Thickness stations", ParamKind::Floats, ParamValue::Floats(Vec::new())).help("Pairs: position from the gage start, thickness there (a spline through them along the gage). Empty: constant thickness."),
+                f("cell", "Cell size", 0.2, 1e-9, f64::INFINITY),
+                f("grip_cell", "Grip cell size", 0.4, 1e-9, f64::INFINITY),
+                i("layers", "Layers through the thickness", 1, 1, 100),
+                choice("element", "Element", &crate::mesh_gen::ELEMENT_TYPES, "HEX8"),
+            ],
+            apply: |_, p| {
+                let s = p.floats("stations");
+                crate::mesh_gen::dogbone_mesh(
+                    aurafx_mesh::specimens::DogboneOptions {
+                        length: p.f64("length", 25.4),
+                        gage_length: p.f64("gage_length", 8.0),
+                        gage_width: p.f64("gage_width", 1.85),
+                        grip_width: p.f64("grip_width", 4.8),
+                        fillet_radius: p.f64("fillet_radius", 3.175),
+                        grip_thickness: p.f64("thickness", 0.35),
+                        stations: s.chunks_exact(2).map(|c| (c[0], c[1])).collect(),
+                        h: p.f64("cell", 0.2),
+                        h_grip: Some(p.f64("grip_cell", 0.4)),
+                        n_z: p.i64("layers", 1).max(1) as usize,
+                        origin: [0.0; 3],
+                    },
+                    &p.str("element"),
+                )
+            },
+        },
+        FilterDef {
+            id: "sweep_quads",
+            label: "Sweep Quads",
+            category: "Mesh",
+            description: "Sweep a surface of quadrilaterals into layers of hexahedra along a direction.",
+            keywords: &["extrude", "sweep", "2d to 3d", "quad mesh", "hex mesh", "layers"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("direction", "Direction", [0.0, 0.0, 1.0]),
+                f("distance", "Distance", 1.0, f64::NEG_INFINITY, f64::INFINITY),
+                i("layers", "Layers", 4, 1, 100_000),
+                f("grading", "Grading (largest/smallest)", 1.0, 0.01, 100.0),
+                choice("cluster", "Small layers at", &["Start", "End", "Both"], "Start"),
+            ],
+            apply: |input, p| crate::mesh_gen::sweep(input.unwrap(), p.vec3("direction", [0.0, 0.0, 1.0]), p.f64("distance", 1.0), p.i64("layers", 4).max(1) as usize, p.f64("grading", 1.0), &p.str("cluster")),
         },
         FilterDef {
             id: "elevate",

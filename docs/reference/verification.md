@@ -307,6 +307,10 @@ Boundaries against a brute-force distance.
   points (to 1e-12), connectivity, blocks, side sets, node sets and `particle_id` are the same
   for HEX8 and HEX27 (`testdata/hexaform`, `scripts/hexaform_reference.py`). hexaform's own
   Exodus file reads back as the same mesh.
+- Plate Mesh and Dog-bone Mesh reproduce the meshes the pinn-cp-pfd-benchmark study made
+  with hexaform node for node: a plate with a circular hole, one with a 45-degree elliptical
+  hole and the nickel dog-bone P.1 with five thickness stations (`testdata/benchmark`), with
+  the same blocks, side sets and node sets.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

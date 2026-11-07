@@ -32,7 +32,7 @@ fn enter_edit_apply_discard() {
     assert_eq!(s.cad_overrides(m).len(), 0);
     let sum = s.cad_env_evaluate(64).unwrap();
     assert_eq!(faces(&s, m), 8, "{:?}", sum.faces);
-    assert!(sum.faces.iter().any(|f| f.0 == "Bore bottom") && sum.faces.iter().any(|f| f.0 == "Bore side"));
+    assert!(sum.faces.iter().any(|f| f.name == "Bore bottom") && sum.faces.iter().any(|f| f.name == "Bore side"));
     let expect = 40.0 * 30.0 * 8.0 - std::f64::consts::PI * 9.0 * 3.0;
     assert!((sum.volume - expect).abs() / expect < 0.01, "{}", sum.volume);
 

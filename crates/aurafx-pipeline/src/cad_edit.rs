@@ -13,6 +13,18 @@ use aurafx_cad::{CadFile, Document, Id};
 use aurafx_data::{DataSet, DataSetInfo};
 use std::sync::Arc;
 
+/// A face of the last build, as the environment shows and uses it.
+#[derive(Debug, Clone, Default)]
+pub struct CadFace {
+    pub name: String,
+    pub kind: String,
+    pub area: f64,
+    /// The feature that made it.
+    pub feature: Id,
+    pub centroid: [f64; 3],
+    pub direction: [f64; 3],
+}
+
 /// A summary of the last evaluation of the working copy.
 #[derive(Debug, Clone, Default)]
 pub struct CadSummary {
@@ -21,8 +33,7 @@ pub struct CadSummary {
     pub area: f64,
     pub centroid: [f64; 3],
     pub bounds: ([f64; 3], [f64; 3]),
-    /// Face name, kind, area, owning feature.
-    pub faces: Vec<(String, String, f64, Id)>,
+    pub faces: Vec<CadFace>,
     pub ms: f64,
 }
 
@@ -390,7 +401,10 @@ pub fn evaluate_document(mut doc: Document, overrides: &[(String, String)], reso
         area: body.area,
         centroid: body.centroid,
         bounds: body.bounds,
-        faces: ev.faces().map(|(_, f)| (f.name.clone(), f.kind.label().to_string(), f.area, f.id.0)).collect(),
+        faces: ev
+            .faces()
+            .map(|(_, f)| CadFace { name: f.name.clone(), kind: f.kind.label().to_string(), area: f.area, feature: f.id.0, centroid: f.centroid, direction: f.direction })
+            .collect(),
         ms: t0.elapsed().as_secs_f64() * 1000.0,
     };
     Ok((ev.surface, summary))

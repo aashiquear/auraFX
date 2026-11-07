@@ -9,6 +9,7 @@ mod conflicts;
 mod feature_manager;
 mod property_manager;
 mod ribbon;
+mod sketch;
 mod timeline;
 
 use crate::app::{LayoutAction, Pane, State};
@@ -21,6 +22,7 @@ pub use conflicts::hold_banner;
 pub use feature_manager::feature_manager_ui;
 pub use property_manager::property_manager_ui;
 pub use ribbon::ribbon_ui;
+pub use sketch::{begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, canvas_ui as sketch_canvas_ui, sketching};
 pub use timeline::timeline_ui;
 
 /// The ribbon's tabs.
@@ -70,6 +72,8 @@ pub struct CadUi {
     pub apply_dialog: Option<conflicts::ApplyDialog>,
     /// Re-run the nodes below right after Apply (the dialog's checkbox).
     pub rerun_now: bool,
+    /// The sketch open on the canvas.
+    pub sketch: Option<sketch::SketchEdit>,
 }
 
 impl Default for CadUi {
@@ -89,6 +93,7 @@ impl Default for CadUi {
             new_param: (String::new(), String::new()),
             apply_dialog: None,
             rerun_now: true,
+            sketch: None,
         }
     }
 }
@@ -142,6 +147,7 @@ pub fn apply(state: &mut State, keep: bool) {
 
 /// Apply with the given fixes and run mode, without asking.
 pub fn apply_now(state: &mut State, keep: bool, fix: aurafx_pipeline::FixMode, run: aurafx_pipeline::RunMode) {
+    state.cad.sketch = None;
     let r = state.session.lock().cad_apply_with(keep, fix, run);
     match r {
         Ok(a) => {
@@ -159,6 +165,7 @@ pub fn apply_now(state: &mut State, keep: bool, fix: aurafx_pipeline::FixMode, r
 
 /// Leave without applying.
 pub fn discard(state: &mut State) {
+    state.cad.sketch = None;
     let r = state.session.lock().cad_discard();
     match r {
         Ok(()) => state.status = "CAD: changes discarded".into(),
@@ -202,7 +209,7 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
     if state.cad.running {
         ctx.request_repaint_after(std::time::Duration::from_millis(60));
     }
-    if !ctx.text_edit_focused() && !state.cad.leave_dialog && !state.cad.dialog_open() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+    if !ctx.text_edit_focused() && !state.cad.leave_dialog && !state.cad.dialog_open() && state.cad.sketch.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         state.cad.leave_dialog = true;
     }
 }

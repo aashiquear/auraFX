@@ -148,6 +148,46 @@ e.apply(fix=answer_text)       # the text of an assistant's answer (a JSON list 
 e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs them
 ```
 
+## Sketching
+
+A sketch is a drawing on a plane that a feature extrudes or revolves. Start one from the
+ribbon's **Sketch** tab: **Top (XY)**, **Front (XZ)** or **Right (YZ)**, or **Top of the part**
+(the plane of the highest face, to add a boss or cut a pocket). To sketch on a flat face, select
+no feature, open *Faces* in the PropertyManager and press **Sketch here** next to a face whose
+normal points along x, y or z. To change an existing feature's sketch, right-click it in the
+FeatureManager and choose **Edit sketch…**, or press **Edit sketch…** in its properties.
+
+The canvas takes the place of the 3D view while a sketch is open:
+
+![The sketch canvas on the L-bracket: its outline with the dimensions from the part's own dimensions (length, height, t), the status "Fully defined" and the constraint list](images/cad_sketch.png)
+
+- **Draw** with the tools in the ribbon: *Line* (connected lines; right-click ends the chain),
+  *Rectangle* (two corners), *Circle* (center, then a point on it), *Arc* (center, start,
+  end), *Spline*, *Point*. New points snap to existing ones (which joins shapes) and to a grid
+  (set in the PropertyManager). A line drawn nearly horizontal or vertical becomes so.
+- **Select** shapes and points by clicking (Shift adds); drag a point to move it. Right or
+  middle mouse drag pans, the wheel zooms, `Esc` ends a chain, `Del` deletes.
+- **Constrain** the selection with the ribbon: horizontal, vertical, parallel, perpendicular,
+  equal, tangent, concentric, coincident, midpoint, on line, on circle, symmetric, fix.
+  **Dimension** it: length, radius, diameter, distance (also horizontal and vertical) and angle.
+- A dimension starts at the current size. Edit it in the **Constraints** list in the
+  PropertyManager: type a number, or an expression of the part's dimensions (`width / 2`,
+  `3 in`), and the sketch follows the dimension from then on.
+- The **solver runs after every change**. Shapes are **blue** while the sketch can still move
+  (the status says how many degrees of freedom are left), **white or black** when it is fully
+  defined, and **red** when constraints conflict (remove one). *Construction* turns the
+  selected shapes into guides that are not part of the outline.
+
+Finish from the PropertyManager: **Extrude** (or **Cut**, for a pocket) with a depth that may be
+an expression, **reverse** to go against the plane's normal, **Revolve** about the plane's
+vertical axis (draw on the Front plane with x as the radius), or **Apply sketch** when you
+edited the sketch of an existing feature. The sketch then becomes a feature with named faces:
+`side 1`, `side 2`… follow the order the shapes were drawn.
+
+From Python, `e.sketch_new(plane="XY", items=[...])` and `e.sketch_edit("Bracket")` open the
+canvas in the window, and `e.sketch(...)` with `e.extrude(...)` builds the same features
+without it.
+
 ## Python
 
 ```python
@@ -197,6 +237,5 @@ Face names carry through: an extracted set or a boundary layer can name `Bore si
 - The kernel used here describes the part as a distance field. It never fails on a hard
   combination of features, but edges are not exact lines: the faces it reports are labelled
   regions of the surface, and the same labels come back after every rebuild.
-- A part is one body, and sketches are made from the shapes the ribbon and Python offer
-  (rectangle, circle, polygon, hexagon, profile); drawing a sketch line by line, with
-  constraints, comes with the sketch canvas in a later version.
+- A part is one body. Sketches start on the three principal planes or on a flat face whose
+  normal is along x, y or z; a face at another angle can not be sketched on yet.

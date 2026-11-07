@@ -329,7 +329,7 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 - [x] C2 Implicit kernel and the node (iteration 74): `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
 - [x] C3 Environment shell (iteration 75): `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
 - [x] C5 Downstream check (iteration 76; before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
-- [ ] C4 Sketching: the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
+- [x] C4 Sketching (iteration 77): the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
 - [ ] C6 B-rep kernel and CAD files, shipped in the repository: `vendor/solidcraft` and `vendor/solidcore` added with `git subtree` at a recorded tag (decided: the subtree route; one squashed commit for the whole upstream tree, then a prune commit that deletes directories only, so later pulls merge) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`; `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP written here measures the same through the vendored engine and, where installed, an independent STEP reader; the Linux package builds offline from a clean clone.
 - [ ] C7 Edge operations and assemblies: picking faces and edges on the B-rep tessellation; fillet and chamfer on picked edges, draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties, a measure tool. Tests: fillet volume against SolidCraft's measure; interference of two boxes analytic.
 - [ ] C8 Meshing from CAD: `mesh body` on CAD bodies, face names to side sets, `import 'part.step'` and `import 'part.afxcad'` in journals, STEP → mesh → grains → solver case end to end as a test and in the guide's worked example.
@@ -707,7 +707,28 @@ together in one step, a removed hole is offered without a fix, a replaced hole n
 successor as a guess, a refinement box outside the narrowed plate is moved onto it, the
 assistant's prompt and a canned answer (parsed, applied, bad answers refused), whole-name
 matching in command text and postponed re-runs, and the Python flow. Guide: CAD modeling ›
-What the nodes below depend on (`cad_check`). Next: C4.
+What the nodes below depend on (`cad_check`).
+
+Done in iteration 77 (C4, sketching): the sketch canvas (`aurafx-app/src/cad/sketch.rs`, ported
+from EZ-YX-craft's sketch mode) takes the place of the active 3D view while a sketch is open:
+grid and axes, pan and zoom, line, rectangle, circle, arc, spline and point tools with
+snapping to points and to a grid and horizontal/vertical inference, selection and dragging of
+points, constraints and dimensions from the ribbon's Sketch tab (13 geometric constraints,
+7 dimensions), driving dimensions edited as values or expressions of the part's dimensions in
+the PropertyManager's constraint list, the solver after every change with the status colored
+blue (under-defined, with the degrees of freedom left), white (fully defined) or red
+(over-defined), construction shapes, delete with renumbering of everything that referred to
+the deleted shapes. A sketch starts on a principal plane, on the top of the part, or on a flat
+face with an axis-aligned normal (PropertyManager Faces: Sketch here; the plane, offset and
+direction come from the face), or edits an existing feature's sketch (FeatureManager and
+PropertyManager: Edit sketch…); it finishes as an Extrude (depth a number or an expression,
+reverse), a Cut, a Revolve, or Apply sketch (`set_sketch`). New edit operations: `set_sketch`
+and `sketch_json` on extrude and revolve. Python: `cad.sketch_new`, `cad.sketch_edit` open the
+canvas from a script. Tests: the solver's (ported with it: fully constrained rectangle,
+over-constraint reported, tangent arcs), deleting and renumbering, the finished sketch as
+operations the document accepts (extrusion with an expression depth, edited sketch, revolve
+volumes), faces to planes, curve flattening, and the canvas driven by a script
+(`cad_sketch` picture). Guide: CAD modeling › Sketching (`cad_sketch`). Next: C6.
 
 ## Status (2026-11-05)
 

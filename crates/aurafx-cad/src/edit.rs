@@ -315,7 +315,12 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(feature_summary(doc.feature(id).unwrap()))
         }
         "sketch_extrude" | "sketch_revolve" => {
-            let sk = sketch_from_spec(doc, args.get("sketch").ok_or_else(|| CadError::Edit(format!("{op} needs a sketch")))?)?;
+            // A sketch is given as a description (`sketch`) or as a whole sketch (`sketch_json`, what
+            // the sketch canvas makes).
+            let sk = match args.get("sketch_json") {
+                Some(j) => serde_json::from_value::<Sketch>(j.clone()).map_err(|e| CadError::Edit(format!("sketch_json: {e}")))?,
+                None => sketch_from_spec(doc, args.get("sketch").ok_or_else(|| CadError::Edit(format!("{op} needs a sketch")))?)?,
+            };
             let shape = if op == "sketch_extrude" {
                 let (depth, de) = num(doc, args.get("depth").unwrap_or(&json!(10)))?;
                 let end = match args.get("end").and_then(|e| e.as_str()).unwrap_or("blind").to_lowercase().as_str() {
@@ -435,6 +440,14 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             doc.features[i].bindings.retain(|b| !b.path.starts_with(path));
             Ok(json!({}))
         }
+        "set_sketch" => {
+            let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
+            let sk: Sketch = serde_json::from_value(args.get("sketch_json").cloned().unwrap_or(Value::Null)).map_err(|e| CadError::Edit(format!("sketch_json: {e}")))?;
+            let name = doc.features[i].name.clone();
+            *doc.features[i].shape.sketch_mut().ok_or_else(|| CadError::Edit(format!("'{name}' has no sketch")))? = sk;
+            doc.resolved()?;
+            Ok(json!({}))
+        }
         "set_op" => {
             let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
             doc.features[i].op = op_of(&json!({ "op": args.get("to").cloned().unwrap_or(Value::Null), "kind": "" }))?;
@@ -501,7 +514,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(json!({}))
         }
         other => bad(format!(
-            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, set, set_op, set_dim, set_json, remove_modifier, remove_finish, set_finish, configuration, activate)"
+            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, set, set_op, set_dim, set_json, set_sketch, remove_modifier, remove_finish, set_finish, configuration, activate)"
         )),
     }
 }

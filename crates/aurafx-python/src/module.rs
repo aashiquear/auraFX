@@ -1539,7 +1539,7 @@ fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize) -> PyResult<String> {
     // Inside the environment the build is shown too (it becomes the node's output).
     if session().lock().cad_editing() == Some(node.id) {
         let sum = session().lock().cad_env_evaluate(resolution).map_err(cad_err)?;
-        let faces: Vec<serde_json::Value> = sum.faces.iter().enumerate().map(|(i, f)| serde_json::json!({ "id": i, "name": f.0, "kind": f.1, "area": f.2, "feature": (f.3).0 })).collect();
+        let faces: Vec<serde_json::Value> = sum.faces.iter().enumerate().map(|(i, f)| serde_json::json!({ "id": i, "name": f.name, "kind": f.kind, "area": f.area, "centroid": f.centroid, "direction": f.direction, "feature": f.feature.0 })).collect();
         return Ok(serde_json::json!({ "kernel": sum.kernel, "volume": sum.volume, "area": sum.area, "centroid": sum.centroid, "bounds": [sum.bounds.0, sum.bounds.1], "faces": faces }).to_string());
     }
     let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
@@ -1867,6 +1867,15 @@ class _CadApi:
                 fix = _json.dumps(fix)
             return _json.loads(_cad_apply(keep_editing, fix, run))
         return self._node.update()
+    def sketch_new(self, plane="XY", offset=0, items=None):
+        """Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready
+        shapes (the items of cad.sketch()). Only useful from a script running in the app."""
+        spec = {"plane": plane, "offset": offset}
+        if items is not None: spec["items"] = items
+        _cad_app_command("cad_sketch_new " + _json.dumps(spec))
+    def sketch_edit(self, feature):
+        """Open the sketch canvas on the sketch of an extruded or revolved feature."""
+        _cad_app_command("cad_sketch_edit " + feature)
     def ask_apply(self, keep_editing=False):
         """What the Apply button does in the window: run the downstream check and open its dialog
         when the nodes below are affected (only useful from a script running in the app)."""

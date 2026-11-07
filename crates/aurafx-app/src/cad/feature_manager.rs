@@ -12,6 +12,7 @@ enum Act {
     Select(Option<Id>),
     Rollback(Option<usize>),
     Rename(Id, String),
+    EditSketch(Id),
 }
 
 fn kind_label(f: &aurafx_cad::Feature) -> String {
@@ -124,6 +125,10 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.close();
                             state.cad.rename = Some((f.id, f.name.clone()));
                         }
+                        if matches!(f.shape, aurafx_cad::Shape::SketchExtrude { .. } | aurafx_cad::Shape::SketchRevolve { .. }) && ui.button("Edit sketch…").clicked() {
+                            ui.close();
+                            acts.push(Act::EditSketch(f.id));
+                        }
                         if ui.button(if f.suppressed { "Unsuppress" } else { "Suppress" }).clicked() {
                             ui.close();
                             acts.push(Act::Op("suppress", json!({"feature": f.name, "suppressed": !f.suppressed})));
@@ -203,6 +208,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                 op(state, name, args);
             }
             Act::Select(id) => state.session.lock().cad_env_select(id),
+            Act::EditSketch(id) => super::sketch_edit(state, id),
             Act::Rollback(n) => state.session.lock().cad_env_rollback(n),
             Act::Rename(id, text) => {
                 if let Some(f) = doc.feature(id) {

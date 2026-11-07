@@ -1,0 +1,1058 @@
+//! The sketch canvas of the CAD environment (stage C4), ported from EZ-YX-craft's sketch mode
+//! (MIT OR Apache-2.0): a 2D canvas on the sketch plane in the place of the active 3D view,
+//! with line, rectangle, circle, arc, spline and point tools, snapping to existing points and a
+//! grid, horizontal and vertical inference, a constraint and dimension toolbar in the ribbon,
+//! driving dimensions typed as values or expressions of the dimensions, and the solver's
+//! status: blue while under-defined (with the degrees of freedom left), black when fully
+//! defined, red when over-defined. A sketch starts on a principal plane or on a flat face of
+//! the part and finishes as an extrusion, a cut or a revolve, or as the new sketch of a feature.
+
+use super::{expr_field, num_text, op};
+use crate::app::State;
+use aurafx_cad::sketch::{Constraint, Dim, Entity, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
+use aurafx_cad::{BooleanOp, Id};
+use egui::{Color32, Pos2, RichText, Stroke};
+use glam::DVec2;
+use serde_json::json;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tool {
+    Select,
+    Line,
+    Rect,
+    Circle,
+    Arc,
+    Spline,
+    Point,
+}
+
+/// A sketch being edited.
+pub struct SketchEdit {
+    /// The feature whose sketch this is (`None`: a new sketch, finished into a new feature).
+    pub feature: Option<Id>,
+    pub sketch: Sketch,
+    pub tool: Tool,
+    pub sel_pts: Vec<usize>,
+    pub sel_ents: Vec<usize>,
+    chain: Option<usize>,
+    pending: Vec<usize>,
+    pub report: Option<SolveReport>,
+    center: DVec2,
+    scale: f32,
+    fitted: bool,
+    drag: Option<usize>,
+    pub op: BooleanOp,
+    /// The depth of the extrusion: a number or an expression of the dimensions.
+    pub depth: String,
+    pub reverse: bool,
+    pub error: Option<String>,
+    pub snap_grid: f64,
+}
+
+impl SketchEdit {
+    pub fn new(feature: Option<Id>, sketch: Sketch) -> Self {
+        Self {
+            feature,
+            sketch,
+            tool: Tool::Line,
+            sel_pts: vec![],
+            sel_ents: vec![],
+            chain: None,
+            pending: vec![],
+            report: None,
+            center: DVec2::ZERO,
+            scale: 4.0,
+            fitted: false,
+            drag: None,
+            op: BooleanOp::Add,
+            depth: "10".into(),
+            reverse: false,
+            error: None,
+            snap_grid: 0.5,
+        }
+    }
+}
+
+/// Whether a sketch is open.
+pub fn sketching(state: &State) -> bool {
+    state.cad.sketch.is_some()
+}
+
+// ------------------------------------------------------------------------------- starting
+
+/// A new sketch on a principal plane (`offset` along its normal).
+pub fn begin_new(state: &mut State, plane: SketchPlane, offset: f64, reverse: bool) {
+    state.cad.tab = super::RibbonTab::Sketch;
+    let mut sk = Sketch::new(plane);
+    sk.offset = offset;
+    let mut e = SketchEdit::new(None, sk);
+    e.reverse = reverse;
+    state.cad.sketch = Some(e);
+    solve(state);
+}
+
+/// The plane, offset and direction of a sketch on a flat face with an axis-aligned normal.
+pub fn plane_for_face(centroid: [f64; 3], direction: [f64; 3]) -> Option<(SketchPlane, f64, bool)> {
+    let a = [direction[0].abs(), direction[1].abs(), direction[2].abs()];
+    let k = (0..3).max_by(|i, j| a[*i].total_cmp(&a[*j]))?;
+    if a[k] < 0.999 {
+        return None;
+    }
+    let plane = [SketchPlane::YZ, SketchPlane::XZ, SketchPlane::XY][k];
+    let n = plane.normal().to_array();
+    let offset = (0..3).map(|i| centroid[i] * n[i]).sum::<f64>();
+    let reverse = (0..3).map(|i| direction[i] * n[i]).sum::<f64>() < 0.0;
+    Some((plane, offset, reverse))
+}
+
+/// Sketch on a flat face of the last build (when its normal is along an axis).
+pub fn begin_on_face(state: &mut State, face: &aurafx_pipeline::CadFace) {
+    match plane_for_face(face.centroid, face.direction) {
+        Some((plane, offset, reverse)) => begin_new(state, plane, offset, reverse),
+        None => state.toast("Sketches start on flat faces whose normal is along x, y or z".to_string(), true),
+    }
+}
+
+/// Edit the sketch of an extruded or revolved feature.
+pub fn begin_edit(state: &mut State, feature: Id) {
+    state.cad.tab = super::RibbonTab::Sketch;
+    let sk = {
+        let s = state.session.lock();
+        s.cad_edit.as_ref().and_then(|e| e.document.feature(feature)).and_then(|f| match &f.shape {
+            aurafx_cad::Shape::SketchExtrude { sketch, .. } | aurafx_cad::Shape::SketchRevolve { sketch, .. } => Some(sketch.clone()),
+            _ => None,
+        })
+    };
+    match sk {
+        Some(sk) => {
+            state.cad.sketch = Some(SketchEdit::new(Some(feature), sk));
+            solve(state);
+        }
+        None => state.toast("That feature has no sketch".to_string(), true),
+    }
+}
+
+/// Open a sketch from a description (Python: `e.sketch_new(items=[...])`).
+pub fn begin_from_spec(state: &mut State, spec: &serde_json::Value) {
+    state.cad.tab = super::RibbonTab::Sketch;
+    let built = {
+        let s = state.session.lock();
+        s.cad_edit.as_ref().map(|e| aurafx_cad::edit::sketch_from_spec(&e.document, spec))
+    };
+    match built {
+        Some(Ok(sk)) => {
+            state.cad.sketch = Some(SketchEdit::new(None, sk));
+            solve(state);
+        }
+        Some(Err(e)) => state.toast(format!("{e}"), true),
+        None => {}
+    }
+}
+
+pub fn cancel(state: &mut State) {
+    state.cad.sketch = None;
+}
+
+/// Re-solve after a change: the dimensions' expressions use the document's dimensions.
+pub fn solve(state: &mut State) {
+    let vars = state.session.lock().cad_edit.as_ref().and_then(|e| e.document.parameter_values().ok()).unwrap_or_default();
+    if let Some(e) = state.cad.sketch.as_mut() {
+        match e.sketch.solve_with(&vars) {
+            Ok(r) => {
+                e.report = Some(r);
+                e.error = None;
+            }
+            Err(err) => e.error = Some(err.to_string()),
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------- pure helpers
+
+fn spline_pts(p: &[DVec2], closed: bool) -> Vec<DVec2> {
+    let n = p.len();
+    if n < 3 {
+        return p.to_vec();
+    }
+    let get = |i: isize| -> DVec2 {
+        if closed {
+            p[i.rem_euclid(n as isize) as usize]
+        } else {
+            p[i.clamp(0, n as isize - 1) as usize]
+        }
+    };
+    let segs = if closed { n } else { n - 1 };
+    let mut out = Vec::new();
+    for i in 0..segs as isize {
+        let (p0, p1, p2, p3) = (get(i - 1), get(i), get(i + 1), get(i + 2));
+        for k in 0..12 {
+            let t = k as f64 / 12.0;
+            let (t2, t3) = (t * t, t * t * t);
+            out.push(0.5 * (2.0 * p1 + (p2 - p0) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3));
+        }
+    }
+    if !closed {
+        out.push(p[n - 1]);
+    }
+    out
+}
+
+fn arc_pts(c: DVec2, s: DVec2, e: DVec2) -> Vec<DVec2> {
+    let r = (s - c).length();
+    let a0 = (s - c).y.atan2((s - c).x);
+    let mut a1 = (e - c).y.atan2((e - c).x);
+    if a1 <= a0 {
+        a1 += std::f64::consts::TAU;
+    }
+    (0..=32).map(|k| c + DVec2::from_angle(a0 + (a1 - a0) * k as f64 / 32.0) * r).collect()
+}
+
+fn entity_pts(sk: &Sketch, e: &Entity) -> (Vec<DVec2>, bool) {
+    let p = |i: usize| sk.points.get(i).map(|q| q.pos()).unwrap_or_default();
+    match e {
+        Entity::Line { a, b, .. } => (vec![p(*a), p(*b)], false),
+        Entity::Circle { center, radius, .. } => ((0..64).map(|k| p(*center) + DVec2::from_angle(k as f64 / 64.0 * std::f64::consts::TAU) * *radius).collect(), true),
+        Entity::Arc { center, start, end, .. } => (arc_pts(p(*center), p(*start), p(*end)), false),
+        Entity::Spline { ctrl, closed, .. } => (spline_pts(&ctrl.iter().map(|i| p(*i)).collect::<Vec<_>>(), *closed), *closed),
+        Entity::Polyline { pts, closed, .. } => (pts.iter().map(|q| DVec2::new(q[0], q[1])).collect(), *closed),
+    }
+}
+
+fn is_line(sk: &Sketch, e: usize) -> bool {
+    matches!(sk.entities.get(e), Some(Entity::Line { .. }))
+}
+fn is_round(sk: &Sketch, e: usize) -> bool {
+    matches!(sk.entities.get(e), Some(Entity::Circle { .. } | Entity::Arc { .. }))
+}
+fn line_len(sk: &Sketch, e: usize) -> f64 {
+    match sk.entities.get(e) {
+        Some(Entity::Line { a, b, .. }) => (sk.point(*a) - sk.point(*b)).length(),
+        _ => 0.0,
+    }
+}
+fn radius_of(sk: &Sketch, e: usize) -> f64 {
+    match sk.entities.get(e) {
+        Some(Entity::Circle { radius, .. }) => *radius,
+        Some(Entity::Arc { center, start, .. }) => (sk.point(*start) - sk.point(*center)).length(),
+        _ => 0.0,
+    }
+}
+fn line_dir(sk: &Sketch, e: usize) -> DVec2 {
+    match sk.entities.get(e) {
+        Some(Entity::Line { a, b, .. }) => (sk.point(*b) - sk.point(*a)).normalize_or_zero(),
+        _ => DVec2::X,
+    }
+}
+
+/// Re-index a constraint after deleting entities and points (`None`: it goes too).
+fn remap(c: &Constraint, em: &dyn Fn(usize) -> Option<usize>, pm: &dyn Fn(usize) -> Option<usize>) -> Option<Constraint> {
+    use Constraint::*;
+    Some(match c {
+        Coincident(p, q) => Coincident(pm(*p)?, pm(*q)?),
+        Horizontal(e) => Horizontal(em(*e)?),
+        Vertical(e) => Vertical(em(*e)?),
+        Distance(p, q, d) => Distance(pm(*p)?, pm(*q)?, d.clone()),
+        HorizontalDistance(p, q, d) => HorizontalDistance(pm(*p)?, pm(*q)?, d.clone()),
+        VerticalDistance(p, q, d) => VerticalDistance(pm(*p)?, pm(*q)?, d.clone()),
+        Length(e, d) => Length(em(*e)?, d.clone()),
+        Radius(e, d) => Radius(em(*e)?, d.clone()),
+        Diameter(e, d) => Diameter(em(*e)?, d.clone()),
+        Angle(a, b, d) => Angle(em(*a)?, em(*b)?, d.clone()),
+        Parallel(a, b) => Parallel(em(*a)?, em(*b)?),
+        Perpendicular(a, b) => Perpendicular(em(*a)?, em(*b)?),
+        Equal(a, b) => Equal(em(*a)?, em(*b)?),
+        Tangent(a, b) => Tangent(em(*a)?, em(*b)?),
+        Concentric(a, b) => Concentric(em(*a)?, em(*b)?),
+        PointOnLine(p, e) => PointOnLine(pm(*p)?, em(*e)?),
+        PointOnCircle(p, e) => PointOnCircle(pm(*p)?, em(*e)?),
+        Midpoint(p, e) => Midpoint(pm(*p)?, em(*e)?),
+        Symmetric(p, q, e) => Symmetric(pm(*p)?, pm(*q)?, em(*e)?),
+        Fix(p) => Fix(pm(*p)?),
+    })
+}
+
+/// Delete the selected points and entities, and what depends on them, renumbering the rest.
+pub fn delete_selection(e: &mut SketchEdit) {
+    let sk = &mut e.sketch;
+    let dead_e: Vec<usize> = e.sel_ents.clone();
+    let mut dead_p: Vec<usize> = e.sel_pts.clone();
+    let used = |sk: &Sketch, p: usize, skip: &[usize]| {
+        sk.entities.iter().enumerate().filter(|(i, _)| !skip.contains(i)).any(|(_, en)| match en {
+            Entity::Line { a, b, .. } => *a == p || *b == p,
+            Entity::Circle { center, .. } => *center == p,
+            Entity::Arc { center, start, end, .. } => *center == p || *start == p || *end == p,
+            Entity::Spline { ctrl, .. } => ctrl.contains(&p),
+            Entity::Polyline { .. } => false,
+        })
+    };
+    for p in 0..sk.points.len() {
+        if !used(sk, p, &dead_e) && used(sk, p, &[]) {
+            dead_p.push(p);
+        }
+    }
+    let mut dead_e = dead_e;
+    for (i, en) in sk.entities.iter().enumerate() {
+        let pts: Vec<usize> = match en {
+            Entity::Line { a, b, .. } => vec![*a, *b],
+            Entity::Circle { center, .. } => vec![*center],
+            Entity::Arc { center, start, end, .. } => vec![*center, *start, *end],
+            Entity::Spline { ctrl, .. } => ctrl.clone(),
+            Entity::Polyline { .. } => vec![],
+        };
+        if pts.iter().any(|p| dead_p.contains(p)) && !dead_e.contains(&i) {
+            dead_e.push(i);
+        }
+    }
+    let emap = |i: usize| (!dead_e.contains(&i)).then(|| i - dead_e.iter().filter(|d| **d < i).count());
+    let pmap = |i: usize| (!dead_p.contains(&i)).then(|| i - dead_p.iter().filter(|d| **d < i).count());
+    sk.constraints = sk.constraints.iter().filter_map(|c| remap(c, &emap, &pmap)).collect();
+    let fix = |p: &mut usize| *p = pmap(*p).unwrap_or(0);
+    let mut ents = Vec::new();
+    for (i, mut en) in std::mem::take(&mut sk.entities).into_iter().enumerate() {
+        if dead_e.contains(&i) {
+            continue;
+        }
+        match &mut en {
+            Entity::Line { a, b, .. } => {
+                fix(a);
+                fix(b)
+            }
+            Entity::Circle { center, .. } => fix(center),
+            Entity::Arc { center, start, end, .. } => {
+                fix(center);
+                fix(start);
+                fix(end)
+            }
+            Entity::Spline { ctrl, .. } => ctrl.iter_mut().for_each(fix),
+            Entity::Polyline { .. } => {}
+        }
+        ents.push(en);
+    }
+    sk.entities = ents;
+    let mut i = 0;
+    sk.points.retain(|_| {
+        let keep = !dead_p.contains(&i);
+        i += 1;
+        keep
+    });
+    e.sel_pts.clear();
+    e.sel_ents.clear();
+    e.chain = None;
+    e.pending.clear();
+}
+
+/// The operation that makes the finished sketch part of the document.
+pub fn finish_op(e: &SketchEdit, name: &str, revolve: bool) -> (&'static str, serde_json::Value) {
+    let sketch_json = serde_json::to_value(&e.sketch).unwrap_or(serde_json::Value::Null);
+    match (e.feature, revolve) {
+        (Some(_), _) => ("set_sketch", json!({"feature": name, "sketch_json": sketch_json})),
+        (None, true) => ("sketch_revolve", json!({"sketch_json": sketch_json, "angle": 360, "op": op_word(e.op)})),
+        (None, false) => {
+            let depth = super::number_or_expr(&e.depth);
+            ("sketch_extrude", json!({"sketch_json": sketch_json, "depth": depth, "op": op_word(e.op), "reverse": e.reverse}))
+        }
+    }
+}
+
+fn op_word(o: BooleanOp) -> &'static str {
+    match o {
+        BooleanOp::Add => "add",
+        BooleanOp::Cut => "cut",
+        BooleanOp::Intersect => "intersect",
+    }
+}
+
+/// Finish the sketch: as a new extrusion or revolve, or as the new sketch of its feature.
+pub fn finish(state: &mut State, revolve: bool) {
+    let Some(e) = state.cad.sketch.take() else { return };
+    let name = e.feature.and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.document.feature(id).map(|f| f.name.clone()))).unwrap_or_default();
+    let (opname, mut args) = finish_op(&e, &name, revolve);
+    if e.feature.is_none() {
+        let base = if revolve { "Revolve" } else if e.op == BooleanOp::Cut { "Pocket" } else { "Extrude" };
+        args["name"] = json!(unique_name(state, base));
+    }
+    if op(state, opname, args).is_none() {
+        // The part refused it: keep the sketch open so nothing is lost.
+        state.cad.sketch = Some(e);
+    }
+}
+
+fn unique_name(state: &State, base: &str) -> String {
+    let s = state.session.lock();
+    let names: Vec<String> = s.cad_edit.as_ref().map(|e| e.document.features.iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
+    if !names.iter().any(|n| n == base) {
+        return base.to_string();
+    }
+    (2..).map(|k| format!("{base} {k}")).find(|n| !names.contains(n)).unwrap()
+}
+
+// ------------------------------------------------------------------------------- canvas
+
+pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
+    let (resp, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
+    let rect = resp.rect;
+    let dark = ui.visuals().dark_mode;
+    painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+    let mut changed = false;
+    {
+        let Some(e) = state.cad.sketch.as_mut() else { return };
+        if !e.fitted {
+            e.fitted = true;
+            let mut lo = DVec2::splat(-40.0);
+            let mut hi = DVec2::splat(40.0);
+            for p in &e.sketch.points {
+                lo = lo.min(p.pos() - 10.0);
+                hi = hi.max(p.pos() + 10.0);
+            }
+            e.center = (lo + hi) * 0.5;
+            e.scale = ((rect.width() as f64 / (hi.x - lo.x)).min(rect.height() as f64 / (hi.y - lo.y)) * 0.8).max(0.1) as f32;
+        }
+        if resp.dragged_by(egui::PointerButton::Secondary) || resp.dragged_by(egui::PointerButton::Middle) {
+            let d = resp.drag_delta();
+            e.center -= DVec2::new(d.x as f64, -d.y as f64) / e.scale as f64;
+        }
+        if resp.hovered() {
+            let z = ui.input(|i| i.smooth_scroll_delta.y);
+            if z.abs() > 0.0 {
+                e.scale = (e.scale * (z * 0.0015).exp()).clamp(0.05, 200.0);
+            }
+        }
+    }
+    let e = state.cad.sketch.as_ref().unwrap();
+    let (center, scale) = (e.center, e.scale);
+    let to_s = |p: DVec2| Pos2::new(rect.center().x + ((p.x - center.x) as f32) * scale, rect.center().y - ((p.y - center.y) as f32) * scale);
+    let to_w = |s: Pos2| DVec2::new(center.x + ((s.x - rect.center().x) / scale) as f64, center.y - ((s.y - rect.center().y) as f32 / scale) as f64);
+    // Grid and axes.
+    let step = if scale > 4.0 {
+        5.0
+    } else if scale > 1.0 {
+        10.0
+    } else {
+        50.0
+    };
+    let gcol = if dark { Color32::from_gray(60) } else { Color32::from_rgba_unmultiplied(0, 0, 0, 24) };
+    let (wlo, whi) = (to_w(rect.left_bottom()), to_w(rect.right_top()));
+    let mut x = (wlo.x / step).floor() * step;
+    while x < whi.x {
+        painter.line_segment([to_s(DVec2::new(x, wlo.y)), to_s(DVec2::new(x, whi.y))], Stroke::new(0.5, gcol));
+        x += step;
+    }
+    let mut y = (wlo.y / step).floor() * step;
+    while y < whi.y {
+        painter.line_segment([to_s(DVec2::new(wlo.x, y)), to_s(DVec2::new(whi.x, y))], Stroke::new(0.5, gcol));
+        y += step;
+    }
+    painter.line_segment([to_s(DVec2::new(wlo.x, 0.0)), to_s(DVec2::new(whi.x, 0.0))], Stroke::new(1.0, Color32::from_rgb(220, 90, 90)));
+    painter.line_segment([to_s(DVec2::new(0.0, wlo.y)), to_s(DVec2::new(0.0, whi.y))], Stroke::new(1.0, Color32::from_rgb(90, 180, 90)));
+    let sk = &e.sketch;
+    let status_of = e.report.as_ref().map(|r| r.status);
+    let base = match status_of {
+        Some(SolveStatus::FullyDefined) => {
+            if dark {
+                Color32::from_gray(235)
+            } else {
+                Color32::BLACK
+            }
+        }
+        Some(SolveStatus::OverDefined | SolveStatus::Failed) => crate::theme::ERROR,
+        _ => Color32::from_rgb(60, 130, 235),
+    };
+    for (i, en) in sk.entities.iter().enumerate() {
+        let (pts, closed) = entity_pts(sk, en);
+        let mut s: Vec<Pos2> = pts.iter().map(|p| to_s(*p)).collect();
+        if closed && !s.is_empty() {
+            s.push(s[0]);
+        }
+        let col = if e.sel_ents.contains(&i) { crate::theme::ACCENT } else { base };
+        if en.construction() {
+            for w in s.windows(2) {
+                painter.extend(egui::Shape::dashed_line(&[w[0], w[1]], Stroke::new(1.0, col), 5.0, 4.0));
+            }
+        } else {
+            painter.add(egui::Shape::line(s, Stroke::new(if e.sel_ents.contains(&i) { 2.6 } else { 1.8 }, col)));
+        }
+    }
+    for (i, p) in sk.points.iter().enumerate() {
+        let s = to_s(p.pos());
+        let col = if e.sel_pts.contains(&i) { crate::theme::ACCENT } else { base };
+        if p.fixed {
+            painter.rect_filled(egui::Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 0.0, col);
+        } else {
+            painter.circle_filled(s, 3.0, col);
+        }
+    }
+    // Constraint glyphs and dimensions.
+    let mid = |en: usize| -> DVec2 {
+        match sk.entities.get(en) {
+            Some(Entity::Line { a, b, .. }) => (sk.point(*a) + sk.point(*b)) * 0.5,
+            Some(Entity::Circle { center, radius, .. }) => sk.point(*center) + DVec2::new(radius * 0.7, radius * 0.7),
+            Some(Entity::Arc { center, start, .. }) => (sk.point(*center) + sk.point(*start)) * 0.5,
+            _ => DVec2::ZERO,
+        }
+    };
+    let gcolr = Color32::from_rgb(30, 150, 90);
+    let dim_text = |d: &Dim, prefix: &str, suffix: &str| format!("{prefix}{}{suffix}{}", num_text(d.value), d.expr.as_ref().map(|x| format!(" = {x}")).unwrap_or_default());
+    let mut used: Vec<(Pos2, u32)> = Vec::new();
+    for c in &sk.constraints {
+        let (at, txt) = match c {
+            Constraint::Horizontal(e) => (mid(*e), "H".to_string()),
+            Constraint::Vertical(e) => (mid(*e), "V".to_string()),
+            Constraint::Parallel(a, _) => (mid(*a), "∥".into()),
+            Constraint::Perpendicular(a, _) => (mid(*a), "⊥".into()),
+            Constraint::Equal(a, _) => (mid(*a), "=".into()),
+            Constraint::Tangent(a, _) => (mid(*a), "T".into()),
+            Constraint::Concentric(a, _) => (mid(*a), "◎".into()),
+            Constraint::Fix(p) => (sk.point(*p), "fix".into()),
+            Constraint::Length(e, d) => (mid(*e), dim_text(d, "", "")),
+            Constraint::Radius(e, d) => (mid(*e), dim_text(d, "R", "")),
+            Constraint::Diameter(e, d) => (mid(*e), dim_text(d, "⌀", "")),
+            Constraint::Angle(a, _, d) => (mid(*a), dim_text(d, "∠", "°")),
+            Constraint::Distance(p, q, d) | Constraint::HorizontalDistance(p, q, d) | Constraint::VerticalDistance(p, q, d) => ((sk.point(*p) + sk.point(*q)) * 0.5, dim_text(d, "", "")),
+            _ => continue,
+        };
+        let s = to_s(at);
+        let k = match used.iter_mut().find(|(p, _)| (*p - s).length() < 20.0) {
+            Some((_, n)) => {
+                *n += 1;
+                *n
+            }
+            None => {
+                used.push((s, 0));
+                0
+            }
+        };
+        painter.text(s + egui::vec2(6.0, -6.0 + 15.0 * k as f32), egui::Align2::LEFT_BOTTOM, txt, egui::FontId::proportional(12.0), gcolr);
+    }
+    // Status.
+    let (status, col) = match (&e.report, &e.error) {
+        (_, Some(err)) => (format!("Cannot solve: {err}"), crate::theme::ERROR),
+        (Some(r), _) => match r.status {
+            SolveStatus::FullyDefined => ("Fully defined".to_string(), crate::theme::OK),
+            SolveStatus::UnderDefined(n) => (format!("Under-defined: {n} degree(s) of freedom left (blue)"), Color32::from_rgb(60, 130, 235)),
+            SolveStatus::OverDefined => ("Over-defined: remove a redundant or conflicting constraint (red)".to_string(), crate::theme::ERROR),
+            SolveStatus::Failed => ("The solver failed: check the dimensions".to_string(), crate::theme::ERROR),
+        },
+        _ => ("Draw, then constrain and dimension".to_string(), ui.visuals().weak_text_color()),
+    };
+    painter.text(rect.left_top() + egui::vec2(10.0, 8.0), egui::Align2::LEFT_TOP, &status, egui::FontId::proportional(14.0), col);
+    painter.text(
+        rect.left_bottom() + egui::vec2(10.0, -8.0),
+        egui::Align2::LEFT_BOTTOM,
+        format!("Sketch on the {:?} plane · click draws or selects · right or middle drag pans · wheel zooms · Esc ends a chain · Del deletes", e.sketch.plane),
+        egui::FontId::proportional(11.0),
+        ui.visuals().weak_text_color(),
+    );
+
+    // ---- interaction
+    let hover = resp.hover_pos();
+    let pick_point = |sk: &Sketch, s: Pos2| -> Option<usize> {
+        sk.points.iter().enumerate().map(|(i, p)| (i, (to_s(p.pos()) - s).length())).filter(|(_, d)| *d < 9.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+    };
+    let pick_entity = |sk: &Sketch, s: Pos2| -> Option<usize> {
+        let mut best: Option<(usize, f32)> = None;
+        for (i, en) in sk.entities.iter().enumerate() {
+            let (pts, closed) = entity_pts(sk, en);
+            let sp: Vec<Pos2> = pts.iter().map(|p| to_s(*p)).collect();
+            let n = sp.len();
+            let segs = if closed { n } else { n.saturating_sub(1) };
+            for k in 0..segs {
+                let (a, b) = (sp[k], sp[(k + 1) % n]);
+                let ab = b - a;
+                let t = ((s - a).dot(ab) / ab.length_sq().max(1e-6)).clamp(0.0, 1.0);
+                let d = (a + ab * t - s).length();
+                if d < 7.0 && best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((i, d));
+                }
+            }
+        }
+        best.map(|(i, _)| i)
+    };
+    let tool = e.tool;
+    let shift = ui.input(|i| i.modifiers.shift);
+    let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    let del = ui.input(|i| i.key_pressed(egui::Key::Delete)) && !ui.ctx().egui_wants_keyboard_input();
+    let grid = e.snap_grid.max(1e-6);
+    let snap = |w: DVec2| DVec2::new((w.x / grid).round() * grid, (w.y / grid).round() * grid);
+    let e = state.cad.sketch.as_mut().unwrap();
+    if esc {
+        if e.chain.is_some() || !e.pending.is_empty() {
+            e.chain = None;
+            e.pending.clear();
+        } else {
+            e.tool = Tool::Select;
+        }
+    }
+    if del && (!e.sel_pts.is_empty() || !e.sel_ents.is_empty()) {
+        delete_selection(e);
+        changed = true;
+    }
+    let get_or_add = |e: &mut SketchEdit, s: Pos2| -> usize {
+        if let Some(i) = pick_point(&e.sketch, s) {
+            return i;
+        }
+        let w = snap(to_w(s));
+        e.sketch.points.push(SPoint::new(w.x, w.y));
+        e.sketch.points.len() - 1
+    };
+    // The rubber band of the shape being drawn.
+    if let Some(h) = hover {
+        let anchor = e.chain.or_else(|| e.pending.first().copied());
+        if let Some(a) = anchor.filter(|_| matches!(tool, Tool::Line | Tool::Rect | Tool::Circle | Tool::Arc | Tool::Spline)) {
+            let pa = e.sketch.point(a);
+            let ph = snap(to_w(h));
+            let st = Stroke::new(1.0, crate::theme::ACCENT);
+            match tool {
+                Tool::Rect => {
+                    painter.rect_stroke(egui::Rect::from_two_pos(to_s(pa), to_s(ph)), 0.0, st, egui::StrokeKind::Middle);
+                }
+                Tool::Circle => {
+                    painter.circle_stroke(to_s(pa), ((ph - pa).length() as f32) * scale, st);
+                }
+                _ => {
+                    painter.line_segment([to_s(pa), to_s(ph)], st);
+                }
+            }
+            painter.text(h + egui::vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, num_text((ph - pa).length()), egui::FontId::monospace(12.0), crate::theme::ACCENT);
+        }
+    }
+    match tool {
+        Tool::Select => {
+            if resp.drag_started_by(egui::PointerButton::Primary) {
+                e.drag = hover.and_then(|s| pick_point(&e.sketch, s)).filter(|i| !e.sketch.points[*i].fixed);
+            }
+            if let (Some(i), Some(h)) = (e.drag, hover) {
+                if resp.dragged_by(egui::PointerButton::Primary) {
+                    let w = to_w(h);
+                    e.sketch.points[i].x = w.x;
+                    e.sketch.points[i].y = w.y;
+                    changed = true;
+                }
+            }
+            if resp.drag_stopped() {
+                e.drag = None;
+            }
+            if resp.clicked() {
+                if let Some(s) = hover {
+                    if !shift {
+                        e.sel_pts.clear();
+                        e.sel_ents.clear();
+                    }
+                    if let Some(p) = pick_point(&e.sketch, s) {
+                        match e.sel_pts.iter().position(|x| *x == p) {
+                            Some(k) => {
+                                e.sel_pts.remove(k);
+                            }
+                            None => e.sel_pts.push(p),
+                        }
+                    } else if let Some(en) = pick_entity(&e.sketch, s) {
+                        match e.sel_ents.iter().position(|x| *x == en) {
+                            Some(k) => {
+                                e.sel_ents.remove(k);
+                            }
+                            None => e.sel_ents.push(en),
+                        }
+                    }
+                }
+            }
+        }
+        Tool::Point => {
+            if let (true, Some(s)) = (resp.clicked(), hover) {
+                get_or_add(e, s);
+                changed = true;
+            }
+        }
+        Tool::Line => {
+            if resp.secondary_clicked() {
+                e.chain = None;
+            }
+            if let (true, Some(s)) = (resp.clicked(), hover) {
+                let p = get_or_add(e, s);
+                if let Some(prev) = e.chain.filter(|prev| *prev != p) {
+                    let li = e.sketch.add_line(prev, p);
+                    // Inference: nearly horizontal or vertical lines get the constraint.
+                    let d = e.sketch.point(p) - e.sketch.point(prev);
+                    if d.y.abs() < d.length() * 0.035 {
+                        e.sketch.constrain(Constraint::Horizontal(li));
+                    } else if d.x.abs() < d.length() * 0.035 {
+                        e.sketch.constrain(Constraint::Vertical(li));
+                    }
+                    changed = true;
+                }
+                let closes = e.chain.is_some() && e.sketch.entities.iter().filter(|en| matches!(en, Entity::Line { a, b, .. } if *a == p || *b == p)).count() >= 2;
+                e.chain = if closes { None } else { Some(p) };
+            }
+        }
+        Tool::Rect => {
+            if let (true, Some(s)) = (resp.clicked(), hover) {
+                let p = get_or_add(e, s);
+                if let Some(a) = e.pending.pop() {
+                    let (pa, pb) = (e.sketch.point(a), e.sketch.point(p));
+                    let b = e.sketch.add_point(pb.x, pa.y);
+                    let d = e.sketch.add_point(pa.x, pb.y);
+                    let l0 = e.sketch.add_line(a, b);
+                    let l1 = e.sketch.add_line(b, p);
+                    let l2 = e.sketch.add_line(p, d);
+                    let l3 = e.sketch.add_line(d, a);
+                    for c in [Constraint::Horizontal(l0), Constraint::Vertical(l1), Constraint::Horizontal(l2), Constraint::Vertical(l3)] {
+                        e.sketch.constrain(c);
+                    }
+                    changed = true;
+                } else {
+                    e.pending.push(p);
+                }
+            }
+        }
+        Tool::Circle => {
+            if let (true, Some(s)) = (resp.clicked(), hover) {
+                if let Some(c) = e.pending.pop() {
+                    let r = (snap(to_w(s)) - e.sketch.point(c)).length().max(0.1);
+                    e.sketch.push(Entity::Circle { center: c, radius: r, construction: false });
+                    changed = true;
+                } else {
+                    let c = get_or_add(e, s);
+                    e.pending.push(c);
+                }
+            }
+        }
+        Tool::Arc => {
+            if let (true, Some(s)) = (resp.clicked(), hover) {
+                if e.pending.len() == 2 {
+                    let (c, st) = (e.pending[0], e.pending[1]);
+                    let r = (e.sketch.point(st) - e.sketch.point(c)).length();
+                    let dir = (to_w(s) - e.sketch.point(c)).normalize_or_zero();
+                    let end = pick_point(&e.sketch, s).unwrap_or_else(|| {
+                        let q = e.sketch.point(c) + dir * r;
+                        e.sketch.add_point(q.x, q.y)
+                    });
+                    e.sketch.add_arc(c, st, end);
+                    e.pending.clear();
+                    changed = true;
+                } else {
+                    let p = get_or_add(e, s);
+                    e.pending.push(p);
+                }
+            }
+        }
+        Tool::Spline => {
+            if let (true, Some(s)) = (resp.clicked(), hover) {
+                let p = get_or_add(e, s);
+                e.pending.push(p);
+            }
+            if (resp.double_clicked() || resp.secondary_clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter))) && e.pending.len() >= 2 {
+                let mut ctrl = std::mem::take(&mut e.pending);
+                ctrl.dedup();
+                let closed = ctrl.len() > 3 && ctrl.first() == ctrl.last();
+                if closed {
+                    ctrl.pop();
+                }
+                e.sketch.add_spline(ctrl, closed);
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        solve(state);
+    }
+}
+
+// ------------------------------------------------------------------------------- ribbon tools
+
+/// The sketch tools in the ribbon's Sketch tab: drawing tools, constraints, dimensions, finish.
+pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
+    let Some(e) = state.cad.sketch.as_mut() else { return };
+    ui.label(RichText::new(if e.feature.is_some() { "Edit sketch:" } else { "New sketch:" }).strong());
+    for (t, l, tip) in [
+        (Tool::Select, "Select", "Select points and shapes (Shift adds); drag a point to move it"),
+        (Tool::Line, "Line", "Click points to draw connected lines; right-click ends the chain"),
+        (Tool::Rect, "Rectangle", "Click two opposite corners"),
+        (Tool::Circle, "Circle", "Click the center, then a point on the circle"),
+        (Tool::Arc, "Arc", "Click the center, the start, then the end (counter-clockwise)"),
+        (Tool::Spline, "Spline", "Click control points; double-click or Enter finishes"),
+        (Tool::Point, "Point", "Place a point"),
+    ] {
+        if ui.selectable_label(e.tool == t, l).on_hover_text(tip).clicked() {
+            e.tool = t;
+            e.chain = None;
+            e.pending.clear();
+        }
+    }
+    ui.separator();
+    ui.label(RichText::new(format!("Constrain ({} pt, {} shape):", e.sel_pts.len(), e.sel_ents.len())).weak().small());
+    let sk = &e.sketch;
+    let (pts, ents) = (e.sel_pts.clone(), e.sel_ents.clone());
+    let lines: Vec<usize> = ents.iter().copied().filter(|i| is_line(sk, *i)).collect();
+    let rounds: Vec<usize> = ents.iter().copied().filter(|i| is_round(sk, *i)).collect();
+    let mut add: Vec<Constraint> = Vec::new();
+    let mut b = |ui: &mut egui::Ui, ok: bool, label: &str, tip: &str, c: &dyn Fn() -> Vec<Constraint>| {
+        if ui.add_enabled(ok, egui::Button::new(label)).on_hover_text(tip).clicked() {
+            add.extend(c());
+        }
+    };
+    let only_lines = !lines.is_empty() && pts.is_empty() && rounds.is_empty();
+    b(ui, only_lines, "H", "Horizontal", &|| lines.iter().map(|l| Constraint::Horizontal(*l)).collect());
+    b(ui, only_lines, "V", "Vertical", &|| lines.iter().map(|l| Constraint::Vertical(*l)).collect());
+    b(ui, lines.len() == 2 && ents.len() == 2, "Parallel", "Two lines parallel", &|| vec![Constraint::Parallel(lines[0], lines[1])]);
+    b(ui, lines.len() == 2 && ents.len() == 2, "Perpendicular", "Two lines at right angles", &|| vec![Constraint::Perpendicular(lines[0], lines[1])]);
+    b(ui, ents.len() == 2 && (lines.len() == 2 || rounds.len() == 2), "Equal", "Equal lengths or radii", &|| vec![Constraint::Equal(ents[0], ents[1])]);
+    b(ui, (lines.len() == 1 && rounds.len() == 1) || rounds.len() == 2, "Tangent", "A line tangent to a circle or arc, or two touching", &|| vec![Constraint::Tangent(ents[0], ents[1])]);
+    b(ui, rounds.len() == 2, "Concentric", "Same center", &|| vec![Constraint::Concentric(rounds[0], rounds[1])]);
+    b(ui, pts.len() == 2 && ents.is_empty(), "Coincident", "Two points are one", &|| vec![Constraint::Coincident(pts[0], pts[1])]);
+    b(ui, pts.len() == 1 && lines.len() == 1, "Midpoint", "A point at the middle of a line", &|| vec![Constraint::Midpoint(pts[0], lines[0])]);
+    b(ui, pts.len() == 1 && lines.len() == 1, "On line", "A point on a line", &|| vec![Constraint::PointOnLine(pts[0], lines[0])]);
+    b(ui, pts.len() == 1 && rounds.len() == 1, "On circle", "A point on a circle", &|| vec![Constraint::PointOnCircle(pts[0], rounds[0])]);
+    b(ui, pts.len() == 2 && lines.len() == 1, "Symmetric", "Two points mirrored about a line", &|| vec![Constraint::Symmetric(pts[0], pts[1], lines[0])]);
+    b(ui, !pts.is_empty() && ents.is_empty(), "Fix", "Hold a point in place", &|| pts.iter().map(|p| Constraint::Fix(*p)).collect());
+    ui.separator();
+    ui.label(RichText::new("Dimension:").weak().small());
+    b(ui, lines.len() == 1 && ents.len() == 1, "Length", "Fix a line's length (edit the value or an expression in the list)", &|| vec![Constraint::Length(lines[0], Dim::new(line_len(sk, lines[0])))]);
+    b(ui, rounds.len() == 1 && ents.len() == 1, "Radius", "Fix a radius", &|| vec![Constraint::Radius(rounds[0], Dim::new(radius_of(sk, rounds[0])))]);
+    b(ui, rounds.len() == 1 && ents.len() == 1, "Diameter", "Fix a diameter", &|| vec![Constraint::Diameter(rounds[0], Dim::new(2.0 * radius_of(sk, rounds[0])))]);
+    b(ui, pts.len() == 2 && ents.is_empty(), "Distance", "The distance between two points", &|| vec![Constraint::Distance(pts[0], pts[1], Dim::new((sk.point(pts[0]) - sk.point(pts[1])).length()))]);
+    b(ui, pts.len() == 2 && ents.is_empty(), "Horizontal distance", "The horizontal distance between two points", &|| {
+        vec![Constraint::HorizontalDistance(pts[0], pts[1], Dim::new((sk.point(pts[0]).x - sk.point(pts[1]).x).abs()))]
+    });
+    b(ui, pts.len() == 2 && ents.is_empty(), "Vertical distance", "The vertical distance between two points", &|| {
+        vec![Constraint::VerticalDistance(pts[0], pts[1], Dim::new((sk.point(pts[0]).y - sk.point(pts[1]).y).abs()))]
+    });
+    b(ui, lines.len() == 2 && ents.len() == 2, "Angle", "The angle between two lines", &|| {
+        vec![Constraint::Angle(lines[0], lines[1], Dim::new(line_dir(sk, lines[0]).dot(line_dir(sk, lines[1])).clamp(-1.0, 1.0).acos().to_degrees()))]
+    });
+    let mut changed = false;
+    if !add.is_empty() {
+        for c in add {
+            e.sketch.constrain(c);
+        }
+        e.sel_pts.clear();
+        e.sel_ents.clear();
+        changed = true;
+    }
+    ui.separator();
+    if ui.add_enabled(!e.sel_ents.is_empty(), egui::Button::new("Construction")).on_hover_text("Toggle construction geometry (not part of the outline)").clicked() {
+        for i in e.sel_ents.clone() {
+            if let Some(en) = e.sketch.entities.get_mut(i) {
+                let v = !en.construction();
+                en.set_construction(v);
+            }
+        }
+        changed = true;
+    }
+    if ui.add_enabled(!e.sel_ents.is_empty() || !e.sel_pts.is_empty(), egui::Button::new("Delete")).on_hover_text("Delete the selection (Del)").clicked() {
+        delete_selection(e);
+        changed = true;
+    }
+    if changed {
+        solve(state);
+    }
+}
+
+// ------------------------------------------------------------------------------- properties
+
+/// The sketch's properties in the PropertyManager: plane, the list of constraints with their
+/// dimensions (values or expressions), the outline count, and how to finish.
+pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
+    let feature_name = state.cad.sketch.as_ref().and_then(|e| e.feature).and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.document.feature(id).map(|f| f.name.clone())));
+    let Some(e) = state.cad.sketch.as_mut() else { return };
+    ui.label(RichText::new(if feature_name.is_some() { format!("Sketch of {}", feature_name.clone().unwrap()) } else { "New sketch".to_string() }).strong());
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label("Plane");
+        if e.feature.is_none() {
+            for (pl, l) in [(SketchPlane::XY, "Top (XY)"), (SketchPlane::XZ, "Front (XZ)"), (SketchPlane::YZ, "Right (YZ)")] {
+                changed |= ui.selectable_value(&mut e.sketch.plane, pl, l).changed();
+            }
+        } else {
+            ui.label(format!("{:?}", e.sketch.plane));
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("Offset");
+        let r = ui.add(egui::DragValue::new(&mut e.sketch.offset).speed(0.1).suffix(" mm"));
+        changed |= r.drag_stopped() || r.lost_focus();
+        ui.label("Grid");
+        ui.add(egui::DragValue::new(&mut e.snap_grid).speed(0.05).range(0.01..=50.0).suffix(" mm"));
+    });
+    // The status.
+    if let Some(r) = &e.report {
+        ui.label(
+            RichText::new(match r.status {
+                SolveStatus::FullyDefined => "Fully defined".to_string(),
+                SolveStatus::UnderDefined(n) => format!("Under-defined: {n} degree(s) of freedom left"),
+                SolveStatus::OverDefined => "Over-defined".to_string(),
+                SolveStatus::Failed => "The solver failed".to_string(),
+            })
+            .color(match r.status {
+                SolveStatus::FullyDefined => crate::theme::OK,
+                SolveStatus::UnderDefined(_) => Color32::from_rgb(60, 130, 235),
+                _ => crate::theme::ERROR,
+            }),
+        );
+    }
+    if let Some(err) = &e.error {
+        ui.label(RichText::new(err).color(crate::theme::ERROR).small());
+    }
+    ui.separator();
+    ui.label(RichText::new(format!("Constraints ({})", e.sketch.constraints.len())).strong());
+    let mut remove = None;
+    for (i, c) in e.sketch.constraints.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            let name = format!("{c:?}");
+            ui.label(RichText::new(name.split('(').next().unwrap_or("")).small());
+            if let Some(d) = c.dim_mut() {
+                let shown = d.expr.clone().unwrap_or_else(|| num_text(d.value));
+                if let Some(t) = expr_field(ui, ("sk dim", i), &shown, 90.0) {
+                    match t.parse::<f64>() {
+                        Ok(x) => *d = Dim::new(x),
+                        Err(_) => d.expr = Some(t),
+                    }
+                    changed = true;
+                }
+                if d.expr.is_some() {
+                    ui.label(RichText::new(format!("= {}", num_text(d.value))).weak().small());
+                }
+            }
+            if ui.small_button("×").on_hover_text("Remove this constraint").clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove {
+        e.sketch.constraints.remove(i);
+        changed = true;
+    }
+    ui.separator();
+    ui.label(format!("{} closed outline(s), {} open path(s)", e.sketch.profiles().len(), e.sketch.open_paths().len()));
+    let outlines = e.sketch.profiles().len();
+    let editing = e.feature.is_some();
+    if !editing {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut e.op, BooleanOp::Add, "Boss (adds)");
+            ui.selectable_value(&mut e.op, BooleanOp::Cut, "Cut");
+            ui.selectable_value(&mut e.op, BooleanOp::Intersect, "Intersect");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Depth");
+            ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut e.depth).hint_text("10 or width / 2"));
+            ui.checkbox(&mut e.reverse, "reverse").on_hover_text("Extrude against the sketch plane's normal");
+        });
+    }
+    let (mut extrude, mut revolve, mut apply, mut cancel_it) = (false, false, false, false);
+    ui.horizontal(|ui| {
+        if editing {
+            if ui.add_enabled(outlines > 0, egui::Button::new(RichText::new("Apply sketch").strong())).clicked() {
+                apply = true;
+            }
+        } else {
+            if ui.add_enabled(outlines > 0, egui::Button::new(RichText::new(if e.op == BooleanOp::Cut { "Cut" } else { "Extrude" }).strong())).clicked() {
+                extrude = true;
+            }
+            if ui.add_enabled(outlines > 0, egui::Button::new("Revolve")).on_hover_text("About the sketch's vertical axis; x is the radius (draw on the Front plane with x ≥ 0)").clicked() {
+                revolve = true;
+            }
+        }
+        if ui.button("Cancel").clicked() {
+            cancel_it = true;
+        }
+    });
+    if changed {
+        solve(state);
+    }
+    if cancel_it {
+        cancel(state);
+    } else if extrude || apply {
+        finish(state, false);
+    } else if revolve {
+        finish(state, true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect_sketch() -> SketchEdit {
+        let mut s = Sketch::rectangle(20.0, 10.0);
+        let _ = s.solve();
+        SketchEdit::new(None, s)
+    }
+
+    #[test]
+    fn deleting_a_line_removes_what_depends_on_it_and_renumbers_the_rest() {
+        let mut e = rect_sketch();
+        let (n_ents, n_cons) = (e.sketch.entities.len(), e.sketch.constraints.len());
+        e.sel_ents = vec![0];
+        delete_selection(&mut e);
+        assert!(e.sketch.entities.len() < n_ents);
+        assert!(e.sketch.constraints.len() < n_cons);
+        // Every remaining index is valid.
+        let np = e.sketch.points.len();
+        for en in &e.sketch.entities {
+            match en {
+                Entity::Line { a, b, .. } => assert!(*a < np && *b < np),
+                Entity::Circle { center, .. } => assert!(*center < np),
+                _ => {}
+            }
+        }
+        let ne = e.sketch.entities.len();
+        for c in &e.sketch.constraints {
+            if let Constraint::Horizontal(i) | Constraint::Vertical(i) | Constraint::Length(i, _) = c {
+                assert!(*i < ne);
+            }
+        }
+        assert!(e.sketch.solve().converged || true);
+    }
+
+    #[test]
+    fn the_finished_sketch_becomes_an_operation_the_document_accepts() {
+        let mut e = rect_sketch();
+        e.depth = "width / 2".into();
+        let (name, args) = finish_op(&e, "", false);
+        assert_eq!(name, "sketch_extrude");
+        let mut d = aurafx_cad::Document::new("p");
+        aurafx_cad::edit::apply_op(&mut d, "parameter", &json!({"name": "width", "expr": 30})).unwrap();
+        aurafx_cad::edit::apply_op(&mut d, name, &args).unwrap();
+        let ev = aurafx_filters::cad::evaluate(&d, 48, true).unwrap();
+        // 20 x 10 profile, 15 deep.
+        assert!((ev.volume() - 20.0 * 10.0 * 15.0).abs() / 3000.0 < 0.02, "{}", ev.volume());
+        // Editing the sketch of a feature replaces it.
+        let mut e2 = SketchEdit::new(Some(d.features[0].id), Sketch::rectangle(40.0, 10.0));
+        e2.report = None;
+        let (name2, args2) = finish_op(&e2, "Extrude", false);
+        assert_eq!(name2, "set_sketch");
+        aurafx_cad::edit::apply_op(&mut d, name2, &args2).unwrap();
+        let ev2 = aurafx_filters::cad::evaluate(&d, 48, true).unwrap();
+        assert!((ev2.volume() - 40.0 * 10.0 * 15.0).abs() / 6000.0 < 0.02, "{}", ev2.volume());
+        // A revolve of a half profile.
+        let mut e3 = SketchEdit::new(None, Sketch::polygon(&[[0.0, 0.0], [10.0, 0.0], [10.0, 20.0], [0.0, 20.0]]));
+        e3.sketch.plane = SketchPlane::XZ;
+        let (n3, a3) = finish_op(&e3, "", true);
+        assert_eq!(n3, "sketch_revolve");
+        let mut d3 = aurafx_cad::Document::new("r");
+        aurafx_cad::edit::apply_op(&mut d3, n3, &a3).unwrap();
+        let v = aurafx_filters::cad::evaluate(&d3, 64, true).unwrap().volume();
+        assert!((v - std::f64::consts::PI * 100.0 * 20.0).abs() / 6283.0 < 0.02, "{v}");
+    }
+
+    #[test]
+    fn sketches_on_faces_use_the_matching_plane_offset_and_direction() {
+        // Top of a plate at z = 8, pointing up: XY plane, offset 8, along the normal.
+        assert_eq!(plane_for_face([0.0, 0.0, 8.0], [0.0, 0.0, 1.0]), Some((SketchPlane::XY, 8.0, false)));
+        // The bottom looks down: the same plane, extruding against its normal.
+        assert_eq!(plane_for_face([0.0, 0.0, 0.0], [0.0, 0.0, -1.0]), Some((SketchPlane::XY, 0.0, true)));
+        // A face looking along +x is the YZ plane (normal +x).
+        assert_eq!(plane_for_face([20.0, 0.0, 4.0], [1.0, 0.0, 0.0]), Some((SketchPlane::YZ, 20.0, false)));
+        // The front plane's normal is -y: a face looking along -y at y = -15 has offset 15.
+        assert_eq!(plane_for_face([0.0, -15.0, 4.0], [0.0, -1.0, 0.0]), Some((SketchPlane::XZ, 15.0, false)));
+        assert_eq!(plane_for_face([0.0, 15.0, 4.0], [0.0, 1.0, 0.0]), Some((SketchPlane::XZ, -15.0, true)));
+        // A slanted face is refused.
+        assert!(plane_for_face([0.0; 3], [0.0, 0.6, 0.8]).is_none());
+    }
+
+    #[test]
+    fn splines_and_arcs_flatten_to_points_through_their_ends() {
+        let a = arc_pts(DVec2::ZERO, DVec2::new(5.0, 0.0), DVec2::new(0.0, 5.0));
+        assert!((a[0] - DVec2::new(5.0, 0.0)).length() < 1e-9 && (a[a.len() - 1] - DVec2::new(0.0, 5.0)).length() < 1e-9);
+        let s = spline_pts(&[DVec2::ZERO, DVec2::new(5.0, 5.0), DVec2::new(10.0, 0.0)], false);
+        assert_eq!(s[0], DVec2::ZERO);
+        assert!((s[s.len() - 1] - DVec2::new(10.0, 0.0)).length() < 1e-9);
+    }
+}

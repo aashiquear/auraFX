@@ -132,7 +132,25 @@ fn features_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bo
 }
 
 fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool) {
-    ui.label(RichText::new("Sketch shapes, extruded or revolved (edit their dimensions on the right):").weak().small());
+    if super::sketching(state) {
+        super::sketch::tools_ui(state, ui);
+        return;
+    }
+    ui.label(RichText::new("New sketch on:").weak().small());
+    for (plane, label, tip) in [
+        (aurafx_cad::SketchPlane::XY, "Top (XY)", "Draw on the horizontal plane"),
+        (aurafx_cad::SketchPlane::XZ, "Front (XZ)", "Draw on the front plane (x across, z up)"),
+        (aurafx_cad::SketchPlane::YZ, "Right (YZ)", "Draw on the side plane (y across, z up)"),
+    ] {
+        if button(ui, label, tip) {
+            super::sketch_new(state, plane, 0.0, false);
+        }
+    }
+    if has_part && button(ui, "Top of the part", "Draw on the plane of the top of the part, to add a boss or cut a pocket") {
+        super::sketch_new(state, aurafx_cad::SketchPlane::XY, at[2], false);
+    }
+    ui.separator();
+    ui.label(RichText::new("or add a ready shape (edit its dimensions on the right):").weak().small());
     let off = if has_part { at[2] } else { 0.0 };
     let sk = |item: Value, plane: &str| json!({"plane": plane, "offset": if plane == "XY" { off } else { 0.0 }, "items": [item]});
     if button(ui, "Rectangle", "A 30 × 20 rectangle extruded 10 mm") {

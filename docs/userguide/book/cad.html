@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d9f7e955.js";
+            window.path_to_searchindex_js = "searchindex-0df3306b.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -304,6 +304,41 @@ e.apply(fix="none")            # leave what the check found as it is
 e.apply(fix=answer_text)       # the text of an assistant's answer (a JSON list of fixes)
 e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs them
 </code></pre>
+<h2 id="sketching"><a class="header" href="#sketching">Sketching</a></h2>
+<p>A sketch is a drawing on a plane that a feature extrudes or revolves. Start one from the
+ribbon’s <strong>Sketch</strong> tab: <strong>Top (XY)</strong>, <strong>Front (XZ)</strong> or <strong>Right (YZ)</strong>, or <strong>Top of the part</strong>
+(the plane of the highest face, to add a boss or cut a pocket). To sketch on a flat face, select
+no feature, open <em>Faces</em> in the PropertyManager and press <strong>Sketch here</strong> next to a face whose
+normal points along x, y or z. To change an existing feature’s sketch, right-click it in the
+FeatureManager and choose <strong>Edit sketch…</strong>, or press <strong>Edit sketch…</strong> in its properties.</p>
+<p>The canvas takes the place of the 3D view while a sketch is open:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sketch.png" alt="The sketch canvas on the L-bracket: its outline with the dimensions from the part’s own dimensions (length, height, t), the status “Fully defined” and the constraint list"><span class="img-wrapper"><img src="images/cad_sketch.png" alt="The sketch canvas on the L-bracket: its outline with the dimensions from the part’s own dimensions (length, height, t), the status “Fully defined” and the constraint list"></span></label></p>
+<ul>
+<li><strong>Draw</strong> with the tools in the ribbon: <em>Line</em> (connected lines; right-click ends the chain),
+<em>Rectangle</em> (two corners), <em>Circle</em> (center, then a point on it), <em>Arc</em> (center, start,
+end), <em>Spline</em>, <em>Point</em>. New points snap to existing ones (which joins shapes) and to a grid
+(set in the PropertyManager). A line drawn nearly horizontal or vertical becomes so.</li>
+<li><strong>Select</strong> shapes and points by clicking (Shift adds); drag a point to move it. Right or
+middle mouse drag pans, the wheel zooms, <code>Esc</code> ends a chain, <code>Del</code> deletes.</li>
+<li><strong>Constrain</strong> the selection with the ribbon: horizontal, vertical, parallel, perpendicular,
+equal, tangent, concentric, coincident, midpoint, on line, on circle, symmetric, fix.
+<strong>Dimension</strong> it: length, radius, diameter, distance (also horizontal and vertical) and angle.</li>
+<li>A dimension starts at the current size. Edit it in the <strong>Constraints</strong> list in the
+PropertyManager: type a number, or an expression of the part’s dimensions (<code>width / 2</code>,
+<code>3 in</code>), and the sketch follows the dimension from then on.</li>
+<li>The <strong>solver runs after every change</strong>. Shapes are <strong>blue</strong> while the sketch can still move
+(the status says how many degrees of freedom are left), <strong>white or black</strong> when it is fully
+defined, and <strong>red</strong> when constraints conflict (remove one). <em>Construction</em> turns the
+selected shapes into guides that are not part of the outline.</li>
+</ul>
+<p>Finish from the PropertyManager: <strong>Extrude</strong> (or <strong>Cut</strong>, for a pocket) with a depth that may be
+an expression, <strong>reverse</strong> to go against the plane’s normal, <strong>Revolve</strong> about the plane’s
+vertical axis (draw on the Front plane with x as the radius), or <strong>Apply sketch</strong> when you
+edited the sketch of an existing feature. The sketch then becomes a feature with named faces:
+<code>side 1</code>, <code>side 2</code>… follow the order the shapes were drawn.</p>
+<p>From Python, <code>e.sketch_new(plane="XY", items=[...])</code> and <code>e.sketch_edit("Bracket")</code> open the
+canvas in the window, and <code>e.sketch(...)</code> with <code>e.extrude(...)</code> builds the same features
+without it.</p>
 <h2 id="python"><a class="header" href="#python">Python</a></h2>
 <pre><code class="language-python">m = afx.cad_model()                                   # a plate; or afx.cad_model("part.afxcad"),
                                                       # afx.cad_model(template="flange")
@@ -350,9 +385,8 @@ Face names carry through: an extracted set or a boundary layer can name <code>Bo
 <li>The kernel used here describes the part as a distance field. It never fails on a hard
 combination of features, but edges are not exact lines: the faces it reports are labelled
 regions of the surface, and the same labels come back after every rebuild.</li>
-<li>A part is one body, and sketches are made from the shapes the ribbon and Python offer
-(rectangle, circle, polygon, hexagon, profile); drawing a sketch line by line, with
-constraints, comes with the sketch canvas in a later version.</li>
+<li>A part is one body. Sketches start on the three principal planes or on a flat face whose
+normal is along x, y or z; a face at another angle can not be sketched on yet.</li>
 </ul>
 
                     </main>

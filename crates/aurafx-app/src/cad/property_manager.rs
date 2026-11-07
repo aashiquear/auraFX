@@ -146,6 +146,10 @@ pub fn property_manager_ui(state: &mut State, ui: &mut egui::Ui) {
     if let Some(e) = &error {
         ui.label(RichText::new(e).color(crate::theme::ERROR).small());
     }
+    if super::sketching(state) {
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| super::sketch::props_ui(state, ui));
+        return;
+    }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match selected.and_then(|id| doc.feature(id)) {
         Some(f) => feature_properties(state, ui, &doc, f),
         None => part_properties(state, ui, &doc),
@@ -163,21 +167,39 @@ fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
     });
     ui.add_space(6.0);
     ui.label(RichText::new(format!("{} feature(s), {} dimension(s), {} configuration(s)", doc.features.len(), doc.parameters.len(), doc.configurations.len())).weak().small());
-    if let Some(s) = state.session.lock().cad_edit.as_ref().and_then(|e| e.summary.as_ref()) {
+    let mut sketch_on: Option<aurafx_pipeline::CadFace> = None;
+    let summary = state.session.lock().cad_edit.as_ref().and_then(|e| e.summary.clone());
+    if let Some(s) = &summary {
         ui.add_space(6.0);
         egui::CollapsingHeader::new(RichText::new(format!("Faces ({})", s.faces.len())).strong()).id_salt("pm faces").show(ui, |ui| {
-            for (i, (name, kind, area, _)) in s.faces.iter().enumerate() {
-                ui.label(RichText::new(format!("{i}  {name}  ({kind}, {} mm²)", num_text(*area))).small());
+            for (i, f) in s.faces.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{i}  {}  ({}, {} mm²)", f.name, f.kind, num_text(f.area))).small());
+                    if f.kind == "plane" && super::sketch::plane_for_face(f.centroid, f.direction).is_some() && ui.small_button("Sketch here").on_hover_text("Start a sketch on this flat face").clicked() {
+                        sketch_on = Some(f.clone());
+                    }
+                });
             }
         });
+    }
+    start_face_sketch(state, sketch_on);
+}
+
+fn start_face_sketch(state: &mut State, face: Option<aurafx_pipeline::CadFace>) {
+    if let Some(f) = face {
+        super::sketch::begin_on_face(state, &f);
     }
 }
 
 fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &Feature) {
     let fv = serde_json::to_value(f).unwrap_or(Value::Null);
     let mut cx = Ctx { feature: &f.name, bindings: f.bindings.iter().map(|b| (b.path.clone(), b.expr.clone())).collect(), acts: Vec::new() };
+    let mut edit_sketch = false;
     ui.horizontal(|ui| {
         ui.label(RichText::new(&f.name).strong());
+        if matches!(f.shape, aurafx_cad::Shape::SketchExtrude { .. } | aurafx_cad::Shape::SketchRevolve { .. }) && ui.small_button("Edit sketch…").on_hover_text("Open the sketch canvas on this feature's sketch").clicked() {
+            edit_sketch = true;
+        }
         if ui.small_button("Delete").clicked() {
             cx.acts.push(("remove", json!({"feature": f.name})));
         }
@@ -304,5 +326,8 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
     let _ = doc;
     for (name, args) in cx.acts {
         op(state, name, args);
+    }
+    if edit_sketch {
+        super::sketch_edit(state, f.id);
     }
 }

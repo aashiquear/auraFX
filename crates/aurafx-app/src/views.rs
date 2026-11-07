@@ -148,6 +148,11 @@ impl State {
 
     /// Draw view `id` (active or not) in a pane.
     pub fn view_pane_ui(&mut self, ui: &mut egui::Ui, id: u32) {
+        // The sketch canvas takes the place of the active 3D view while a sketch is open.
+        if id == self.active_view && crate::cad::sketching(self) {
+            crate::cad::sketch_canvas_ui(self, ui);
+            return;
+        }
         if id == self.active_view {
             crate::viewport::viewport_ui(self, ui, true);
             return;

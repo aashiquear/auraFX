@@ -1718,6 +1718,30 @@ impl eframe::App for AuraApp {
                         crate::cad::apply(&mut self.state, arg == "keep");
                     }
                 }
+                // "cad_sketch_new <json>": open the sketch canvas on a new sketch (plane, offset, items).
+                "cad_sketch_new" => {
+                    if crate::cad::editing(&self.state) {
+                        let spec: serde_json::Value = serde_json::from_str(arg).unwrap_or_default();
+                        if spec.get("items").is_some() {
+                            crate::cad::sketch_from_spec(&mut self.state, &spec);
+                        } else {
+                            let plane = match spec.get("plane").and_then(|p| p.as_str()).unwrap_or("XY").to_uppercase().as_str() {
+                                "XZ" => aurafx_cad::SketchPlane::XZ,
+                                "YZ" => aurafx_cad::SketchPlane::YZ,
+                                _ => aurafx_cad::SketchPlane::XY,
+                            };
+                            crate::cad::sketch_new(&mut self.state, plane, spec.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0), false);
+                        }
+                    }
+                }
+                // "cad_sketch_edit <feature>": open the sketch canvas on a feature's sketch.
+                "cad_sketch_edit" => {
+                    let id = self.state.session.lock().cad_edit.as_ref().and_then(|e| e.document.features.iter().find(|f| f.name == arg.trim()).map(|f| f.id));
+                    match id {
+                        Some(id) => crate::cad::sketch_edit(&mut self.state, id),
+                        None => self.state.toast(format!("No feature named '{}'", arg.trim()), true),
+                    }
+                }
                 "link" => self.state.link_all_views(arg != "off"),
                 "match" => self.state.camera_match_from = Some(self.state.active_view),
                 "activate" => {

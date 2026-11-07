@@ -165,6 +165,14 @@ impl FilterDef {
         if label.starts_with(&q) {
             return 500;
         }
+        // A word of the label, or a keyword, starting with the query beats a match inside a
+        // word ("iso" finds isosurface before misorientation).
+        if label.split_whitespace().any(|w| w.starts_with(&q)) {
+            return 400;
+        }
+        if self.keywords.iter().any(|k| k.split_whitespace().any(|w| w.starts_with(&q))) {
+            return 350;
+        }
         if label.contains(&q) || self.id.contains(&q) {
             return 300;
         }
@@ -2710,6 +2718,255 @@ fn build() -> Vec<FilterDef> {
                     &p.floats("shifts"),
                 )
             },
+        },
+        FilterDef {
+            id: "segment_features",
+            label: "Segment Features",
+            category: "Grains",
+            description: "Group neighbouring cells into features (grains): by misorientation, by c-axis alignment or by a scalar, giving FeatureIds.",
+            keywords: &["grains", "segmentation", "reconstruct", "feature ids", "misorientation", "grain map", "ebsd", "flood fill"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("method", "Group by", &[crate::features::SEG_MISORIENTATION, crate::features::SEG_CAXIS, crate::features::SEG_SCALAR], crate::features::SEG_MISORIENTATION),
+                f("tolerance", "Tolerance", 5.0, 0.0, f64::INFINITY).help("Degrees for misorientation and c-axis alignment; a value difference for Scalar."),
+                cell_arr("mask", "Mask").help("Only cells where this array is not 0 are grouped (a good-data or sample mask)."),
+                cell_arr("scalar", "Scalar").help("The cell array compared by the Scalar method."),
+                b("shuffle", "Shuffle ids", false).help("Number the features in a shuffled order, so neighbouring features get unrelated ids (better colors)."),
+                cell_arr("orientations", "Orientations").advanced(),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced(),
+                cell_arr("phases", "Phases").advanced(),
+            ],
+            apply: |input, p| {
+                let mask = p.array("mask").map(|x| x.1);
+                let phases = p.array("phases").map(|x| x.1);
+                crate::features::segment(input.unwrap(), &p.str("method"), p.f64("tolerance", 5.0), mask.as_deref(), p.array("orientations"), &p.str("structure"), phases.as_deref(), p.array("scalar"), p.bool("shuffle", false).then_some(1))
+            },
+        },
+        FilterDef {
+            id: "fill_bad_data",
+            label: "Fill Bad Data",
+            category: "Grains",
+            description: "Fill small clusters of cells without a feature from the surrounding features (every cell array copied from a neighbour).",
+            keywords: &["clean up", "fill", "defects", "holes", "unindexed", "noise", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("min_defect", "Smallest kept defect (cells)", 7, 1, 1_000_000_000).help("Clusters of cells without a feature with fewer cells than this are filled."), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::fill_bad_data(input.unwrap(), p.i64("min_defect", 7).max(1) as usize, &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "minimum_size",
+            label: "Minimum Size",
+            category: "Grains",
+            description: "Remove features with fewer cells than a minimum, filling them from their neighbours, and renumber the rest.",
+            keywords: &["clean up", "small grains", "minimum size", "remove", "noise"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("min_cells", "Fewest cells", 7, 1, 1_000_000_000), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::minimum_size(input.unwrap(), p.i64("min_cells", 7).max(1) as usize, &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "feature_sizes",
+            label: "Feature Sizes",
+            category: "Grains",
+            description: "Cells, volume and equivalent sphere (or circle) diameter of every feature.",
+            keywords: &["grain size", "volume", "equivalent diameter", "esd", "statistics"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::feature_sizes(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "feature_centroids",
+            label: "Feature Centroids",
+            category: "Grains",
+            description: "The centre (mean of the cell centres) of every feature.",
+            keywords: &["centroid", "grain centre", "position", "statistics"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::feature_centroids(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "feature_shapes",
+            label: "Feature Shapes",
+            category: "Grains",
+            description: "Axis lengths, aspect ratios, axis directions and Omega3 of every feature, from its moments of inertia.",
+            keywords: &["shape", "aspect ratio", "ellipsoid", "axis lengths", "omega3", "elongation", "statistics"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::feature_shapes(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "average_orientations",
+            label: "Average Orientations",
+            category: "Grains",
+            description: "The average crystal orientation of every feature (AvgQuats, AvgEulerAngles).",
+            keywords: &["mean orientation", "grain orientation", "avg quats", "texture"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                cell_arr("orientations", "Orientations").advanced(),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced(),
+                cell_arr("phases", "Phases").advanced(),
+            ],
+            apply: |input, p| {
+                let phases = p.array("phases").map(|x| x.1);
+                crate::features::average_orientations(input.unwrap(), &p.str("feature_ids"), p.array("orientations"), &p.str("structure"), phases.as_deref())
+            },
+        },
+        FilterDef {
+            id: "reference_misorientations",
+            label: "Reference Misorientations",
+            category: "Grains",
+            description: "Each cell's misorientation from its feature's average orientation, and the mean per feature.",
+            keywords: &["grain reference orientation deviation", "gros", "misorientation", "deformation", "intragranular"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                cell_arr("orientations", "Orientations").advanced(),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced(),
+                cell_arr("phases", "Phases").advanced(),
+            ],
+            apply: |input, p| {
+                let phases = p.array("phases").map(|x| x.1);
+                crate::features::reference_misorientations(input.unwrap(), &p.str("feature_ids"), p.array("orientations"), &p.str("structure"), phases.as_deref())
+            },
+        },
+        FilterDef {
+            id: "kernel_average_misorientation",
+            label: "Kernel Average Misorientation",
+            category: "Grains",
+            description: "Each cell's mean misorientation to the cells of its feature around it (KAM), a measure of local lattice curvature.",
+            keywords: &["kam", "local misorientation", "deformation", "dislocation", "strain", "gnd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("kernel", "Kernel (cells each way)", [1.0, 1.0, 1.0]).help("How many cells either side along x, y and z (1 1 1: the 26 neighbours)."),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                cell_arr("orientations", "Orientations").advanced(),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced(),
+                cell_arr("phases", "Phases").advanced(),
+            ],
+            apply: |input, p| {
+                let phases = p.array("phases").map(|x| x.1);
+                let k = p.vec3("kernel", [1.0; 3]).map(|v| v.round() as i64);
+                crate::features::kernel_average_misorientation(input.unwrap(), &p.str("feature_ids"), k, p.array("orientations"), &p.str("structure"), phases.as_deref())
+            },
+        },
+        FilterDef {
+            id: "feature_neighbors",
+            label: "Feature Neighbors",
+            category: "Grains",
+            description: "Neighbour counts, features on the surface, boundary cells and the mean misorientation to neighbouring features.",
+            keywords: &["neighbors", "boundary cells", "surface features", "grain boundary", "contiguity"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::feature_neighbors(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "distance_to_boundaries",
+            label: "Distance to Boundaries",
+            category: "Grains",
+            description: "Each cell's distance to the nearest grain boundary, triple line and quadruple point.",
+            keywords: &["euclidean distance map", "distance", "boundary", "triple junction", "quadruple point"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::distance_to_boundaries(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "merge_twins",
+            label: "Merge Twins",
+            category: "Grains",
+            description: "Give twin-related neighbouring features (cubic, 60 degrees about <111>) a common parent id.",
+            keywords: &["twins", "sigma 3", "annealing twins", "parent grains", "fcc"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("axis_tolerance", "Axis tolerance (degrees)", 3.0, 0.0, 90.0),
+                f("angle_tolerance", "Angle tolerance (degrees)", 2.0, 0.0, 60.0),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+            ],
+            apply: |input, p| crate::features::merge_twins(input.unwrap(), &p.str("feature_ids"), p.f64("axis_tolerance", 3.0), p.f64("angle_tolerance", 2.0)),
+        },
+        FilterDef {
+            id: "feature_boundaries",
+            label: "Feature Boundaries",
+            category: "Grains",
+            description: "The faces between features as a surface, with the misorientation across them and twin boundaries marked.",
+            keywords: &["grain boundaries", "boundary map", "twin boundaries", "interfaces", "misorientation map"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                b("outer", "Include the outer surface", false).help("Also the faces against cells without a feature and the edge of the volume."),
+                f("axis_tolerance", "Twin axis tolerance (degrees)", 3.0, 0.0, 90.0).advanced(),
+                f("angle_tolerance", "Twin angle tolerance (degrees)", 2.0, 0.0, 60.0).advanced(),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                cell_arr("orientations", "Orientations").advanced(),
+                choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced(),
+                cell_arr("phases", "Phases").advanced(),
+            ],
+            apply: |input, p| {
+                let phases = p.array("phases").map(|x| x.1);
+                crate::features::feature_boundaries(input.unwrap(), &p.str("feature_ids"), p.bool("outer", false), p.f64("axis_tolerance", 3.0), p.f64("angle_tolerance", 2.0), p.array("orientations"), &p.str("structure"), phases.as_deref())
+            },
+        },
+        FilterDef {
+            id: "feature_table",
+            label: "Feature Table",
+            category: "Grains",
+            description: "The per-feature results as a table, one row per feature, for the spreadsheet, charts and CSV files.",
+            keywords: &["table", "statistics", "csv", "spreadsheet", "grain list", "histogram"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::feature_table(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "feature_colors",
+            label: "Feature Colors",
+            category: "Grains",
+            description: "A distinct color for every feature (FeatureColors, drawn as its own colors).",
+            keywords: &["grain map", "random colors", "feature map", "label colors"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::features::feature_colors(input.unwrap(), &p.str("feature_ids")),
         },
         FilterDef {
             id: "ipf_color_key",

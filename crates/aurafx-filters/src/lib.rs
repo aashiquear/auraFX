@@ -11,6 +11,7 @@ pub mod amr;
 pub mod analysis;
 pub mod append;
 pub mod crystal;
+pub mod features;
 pub mod geometry_model;
 pub mod grain_grid;
 pub mod attributes;

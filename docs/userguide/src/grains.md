@@ -3,8 +3,9 @@
 auraFX reads electron backscatter diffraction (EBSD) maps, serial-section stacks and voxel
 microstructures, and works with crystal orientations. It colors them, converts them between
 representations and re-expresses them in a turned reference frame. It also crops, resamples
-and aligns voxel volumes. This is the first part of the grain workbench. Segmenting grains,
-grain statistics and building synthetic microstructures come in later releases.
+and aligns voxel volumes. It finds the grains (features) and measures them: sizes, shapes,
+average orientations, misorientations, neighbours and boundaries. Texture analysis and
+building synthetic microstructures come in later releases.
 
 ## EBSD maps
 
@@ -217,11 +218,110 @@ a.align_sections(method="Given shifts", shifts=[2, -1, 3, 1, -1, 2])   # 3 slice
 
 ![A stack of four shifted slices colored by orientation, as read (left) and after Align Sections (right); both are stretched along z, and the black edges are cells uncovered by the moves](images/align_sections.png)
 
+## Features (grains)
+
+A feature is a connected set of cells, cells sharing a face, that belong together: usually a
+grain. **Segment Features** finds them and writes the cell array `FeatureIds` (0 for cells
+in no feature). The other feature filters then add per-feature results as field arrays, one
+row per feature id (row 0 stands for id 0). All of them are under **Filters › Grains** and work
+on voxel volumes and on flat EBSD maps.
+
+A typical sequence for an EBSD volume:
+
+```python
+v = afx.load("scan.dream3d")
+g = (v.segment_features(tolerance=2, mask="SampleVoxels")
+      .fill_bad_data(min_defect=7)
+      .minimum_size(min_cells=7)
+      .feature_sizes().feature_centroids().feature_shapes()
+      .average_orientations().reference_misorientations()
+      .kernel_average_misorientation(kernel=(2, 2, 1))
+      .feature_neighbors())
+table = g.feature_table()           # one row per grain, for the Spreadsheet, charts and CSV
+g.feature_colors().set(color_by="FeatureColors")
+```
+
+![An EBSD map segmented at 5 degrees, each grain in its own color, with the boundaries between grains](images/grain_map.png)
+
+![A window of a real nickel alloy volume segmented into grains (2 degrees, within the sample mask, small defects and grains under 7 cells cleaned up), colored by grain](images/grain_volume.png)
+
+### Segment Features
+
+Neighbouring cells join the same feature when they pass the test of **Group by**:
+
+- **Misorientation**: same phase, and misorientation below the **Tolerance** in degrees.
+- **C-axis alignment**: same phase, and crystal c axes within the tolerance either way round.
+  This is for hexagonal crystals.
+- **Scalar**: values of the chosen cell array differ by at most the tolerance.
+
+Cells outside the **Mask** (cells where it is 0), and cells of no known crystal class, stay
+at 0. Features are numbered in the order their first cell appears (x fastest, then y, then
+z). **Shuffle ids** numbers them in a shuffled order instead, which gives better colors
+when coloring by id. The field arrays `Active` and `FeaturePhases` (the phase of each
+feature) are added, and per-feature arrays from an earlier segmentation are removed.
+
+### Cleaning up
+
+- **Fill Bad Data**: clusters of cells without a feature that are smaller than **Smallest
+  kept defect** are filled from the surrounding features. Each cell takes every cell array
+  from the neighbour whose feature most of its neighbours belong to, sweep after sweep.
+  Larger clusters (pores, the outside of the sample) stay 0.
+- **Minimum Size**: features with fewer cells than **Fewest cells** are removed and filled
+  from their neighbours the same way. Feature 0 can win, so a small feature against the
+  outside may become outside. The remaining features are renumbered from 1 in their old
+  order, and per-feature field arrays keep their rows.
+
+### Per-feature results
+
+| Filter | Field arrays (per feature) | Cell arrays |
+|---|---|---|
+| Feature Sizes | `NumElements`, `Volumes`, `EquivalentDiameters` (sphere of equal volume; circle of equal area on flat maps) | |
+| Feature Centroids | `Centroids` (mean of the cell centres) | |
+| Feature Shapes | `AxisLengths` (semi-axes a ≥ b ≥ c of the ellipsoid with the same moments of inertia), `AspectRatios` (b/a, c/a), `AxisEulerAngles` (Bunge angles of the axes: the rows of the rotation are the a, b and c directions), `Omega3s` (1 for an ellipsoid, smaller for other shapes) | |
+| Average Orientations | `AvgQuats` (x, y, z, w), `AvgEulerAngles` | |
+| Reference Misorientations | `FeatureAvgMisorientations` | `FeatureReferenceMisorientations` (degrees from the feature's average orientation) |
+| Kernel Average Misorientation | | `KernelAverageMisorientations` (degrees) |
+| Feature Neighbors | `NumNeighbors`, `SurfaceFeatures` (1 when touching the edge of the volume or cells without a feature), `AvgMisorientations` (mean misorientation to the neighbouring features of the same crystal class, when average orientations exist) | `BoundaryCells` (face neighbours in another feature) |
+| Distance to Boundaries | | `GBEuclideanDistances`, `TJEuclideanDistances`, `QPEuclideanDistances` (distance between cell centres to the nearest boundary, triple-line and quadruple-point cell; -1 where there is none) |
+| Merge Twins | `ParentIds` | `ParentIds` |
+
+- **Feature Shapes** uses the exact second moments of the cells: each cell counted at its
+  centre with its own inertia. On flat maps it gives the ellipse of the same moments: a and b,
+  b/a, and the angle of the long axis in the plane as the first Euler angle.
+- **Average Orientations** adds, cell by cell, the symmetry equivalent nearest the running
+  average (the identity for the first cell), then normalises.
+- **Kernel Average Misorientation** averages a cell's misorientation to the cells of the same
+  feature within **Kernel** cells along x, y and z (1 1 1 means the 26 neighbours). The cell
+  itself counts, with 0. Cells without a feature get 0.
+- **Merge Twins** gives neighbouring cubic m-3m features a common parent when their average
+  orientations differ by 60° about a ⟨111⟩ axis, within the **Axis** and **Angle**
+  tolerances. Chains of twins share one parent. Parents are numbered in the order of their
+  first feature.
+
+### Boundaries, colors and the table
+
+- **Feature Boundaries** gives the cell faces between different features as a surface. Each
+  face has `FeatureIdA` and `FeatureIdB`, the `Misorientation` (degrees) between the two
+  cells, and `Twin` (1 on twin boundaries of cubic m-3m crystals). **Include the outer
+  surface** adds the faces against cells without a feature and the edge of the volume.
+  Draw it as **Wireframe** over a flat map to see the boundaries as lines.
+- **Feature Colors** gives each feature a distinct, stable color (`FeatureColors`, drawn as
+  its own colors).
+- **Feature Table** turns the per-feature field arrays into a table, one row per feature with
+  a `FeatureId` column, for the Spreadsheet, charts and **Export CSV**.
+
+![The per-feature results of an EBSD map in the Spreadsheet as a Feature Table](images/feature_table.png)
+
 ## Limits
 
 - Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
   are not read yet.
 - Cubochoric vectors are not among the representations.
+- Neighbor lists (each feature's neighbours and shared areas) are not kept as arrays; Feature
+  Boundaries holds the same information face by face.
+- Merge Twins handles cubic m-3m crystals only.
+- The feature filters copy the volume they work on: a volume of 80 million cells needs several
+  gigabytes of memory. Segmentation of such a volume takes about 10 seconds.
 - The orientation mathematics is checked against independent references: rotations from
   SciPy, disorientation angles by brute force over every crystal class, and the color key by
   a separate implementation. On a window of a real volume, the inverse pole figure colors

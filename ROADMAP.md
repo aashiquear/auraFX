@@ -278,7 +278,7 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
 - [x] G1 `aurafx-crystal` (orientation conversions, the 11 Laue groups, disorientation, fundamental zones, IPF/Rodrigues/Euler colours); readers for `.ang`, `.ctf`, `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d`; Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations, Crop, Change Resolution, Align Sections.
   - [x] G1a: `aurafx-crystal`, `.ang` (square grids) and `.ctf` readers, Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations; 8-bit RGB arrays drawn as their own colors (iteration 53).
   - [x] G1b: `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` readers; Crop, Change Resolution, Align Sections (iteration 54).
-- [ ] G2 Features: Segment Features (misorientation, scalar, C-axis), Find Sizes/Neighbors/Shapes/Centroids/Boundary Cells/Surface Features/Average Orientations/Misorientations/Kernel Average Misorientation/Reference Misorientations/Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; Features and Ensembles tables.
+- [x] G2 Features: Segment Features (misorientation, scalar, C-axis), Find Sizes/Neighbors/Shapes/Centroids/Boundary Cells/Surface Features/Average Orientations/Misorientations/Kernel Average Misorientation/Reference Misorientations/Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; Features and Ensembles tables.
 - [ ] G3 Texture: pole figures, inverse pole figures, ODF sections and texture index, MDF, texture fractions, chord lengths (charts, pictures, CSV).
 - [ ] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
 - [ ] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
@@ -366,6 +366,18 @@ points onto the surface; Signed Distance Field turns any closed surface into a d
 `afx.mesh.geometry()` builds and checks commands from Python; command-box edits go into the
 trace. Volumes and areas match closed forms (0.5 % / 1 %); STL round trip. Guide chapter:
 Geometry and meshing. Next: G2.
+
+Done in iteration 56 (G2): Segment Features (misorientation, c-axis alignment, scalar; mask;
+shuffled ids), Fill Bad Data, Minimum Size, Feature Sizes, Centroids, Shapes (exact
+moments; equal-moment ellipsoid or ellipse, Omega3), Average Orientations, Reference
+Misorientations, Kernel Average Misorientation, Feature Neighbors (neighbour counts, surface
+features, boundary cells, mean neighbour misorientation), Distance to Boundaries (exact
+Euclidean distance transform), Merge Twins (cubic Σ3), Feature Boundaries (faces with
+misorientation and twin flags), Feature Colors and Feature Table. Per-feature results are
+field arrays with a row per feature id; Feature Table turns them into a table. Checked
+against DREAM.3D's stored results on a window of the AM Bench IN718 1 µm volume
+(`testdata/dream3d/am_bench_features.dream3d`) and synthetic shapes; the full 2 µm volume
+segments in 9 s. Guide chapter: Grains and crystals. Next: M2.
 
 ## Status (2026-11-05)
 

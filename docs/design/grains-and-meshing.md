@@ -113,7 +113,9 @@ As built in G1, the per-phase (ensemble) arrays travel as **field data** of the 
 `CrystalStructures` (Laue code per phase, entry 0 = not indexed, 999 unknown), `MaterialName`
 and `LatticeConstants` (6 per phase). Field data already passes through every filter, the
 state file and the server protocol, so no new table or protocol change was needed for
-ensembles; the Features table (G2) still comes as a `Table` beside the grid. EBSD readers keep
+ensembles. G2 kept per-feature arrays in field data too (one row per feature id, row 0 for id 0,
+recognised by that length), with a Feature Table filter that turns them into a `Table` for the
+Spreadsheet, charts and CSV; no multi-block convention was needed. EBSD readers keep
 the Euler angles as stored (no reference-frame change), apart from the optional +30° on φ2 of
 hexagonal `.ctf` phases; Rotate Orientations re-expresses them in another frame.
 

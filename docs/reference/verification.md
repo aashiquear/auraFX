@@ -270,6 +270,36 @@ implementations (`testdata/crystal/reference.json`, `scripts/crystal_reference.p
 - The `.ang` and `.ctf` readers are checked against the angles, phases and quality values
   `scripts/gen_ebsd.py` wrote, including the +30° on φ2 of hexagonal Oxford phases.
 
+## Features (grains)
+
+Checked against DREAM.3D 6.6's results stored in a window of NIST's AM Bench 2022 IN718 1 µm
+volume (`testdata/dream3d/am_bench_features.dream3d`; DREAM.3D's pipeline: Segment Features
+(misorientation 2°, within SampleVoxels), Fill Bad Data 7, Minimum Size 7, then the
+statistics). Of the 225 features in the window, the 44 wholly inside it are compared:
+- Segmentation, Fill Bad Data and Minimum Size give the same cells for 43 features. The
+  44th is joined to its neighbour because the stored orientations meet across one face at
+  0.82° (below the 2° tolerance): the reference segmented before its clean-up copied
+  orientations into the joining cells.
+- NumElements, Volumes and EquivalentDiameters agree exactly; Centroids to float precision
+  (both use cell centres).
+- Feature Shapes: with the reference's moment scheme (cells placed at their lower corner,
+  half a cell from their centres, and sampled at quarter-cell points), axis lengths and
+  Omega3 agree within 0.2 % and the shortest axis's direction within 0.8°. The stored
+  directions of the two longer axes are turned within their plane for about half the
+  features (the reference keeps its eigenvectors in the solver's order). auraFX uses exact
+  moments (cell centres plus each cell's own inertia) and recovers the semi-axes (within 2 %),
+  Omega3 = 1 and all three directions of a voxelised, rotated ellipsoid.
+- Average orientations: auraFX's averages fit the cells better (smaller mean squared
+  misorientation) for every feature and lie within 1.6° of the stored ones. The stored
+  reference misorientations are consistent with the stored averages, and auraFX reproduces
+  them (within 0.05° per cell) from those averages.
+- Kernel average misorientation with the reference's kernel (2, 2, 1, the cell itself
+  counted): within 0.01° on all cells whose kernel lies in the window, except at most 0.1 %.
+- SurfaceFeatures agree for every feature.
+Merge Twins, Feature Boundaries' twin flags, scalar and c-axis segmentation, Fill Bad Data and
+Minimum Size are also checked on synthetic grids with known answers, and Distance to
+Boundaries against a brute-force distance.
+
 ## Geometry
 
 The geometry kernel is checked against closed forms (`crates/aurafx-mesh/tests/geometry.rs`,

@@ -4,12 +4,14 @@
 
 pub mod bodymesh;
 pub mod hex;
+pub mod improve;
 pub mod inclusions;
 pub mod model;
 pub mod overlay;
 pub mod quality;
 pub mod specimens;
 pub mod structured;
+pub mod tet;
 pub mod outline;
 pub mod shape;
 pub mod trimesh;

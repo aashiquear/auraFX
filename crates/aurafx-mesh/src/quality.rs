@@ -483,3 +483,368 @@ mod tests {
         }
     }
 }
+
+// ------------------------------------------------------------------ tetrahedra
+
+/// Tetrahedron quality metrics (Verdict's definitions; corners in VTK order, positive volume
+/// when (p1 - p0) x (p2 - p0) points towards p3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TetMetric {
+    Volume,
+    Jacobian,
+    ScaledJacobian,
+    EdgeRatio,
+    AspectRatio,
+    AspectFrobenius,
+    AspectGamma,
+    RadiusRatio,
+    MinimumDihedralAngle,
+    CollapseRatio,
+    Condition,
+    Shape,
+    RelativeSizeSquared,
+    ShapeAndSize,
+    Distortion,
+    EquiangleSkew,
+    SquishIndex,
+    MeanRatio,
+    Inradius,
+    NormalizedInradius,
+}
+
+impl TetMetric {
+    pub const ALL: [TetMetric; 20] = [
+        TetMetric::Volume,
+        TetMetric::Jacobian,
+        TetMetric::ScaledJacobian,
+        TetMetric::EdgeRatio,
+        TetMetric::AspectRatio,
+        TetMetric::AspectFrobenius,
+        TetMetric::AspectGamma,
+        TetMetric::RadiusRatio,
+        TetMetric::MinimumDihedralAngle,
+        TetMetric::CollapseRatio,
+        TetMetric::Condition,
+        TetMetric::Shape,
+        TetMetric::RelativeSizeSquared,
+        TetMetric::ShapeAndSize,
+        TetMetric::Distortion,
+        TetMetric::EquiangleSkew,
+        TetMetric::SquishIndex,
+        TetMetric::MeanRatio,
+        TetMetric::Inradius,
+        TetMetric::NormalizedInradius,
+    ];
+    /// The array name (and the measure's name without spaces).
+    pub fn name(self) -> &'static str {
+        match self {
+            TetMetric::Volume => "Volume",
+            TetMetric::Jacobian => "Jacobian",
+            TetMetric::ScaledJacobian => "ScaledJacobian",
+            TetMetric::EdgeRatio => "EdgeRatio",
+            TetMetric::AspectRatio => "AspectRatio",
+            TetMetric::AspectFrobenius => "AspectFrobenius",
+            TetMetric::AspectGamma => "AspectGamma",
+            TetMetric::RadiusRatio => "RadiusRatio",
+            TetMetric::MinimumDihedralAngle => "MinimumDihedralAngle",
+            TetMetric::CollapseRatio => "CollapseRatio",
+            TetMetric::Condition => "Condition",
+            TetMetric::Shape => "Shape",
+            TetMetric::RelativeSizeSquared => "RelativeSizeSquared",
+            TetMetric::ShapeAndSize => "ShapeAndSize",
+            TetMetric::Distortion => "Distortion",
+            TetMetric::EquiangleSkew => "EquiangleSkew",
+            TetMetric::SquishIndex => "SquishIndex",
+            TetMetric::MeanRatio => "MeanRatio",
+            TetMetric::Inradius => "Inradius",
+            TetMetric::NormalizedInradius => "NormalizedInradius",
+        }
+    }
+    /// The acceptable range of the metric (Verdict's tables), where there is one.
+    pub fn acceptable(self) -> Option<(f64, f64)> {
+        Some(match self {
+            TetMetric::Volume | TetMetric::Jacobian => (0.0, f64::INFINITY),
+            TetMetric::ScaledJacobian => (0.5, 1.0),
+            TetMetric::EdgeRatio | TetMetric::AspectRatio | TetMetric::AspectGamma | TetMetric::RadiusRatio | TetMetric::Condition => (1.0, 3.0),
+            TetMetric::AspectFrobenius => (1.0, 1.3),
+            TetMetric::MinimumDihedralAngle => (40.0, 70.528_779_365_509_31),
+            TetMetric::CollapseRatio => (0.1, f64::INFINITY),
+            TetMetric::Shape => (0.3, 1.0),
+            TetMetric::RelativeSizeSquared => (0.3, 1.0),
+            TetMetric::ShapeAndSize => (0.2, 1.0),
+            TetMetric::Distortion => (0.5, 1.0),
+            _ => return None,
+        })
+    }
+}
+
+fn tet_fix(v: f64) -> f64 {
+    if v.is_nan() || v >= DBL_MAX {
+        DBL_MAX
+    } else if v <= -DBL_MAX {
+        -DBL_MAX
+    } else {
+        v
+    }
+}
+
+fn tri_area(a: P, b: P, c: P) -> f64 {
+    0.5 * len(cross(sub(b, a), sub(c, a)))
+}
+
+fn unit(v: P) -> P {
+    let l = len(v);
+    if l > 0.0 { [v[0] / l, v[1] / l, v[2] / l] } else { v }
+}
+
+/// One metric of one tetrahedron. `avg_volume` is the mean tetrahedron volume of the mesh (for
+/// the size metrics).
+pub fn tet_metric(m: TetMetric, p: &[P; 4], avg_volume: f64) -> f64 {
+    let s0 = sub(p[1], p[0]);
+    let s1 = sub(p[2], p[1]);
+    let s2 = sub(p[0], p[2]);
+    let s3 = sub(p[3], p[0]);
+    let s4 = sub(p[3], p[1]);
+    let s5 = sub(p[3], p[2]);
+    let jac = dot(s3, cross(s2, s0));
+    let vol = jac / 6.0;
+    let l2 = [dot(s0, s0), dot(s1, s1), dot(s2, s2), dot(s3, s3), dot(s4, s4), dot(s5, s5)];
+    match m {
+        TetMetric::Volume => vol,
+        TetMetric::Jacobian => jac,
+        TetMetric::ScaledJacobian => {
+            let lp = [l2[0] * l2[2] * l2[3], l2[0] * l2[1] * l2[4], l2[1] * l2[2] * l2[5], l2[3] * l2[4] * l2[5]];
+            let mut w = 0;
+            for k in 1..4 {
+                if lp[k] > lp[w] {
+                    w = k;
+                }
+            }
+            let mut prod = lp[w].sqrt();
+            if prod < jac.abs() {
+                prod = jac.abs();
+            }
+            if prod < DBL_MIN {
+                return DBL_MAX;
+            }
+            std::f64::consts::SQRT_2 * jac / prod
+        }
+        TetMetric::EdgeRatio => {
+            let mn = l2.iter().cloned().fold(f64::INFINITY, f64::min);
+            let mx = l2.iter().cloned().fold(0.0, f64::max);
+            if mn < DBL_MIN {
+                return DBL_MAX;
+            }
+            tet_fix((mx / mn).sqrt())
+        }
+        TetMetric::AspectRatio => {
+            let (ab, ac, ad) = (sub(p[1], p[0]), sub(p[2], p[0]), sub(p[3], p[0]));
+            let det = dot(ab, cross(ac, ad));
+            if det.abs() < DBL_MIN {
+                return DBL_MAX;
+            }
+            let (bc, bd, cd) = (sub(p[2], p[1]), sub(p[3], p[1]), sub(p[3], p[2]));
+            let hm = [dot(ab, ab), dot(bc, bc), dot(ac, ac), dot(ad, ad), dot(bd, bd), dot(cd, cd)].iter().cloned().fold(0.0, f64::max).sqrt();
+            let areas = len(cross(ab, bc)) + len(cross(ab, ad)) + len(cross(ac, ad)) + len(cross(bc, cd));
+            tet_fix(6f64.sqrt() / 12.0 * hm * areas / det.abs())
+        }
+        TetMetric::AspectFrobenius => {
+            let (u, v, w) = (sub(p[1], p[0]), sub(p[2], p[0]), sub(p[3], p[0]));
+            let d = dot(u, cross(v, w));
+            let den = 3.0 * (2.0 * d * d).powf(1.0 / 3.0);
+            if den < DBL_MIN {
+                return DBL_MAX;
+            }
+            let num = 1.5 * (dot(u, u) + dot(v, v) + dot(w, w)) - dot(v, u) - dot(w, u) - dot(w, v);
+            tet_fix(num / den)
+        }
+        TetMetric::AspectGamma => {
+            if vol.abs() < DBL_MIN {
+                return DBL_MAX;
+            }
+            let srms = (l2.iter().sum::<f64>() / 6.0).sqrt();
+            srms * srms * srms / (8.485_281_374_238_57 * vol.abs())
+        }
+        TetMetric::RadiusRatio => {
+            let num = add3(scale(cross(s2, s0), l2[3]), scale(cross(s3, s0), l2[2]), scale(cross(s3, s2), l2[0]));
+            let area = 0.5 * (len(cross(s2, s0)) + len(cross(s3, s0)) + len(cross(s4, s1)) + len(cross(s3, s2)));
+            if vol.abs() < DBL_MIN {
+                return DBL_MAX;
+            }
+            tet_fix(len(num) * area / (108.0 * vol * vol))
+        }
+        TetMetric::MinimumDihedralAngle => {
+            let (ab, ad, bc, cd) = (s0, s3, s1, s5);
+            let (abc, abd, acd, bcd) = (cross(ab, bc), cross(ab, ad), cross(ad, cd), cross(bc, cd));
+            let (na, nb, nc, nd) = (len(abc), len(abd), len(acd), len(bcd));
+            let a = [
+                (dot(abc, abd) / (na * nb)).acos(),
+                (dot(abc, acd) / (na * nc)).acos(),
+                (dot(abc, bcd) / (na * nd)).acos(),
+                (dot(abd, acd) / (nb * nc)).acos(),
+                (dot(abd, bcd) / (nb * nd)).acos(),
+                (dot(acd, bcd) / (nc * nd)).acos(),
+            ];
+            tet_fix(a.iter().cloned().fold(f64::INFINITY, f64::min) * 180.0 * std::f64::consts::FRAC_1_PI)
+        }
+        TetMetric::CollapseRatio => {
+            let (e01, e02, e03, e12, e13, e23) = (sub(p[1], p[0]), sub(p[2], p[0]), sub(p[3], p[0]), sub(p[2], p[1]), sub(p[3], p[1]), sub(p[3], p[2]));
+            let l = [len(e01), len(e02), len(e03), len(e12), len(e13), len(e23)];
+            let l012 = l[4].max(l[0]).max(l[1]);
+            let l031 = l[0].max(l[2]).max(l[3]);
+            let l023 = l[2].max(l[1]).max(l[5]);
+            let l132 = l[4].max(l[3]).max(l[5]);
+            let h = |a: P, b: P, c: P| -> f64 {
+                let n = cross(a, b);
+                dot(c, n) / len(n)
+            };
+            let mut cr = h(e01, e02, e03) / l012;
+            cr = cr.min(h(e03, e01, e02) / l031);
+            cr = cr.min(h(e02, e03, e01) / l023);
+            cr = cr.min(h(e12, e13, e01) / l132);
+            tet_fix(cr)
+        }
+        TetMetric::Condition => {
+            let side0 = sub(p[1], p[0]);
+            let side2 = sub(p[0], p[2]);
+            let side3 = sub(p[3], p[0]);
+            let c1 = side0;
+            let c2 = scale(add3(scale(side2, -2.0), scale(side0, -1.0), [0.0; 3]), 1.0 / 3f64.sqrt());
+            let c3 = scale(add3(scale(side3, 3.0), side2, scale(side0, -1.0)), 1.0 / 6f64.sqrt());
+            let t1 = dot(c1, c1) + dot(c2, c2) + dot(c3, c3);
+            let (x, y, z) = (cross(c1, c2), cross(c2, c3), cross(c1, c3));
+            let t2 = dot(x, x) + dot(y, y) + dot(z, z);
+            let det = dot(c1, cross(c2, c3));
+            if det.abs() <= DBL_MIN {
+                return DBL_MAX;
+            }
+            t1.sqrt() * t2.sqrt() / (3.0 * det)
+        }
+        TetMetric::Shape => tet_shape(p),
+        TetMetric::RelativeSizeSquared => tet_rel_size(vol, avg_volume),
+        TetMetric::ShapeAndSize => tet_shape(p) * tet_rel_size(vol, avg_volume),
+        TetMetric::Distortion => 1.0,
+        TetMetric::EquiangleSkew => {
+            let (ab, ac, ad, bc, bd, cd) = (unit(s0), unit(sub(p[2], p[0])), unit(s3), unit(s1), unit(s4), unit(s5));
+            let (abc, abd, acd, bcd) = (unit(cross(bc, ab)), unit(cross(ab, ad)), unit(cross(cd, ad)), unit(cross(bc, cd)));
+            let k = 180.0 * std::f64::consts::FRAC_1_PI;
+            let dih = [(-dot(abc, abd)).acos(), (-dot(abc, acd)).acos(), (-dot(abc, bcd)).acos(), (-dot(abd, acd)).acos(), (-dot(abd, bcd)).acos(), (-dot(acd, bcd)).acos()];
+            let (mn, mx) = dih.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| (a.min(*x), b.max(*x)));
+            let theta = (1.0f64 / 3.0).acos() * k;
+            let dmax = (mx * k - theta) / (180.0 - theta);
+            let dmin = (theta - mn * k) / theta;
+            let ang = [
+                (-dot(ab, bc)).acos(),
+                dot(bc, ac).acos(),
+                dot(ac, ab).acos(),
+                (-dot(ab, bd)).acos(),
+                dot(bd, ad).acos(),
+                dot(ad, ab).acos(),
+                (-dot(bc, cd)).acos(),
+                dot(cd, bd).acos(),
+                dot(bd, bc).acos(),
+                dot(ad, cd).acos(),
+                (-dot(cd, ac)).acos(),
+                dot(ac, ad).acos(),
+            ];
+            let (fmn, fmx) = ang.iter().fold((360.0f64, 0.0f64), |(a, b), x| (a.min(*x), b.max(*x)));
+            let smax = (fmx * k - 60.0) / 120.0;
+            let smin = (60.0 - fmn * k) / 60.0;
+            dmin.max(dmax).max(smin).max(smax)
+        }
+        TetMetric::SquishIndex => {
+            let c = scale(add3(add3(p[0], p[1], p[2]), p[3], [0.0; 3]), 0.25);
+            let faces: [([usize; 3], P); 4] = [([0, 1, 3], scale(cross(s0, s4), 0.5)), ([1, 2, 3], scale(cross(s1, s5), 0.5)), ([0, 2, 3], scale(cross(sub(p[0], p[2]), s3), 0.5)), ([0, 1, 2], scale(cross(s1, s0), 0.5))];
+            let mut best: f64 = 0.0;
+            for (f, a) in faces {
+                let fc = scale(add3(p[f[0]], p[f[1]], p[f[2]]), 1.0 / 3.0);
+                let cc = sub(fc, c);
+                let s = 1.0 - dot(a, cc) / (len(a) * len(cc));
+                best = best.max(s);
+            }
+            best
+        }
+        TetMetric::MeanRatio => {
+            if vol.abs() < DBL_MIN {
+                return 0.0;
+            }
+            let sum = l2.iter().sum::<f64>() / 6.0;
+            6.0 * std::f64::consts::SQRT_2 * vol / sum.powf(1.5)
+        }
+        TetMetric::Inradius => {
+            let a = tri_area(p[0], p[1], p[2]) + tri_area(p[0], p[3], p[1]) + tri_area(p[0], p[2], p[3]) + tri_area(p[1], p[3], p[2]);
+            3.0 * vol / a
+        }
+        TetMetric::NormalizedInradius => tet_normalized_inradius(p),
+    }
+}
+
+fn scale(a: P, s: f64) -> P {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+
+fn add3(a: P, b: P, c: P) -> P {
+    [a[0] + b[0] + c[0], a[1] + b[1] + c[1], a[2] + b[2] + c[2]]
+}
+
+fn tet_shape(p: &[P; 4]) -> f64 {
+    let e0 = sub(p[1], p[0]);
+    let e1 = sub(p[0], p[2]);
+    let e2 = sub(p[3], p[0]);
+    let j = dot(e2, cross(e1, e0));
+    if j < DBL_MIN {
+        return 0.0;
+    }
+    let num = 3.0 * (std::f64::consts::SQRT_2 * j).powf(2.0 / 3.0);
+    let m1 = scale(e1, -1.0);
+    let den = 1.5 * (dot(e0, e0) + dot(e1, e1) + dot(e2, e2)) - (dot(e0, m1) + dot(m1, e2) + dot(e2, e0));
+    if den < DBL_MIN {
+        return 0.0;
+    }
+    tet_fix((num / den).max(0.0))
+}
+
+fn tet_rel_size(vol: f64, avg: f64) -> f64 {
+    // The weighted reference tetrahedron has the mean volume.
+    let avg_volume = avg;
+    if avg_volume < DBL_MIN {
+        return 0.0;
+    }
+    let mut size = vol / avg_volume;
+    if size <= DBL_MIN {
+        return 0.0;
+    }
+    if size > 1.0 {
+        size = 1.0 / size;
+    }
+    size * size
+}
+
+fn tet_inradius4(p: &[P; 4]) -> f64 {
+    let vol = dot(sub(p[3], p[0]), cross(sub(p[1], p[0]), sub(p[2], p[0]))) / 6.0;
+    let a = tri_area(p[0], p[1], p[2]) + tri_area(p[0], p[3], p[1]) + tri_area(p[0], p[2], p[3]) + tri_area(p[1], p[3], p[2]);
+    3.0 * vol / a
+}
+
+/// Verdict's normalised inradius of a linear tetrahedron: its 12 sub-tetrahedra (the
+/// quadratic subdivision about the centre of the edge midpoints) against the circumradius.
+fn tet_normalized_inradius(p: &[P; 4]) -> f64 {
+    let mid = |a: usize, b: usize| scale(add3(p[a], p[b], [0.0; 3]), 0.5);
+    let mut c = [[0.0; 3]; 11];
+    c[..4].copy_from_slice(&p[..]);
+    for (i, (a, b)) in [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)].iter().enumerate() {
+        c[4 + i] = mid(*a, *b);
+    }
+    let aux = scale((4..10).fold([0.0; 3], |s, i| add3(s, c[i], [0.0; 3])), 1.0 / 6.0);
+    c[10] = aux;
+    const SUB: [[usize; 4]; 12] = [[0, 4, 6, 7], [1, 5, 4, 8], [2, 6, 5, 9], [3, 8, 7, 9], [4, 8, 5, 10], [5, 8, 9, 10], [9, 8, 7, 10], [7, 8, 4, 10], [4, 5, 6, 10], [5, 9, 6, 10], [9, 7, 6, 10], [7, 4, 6, 10]];
+    let min_in = |lo: usize, hi: usize| (lo..=hi).map(|i| tet_inradius4(&SUB[i].map(|k| c[k]))).fold(DBL_MAX, f64::min);
+    let (with_parent, without) = (min_in(0, 3), min_in(4, 11));
+    let (a, b, cc) = (len(sub(p[1], p[0])), len(sub(p[2], p[0])), len(sub(p[3], p[0])));
+    let (aa, bb, ccc) = (len(sub(p[3], p[2])), len(sub(p[3], p[1])), len(sub(p[2], p[1])));
+    let vp = (dot(cross(sub(p[1], p[0]), sub(p[2], p[0])), sub(p[3], p[0])) / 6.0).abs();
+    let outer = ((a * aa + b * bb + cc * ccc) * (a * aa + b * bb - cc * ccc) * (a * aa - b * bb + cc * ccc) * (-a * aa + b * bb + cc * ccc)).sqrt() / 24.0 / vp;
+    let n1 = 6.0 * with_parent / outer;
+    let n2 = 3.0 * (1.0 + 3f64.sqrt()) * without / outer;
+    tet_fix(n1.min(n2))
+}

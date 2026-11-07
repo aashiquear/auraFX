@@ -302,6 +302,8 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
   - [x] M3a: overlay grid from geometry bodies, closed surfaces and labelled images, defeaturing and pinch removal, pillowing, projection along stair-step normals, guarded tiered smoothing and untangling, void meshing, domain/surface/interface side sets, periodic pairs, stair-step mode, `scheme overlay` in the geometry commands, Overlay Mesh filter (iteration 61).
   - [x] M3b: sharp edges and corners kept by the overlay mesher (patches between creases for surfaces), saddle-free clean-up for fine microstructures, parallel smoothing (iteration 62).
 - [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
+  - [x] M4a: uniform refinement of hexahedra and tetrahedra, HTet/THex conversions, mesh smoothing (Laplacian, smart Laplacian, condition number), boundary layers, tetrahedron quality metrics (iteration 66).
+  - [ ] M4b: tetrahedral meshing of implicit and STL geometry with sizing, local refinement, triangle meshing.
 - [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
 
 ---
@@ -460,6 +462,13 @@ normals, minimum angles, enclosed feature volumes), Feature Surfaces (closed per
 surfaces; STL of a multiblock writes one file per block), Face Orientation Colors, GBCD
 Section (normalised exactly to random; checked with random boundaries and a coherent-twin
 stack). Guide chapter: Grains and crystals. Next: M4.
+
+Done in iteration 66 (M4a): tetrahedral meshes with blocks and sets (aurafx-mesh tet.rs),
+uniform 8-way refinement of HEX8 and tetrahedral meshes, conforming hexahedron-to-tetrahedron
+(12 per hexahedron) and tetrahedron-to-hexahedron (4 per tetrahedron) conversions, Smooth Mesh
+(Laplacian, smart Laplacian, condition-number optimisation), Boundary Layers on side sets,
+and 20 tetrahedron quality metrics matching ParaView. Guide chapter: Geometry and meshing.
+Next: M4b.
 
 ## Status (2026-11-05)
 

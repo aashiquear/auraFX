@@ -358,6 +358,61 @@ part = afx.load("part.stl").overlay_mesh(cell=0.5)
 
 ![A measured nickel-superalloy microstructure meshed with one block per grain](images/overlay_grains.png)
 
+## Refine Mesh
+
+**Filters › Mesh › Refine Mesh** splits every element into eight, **Levels** times.
+- **Hexahedra** (HEX8) split at their edge midpoints, face centres and centre.
+- **Tetrahedra** keep their four corners and split the inner octahedron along its shortest
+  diagonal.
+- New nodes are shared between neighbours, so the mesh stays conforming.
+- Blocks and element variables carry over. Each side-set face becomes its four sub-faces,
+  and a node set gains the new nodes that lie on it.
+
+## Convert Elements
+
+**Filters › Mesh › Convert Elements** changes the element kind, keeping blocks and sets:
+- **Hexahedra to tetrahedra** cuts each face of a hexahedron into two triangles, along the
+  diagonal through its lowest-numbered node so that neighbouring hexahedra agree. Each
+  triangle is joined to the centre, giving 12 tetrahedra per hexahedron.
+- **Tetrahedra to hexahedra** gives 4 hexahedra per tetrahedron, one at each corner. They
+  meet at the edge midpoints, face centres and centre.
+
+![A plate with a hole converted to tetrahedra, colored by their minimum dihedral angle](images/tet_mesh_quality.png)
+
+## Smooth Mesh
+
+**Filters › Mesh › Smooth Mesh** moves the inner nodes of a hexahedral or tetrahedral mesh.
+Nodes on its boundary, and those of an optional node set, stay put.
+- **Smart Laplacian** (the default) moves each node to the mean of its neighbours, keeping
+  the move only when the worst element around it does not get worse.
+- **Laplacian** always moves; on a badly shaped domain it can fold elements.
+- **Condition number** searches around each node for the position that lowers the condition
+  numbers of its elements. It is slower but untangles better.
+
+The output's field data `MinScaledJacobian` gives the worst element after smoothing.
+
+## Boundary Layers
+
+**Filters › Mesh › Boundary Layers** inserts **Layers** thin layers of hexahedra under the
+faces of a side set, for wall-resolved flow or contact.
+- **Thickness.** The first layer is **First layer thickness** thick, and each next one
+  **Growth ratio** times thicker.
+- **Placement.** The faces stay where they are, and the mesh behind them is pushed inwards
+  by the total thickness. At the edge of the side set, the layers slide along the
+  neighbouring boundary faces.
+- **Sets.** The side set moves to the outer layer, and the layers' side faces join the side
+  sets beside them. If the layers are thicker than the elements behind them would allow, the
+  filter refuses rather than fold elements.
+
+```python
+fine = mesh.refine_mesh(levels=1)
+tets = mesh.convert_elements(to="Hexahedra to tetrahedra")
+walls = mesh.boundary_layers(side_set="z+", layers=4, first=0.01, growth=1.3)
+smooth = tets.smooth_mesh(scheme="Smart Laplacian", iterations=10)
+```
+
+![A box with boundary layers grown under two of its faces](images/boundary_layers.png)
+
 ## Elevate
 
 **Filters › Mesh › Elevate** turns 8-node hexahedra into 20-node (edge midpoints) or 27-node
@@ -391,6 +446,24 @@ mean over the hexahedra, its acceptable range and how many cells fall outside it
 
 A negative Jacobian or scaled Jacobian marks an inverted element. HEX20 and HEX27 elements are
 measured by their corners.
+
+For tetrahedra the arrays are `Volume`, `Jacobian`, `ScaledJacobian`, `AspectRatio`,
+`AspectFrobenius`, `AspectGamma`, `RadiusRatio`, `MinimumDihedralAngle` (degrees),
+`CollapseRatio`, `Condition`, `Shape`, `RelativeSizeSquared`, `ShapeAndSize`, `Distortion`,
+`EquiangleSkew`, `SquishIndex`, `MeanRatio`, `Inradius` and `NormalizedInradius`. Each array
+holds the hexahedron value for hexahedra and the tetrahedron value for tetrahedra. In the
+summary, a mesh with both kinds lists the tetrahedra's rows with "(tetrahedra)" after the
+name.
+
+| Tetrahedron metric | Acceptable | Regular tetrahedron |
+|---|---|---|
+| ScaledJacobian | 0.5 to 1 | 1 |
+| AspectRatio, AspectGamma, RadiusRatio, Condition, EdgeRatio | 1 to 3 | 1 |
+| AspectFrobenius | 1 to 1.3 | 1 |
+| MinimumDihedralAngle | 40 to 70.53 | 70.53 |
+| CollapseRatio | above 0.1 | 0.82 |
+| Shape, RelativeSizeSquared | 0.3 to 1 | 1 |
+| ShapeAndSize | 0.2 to 1 | 1 |
 
 ```python
 q = m.mesh_quality()                              # cell arrays

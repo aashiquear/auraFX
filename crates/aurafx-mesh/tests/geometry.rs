@@ -182,3 +182,36 @@ fn hex_quality_matches_reference() {
     }
     assert!(bad.is_empty(), "{} differ:\n{}", bad.len(), bad.join("\n"));
 }
+
+/// Tetrahedron quality against ParaView's Mesh Quality (Verdict) on 24 tetrahedra
+/// (testdata/mesh/tet_quality_reference.json from scripts/tet_quality_reference.py).
+#[test]
+fn tet_quality_matches_reference() {
+    use aurafx_mesh::quality::{tet_metric, TetMetric};
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/mesh/tet_quality_reference.json");
+    let r: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+    let tets: Vec<[[f64; 3]; 4]> = r["tets"].as_array().unwrap().iter().map(|h| std::array::from_fn(|i| std::array::from_fn(|k| h[i][k].as_f64().unwrap() as f32 as f64))).collect();
+    let vols: Vec<f64> = tets.iter().map(|t| tet_metric(TetMetric::Volume, t, 0.0)).collect();
+    let avg = vols.iter().sum::<f64>() / vols.len() as f64;
+    let names = [
+        ("Aspect Frobenius", TetMetric::AspectFrobenius), ("Aspect Gamma", TetMetric::AspectGamma), ("Aspect Ratio", TetMetric::AspectRatio),
+        ("Collapse Ratio", TetMetric::CollapseRatio), ("Condition", TetMetric::Condition), ("Distortion", TetMetric::Distortion),
+        ("Edge Ratio", TetMetric::EdgeRatio), ("Equiangle Skew", TetMetric::EquiangleSkew), ("Inradius", TetMetric::Inradius),
+        ("Jacobian", TetMetric::Jacobian), ("Mean Ratio", TetMetric::MeanRatio), ("Minimum Dihedral Angle", TetMetric::MinimumDihedralAngle),
+        ("Normalized Inradius", TetMetric::NormalizedInradius), ("Radius Ratio", TetMetric::RadiusRatio), ("Relative Size Squared", TetMetric::RelativeSizeSquared),
+        ("Scaled Jacobian", TetMetric::ScaledJacobian), ("Shape", TetMetric::Shape), ("Shape and Size", TetMetric::ShapeAndSize),
+        ("Squish Index", TetMetric::SquishIndex), ("Volume", TetMetric::Volume),
+    ];
+    let mut bad = Vec::new();
+    for (name, m) in names {
+        let want = r["measures"][name].as_array().unwrap_or_else(|| panic!("{name}"));
+        for (i, t) in tets.iter().enumerate() {
+            let w = want[i].as_f64().unwrap();
+            let g = tet_metric(m, t, avg);
+            if (g - w).abs() > 2e-6 * w.abs().max(1.0) {
+                bad.push(format!("{name} #{i}: {g} vs {w}"));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} differ:\n{}", bad.len(), bad.join("\n"));
+}

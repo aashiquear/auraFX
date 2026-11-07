@@ -2142,3 +2142,30 @@ fn overlay_meshes() {
     assert_eq!(sm.field_data().get("InvertedElements").unwrap().get(0, 0), 0.0);
     assert!(sm.field_data().get("SideSet surface").is_some());
 }
+
+/// Refinement, element conversion, tetrahedron quality, smoothing and boundary layers as
+/// filters.
+#[test]
+fn mesh_refinement_filters() {
+    let b = run("box_mesh", None, &[]);
+    let nb = b.n_cells();
+    let r = run("refine_mesh", Some(&b), &[]);
+    assert_eq!(r.n_cells(), 8 * nb);
+    let t = run("convert_elements", Some(&b), &[]);
+    assert_eq!(t.n_cells(), 12 * nb);
+    let q = run("mesh_quality", Some(&t), &[("output", "Summary table".into())]);
+    let DataSet::Table(tab) = &q else { panic!() };
+    let names = tab.columns.get("Metric").unwrap().as_slice::<String>().unwrap().to_vec();
+    assert!(names.contains(&"MinimumDihedralAngle".to_string()) && names.contains(&"ScaledJacobian".to_string()));
+    let cq = run("mesh_quality", Some(&t), &[]);
+    let sj = cq.cell_data().unwrap().get("ScaledJacobian").unwrap();
+    assert!((0..sj.len()).all(|i| sj.get(i, 0) > 0.3));
+    let h = run("convert_elements", Some(&t), &[("to", "Tetrahedra to hexahedra".into())]);
+    assert_eq!(h.n_cells(), 4 * 12 * nb);
+    let tr = run("refine_mesh", Some(&t), &[]);
+    assert_eq!(tr.n_cells(), 8 * 12 * nb);
+    let l = run("boundary_layers", Some(&b), &[("side_set", "z+".into()), ("first", 0.002.into())]);
+    assert!(l.n_cells() > nb);
+    let s = run("smooth_mesh", Some(&t), &[]);
+    assert!(s.field_data().get("MinScaledJacobian").unwrap().get(0, 0) > 0.3);
+}

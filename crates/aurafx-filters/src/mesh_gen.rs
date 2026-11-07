@@ -5,7 +5,7 @@ use anyhow::{anyhow, bail, Result};
 use aurafx_data::*;
 use aurafx_mesh::hex::HexMesh;
 use aurafx_mesh::inclusions::{self as inc, StarShape};
-use aurafx_mesh::quality::{hex_metric, HexMetric};
+use aurafx_mesh::quality::{hex_metric, tet_metric, HexMetric, TetMetric};
 use aurafx_mesh::structured::{box_mesh as box_hex, Division};
 
 pub const ELEMENT_TYPES: [&str; 3] = ["HEX8", "HEX20", "HEX27"];
@@ -161,21 +161,38 @@ pub fn hex_metrics() -> Vec<HexMetric> {
     HexMetric::ALL.iter().copied().filter(|m| *m != HexMetric::EdgeRatio).collect()
 }
 
-/// Mesh Quality: the generic measures of every cell plus, for hexahedra, the full metric set
-/// (NaN for other cells); or, with `summary`, a table of each metric over the hexahedra: its
-/// minimum, maximum and mean, the acceptable range and how many cells fall outside it.
+fn tet_corners(ds: &DataSet) -> Result<Vec<Option<[[f64; 3]; 4]>>> {
+    let ug = ds.to_unstructured().ok_or_else(|| anyhow!("mesh quality needs a mesh"))?;
+    Ok(ug.cells.iter().map(|(t, ids)| matches!(t, CellType::Tetra | CellType::QuadraticTetra).then(|| std::array::from_fn(|k| ug.points.get(ids[k] as usize)))).collect())
+}
+
+/// The tetrahedron metrics computed by Mesh Quality (the generic edge ratio is kept instead).
+pub fn tet_metrics() -> Vec<TetMetric> {
+    TetMetric::ALL.iter().copied().filter(|m| *m != TetMetric::EdgeRatio).collect()
+}
+
+/// Mesh Quality: the generic measures of every cell plus, for hexahedra and tetrahedra, their
+/// full metric sets (each array holds the hexahedron value for hexahedra, the tetrahedron
+/// value for tetrahedra and NaN for other cells); or, with `summary`, a table of each metric
+/// over the hexahedra and over the tetrahedra: its minimum, maximum and mean, the acceptable
+/// range and how many cells fall outside it.
 pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
     let base = crate::geometry::mesh_quality(ds)?;
     let hexes = hex_corners(&base)?;
-    let vols: Vec<f64> = hexes.iter().flatten().map(|p| hex_metric(HexMetric::Volume, p, 0.0)).collect();
-    let avg = if vols.is_empty() { 0.0 } else { vols.iter().sum::<f64>() / vols.len() as f64 };
-    let metrics = hex_metrics();
-    let values: Vec<Vec<f64>> = metrics.iter().map(|m| hexes.iter().map(|h| h.as_ref().map(|p| hex_metric(*m, p, avg)).unwrap_or(f64::NAN)).collect()).collect();
+    let tets = tet_corners(&base)?;
+    let mean = |v: &[f64]| if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 };
+    let hex_avg = mean(&hexes.iter().flatten().map(|p| hex_metric(HexMetric::Volume, p, 0.0)).collect::<Vec<_>>());
+    let tet_avg = mean(&tets.iter().flatten().map(|p| tet_metric(TetMetric::Volume, p, 0.0)).collect::<Vec<_>>());
+    let hm = hex_metrics();
+    let tm = tet_metrics();
+    let has_hex = hexes.iter().any(|h| h.is_some());
+    let has_tet = tets.iter().any(|t| t.is_some());
+    let hex_values: Vec<Vec<f64>> = hm.iter().map(|m| hexes.iter().map(|h| h.as_ref().map(|p| hex_metric(*m, p, hex_avg)).unwrap_or(f64::NAN)).collect()).collect();
+    let tet_values: Vec<Vec<f64>> = tm.iter().map(|m| tets.iter().map(|t| t.as_ref().map(|p| tet_metric(*m, p, tet_avg)).unwrap_or(f64::NAN)).collect()).collect();
     if summary {
         let mut t = Table::default();
         let mut rows: Vec<(String, f64, f64, f64, f64, f64, f64, f64)> = Vec::new();
         let er = base.cell_data().and_then(|c| c.get("EdgeRatio"));
-        let er_vals: Vec<f64> = er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&hexes).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
         let mut add = |name: &str, v: &[f64], range: Option<(f64, f64)>| {
             let v: Vec<f64> = v.iter().copied().filter(|x| !x.is_nan()).collect();
             if v.is_empty() {
@@ -188,9 +205,20 @@ pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
             let out = if range.is_some() { v.iter().filter(|x| **x < lo - 1e-9 * lo.abs().max(1.0) || **x > hi + 1e-9 * hi.abs().max(1.0)).count() as f64 } else { f64::NAN };
             rows.push((name.to_string(), mn, mx, mean, lo, hi, out, out / v.len() as f64));
         };
-        add("EdgeRatio", &er_vals, None);
-        for (m, v) in metrics.iter().zip(&values) {
-            add(m.name(), v, m.acceptable());
+        if has_hex {
+            let er_vals: Vec<f64> = er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&hexes).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
+            add("EdgeRatio", &er_vals, None);
+            for (m, v) in hm.iter().zip(&hex_values) {
+                add(m.name(), v, m.acceptable());
+            }
+        }
+        if has_tet {
+            let suffix = if has_hex { " (tetrahedra)" } else { "" };
+            let er_vals: Vec<f64> = er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&tets).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
+            add(&format!("EdgeRatio{suffix}"), &er_vals, Some((1.0, 3.0)));
+            for (m, v) in tm.iter().zip(&tet_values) {
+                add(&format!("{}{suffix}", m.name()), v, m.acceptable());
+            }
         }
         t.columns.insert(Array::new("Metric", 1, ArrayData::String(rows.iter().map(|r| r.0.clone()).collect())));
         for (k, name) in ["Min", "Max", "Mean", "AcceptableMin", "AcceptableMax", "CellsOutside", "FractionOutside"].iter().enumerate() {
@@ -199,11 +227,26 @@ pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
         return Ok(DataSet::Table(t));
     }
     let mut out = base;
-    if hexes.iter().any(|h| h.is_some()) {
-        let cd = out.cell_data_mut().ok_or_else(|| anyhow!("no cell data"))?;
-        for (m, v) in metrics.iter().zip(values) {
-            cd.insert(Array::scalars_f64(m.name(), v));
+    let cd = out.cell_data_mut().ok_or_else(|| anyhow!("no cell data"))?;
+    let n = hexes.len();
+    let mut arrays: std::collections::BTreeMap<&str, Vec<f64>> = std::collections::BTreeMap::new();
+    if has_hex {
+        for (m, v) in hm.iter().zip(hex_values) {
+            arrays.insert(m.name(), v);
         }
+    }
+    if has_tet {
+        for (m, v) in tm.iter().zip(tet_values) {
+            let slot = arrays.entry(m.name()).or_insert_with(|| vec![f64::NAN; n]);
+            for (i, x) in v.into_iter().enumerate() {
+                if tets[i].is_some() {
+                    slot[i] = x;
+                }
+            }
+        }
+    }
+    for (name, v) in arrays {
+        cd.insert(Array::scalars_f64(name, v));
     }
     Ok(out)
 }
@@ -385,4 +428,87 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
     fd.insert(Array::new("MinScaledJacobian", 1, ArrayData::F64(vec![r.min_sj])));
     fd.insert(Array::new("InvertedElements", 1, ArrayData::F64(vec![r.inverted as f64])));
     Ok(out)
+}
+
+/// The tetrahedral or hexahedral mesh of a dataset (with its blocks and sets).
+enum AnyMesh {
+    Hex(HexMesh),
+    Tet(aurafx_mesh::tet::TetMesh),
+}
+
+fn any_mesh(ds: &DataSet) -> Result<AnyMesh> {
+    match HexMesh::from_dataset(ds) {
+        Ok(m) => Ok(AnyMesh::Hex(m)),
+        Err(e1) => aurafx_mesh::tet::TetMesh::from_dataset(ds).map(AnyMesh::Tet).map_err(|e2| anyhow!("the mesh must be all hexahedra ({e1}) or all tetrahedra ({e2})")),
+    }
+}
+
+/// Refine Mesh: every element into eight, `levels` times (hexahedra: HEX8 meshes).
+pub fn refine_mesh(ds: &DataSet, levels: usize) -> Result<DataSet> {
+    let mut m = any_mesh(ds)?;
+    for _ in 0..levels {
+        m = match m {
+            AnyMesh::Hex(h) => AnyMesh::Hex(h.refine().map_err(|e| anyhow!(e))?),
+            AnyMesh::Tet(t) => AnyMesh::Tet(t.refine()),
+        };
+    }
+    Ok(match m {
+        AnyMesh::Hex(h) => h.to_dataset(),
+        AnyMesh::Tet(t) => t.to_dataset(),
+    })
+}
+
+pub const TO_TETS: &str = "Hexahedra to tetrahedra";
+pub const TO_HEXES: &str = "Tetrahedra to hexahedra";
+
+/// Convert Elements: hexahedra into 12 tetrahedra each, or tetrahedra into 4 hexahedra each.
+pub fn convert_elements(ds: &DataSet, to: &str) -> Result<DataSet> {
+    match (any_mesh(ds)?, to) {
+        (AnyMesh::Hex(h), TO_TETS) => Ok(aurafx_mesh::tet::hexes_to_tets(&h).map_err(|e| anyhow!(e))?.to_dataset()),
+        (AnyMesh::Tet(t), TO_HEXES) => Ok(t.to_hexes().to_dataset()),
+        (AnyMesh::Hex(_), _) => bail!("the mesh is already hexahedral"),
+        (AnyMesh::Tet(_), _) => bail!("the mesh is already tetrahedral"),
+    }
+}
+
+/// Smooth Mesh: the inner nodes of a hexahedral or tetrahedral mesh moved by one of the
+/// schemes, the boundary and the nodes of `fixed_set` held.
+pub fn smooth_mesh(ds: &DataSet, scheme: &str, iterations: usize, fixed_set: &str) -> Result<DataSet> {
+    let (mut points, cells, fixed, rebuild): (Vec<[f64; 3]>, Vec<Vec<u32>>, std::collections::HashSet<u32>, Box<dyn Fn(Vec<[f64; 3]>) -> DataSet>) = match any_mesh(ds)? {
+        AnyMesh::Hex(h) => {
+            if h.npe != 8 {
+                bail!("smooth a HEX8 mesh (elevate afterwards)");
+            }
+            let fixed = if fixed_set.is_empty() { Default::default() } else { h.node_set(fixed_set).ok_or_else(|| anyhow!("no node set {fixed_set}"))?.iter().copied().collect() };
+            let cells = (0..h.n_elements()).map(|e| h.cell(e).to_vec()).collect();
+            let pts = h.points.clone();
+            (pts, cells, fixed, Box::new(move |p| {
+                let mut m = h.clone();
+                m.points = p;
+                m.to_dataset()
+            }))
+        }
+        AnyMesh::Tet(t) => {
+            let fixed = if fixed_set.is_empty() { Default::default() } else { t.node_set(fixed_set).ok_or_else(|| anyhow!("no node set {fixed_set}"))?.iter().copied().collect() };
+            let cells = t.tets.iter().map(|c| c.to_vec()).collect();
+            let pts = t.points.clone();
+            (pts, cells, fixed, Box::new(move |p| {
+                let mut m = t.clone();
+                m.points = p;
+                m.to_dataset()
+            }))
+        }
+    };
+    let c3 = aurafx_mesh::improve::Cells3 { cells };
+    let min_sj = aurafx_mesh::improve::smooth(&mut points, &c3, scheme, iterations, &fixed);
+    let mut out = rebuild(points);
+    out.field_data_mut_any().insert(Array::scalars_f64("MinScaledJacobian", vec![min_sj]));
+    Ok(out)
+}
+
+/// Boundary Layers: thin layers of hexahedra under the faces of a side set.
+pub fn boundary_layers(ds: &DataSet, side_set: &str, layers: usize, first: f64, growth: f64) -> Result<DataSet> {
+    let m = HexMesh::from_dataset(ds).map_err(|e| anyhow!(e))?;
+    let faces = m.side_set(side_set).ok_or_else(|| anyhow!("no side set {side_set}"))?.clone();
+    Ok(aurafx_mesh::improve::boundary_layers(&m, &faces, layers, first, growth).map_err(|e| anyhow!(e))?.to_dataset())
 }

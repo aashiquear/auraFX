@@ -370,6 +370,15 @@ Boundaries against a brute-force distance.
   [111] and 30 about [110] (sampling noise; 60 000 give 1.007 and 0.974 for two seeds). A
   stack of coherent Sigma 3 twin layers gives about 39 000 multiples of random at (111) and
   none at (100) and (110); every twin face measures 60.000 degrees.
+- Tetrahedron quality: 20 measures (all ParaView offers but equivolume skew) agree with
+  ParaView 6.1.1's Mesh Quality on 24 tetrahedra within its 32-bit precision
+  (testdata/mesh/tet_quality_reference.json).
+- Refinement and element conversion (crates/aurafx-mesh/tests/refine.rs): hexahedra refined,
+  split into tetrahedra, tetrahedra refined and turned back into hexahedra keep the volume to
+  1e-12, every element positive, faces conforming, and every boundary face in one of the six
+  side sets. Boundary layers keep the volume, give the asked first-layer thickness exactly and
+  add the layers' side faces to the neighbouring side sets; smoothing raises the worst scaled
+  Jacobian of a jiggled box from 0.25 to 0.97-1.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

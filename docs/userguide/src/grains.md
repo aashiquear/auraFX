@@ -516,7 +516,8 @@ mixed = v.jumble_orientations()
 `FeatureIds`) as a table of fits:
 - **Size:** a lognormal fit of the equivalent diameters (`ESD mu` and `ESD sigma` of their
   logarithms), with the mean, smallest and largest diameter.
-- **Shape:** beta-distribution fits of the aspect ratios b/a and c/b.
+- **Shape:** beta-distribution fits of the aspect ratios b/a and c/a (a, b and c are a
+  grain's axes, longest first).
 - **Neighbours:** a lognormal fit of the neighbour counts.
 
 Features touching the outside are left out unless **Include features on the surface** is
@@ -526,6 +527,77 @@ table.
 ```python
 st = v.ensemble_statistics(include_surface=True)
 print(st.array("ESD sigma", "field"))
+```
+
+### Pack Grains
+
+**Sources › Pack Grains** builds a microstructure from goal statistics.
+- **Size.** Equivalent diameters are lognormal: **Size mu** and **Size sigma** describe their
+  logarithms. The advanced cut-offs limit the draws to a few sigmas either side.
+- **Shape.** The aspect ratios follow beta distributions: **b/a** and **c/a**, each given as
+  (alpha, beta), so their mean is alpha / (alpha + beta).
+- **Grain shape** is an ellipsoid, a superellipsoid (boxier as its exponent grows), a
+  cube-octahedron or a cylinder. Its axes are turned at random, or lie along x, y, z with
+  **Axes along x, y, z**.
+- **Filling.** Grains are drawn until their volume fills the box. Each is then moved about
+  at random, and a move is kept when it lowers the overlap and the gaps. Every cell goes to
+  the grain it lies deepest inside, and the gaps are filled by growing the grains a layer at
+  a time.
+- **Matrix.** With a **Grain volume fraction** below 1, grains are added until they cover
+  that fraction. The rest of the box becomes a matrix phase (phase 2, one feature).
+- **Calibration.** Grains that fill space come out a little smaller and flatter than the
+  shapes drawn. **Match the goal sizes and shapes** (on by default)
+  measures the result, shifts the goals by what is missing and packs again, up to four
+  times. The grains away from the box faces then match the goal mean size and aspect
+  ratios to within about 0.02.
+
+`OverlapFraction` in the output's field data is the share of cells that more than one grain
+reached during packing.
+
+```python
+g = afx.pack_grains(cells=[80, 80, 80], esd_mu=2.48, esd_sigma=0.15, ba=[12, 4], ca=[10, 6])
+```
+
+![Grains packed from goal statistics, elongated along x, with precipitates on their boundaries](images/pack_grains.png)
+
+### Pack Like
+
+**Pack Like** makes a statistical copy of a segmented microstructure in a box of any size:
+- It measures the input like Generate Ensemble Statistics.
+- It packs grains with those size and shape statistics.
+- The new grains take orientations of the measured grains, chosen in proportion to their
+  volume, so the copy has the same texture.
+
+```python
+copy = measured.pack_like(cells=[100, 100, 100])
+```
+
+### Insert Precipitates
+
+**Insert Precipitates** adds particles of a new phase to a microstructure until they fill
+the **Volume fraction**:
+- **Shape and size.** Particles are spheres whose diameters are lognormal (**Size mu**,
+  **Size sigma**).
+- **Placement.** They are placed at random, or on grain boundaries with **On grain
+  boundaries**. No two particles touch.
+- **Output.** Each particle is a feature with a random orientation, in the next phase
+  number, whose crystal structure is added to `CrystalStructures`.
+
+### Match Crystallography
+
+**Match Crystallography** takes a second input: a reference microstructure, normally the
+measured one. It works in two steps:
+1. **Texture.** Each grain of phase 1 gets an orientation drawn from the reference's grains
+   by volume, which reproduces the texture.
+2. **Boundaries.** It swaps orientations between grains, or draws new ones, whenever that
+   brings the distribution of disorientation angles across grain boundaries closer to the
+   reference's. The distributions are weighted by boundary area, in 5° bins.
+
+The field data `MDFErrorBefore` and `MDFErrorAfter` give the summed difference between the
+two distributions before and after the swaps.
+
+```python
+matched = synthetic.match_crystallography(measured)
 ```
 
 ## Limits
@@ -541,8 +613,12 @@ print(st.array("ESD sigma", "field"))
   Four-index Miller-Bravais notation is not read.
 - The texture filters assume no sample symmetry and count every point equally.
 - Voronoi and Laguerre grains are tessellations of random seeds, and columnar grains are
-  power diagrams slice by slice. Neither packs grains to match given size and shape
-  statistics.
+  power diagrams slice by slice; use Pack Grains to match given size and shape statistics.
+- Pack Grains matches the mean size and mean aspect ratios. The spread of sizes and the
+  neighbour counts follow from the packing rather than from a goal. Grains cut by the box
+  faces of a periodic volume are measured as pieces.
+- Match Crystallography matches the boundary misorientation angles, not their axes.
+  Precipitates are spheres.
 - The feature filters copy the volume they work on: a volume of 80 million cells needs several
   gigabytes of memory. Segmentation of such a volume takes about 10 seconds.
 - The orientation mathematics is checked against independent references: rotations from

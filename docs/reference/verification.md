@@ -352,6 +352,15 @@ Boundaries against a brute-force distance.
   faces), and a log-sigma of the diameters of 0.14 (volume coefficient of variation 0.42).
   Add Orientation Noise of 3 degrees turns orientations by 2.39 degrees on average
   (3 sqrt(2/pi)).
+- Pack Grains recovers its goals from the volume it builds (80³ cells, periodic, 489
+  grains): interior grains measure size mu 2.486 (goal 2.485), b/a 0.756 (0.75) and c/a
+  0.623 (0.625) after calibration; without it 2.463, 0.765 and 0.596 (space-filling grains
+  come out a little smaller and flatter). Grains cut by the faces of the periodic box,
+  measured as pieces, would give b/a about 0.55. A 0.6 grain fraction leaves 0.405 as
+  matrix; Insert Precipitates at 5 % places 5.00 %; Pack Like of a Laguerre volume
+  reproduces its size mu (2.344 against 2.342). Match Crystallography against a reference
+  whose neighbouring grains are close in orientation lowers the boundary misorientation
+  error from 0.99 to 0.03.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# The B-rep kernel is carried in vendor/ (see vendor/README.md): its crates are path dependencies of
+# aurafx-cad and belong to the vendored workspaces, not to this one.
+exclude = ["vendor"]
 default-members = ["crates/aurafx-app"]
 
 [workspace.package]
@@ -8,7 +11,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/aashiquear/auraFX"
-rust-version = "1.85"
+rust-version = "1.95"
 
 [workspace.dependencies]
 aurafx-data = { path = "crates/aurafx-data" }
@@ -43,3 +46,9 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 codegen-units = 4
+
+# solidcraft pins solidcore by git revision; the same revision is carried in vendor/solidcore, so a build
+# needs nothing from the network but crates.io (docs/reference/third-party.md).
+[patch."https://github.com/tangency-labs/solidcore"]
+solidcore = { path = "vendor/solidcore/crates/solidcore" }
+solidcore-record = { path = "vendor/solidcore/crates/solidcore-record" }

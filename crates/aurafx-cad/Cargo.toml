@@ -19,3 +19,4 @@ serde.workspace = true
 serde_json.workspace = true
 glam = { workspace = true, features = ["serde"] }
 rayon.workspace = true
+solidcraft-engine = { path = "../../vendor/solidcraft/crates/engine" }

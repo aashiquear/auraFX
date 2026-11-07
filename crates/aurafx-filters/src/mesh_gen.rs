@@ -314,3 +314,72 @@ pub fn geometry_mesh(commands: &str) -> Result<DataSet> {
     ds.field_data_mut_any().insert(Array::new("FaceNames", 1, ArrayData::String(model.faces.clone())));
     Ok(ds)
 }
+
+pub const OVERLAY_SMOOTH: &str = "Smooth";
+pub const OVERLAY_STAIR: &str = "Stair-step";
+
+/// Settings of the Overlay Mesh filter.
+pub struct OverlayParams {
+    pub array: String,
+    pub cell: f64,
+    pub mode: String,
+    pub void: bool,
+    pub periodic: bool,
+    pub min_cells: usize,
+    pub smoothing: usize,
+    pub element: String,
+}
+
+/// Overlay Mesh: hexahedra on a Cartesian grid over a labelled image (each label a block, 0
+/// void) or a closed surface, with pillowed and smoothed interfaces (or whole cells).
+pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
+    use aurafx_mesh::overlay::*;
+    let smooth = p.mode != OVERLAY_STAIR;
+    let mut o = OverlayOptions { pillow: smooth, project: smooth, mesh_void: p.void, periodic: p.periodic, min_cells: p.min_cells, smoothing: p.smoothing, ..Default::default() };
+    let r = match ds {
+        DataSet::ImageData(img) => {
+            let v = crate::features::Vox::of(img);
+            let a = img.cell_data.get(&p.array).ok_or_else(|| anyhow!("no cell array {} (choose the array of labels)", p.array))?;
+            if a.ncomp != 1 {
+                bail!("{} has {} components: the labels must be one number per cell", p.array, a.ncomp);
+            }
+            let labels: Vec<u32> = (0..a.len()).map(|i| a.get(i, 0).max(0.0) as u32).collect();
+            let n = v.n;
+            let hi: [f64; 3] = std::array::from_fn(|k| v.corner[k] + n[k] as f64 * v.sp[k]);
+            o.lo = v.corner;
+            o.hi = hi;
+            o.cells = if p.cell > 0.0 { std::array::from_fn(|k| (((hi[k] - v.corner[k]) / p.cell).round() as usize).max(1)) } else { n };
+            o.samples = if o.cells == n { 1 } else { 3 };
+            let grains = p.array.eq_ignore_ascii_case("FeatureIds") || p.array.eq_ignore_ascii_case("grain_id");
+            for l in labels.iter().copied().collect::<std::collections::BTreeSet<u32>>() {
+                if l > 0 {
+                    o.names.insert(l, if grains { format!("grain {l}") } else { format!("{} {l}", p.array) });
+                }
+            }
+            let src = LabelSource { n, origin: v.corner, spacing: v.sp, labels };
+            overlay(&src, &o).map_err(|e| anyhow!(e))?
+        }
+        DataSet::PolyData(_) => {
+            let tm = aurafx_mesh::model::surface_mesh(ds)?;
+            let shape = aurafx_mesh::shape::Shape::Surface { mesh: std::sync::Arc::new(tm), face: 1 };
+            let (lo, hi) = shape.bounds();
+            let size = if p.cell > 0.0 { p.cell } else { (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max) / 30.0 };
+            o.lo = std::array::from_fn(|k| lo[k] - 1.5 * size);
+            o.hi = std::array::from_fn(|k| hi[k] + 1.5 * size);
+            o.cells = std::array::from_fn(|k| (((o.hi[k] - o.lo[k]) / size).round() as usize).max(1));
+            o.names.insert(1, "solid".into());
+            o.periodic = false;
+            o.face_names = vec![String::new(), "surface".into()];
+            let src = ShapeSource { shapes: vec![(1, &shape)] };
+            overlay(&src, &o).map_err(|e| anyhow!(e))?
+        }
+        _ => bail!("Overlay Mesh works on image data with a label array, or on a closed surface"),
+    };
+    let mut m = r.mesh;
+    m.elevate(nodes_per_element(&p.element), &[], &|_, q| q);
+    let mut out = m.to_dataset();
+    let fd = out.field_data_mut_any();
+    fd.insert(Array::new("MinScaledJacobian", 1, ArrayData::F64(vec![r.min_sj])));
+    fd.insert(Array::new("InvertedElements", 1, ArrayData::F64(vec![r.inverted as f64])));
+    Ok(out)
+}

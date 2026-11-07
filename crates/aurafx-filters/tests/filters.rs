@@ -2117,3 +2117,30 @@ fn structured_hex_meshes() {
     let sparse = run("inclusion_mesh", None, &[("count", 30.into()), ("radius", 0.07.into()), ("cells", 24.into())]);
     assert!(dense.field_data().get("InclusionsPlaced").unwrap().get(0, 0) >= sparse.field_data().get("InclusionsPlaced").unwrap().get(0, 0));
 }
+
+/// Overlay Mesh on a measured microstructure (the AM Bench feature window: one block per
+/// grain) and on a triangulated sphere.
+#[test]
+fn overlay_meshes() {
+    let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/dream3d/am_bench_features.dream3d");
+    let d = match aurafx_io::read_file(p).unwrap() {
+        aurafx_io::Loaded::Static(d) => (*d).clone(),
+        _ => panic!(),
+    };
+    let ncell = d.n_cells();
+    let m = run("overlay_mesh", Some(&d), &[]);
+    let fd = m.field_data();
+    let (sj, inv) = (fd.get("MinScaledJacobian").unwrap().get(0, 0), fd.get("InvertedElements").unwrap().get(0, 0));
+    eprintln!("grains: {ncell} voxels -> {} elements, {} blocks, min SJ {sj:.3}", m.n_cells(), fd.get("ElementBlockIds").unwrap().len());
+    // A measured microstructure has grains of a few voxels with saddle-shaped boundaries; a
+    // handful of nearly flat elements may remain there (reported, never folded over).
+    assert!(inv <= 2e-4 * m.n_cells() as f64, "{inv}");
+    assert!(sj > -0.1, "{sj}");
+    let stair = run("overlay_mesh", Some(&d), &[("mode", "Stair-step".into())]);
+    assert!(stair.n_cells() <= ncell);
+    assert_eq!(stair.field_data().get("MinScaledJacobian").unwrap().get(0, 0), 1.0);
+    let s = run("sphere", None, &[]);
+    let sm = run("overlay_mesh", Some(&s), &[("cell", 0.05.into())]);
+    assert_eq!(sm.field_data().get("InvertedElements").unwrap().get(0, 0), 0.0);
+    assert!(sm.field_data().get("SideSet surface").is_some());
+}

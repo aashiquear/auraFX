@@ -101,6 +101,7 @@ These commands make a hexahedral mesh, shown when the Geometry source's **Output
 | Command | Does |
 |---|---|
 | `mesh body 1 2 size 0.1 element HEX20` | meshes bodies with elements of about that size (HEX8 by default) |
+| `mesh body 3 size 0.1 scheme overlay` | chooses how: `structured`, `overlay` or `stairstep` (by default bricks and cylinders are structured, everything else overlay) |
 | `block 7 add body 2 name 'rod'` | puts bodies in an element block (by default each body is its own block, with its id and name) |
 | `sideset 1 add face 6 9 name 'top'` | a side set of the mesh faces on those geometry faces |
 | `nodeset 2 add face 1 name 'left'` | a node set of the nodes on those faces |
@@ -109,8 +110,20 @@ Bricks become structured boxes, and cylinders become an O-grid disk swept along 
 each moved, turned and scaled like its body. Every geometry face also becomes a side set
 named after it, such as `brick 1 x+` or `cylinder 2 side`. With HEX20 or HEX27 elements, the
 new nodes on a cylinder's side lie on the exact surface. Bodies meshed together are welded
-where their nodes coincide. Other bodies (spheres, booleans, outlines) are not meshed with
-hexahedra yet.
+where their nodes coincide.
+
+Every other body (spheres, booleans, outlines, sweeps, imported surfaces) is meshed on an
+overlay grid; see [Overlay meshing](#overlay-meshing) below.
+- **One grid.** All overlay bodies share one grid of the smallest size asked for, so bodies
+  that touch meet node to node. Each body is its own block, and the faces between two bodies
+  form a side set named `interface <body> - <body>`.
+- **Overlap.** Where bodies overlap, the one listed first in the `mesh` commands keeps the
+  overlap.
+- **Curved elements.** With HEX20 or HEX27 elements, the new nodes on a body's surface are
+  moved onto it.
+- **Stair-step.** `scheme stairstep` keeps whole grid cells, for a quick look.
+
+![A plate with a hole and a ball pressed into its end, meshed together on one overlay grid as two blocks](images/overlay_part.png)
 
 ## Python
 
@@ -292,6 +305,53 @@ thick = plate.extract_set(set="z-").sweep_quads(direction=(0, 0, 1), distance=4,
 
 ![Bricks and cylinders meshed with 'mesh body' commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block](images/geometry_hex_mesh.png)
 
+## Overlay meshing
+
+Overlay meshing fills any shape with hexahedra. It works in five steps:
+1. **Grid.** A grid of cubes is laid over the shape, and each cell takes the material found
+   at most of its sample points.
+2. **Clean-up.** Pieces smaller than **Smallest piece**, and cells that stick out or form
+   layers one cell thick, join their surroundings. Places where a material would touch
+   itself only along an edge or at a corner are filled in.
+3. **Pillowing.** Each material is wrapped in a layer of elements. No element then has more
+   than one face on a surface.
+4. **Surfaces.** The nodes on each surface move onto the true surface. Where the shape is
+   only known as voxels, they are smoothed along the surface instead.
+5. **Smoothing.** The rest of the mesh is smoothed in stages:
+   - Laplacian smoothing;
+   - small moves of the nodes of elements whose scaled Jacobian is below 0.6;
+   - a wider search below 0.3;
+   - untangling of anything still flat.
+
+   Every move is kept only if the elements around it stay valid.
+
+The result has:
+- one block per material;
+- side sets and node sets for the outer faces of the grid (`x-` … `z+`), for each surface of
+  the model (named after the geometry face, or `surface <block>`), and for each interface
+  between two blocks (`interface <a> - <b>`);
+- field data `MinScaledJacobian` and `InvertedElements`, to check the quality at a glance.
+
+**Filters › Mesh › Overlay Mesh** runs it on data:
+- **Image data with a label array** (`FeatureIds` by default): each label becomes a block,
+  named `grain N` for grain numbers. Label 0 is empty space. **Cell size** 0 meshes on the
+  image's own voxels.
+- **A closed surface** (STL, OBJ, PLY, ...): the solid inside it. **Cell size** 0 uses a
+  thirtieth of its largest size.
+- **Interfaces** *Smooth* runs all five steps; *Stair-step* keeps whole cells, every element
+  a perfect cube.
+- **Mesh the empty space** meshes label 0, or the space around a surface, as a block of its
+  own (`void`).
+- **Periodic** keeps the outer faces of the grid flat and unmoved, and pairs their nodes
+  across opposite faces (`PeriodicPairs x/y/z`), for representative volume elements.
+
+```python
+mesh = ebsd_volume.overlay_mesh(array="FeatureIds", periodic=True)
+part = afx.load("part.stl").overlay_mesh(cell=0.5)
+```
+
+![A measured nickel-superalloy microstructure meshed with one block per grain](images/overlay_grains.png)
+
 ## Elevate
 
 **Filters › Mesh › Elevate** turns 8-node hexahedra into 20-node (edge midpoints) or 27-node
@@ -346,6 +406,11 @@ t = m.mesh_quality(output="Summary table")        # one row per metric
 - Inclusions must be star-shaped (one surface point along every direction from their
   centre) and cannot touch: each lies in its own box of grid cells, which caps how dense a
   packing can get even with collective packing.
-- `mesh body` meshes bricks and cylinders only. Other bodies wait for the overlay-grid mesher
-  of a later release.
+- Overlay meshes round sharp edges and corners that do not lie along the grid to about a
+  cell. Make the cell smaller near such edges, or use a structured scheme for bricks.
+- On measured microstructures with grains only a few voxels across, a few elements in
+  100 000 may stay nearly flat. This happens where a grain boundary has a saddle shape.
+  `InvertedElements` counts them; a larger **Smallest piece**, or *Stair-step*, avoids
+  them.
+- Overlay meshing of 100 000 voxels takes about 10 seconds.
 - Gmsh files carry no node sets.

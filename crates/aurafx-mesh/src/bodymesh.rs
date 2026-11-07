@@ -72,36 +72,72 @@ fn body_mesh(shape: &Shape, size: f64) -> Result<HexMesh, String> {
             }
             sweep_quads(&pts, &quads, &vec![1; quads.len()], [0.0, 0.0, 1.0], *h, &Division::uniform(cells(*h, size)))
         }
-        _ => Err("only bricks and cylinders (moved, turned or scaled) are meshed with hexahedra so far".into()),
+        _ => Err("only bricks and cylinders (moved, turned or scaled) have a structured mesh; use scheme overlay".into()),
     }
 }
 
-/// Mesh every body named by `mesh body` commands. Blocks: one per body (id and name of the
-/// body) unless `block` commands group them. Side sets: one per body face (named as the face)
-/// plus those of `sideset` commands; node sets from `nodeset` commands.
+/// How a body is meshed.
+fn scheme_of(model: &Model, id: u32, shape: &Shape) -> &'static str {
+    let structured = matches!(base(shape).1, Shape::Brick { .. } | Shape::Cylinder { .. });
+    match model.mesh_schemes.get(&id).map(|s| s.as_str()) {
+        Some("overlay") => "overlay",
+        Some("stairstep") => "stairstep",
+        Some("structured") => "structured",
+        _ if structured => "structured",
+        _ => "overlay",
+    }
+}
+
+/// Where new HEX20/27 nodes on a curved body face go.
+enum Proj {
+    Cylinder(Affine, f64),
+    Body(u32),
+}
+
+/// Mesh every body named by `mesh body` commands. Bricks and cylinders are structured (unless
+/// another scheme is asked for); every other body, and those asked to, share one overlay grid
+/// of the smallest size asked for, so touching bodies meet node to node. Blocks: one per body
+/// (id and name of the body) unless `block` commands group them. Side sets: one per body face
+/// (named as the face), the interfaces between overlay bodies, and those of `sideset`
+/// commands; node sets from `nodeset` commands.
 pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
     if model.mesh_requests.is_empty() {
         return Err("no body to mesh: add a command like 'mesh body 1 size 0.1'".into());
     }
     let mut out = HexMesh { npe: 8, ..Default::default() };
-    let mut face_of: Vec<(u32, u8, u32)> = Vec::new();
+    // (element, side, face id, projector) of every boundary face.
+    let mut face_of: Vec<(u32, u8, u32, Option<usize>)> = Vec::new();
+    let mut projs: Vec<Proj> = Vec::new();
     let mut npe = 8;
     let mut smallest = f64::INFINITY;
-    // (transform, radius, side face) of every meshed cylinder.
-    let mut cyl_side: Vec<(Affine, f64, u32)> = Vec::new();
+    let block_of = |id: u32| -> (i32, String) {
+        let bid = model.user_blocks.iter().find(|b| b.2.contains(&id)).map(|b| b.0).unwrap_or(id as i32);
+        let name = model.user_blocks.iter().find(|b| b.0 == bid).map(|b| b.1.clone()).unwrap_or_else(|| model.bodies[&id].name.clone());
+        (bid, name)
+    };
+    let mut overlay_bodies: Vec<(u32, f64, &'static str)> = Vec::new();
     for &(id, size, n) in &model.mesh_requests {
         let body = model.bodies.get(&id).ok_or_else(|| format!("there is no body {id}"))?;
+        npe = npe.max(n);
+        smallest = smallest.min(size);
+        let scheme = scheme_of(model, id, &body.shape);
+        if scheme != "structured" {
+            overlay_bodies.push((id, size, scheme));
+            continue;
+        }
         let (aff, prim) = base(&body.shape);
         let mut m = body_mesh(prim, size).map_err(|e| format!("body {id}: {e}"))?;
-        if let Shape::Cylinder { r, faces, .. } = prim {
-            cyl_side.push((aff, *r, faces[0]));
-        }
+        let proj = if let Shape::Cylinder { r, faces, .. } = prim {
+            projs.push(Proj::Cylinder(aff, *r));
+            Some((faces[0], projs.len() - 1))
+        } else {
+            None
+        };
         for p in m.points.iter_mut() {
             *p = aff.apply(*p);
         }
         m.fix_orientation();
-        let bid = model.user_blocks.iter().find(|b| b.2.contains(&id)).map(|b| b.0).unwrap_or(id as i32);
-        let bname = model.user_blocks.iter().find(|b| b.0 == bid).map(|b| b.1.clone()).unwrap_or_else(|| body.name.clone());
+        let (bid, bname) = block_of(id);
         m.block = vec![bid; m.n_elements()];
         m.block_names.clear();
         m.block_names.insert(bid, bname);
@@ -113,11 +149,51 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
             let c = m.side_corners(e as usize, s);
             let cen: P3 = std::array::from_fn(|a| c.iter().map(|k| m.points[*k as usize][a]).sum::<f64>() / 4.0);
             let f = body.shape.eval(cen).1;
-            face_of.push((e + e0, s, f));
+            face_of.push((e + e0, s, f, proj.filter(|p| p.0 == f).map(|p| p.1)));
         }
         out.append(&m);
-        npe = npe.max(n);
-        smallest = smallest.min(size);
+    }
+    if !overlay_bodies.is_empty() {
+        let h = overlay_bodies.iter().map(|b| b.1).fold(f64::INFINITY, f64::min);
+        let shapes: Vec<(u32, &Shape)> = overlay_bodies.iter().map(|b| (b.0, &model.bodies[&b.0].shape)).collect();
+        let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+        for (_, s) in &shapes {
+            let (a, b) = s.bounds();
+            for k in 0..3 {
+                lo[k] = lo[k].min(a[k] - 1.5 * h);
+                hi[k] = hi[k].max(b[k] + 1.5 * h);
+            }
+        }
+        let cells = std::array::from_fn(|k| (((hi[k] - lo[k]) / h).round() as usize).max(1));
+        let stair = overlay_bodies.iter().all(|b| b.2 == "stairstep");
+        let names = overlay_bodies.iter().map(|b| (b.0, block_of(b.0).1)).collect();
+        let o = crate::overlay::OverlayOptions { lo, hi, cells, pillow: !stair, project: !stair, names, ..Default::default() };
+        let src = crate::overlay::ShapeSource { shapes };
+        let r = crate::overlay::overlay(&src, &o)?;
+        let mut m = r.mesh;
+        let body_of: Vec<u32> = m.block.iter().map(|b| *b as u32).collect();
+        for b in m.block.iter_mut() {
+            *b = block_of(*b as u32).0;
+        }
+        m.block_names = overlay_bodies.iter().map(|b| block_of(b.0)).collect();
+        m.side_sets.retain(|s| s.0.starts_with("interface "));
+        m.node_sets.retain(|s| s.0.starts_with("interface "));
+        let e0 = out.n_elements() as u32;
+        for (e, s) in m.boundary_faces() {
+            let c = m.side_corners(e as usize, s);
+            let cen: P3 = std::array::from_fn(|a| c.iter().map(|k| m.points[*k as usize][a]).sum::<f64>() / 4.0);
+            let id = body_of[e as usize];
+            let f = model.bodies[&id].shape.eval(cen).1;
+            let k = match projs.iter().position(|p| matches!(p, Proj::Body(b) if *b == id)) {
+                Some(k) => k,
+                None => {
+                    projs.push(Proj::Body(id));
+                    projs.len() - 1
+                }
+            };
+            face_of.push((e + e0, s, f, Some(k)));
+        }
+        out.append(&m);
     }
     out.weld(1e-9 * smallest);
     // Side sets per face, then the user's.
@@ -137,19 +213,46 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
         out.add_node_set(name, nodes);
     }
     if npe > 8 {
-        // New nodes on cylinder sides go onto the exact surface: in the cylinder's own
-        // coordinates their distance from the axis becomes the radius. (Bricks are flat.)
-        let curved: Vec<(u32, u8, usize)> = face_of.iter().filter_map(|x| cyl_side.iter().position(|c| c.2 == x.2).map(|i| (x.0, x.1, i))).collect();
+        // New nodes on curved faces go onto the exact surface: on a cylinder's side, by its
+        // radius in its own coordinates; on an overlay body, by Newton steps on its distance.
+        let curved: Vec<(u32, u8, usize)> = face_of.iter().filter_map(|x| x.3.map(|k| (x.0, x.1, k))).collect();
         let project = |i: usize, p: P3| -> P3 {
-            let (aff, r, _) = &cyl_side[i];
-            let inv = aff.inverse();
-            let mut q = inv.apply(p);
-            let rho = (q[0] * q[0] + q[1] * q[1]).sqrt();
-            if rho > 0.0 {
-                q[0] *= r / rho;
-                q[1] *= r / rho;
+            match &projs[i] {
+                Proj::Cylinder(aff, r) => {
+                    let mut q = aff.inverse().apply(p);
+                    let rho = (q[0] * q[0] + q[1] * q[1]).sqrt();
+                    if rho > 0.0 {
+                        q[0] *= r / rho;
+                        q[1] *= r / rho;
+                    }
+                    aff.apply(q)
+                }
+                Proj::Body(id) => {
+                    let s = &model.bodies[id].shape;
+                    let mut q = p;
+                    for _ in 0..8 {
+                        let d = s.eval(q).0;
+                        if d.abs() < 1e-13 {
+                            break;
+                        }
+                        let e = 1e-7;
+                        let g: P3 = std::array::from_fn(|a| {
+                            let (mut x, mut y) = (q, q);
+                            x[a] += e;
+                            y[a] -= e;
+                            (s.eval(x).0 - s.eval(y).0) / (2.0 * e)
+                        });
+                        let gg = g[0] * g[0] + g[1] * g[1] + g[2] * g[2];
+                        if gg < 1e-12 {
+                            break;
+                        }
+                        for a in 0..3 {
+                            q[a] -= d * g[a] / gg;
+                        }
+                    }
+                    q
+                }
             }
-            aff.apply(q)
         };
         out.elevate(npe, &curved, &project);
     }

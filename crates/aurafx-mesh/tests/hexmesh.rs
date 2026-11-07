@@ -357,5 +357,18 @@ fn sweep_packing_and_mesh_commands() {
             assert!(((p[0] * p[0] + p[1] * p[1]).sqrt() - 0.5).abs() < 1e-9, "{p:?}");
         }
     }
-    assert!(aurafx_mesh::Model::from_commands("sphere radius 1; mesh body 1 size 0.1", None).map(|m| aurafx_mesh::bodymesh::mesh_model(&m)).unwrap().is_err());
+    // Other bodies go to the overlay mesher; with HEX27 their face nodes lie on the surface.
+    let model = aurafx_mesh::Model::from_commands("sphere radius 1; brick x 1 y 1 z 1; move body 2 x 3; mesh body 1 size 0.2 element HEX27; mesh body 2 size 0.25 scheme overlay; sideset 5 add face 1 name 'ball'", None).unwrap();
+    let m = aurafx_mesh::bodymesh::mesh_model(&model).unwrap();
+    assert!(m.signed_volumes().iter().all(|v| *v > 0.0));
+    let ball = m.side_set("ball").unwrap();
+    assert_eq!(ball.len(), m.side_set("sphere 1 surface").unwrap().len());
+    for (e, s) in ball {
+        for k in aurafx_mesh::hex::side_nodes(27, *s) {
+            let p = m.points[m.cell(*e as usize)[k] as usize];
+            assert!(((p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() - 1.0).abs() < 1e-9, "{p:?}");
+        }
+    }
+    assert!(m.side_set("brick 2 x+").is_some());
+    assert!(aurafx_mesh::Model::from_commands("sphere radius 1; mesh body 1 size 0.1 scheme pave", None).is_err());
 }

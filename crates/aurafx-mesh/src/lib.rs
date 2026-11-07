@@ -6,6 +6,7 @@ pub mod bodymesh;
 pub mod hex;
 pub mod inclusions;
 pub mod model;
+pub mod overlay;
 pub mod quality;
 pub mod specimens;
 pub mod structured;

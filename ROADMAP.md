@@ -297,6 +297,8 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
   - [x] M2a: hex mesh model (blocks, side sets, node sets, element variables), box and mapped blocks with grading, the inclusion mesher (grid packing, cubed-sphere O-grid blocks, transfinite cores, graded shells, exact weld; spheres, ellipsoids, superquadrics, harmonic grains), HEX20/HEX27 with surface projection, periodic pairs by coordinates, Extract Set, Mesh Quality with the full hexahedron metric set and a summary table, Exodus sets and HEX20/27, Abaqus `.inp`, Gmsh `.msh` (iteration 57).
   - [x] M2b: plate with hole, dog-bone, 2-D quad sweep, collective packing, mesh commands (`mesh body`, `block`, `sideset`, `nodeset`) in the geometry language for bricks and cylinders, the benchmark's meshes as references (iteration 58).
 - [ ] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
+  - [x] M3a: overlay grid from geometry bodies, closed surfaces and labelled images, defeaturing and pinch removal, pillowing, projection along stair-step normals, guarded tiered smoothing and untangling, void meshing, domain/surface/interface side sets, periodic pairs, stair-step mode, `scheme overlay` in the geometry commands, Overlay Mesh filter (iteration 61).
+  - [ ] M3b: sharp edges (curves) kept by the overlay mesher, saddle-free pillowing on fine microstructures, faster smoothing.
 - [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
 - [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
 
@@ -417,6 +419,16 @@ panel), Texture Components (fractions within a cone of each sample axis) and Cho
 (grain-boundary chords along x, y, z with gaps and specks handled, list or histogram); the
 fractions and the chords equal the AM orientation toolkit's on the AM Bench window. Guide
 chapter: Grains and crystals. Next: M3.
+
+Done in iteration 61 (M3a): the overlay-grid hex mesher (aurafx-mesh overlay.rs) for geometry
+bodies, closed surfaces and labelled images: sampled classification, clean-up of small pieces,
+protrusions, one-cell layers and pinches, pillowing, projection along stair-step normals onto
+exact distances (Taubin smoothing with the pillow layer for voxels), guarded Laplacian and
+tiered optimisation with an untangling energy, void meshing, side sets for domain faces,
+model surfaces and material interfaces, periodic pairs, stair-step mode; `scheme overlay` for
+any body in the geometry commands, Overlay Mesh filter. Quality floors pass on CSG, STL and
+synthetic voxel parts; a measured microstructure keeps a few nearly flat elements at saddles.
+Guide chapter: Geometry and meshing. Next: M3b.
 
 ## Status (2026-11-05)
 

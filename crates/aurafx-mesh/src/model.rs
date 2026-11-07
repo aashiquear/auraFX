@@ -60,6 +60,8 @@ pub struct Model {
     pub base_dir: Option<std::path::PathBuf>,
     /// Bodies to mesh: (body, element size, nodes per element).
     pub mesh_requests: Vec<(u32, f64, usize)>,
+    /// Meshing scheme per body when not automatic: structured, overlay or stairstep.
+    pub mesh_schemes: BTreeMap<u32, String>,
     /// Element blocks: (id, name, bodies).
     pub user_blocks: Vec<(i32, String, Vec<u32>)>,
     /// Side sets and node sets: (id, name, faces).
@@ -526,12 +528,22 @@ impl Model {
                     Some(s) => bail!("unknown element {s} (HEX8, HEX20, HEX27)"),
                     None => 8,
                 };
+                let scheme = match a.text("scheme").map(|s| s.to_ascii_lowercase()) {
+                    Some(s) if ["structured", "overlay", "stairstep", "auto"].contains(&s.as_str()) => s,
+                    Some(s) => bail!("unknown scheme {s} (auto, structured, overlay, stairstep)"),
+                    None => "auto".into(),
+                };
                 for id in ids {
                     if !self.bodies.contains_key(&id) {
                         bail!("there is no body {id}");
                     }
                     self.mesh_requests.retain(|r| r.0 != id);
                     self.mesh_requests.push((id, size, npe));
+                    if scheme == "auto" {
+                        self.mesh_schemes.remove(&id);
+                    } else {
+                        self.mesh_schemes.insert(id, scheme.clone());
+                    }
                 }
             }
             "block" | "sideset" | "nodeset" => {

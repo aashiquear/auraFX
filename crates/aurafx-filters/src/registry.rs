@@ -3362,6 +3362,43 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| crate::mesh_gen::sweep(input.unwrap(), p.vec3("direction", [0.0, 0.0, 1.0]), p.f64("distance", 1.0), p.i64("layers", 4).max(1) as usize, p.f64("grading", 1.0), &p.str("cluster")),
         },
         FilterDef {
+            id: "overlay_mesh",
+            label: "Overlay Mesh",
+            category: "Mesh",
+            description: "Hexahedra on a Cartesian grid laid over a labelled image (each label a block, 0 empty) or a closed surface, with smooth pillowed interfaces or whole cells.",
+            keywords: &["voxel mesh", "microstructure mesh", "grain mesh", "stl to hex", "conforming hex", "pillow", "stair step", "rve", "image to mesh", "hex mesh"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                cell_arr("array", "Labels").help("Image data: the cell array of material or grain numbers (0: empty). Empty: FeatureIds."),
+                f("cell", "Cell size", 0.0, 0.0, f64::INFINITY).help("0: the image's own voxels, or a thirtieth of a surface's largest size."),
+                choice("mode", "Interfaces", &[crate::mesh_gen::OVERLAY_SMOOTH, crate::mesh_gen::OVERLAY_STAIR], crate::mesh_gen::OVERLAY_SMOOTH),
+                b("void", "Mesh the empty space", false),
+                b("periodic", "Periodic (pair opposite faces)", false),
+                i("min_cells", "Smallest piece (cells)", 8, 0, 1_000_000).help("Pieces of a material with fewer cells join their surroundings.").advanced(),
+                i("smoothing", "Smoothing passes", 8, 0, 200).advanced(),
+                choice("element", "Element", &crate::mesh_gen::ELEMENT_TYPES, "HEX8").advanced(),
+            ],
+            apply: |input, p| {
+                let array = p.array("array").map(|x| x.1).filter(|x| !x.is_empty()).unwrap_or_else(|| "FeatureIds".into());
+                crate::mesh_gen::overlay_mesh(
+                    input.unwrap(),
+                    &crate::mesh_gen::OverlayParams {
+                        array,
+                        cell: p.f64("cell", 0.0),
+                        mode: p.str("mode"),
+                        void: p.bool("void", false),
+                        periodic: p.bool("periodic", false),
+                        min_cells: p.i64("min_cells", 8).max(0) as usize,
+                        smoothing: p.i64("smoothing", 8).max(0) as usize,
+                        element: p.str("element"),
+                    },
+                )
+            },
+        },
+        FilterDef {
             id: "elevate",
             label: "Elevate",
             category: "Mesh",

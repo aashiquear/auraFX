@@ -330,6 +330,15 @@ Boundaries against a brute-force distance.
     to the toolkit's;
   - chord lengths of the first slice (10° boundaries, gaps of up to 3 points skipped), 474
     along x and 347 along y, are the toolkit's `chords_from_map` list, chord for chord.
+- Overlay meshing (crates/aurafx-mesh/tests/overlay.rs) is checked by quality floors on a set
+  of parts: no inverted element, conformity (no face shared by more than two elements),
+  smallest scaled Jacobian, and volume per material against the exact one: a sphere (0.53,
+  -0.6 %), a plate with a hole (0.40, -0.15 %), a sphere inside a block (0.46, -1.1 % and
+  +0.1 %), two crossed cylinders (0.21, -0.9 %), a cube surface turned 30 degrees about z
+  (0.53, -1.1 %), a voxel sphere in a periodic cube and four voxel grains (0.30 and 0.32,
+  volumes summing to the cube). On the measured AM Bench feature window (179 grains, 82 000
+  voxels) at most 2 elements in 10 000 stay nearly flat (scaled Jacobian above -0.1), at
+  saddle-shaped grain boundaries.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

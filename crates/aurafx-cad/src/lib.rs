@@ -14,8 +14,8 @@
 //!   `sketch` and `path` (the constraint solver), `.afxcad` files;
 //! - C2 `kernel::implicit` on `aurafx-mesh`'s implicit geometry;
 //! - C5 `diff` (old versus new geometry for the downstream check);
-//! - C6 `kernel::brep` and `kernel::bridge` (SolidCraft in process, or its CLI) and `io`
-//!   (STEP, IGES, 3MF, `.sc`).
+//! - C6 `kernel::brep` (SolidCraft's kernel, carried in `vendor/`) and `io` (STEP, IGES,
+//!   3MF, `.sc`).
 
 pub mod expr;
 pub mod kernel;
@@ -40,8 +40,8 @@ pub enum CadError {
     Binding { feature: String, path: String, reason: String },
     #[error("{kernel} kernel: {reason}")]
     Kernel { kernel: &'static str, reason: String },
-    #[error("the {0} kernel is not built in (cargo feature `brep`)")]
-    KernelUnavailable(&'static str),
+    #[error("the {0} kernel refused: {1}")]
+    KernelRefused(&'static str, String),
 }
 
 /// A stable identity of a feature, sketch entity or body: never reused within a document, so

@@ -1,7 +1,7 @@
 //! Kernels turn a document into geometry. Two are planned (design section 3.2): `implicit`
 //! (always built; the port of EZ-YX-craft's signed-distance kernel onto `aurafx-mesh`) and
-//! `brep` (cargo feature `brep`; SolidCraft's B-rep kernel in process, with `bridge` running
-//! its CLI when the feature is off). Stage C0 defines the contract they both fill.
+//! `brep` (SolidCraft's B-rep kernel, carried in `vendor/` and built in). Stage C0 defines the
+//! contract they both fill.
 
 use crate::Id;
 use aurafx_data::DataSet;

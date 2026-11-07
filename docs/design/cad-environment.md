@@ -65,7 +65,7 @@ which today reads STL only).
 
 | Crate | Role | Depends on |
 |---|---|---|
-| `aurafx-cad` (new) | the CAD **document** (feature timeline, sketches and constraints, parameters, expressions, configurations, templates), the **kernel trait** and its two kernels, the conflict checker's geometry diff, document files | `aurafx-data`, `aurafx-mesh`, `glam`, `serde`; optionally the SolidCraft crates |
+| `aurafx-cad` (new) | the CAD **document** (feature timeline, sketches and constraints, parameters, expressions, configurations, templates), the **kernel trait** and its two kernels, the conflict checker's geometry diff, document files | `aurafx-data`, `aurafx-mesh`, `glam`, `serde`; the vendored SolidCraft crates (`vendor/`, by path) |
 | `aurafx-filters` | the **CAD Model** source (`cad_model`): a FilterDef whose parameters are the document's parameters, plus `cad_import` (STEP/IGES/3MF/`.sc` as a static read when no editing is wanted) | `aurafx-cad` |
 | `aurafx-io` | readers for `.step .stp .igs .iges .3mf .sc .afxcad` (through `aurafx-cad`), writers for `.step .igs .3mf .afxcad .sc` | `aurafx-cad` |
 | `aurafx-pipeline` | `NodeKind::Cad { document }` next to Reader/Source/Filter; `Session::enter_cad / commit_cad / discard_cad`; the **downstream check** (`cad_check.rs`): reference collection, diff, default fixers, AI prompt | `aurafx-cad` |
@@ -73,10 +73,9 @@ which today reads STL only).
 | `aurafx-python` | `afx.cad_model()`, `node.edit_cad()`, `node.cad` (document API: parameters, features, sketches, `apply()`), `afx.cad_check(node)` | |
 | `aurafx-ai` | help text for the above; the conflict-fix prompt template lives in `aurafx-pipeline` and is called through the assistant | |
 
-Workspace members are `crates/*`, so the new crate joins automatically. The optional SolidCraft
-dependency is a cargo feature of `aurafx-cad` (`brep`), re-exported by `aurafx-app` as
-`cad-brep` and **on by default in the release packages**; the implicit kernel is always built,
-so a build without the feature still has the whole environment on implicit geometry.
+Workspace members are `crates/*`, so the new crate joins automatically. Both kernels are always
+built: the B-rep crates are carried in `vendor/` (section 3.3), so a build needs nothing
+beyond the repository.
 
 ### 3.2 Kernels
 
@@ -101,7 +100,7 @@ pub struct Evaluated {
   from the feature that owns the nearest distance term (as the Geometry source does today).
   Never fails topologically; no exact edges; STEP export of this kernel's result is a
   tessellated STEP (faceted B-rep), clearly labelled.
-- **B-rep kernel** (`aurafx-cad/src/kernel/brep.rs`, feature `brep`): the document's features
+- **B-rep kernel** (`aurafx-cad/src/kernel/brep.rs`, always built): the document's features
   mapped one-to-one onto SolidCraft's commands (`sketch.create`, `solid.extrude`,
   `solid.revolve`, `solid.sweep`, `solid.loft`, `solid.fillet`, `solid.chamfer`,
   `solid.shell`, `solid.hole`, `solid.thread`, `pattern.*`, `solid.mirror`, `solid.split`,
@@ -109,41 +108,60 @@ pub struct Evaluated {
   Exact edges and faces, STEP AP242 / IGES / 3MF through `solidcraft-io`, STEP/IGES import as
   a base feature, assemblies. The signed distance of a B-rep body is computed from its
   tessellation (the Geometry source's `import` path does this today for STL).
-- **Bridge** (`aurafx-cad/src/kernel/bridge.rs`, always built): when the `brep` feature is off
-  or SolidCraft fails to initialise, the same command list is written as a SolidCraft JSON
-  script and run with `solidcraft-cli run script.json --out part.step` found on the PATH, the
-  result read back as a mesh with face ids. This is the ez-yx-craft bridge made round-trip.
-  It also lets the user open the document in the SolidCraft app ("Open in SolidCraft") and
-  re-import the saved `.sc`.
+- **No external bridge.** The kernel is in the binary; "Open in SolidCraft" style hand-offs
+  are not needed. `.sc` files are read and written for interchange with that program's users.
 
 The document never depends on a kernel: it is serde data (section 5). The kernel is a per-node
 choice (Properties › Kernel: B-rep when available, else Implicit) and the environment shows
 which one is live.
 
-### 3.3 Pulling SolidCraft in
+### 3.3 Carrying SolidCraft's kernel in the repository (self-reliant shipping)
 
-Facts checked on 2026-11-07: SolidCraft 0.40 is MIT OR Apache-2.0, Rust edition 2024,
-`rust-version = 1.95`, `egui 0.37`, `egui-wgpu 0.37`, `wgpu 30` (the same as auraFX, which
-makes an in-process pull-in possible), with its B-rep kernel in a separate pinned git
-dependency (`solidcore`, an Apache-2.0 port of SMLib). It vendors patched copies of `egui-wgpu`
-and `winit` for its own desktop app, so **its UI crate (`solidcraft-ui-egui`) is not pulled in**;
-auraFX writes its own egui panels against the engine. The crates to depend on (git, pinned to a
-tag, moved on their own commit, like SolidCraft pins solidcore):
+Decision (2026-11-07): auraFX ships its own CAD modeler. The B-rep kernel and the CAD file
+formats come from SolidCraft, but as **code carried in this repository**, not as dependencies
+fetched at build time, so that a release builds from the repository alone and auraFX is free
+to diverge. Facts checked on 2026-11-07: SolidCraft 0.40 is MIT OR Apache-2.0, Rust edition
+2024, `rust-version = 1.95`, `egui 0.37`, `egui-wgpu 0.37`, `wgpu 30` (the same as auraFX);
+its B-rep kernel is the separate `solidcore` repository (Apache-2.0, a port of SMLib) with
+`solidcore-record`; it vendors patched `egui-wgpu`/`winit` for its own desktop app.
 
-| SolidCraft crate | Used for |
-|---|---|
-| `solidcraft-engine` | `Session`, the command registry (`command_specs()` for the ribbon and the assistant), document evaluation |
-| `solidcraft-doc` | parameters, expressions, the timeline (the B-rep kernel keeps a SolidCraft `Document` as the mirror of ours) |
-| `solidcraft-kernel`, `solidcore`, `solidcore-record` | the B-rep bodies, measures, tessellation plans |
-| `solidcraft-io` | STEP/IGES/3MF/glTF/OBJ/STL import and export, `.sc` files |
-| `solidcraft-geom`, `solidcraft-sketch` | profiles, the constraint solver (used by the B-rep kernel; our own sketch solver, ported from ez-yx-craft, stays the one the environment edits so the document is kernel-free) |
+**How the code comes in**
 
-Consequences to plan for: auraFX's `rust-version` goes from 1.85 to 1.95 when the feature is
-on (CI uses stable: fine); first build time grows by the git dependencies (cache them in CI with
-`Swatinem/rust-cache`, already used); the browser build is out of scope; the pinned revision is
-recorded in `docs/reference/third-party.md` with its licence, and the README's credits name
-SolidCraft and solidcore as libraries (the naming rule allows crediting a library; do not
-present the environment as a copy of any CAD product).
+- `vendor/solidcraft/`: a `git subtree` snapshot of the SolidCraft repository at a tag
+  (`git subtree add --prefix vendor/solidcraft https://github.com/tangency-labs/solidcraft <tag> --squash`),
+  pruned in a follow-up commit to the crates we build: `geom`, `profile`, `sketch`, `kernel`,
+  `smlib`, `step`, `doc`, `io`, `engine`, `derive`, `testkit` (tests) and their `vendor/`
+  fixes; `apps/`, `ui-egui`, `gpu`, `mcp`, `render`, `dynamics`, `space-mouse`, the browser
+  build and the docs are removed. `vendor/solidcore/`: the same for solidcore at the revision
+  SolidCraft pins. Both keep their `LICENSE*`, `NOTICE` and `AGENTS.md`/`CONTRIBUTING.md`
+  (the clean-room rules they were written under), and a `vendor/README.md` records the tag,
+  the date, what was pruned and the auraFX patches.
+- The auraFX workspace `exclude`s `vendor/` from its members and depends on the crates by
+  path (`solidcraft-engine = { path = "vendor/solidcraft/crates/engine" }` …); `[patch]`
+  entries point solidcraft's git references at the vendored `solidcore`. Cargo builds only
+  the crates reached from `aurafx-cad`.
+- Workspace `rust-version` becomes 1.95. The B-rep kernel is **always built** (no cargo
+  feature, no CLI bridge); the implicit kernel remains the second kernel and the fallback
+  when a B-rep operation refuses.
+- `docs/reference/third-party.md` lists both trees with licence, tag and the SPDX of every
+  crate they pull in (`cargo tree` of `aurafx-cad`); the README credits SolidCraft and
+  solidcore as libraries (the naming rule allows crediting a library; the environment is
+  described in auraFX's own words and its UI is auraFX's own).
+
+**Diverging and taking upstream work later**
+
+- auraFX's features go into `aurafx-cad` and the app first. A change inside a vendored
+  crate carries an `// auraFX:` comment and an entry in `vendor/README.md` so a merge shows
+  it. Prefer new modules over edits of upstream files.
+- Upstream features arrive by `scripts/cad/upstream-pull.sh <tag>`: `git subtree pull
+  --prefix vendor/solidcraft … <tag> --squash` (and solidcore at the revision the new tag
+  pins), prune again, rebuild, run the CAD tests, update `vendor/README.md` and
+  `third-party.md`. `scripts/cad/upstream-diff.sh` lists upstream commits and changed command
+  ids since the recorded tag (the engine's `command_specs()` diffed against ours), so a
+  developer sees what to wire into the ribbon and `kernel/brep.rs`.
+- The B-rep kernel maps our document onto SolidCraft **commands** (stable dotted ids), not
+  onto its internal types, which is what keeps upstream merges cheap: a new upstream command
+  is a new arm in `kernel/brep.rs` and a new ribbon button, nothing else moves.
 
 ### 3.4 What is ported from ez-yx-craft
 
@@ -256,11 +274,10 @@ the B-rep mirror can follow them across edits.
 - `.sc`: SolidCraft designs, read and written through `solidcraft-io` (B-rep feature) or the
   bridge; features SolidCraft has and we do not (sheet metal, surface workspace) stay as a
   `Brep` base feature.
-- `.step/.stp/.igs/.iges/.3mf`: through `solidcraft-io`; without the `brep` feature, STEP
-  export writes a faceted B-rep from the surface (`aurafx-cad/src/io/step_faceted.rs`, our own
-  Part 21 writer: `MANIFOLD_SOLID_BREP` of `ADVANCED_FACE`s on `PLANE`s, one per triangle, or
-  per planar face when the face ids are planar) and import is refused with a message naming
-  the feature.
+- `.step/.stp/.igs/.iges/.3mf`: through the vendored `solidcraft-io`. A body that only the
+  implicit kernel has (approximate features) exports as a faceted B-rep
+  (`aurafx-cad/src/io/step_faceted.rs`, our own Part 21 writer: `MANIFOLD_SOLID_BREP` of
+  `ADVANCED_FACE`s on `PLANE`s per planar face id, triangles elsewhere), labelled as such.
 - Meshes: `.stl .obj .ply .glb` as mesh bodies (readers exist; glTF is new).
 
 ### 5.3 Python
@@ -302,7 +319,7 @@ counts to help a small agent budget the work.
 | **C3 Environment shell** | mode switch (`Session.cad_editing`, stale banners, scheduler pause), CAD menu, ribbon with tabs, FeatureManager, PropertyManager for every Feature/Modifier/Parameter, timeline bar, Apply/Apply-keep/Discard, `node.edit_cad()`; undo groups | `aurafx-app/src/cad/{mod,ribbon,feature_manager,property_manager,timeline}.rs`, `app.rs` (menu, layout) | an app-driven script test (like `scripts/userguide/shots`) that enters, adds a feature, applies; `cargo test` of the pipeline part | 2 500 (ported) |
 | **C4 Sketching** | sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints and dimensions with the solver's DOF status, sketch on a face | `aurafx-app/src/cad/sketch_canvas.rs` (ported `sketch_ui.rs`), `aurafx-cad/src/sketch.rs` | solver tests ported (fully constrained rectangle, over-constrained rejection, tangent arcs); canvas script test | 1 200 |
 | **C5 Downstream check** | `cad_check.rs`: reference collection, `aurafx-cad::diff`, kinds, default fixers, the dialog, re-run confirmation, Python `afx.cad_check`, assistant prompt and parser | `aurafx-pipeline/src/cad_check.rs`, `aurafx-cad/src/diff.rs`, `aurafx-app/src/cad/conflicts.rs` | a plate with a hole → `extract_set("hole")` → rename the hole feature: `Renamed` fixed by default; delete it: `Removed` offered; move a `refine_region` box: `Moved`; canned assistant answer parsed and applied | 1 200 |
-| **C6 B-rep kernel** | cargo feature `brep`; SolidCraft crates pinned; `kernel/brep.rs` mapping every Shape/Modifier to commands; exact faces and edges with ids; STEP AP242, IGES, 3MF, `.sc` read and write; STEP/IGES import as `Brep` base feature; the bridge through `solidcraft-cli` when the feature is off | `aurafx-cad/src/kernel/{brep,bridge}.rs`, `aurafx-cad/src/io/*`, `aurafx-io` registrations, `Cargo.toml`s, CI cache | the same templates evaluate on both kernels with volumes within 1 %; a STEP written here reopens in SolidCraft's CLI (`solidcraft-cli measure`) with the same volume; `testdata/cad/` gets small STEP/IGES files written by SolidCraft (documented in `testdata/README.md`) | 2 000 |
+| **C6 B-rep kernel** | `vendor/solidcraft` and `vendor/solidcore` added by `git subtree` at a tag and pruned; `vendor/README.md`, `docs/reference/third-party.md`, `scripts/cad/upstream-{pull,diff}.sh`; workspace `rust-version` 1.95; `kernel/brep.rs` mapping every Shape/Modifier to SolidCraft commands run in process; exact faces and edges with ids; STEP AP242, IGES, 3MF, `.sc` read and write; STEP/IGES import as `Brep` base feature; the faceted STEP writer | `vendor/`, `aurafx-cad/src/kernel/brep.rs`, `aurafx-cad/src/io/*`, `aurafx-io` registrations, `Cargo.toml`s, CI cache | the same templates evaluate on both kernels with volumes within 1 %; a STEP written here measures the same through the vendored engine's measure command and, where installed, in an independent STEP reader; `testdata/cad/` gets small STEP/IGES files with their provenance in `testdata/README.md`; the Linux package script builds offline from a clean clone | 2 500 |
 | **C7 Edge operations and assemblies** | fillet/chamfer on picked edges and faces (B-rep), draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties panel; measure tool | `aurafx-app/src/cad/pick.rs` (edges/faces from the B-rep tessellation), `aurafx-cad/src/assembly.rs` | B-rep fillet volume against SolidCraft's measure; interference volume of two overlapping boxes analytic | 1 500 |
 | **C8 Meshing from CAD** | `mesh body` commands accept CAD bodies; face names to side sets; `import 'x.step'` in journals; CAD Model → tet mesh / overlay mesh / Assign Grains / solver case end to end; the guide's worked example extended (STEP → mesh → grains → case) | `aurafx-mesh/src/model.rs`, `bodymesh.rs`, `aurafx-filters/src/mesh_gen.rs` | the worked example as a test (as `worked_example` in `grains_on_mesh.rs`) from a STEP file in testdata | 600 |
 | **C9 Polish** | templates gallery, keyboard shortcuts, PropertyManager help texts, the assistant modelling in the environment through the same commands (`afx.cad` from agent mode), the project page's CAD video | docs, `scripts/site/media/cad.py` | guide complete; screenshot per ribbon tab | 500 |
@@ -313,6 +330,8 @@ grows; sketches can be built from Python until C4.
 
 ## 7. Rules for the agents
 
+- The vendored trees are upstream code: change them only with an `// auraFX:` mark and an entry
+  in `vendor/README.md`; put auraFX's own work in `aurafx-cad` and the app.
 - Nothing in the environment owns geometry data: every edit is a change to the `Document`
   followed by an evaluation; panels read the document and the last `Evaluated`.
 - One kernel-free document. A feature that only the B-rep kernel can evaluate (exact fillet on

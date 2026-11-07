@@ -108,3 +108,15 @@ mapping other programs' numbered steps to auraFX filters; `cases.rs` writes solv
 (MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity) from a node's data,
 which the job templates in `aurafx-jobs/templates.rs` stage into the working directory,
 uploading them to remote hosts. See `docs/design/grains-and-meshing.md`.
+
+## CAD modeling environment (in progress, branch `feat/CAD-modeling-environment`)
+
+`aurafx-cad` holds a parametric CAD document (feature timeline, constrained sketches,
+parameters with unit-aware expressions, configurations) that is plain serde data, and the
+kernels that evaluate it: an implicit kernel on `aurafx-mesh` (always built) and, behind the
+cargo feature `brep`, a B-rep kernel and the STEP/IGES/3MF/`.sc` formats through the SolidCraft
+crates (pinned git dependencies; its UI is not pulled in). The app's `cad/` module is the
+environment: a mode of the one window with its own ribbon, FeatureManager and PropertyManager,
+while other views are stale; applying runs the downstream check in
+`aurafx-pipeline/src/cad_check.rs` (reference collection, geometry diff, default fixers, an
+assistant prompt) before the pipeline re-runs. Design and stages: `docs/design/cad-environment.md`.

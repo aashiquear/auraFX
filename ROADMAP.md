@@ -309,6 +309,90 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
 
 ---
 
+## 13. CAD modeling environment (P10)
+
+A parametric CAD modeler inside the one window, beside the command-language modeler of
+section 12: constrained sketches, a feature timeline that rebuilds on a parameter change,
+fillets, shells, holes, threads, patterns, assemblies, STEP/IGES/3MF in and out, and a commit
+step that hands the geometry back to the pipeline after checking everything downstream.
+Design, with the data model, the two kernels, the pull-in of SolidCraft, the downstream check
+and a file-by-file port plan from EZ-YX-craft: `docs/design/cad-environment.md`. Branch
+`feat/CAD-modeling-environment`. The crate is `aurafx-cad`; the environment is `aurafx-app/src/cad/`.
+
+How to work a stage (for the agent picking one up): read the design's section 6 row, port the
+named EZ-YX-craft file where one is named (`/mnt/extended/projects/ez-yx-craft`), keep its
+tests, write the guide entry in `docs/userguide/src/cad.md` with a `scripts/userguide/shots/cad_*.py`
+screenshot, add the Python calls to the AI help, tick the box here, add a Status paragraph.
+
+- [x] C0 Skeleton: crate `aurafx-cad` (kernel trait, `Evaluated` contract, errors, `Id`), the expression evaluator ported with its tests, the design document, this section (iteration 72).
+- [ ] C1 Document: `document.rs` (Feature, Shape, Modifier, Parameter, Binding, Configuration, Document, resolution of parameters and configurations), `sketch.rs` + `path.rs` (entities, constraints, dimensions, the Levenberg-Marquardt solver with its DOF report), `templates.rs`, `analysis.rs` (mass properties, interference, sections), `assembly.rs`; `.afxcad` JSON files with a format version. Tests: EZ-YX-craft's, plus every template through a JSON round trip.
+- [ ] C2 Implicit kernel and the node: `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
+- [ ] C3 Environment shell: `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
+- [ ] C5 Downstream check (before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
+- [ ] C4 Sketching: the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
+- [ ] C6 B-rep kernel and CAD files: cargo feature `brep` (default in packages; `rust-version` 1.95 with it); SolidCraft's engine, doc, kernel (solidcore), io, geom and sketch crates pinned by git tag (not its UI); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; `kernel/bridge.rs` runs `solidcraft-cli` from the PATH when the feature is off; the faceted STEP writer for the implicit kernel; readers registered in `aurafx-io`; `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP written here measures the same in `solidcraft-cli measure`.
+- [ ] C7 Edge operations and assemblies: picking faces and edges on the B-rep tessellation; fillet and chamfer on picked edges, draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties, a measure tool. Tests: fillet volume against SolidCraft's measure; interference of two boxes analytic.
+- [ ] C8 Meshing from CAD: `mesh body` on CAD bodies, face names to side sets, `import 'part.step'` and `import 'part.afxcad'` in journals, STEP → mesh → grains → solver case end to end as a test and in the guide's worked example.
+- [ ] C9 Polish: templates gallery, shortcuts, PropertyManager help, the assistant modelling in the environment through `afx.cad`, the project page's CAD video, the README's credits for SolidCraft and solidcore.
+
+## 14. Gaps against the reference programs (P11)
+
+The user asked for this comparison (2026-11-07): section 2 lists every filter of the
+reference visualization program's catalog (`docs/reference/paraview-6.1.1-catalog.json`), and
+sections 11 and 12 were designed against the other two programs' feature sets; this section
+picks the items that matter for auraFX's users and says, for each, where it goes and how it
+is checked, so an agent can take one without further research. Describe each feature in
+auraFX's own words when it lands; the program names below only say where the gap was
+noticed. Priority: **P1** next, **P2** after, **P3** when asked.
+
+### 14.1 Visualization and analysis (179 catalog filters without a counterpart by name; the ones that count)
+
+| Pri | Item | Where | Check |
+|---|---|---|---|
+| P1 | **Delaunay 2D and 3D** (points to triangles/tetrahedra, with alpha), **Decimate** (quadric), **Loop/Linear Subdivide**, **Curvature** (Gaussian/mean), **Linear and Rotational Extrusion**, **Ribbon**, **Reverse Sense** | `aurafx-filters/src/surface.rs`, `simplex.rs` | areas/volumes of a sphere sample against analytic; Decimate keeps volume within 2 % at 50 % |
+| P1 | **Iso Volume** (threshold on point data with interpolated cuts), **Extract Cells By Region** (implicit box/sphere/plane), **Extract Cells By Type**, **Clip Closed Surface** (capped clip) | `clip.rs`, `threshold.rs` | capped clip of a cube is watertight (Integrate Variables volume equals the half cube) |
+| P1 | **Point interpolation** (Gaussian/Shepard/linear kernels, SPH) from points to a grid or dataset, **Resample To Line**, **Plot On Sorted Lines**, **Plot On Intersection Curves** | `interp.rs`, `probe.rs` | interpolated field of a known polynomial within tolerance |
+| P1 | **Table To Points / To Structured Grid**, **Transpose Table**, **Table FFT**, **Merge Vector Components**, **Point and Cell Ids**, **Generate Global Ids**, **Coordinates as array** | `attributes.rs` | round trips |
+| P1 | **Tensor Glyph**, **Tensor Principal Invariants**, **Yield Criteria** (von Mises, Tresca, principal), **Compute Derivatives** (strain, vorticity from vectors), **Surface Vectors/Tangents**, **Surface Flow**, **Vortex Cores** | `analysis.rs`, `glyph.rs` | invariants against NumPy on a random tensor field; vorticity of a rigid rotation |
+| P1 | **Evenly Spaced Streamlines 2D**, **Particle Path / Streak Line with injection over time** (expose the tracer's seeds-over-time option), **Temporal Cache / Force Time / Extract Time Steps / Generate Time Steps / Temporal Snap** | `streamlines.rs`, `temporal.rs` | known analytic flows |
+| P2 | **Statistics**: K-means, PCA, Multicorrelative, Contingency, Quartiles (box plots), Random Attributes | `analysis.rs` | against NumPy/scipy on a fixed sample |
+| P2 | **Annotate** filters (time, global data, attribute data, selection), **Environment Annotation**, **Python Annotation** (the overlay text exists; add the filters that write it) | `overlays.rs` in the app + an `annotate_*` family | screenshot tests |
+| P2 | **Ghost cells**, **Partitioned datasets** (read `.pvtu` pieces as partitions, Redistribute, D3 for the server's processes), **Overlapping Cells Detector**, **Validate Cells** | `aurafx-data/pieces.rs`, `aurafx-io/xml_vtk.rs` | the parallel server tests exist for pieces (`aurafx-server/tests`) |
+| P2 | **Youngs / Material Interface** reconstruction for volume-fraction fields, **AMR Dual Clip**, **AMR Fragment Integration** | `amr.rs` | fragment volumes of a known sphere |
+| P3 | Cosmology halo finders, SPH interpolators beyond the basic kernels, Minkowski, OT density map | later | |
+
+Readers and writers still missing (section 1 has the long list): **P1** DICOM/NRRD/MetaImage/MRC/OME-TIFF
+(medical and microscopy volumes; `aurafx-io/src/images.rs` already stacks images), LAS/LAZ
+point clouds, STEP/IGES (**arrives with C6**), glTF/VRML/OFF import, LS-DYNA d3plot, Fluent
+`.cas/.msh`, Nastran BDF; **P2** openPMD/ADIOS2 (HDF5 side first), Silo, H5Part, Nek5000, PLY
+and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parallel VTK
+`.pv*` pieces, a `.pvd` collection writer (the app writes series as one file per format today).
+
+### 14.2 Microstructure (after sections 11 and 13)
+
+| Pri | Item | Where | Check |
+|---|---|---|---|
+| P1 | **Rotate Sample Reference Frame** and **Apply Transformation to Geometry** on volumes (the pipeline import skips both today), **Identify Sample / Isolate Largest Feature**, **Erode and Dilate Bad Data**, **Erode/Dilate by Coordination Number**, **Replace Element Attributes with Neighbor**, **Neighbor Orientation Correlation** and **Neighbor CI Correlation** (bad-data cleanup before segmentation) | `grain_grid.rs`, `features.rs`; map them in `pipeline_json.rs` | the AM Bench pipeline imports with fewer skipped steps; a seeded noisy map cleans to the known grains |
+| P1 | **Convert hexagonal EBSD grids to square**, **Resample rectilinear to image** | `ebsd.rs` (reader option) | a `.ang` on a hex grid against its square export |
+| P1 | **Find Neighborhoods**, **Find Largest Cross Sections**, **Find Feature Clustering (RDF)**, **Find Boundary Strength (m', F1)** and **Slip Transmission** metrics, **Find Twin Boundary Schmid Factors**, **Find C-axis locations / Feature Reference C-axis Misorientations** (HCP), **Identify Micro-Texture Regions** | `features.rs`, `mechanics.rs` | the AM orientation toolkit where it has the metric; otherwise analytic cases (two grains with a known misorientation) |
+| P1 | **Solver inputs for crystal-plasticity FFT codes**: DAMASK (`.vti` + material config), Los Alamos FFT texture file, **LAMMPS atoms from a polycrystal** (a lattice filled per grain with the grain's orientation) | `aurafx-pipeline/src/cases.rs`, `aurafx-io` | read back by the codes' own Python readers where installed, else format checks |
+| P2 | **Insert Transformation Phases**, **Adjust Volume**, **Generate Precipitate statistics**, **Find Surface-Area-to-Volume**, **Triangle dihedral angles / Feature Face Curvature**, **Write triangle/node files** | `synthetic.rs`, `grain_surface.rs` | |
+| P2 | **Goal statistics as a panel**: edit the size, shape, ODF, MDF and axis-ODF distributions with live plots and feed Pack Grains | `aurafx-app` panel + `synthetic.rs` | the packed volume's statistics match the panel's |
+| P2 | **Image filters on volumes**: median, Gaussian, Otsu threshold, binary morphology (the pipeline import skips them) | `aurafx-filters/src/images.rs` (new) | against scipy.ndimage on a small volume |
+| P3 | Pole figure images per phase as files, Nye on 2-D maps, EBSD indexing itself | later | |
+
+### 14.3 Geometry and meshing (after sections 12 and 13)
+
+| Pri | Item | Where | Check |
+|---|---|---|---|
+| P1 | **Webcut** (plane, cylinder, sheet, sweep of a curve) to decompose bodies into sweepable blocks, **imprint and merge** (shared faces between touching bodies so their meshes conform) | `aurafx-mesh/src/model.rs` (commands `webcut`, `imprint`, `merge`), `overlay.rs` (shared interfaces exist for voxels) | two touching bricks meshed with one shared face: node count equals the union; Exodus side sets on the interface |
+| P1 | **Triangle meshing of arbitrary surfaces** (advancing front / Delaunay with sizing) and **quad paving** of planar faces, then **sweep** of paved faces into hexahedra (the sweep of structured quads exists) | `aurafx-mesh/src/pave.rs` (new), `structured.rs` | a plate with a hole paved and swept: Mesh Quality acceptable, hex count as expected |
+| P1 | **Sizing functions**: per-curve intervals and bias, per-face/body size, curvature-based size, size from a scalar field; **transition templates** for local hex refinement; **Winslow smoothing** (the "Later" line of M4) | `model.rs`, `improve.rs`, `hex.rs` | graded box: element counts per curve; refined region conforms |
+| P1 | **Nastran BDF** and **Fluent `.msh`** mesh writers; Exodus named blocks per body from CAD (C8) | `mesh_writers.rs` | read back by the readers of 14.1 |
+| P2 | **Fillet and chamfer on picked curves/vertices** of implicit bodies (today whole-body), **loft between faces**, **thicken sheet bodies**, **sewing surfaces into volumes**, **healing/tolerant imprint** of imported STEP (C6/C7 give the B-rep versions) | `aurafx-mesh/src/implicit.rs`, C7 | |
+| P2 | **Pyramid transitions** hex-to-tet, **node and side sets by location or by expression**, **groups** of entities, **merge nodes / equivalence** with tolerance, **mesh scale/translate/rotate** commands | `model.rs`, `tet.rs` | |
+| P3 | Sweep with multiple sources/targets, mapped hex of general 6-sided volumes, submapping | later | |
+
 ## Delivery phases
 
 | Phase | Target | Contents |
@@ -323,9 +407,16 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
 | P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
 | P8 Grains | done (section 11) | Crystal core, EBSD readers, features, texture, synthetic builder, surface meshing, mechanics, `.dream3d`, solver templates |
 | P9 Mesh | done (section 12) | Geometry kernel and command language, structured hex (hexaform), overlay-grid mesher, refinement and tets, grains on meshes |
+| P10 CAD | designed (section 13), branch `feat/CAD-modeling-environment` | Parametric CAD document and kernels (implicit; B-rep through SolidCraft), the modeling environment with its ribbon, commit with the downstream check and fixers, STEP/IGES/3MF, meshing from CAD |
+| P11 Gaps | planned (section 14) | The prioritized items missing against the reference programs' catalogs: filters and readers, microstructure cleanup and metrics, solver inputs, webcut/imprint/merge, paving and sizing |
 
 P8 and P9 are developed interleaved (G1, M1, G2, M2, G3, M3, G4, G5, M4, G6, M5, G7) so that
 each side is usable early; see the design document for the test reference of every stage.
+
+P10 is developed on its own branch in the order C0, C1, C2, C3, C5, C4, C6, C7, C8, C9 (the
+commit-and-check loop before sketching, the B-rep kernel after the environment works on the
+implicit one); P11 items are independent of each other and of P10 except where a row says so,
+so they can be picked up one at a time in any order within a priority.
 
 ---
 
@@ -521,6 +612,15 @@ Two fixes found while making the page: numbered files (`run_0001.vtk`, ...) now 
 time series as the guide said (the detection existed but was never called; result files of
 a run that form one series open once), and Assign Grains keeps the mesh's point arrays when it
 rebuilds the mesh with blocks or boundary sets.
+
+Done in iteration 72 (planning, branch `feat/CAD-modeling-environment`): the CAD modeling
+environment designed (`docs/design/cad-environment.md`: one window with a CAD mode, ribbon,
+FeatureManager and PropertyManager, stale views, Apply/Discard, the downstream check with
+default fixers and an assistant suggestion, a kernel-free document with an implicit kernel and
+a B-rep kernel through SolidCraft, the port plan from EZ-YX-craft file by file), section 13
+with stages C0 to C9, section 14 with the prioritized gaps against the reference programs,
+the crate `aurafx-cad` started (kernel contract, the expression evaluator ported with its
+tests). No feature code was written in this iteration. Next: C1.
 
 ## Status (2026-11-05)
 

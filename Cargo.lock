@@ -225,6 +225,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aurafx-cad"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aurafx-data",
+ "aurafx-mesh",
+ "glam",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "aurafx-crystal"
 version = "0.1.0"
 dependencies = [

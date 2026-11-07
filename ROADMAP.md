@@ -296,9 +296,9 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
 - [x] M2 Structured hex: box, mapped blocks, cube with packed inclusions (cubed-sphere O-grid macro-blocks, transfinite cores, graded shells, weld), plate with hole, dog-bone, 2-D sweep, Elevate to HEX20/27, blocks/side sets/node sets, periodic pairs; Mesh Quality with the full metric set and acceptable ranges; Exodus, VTK, Abaqus `.inp`, Gmsh `.msh` writers.
   - [x] M2a: hex mesh model (blocks, side sets, node sets, element variables), box and mapped blocks with grading, the inclusion mesher (grid packing, cubed-sphere O-grid blocks, transfinite cores, graded shells, exact weld; spheres, ellipsoids, superquadrics, harmonic grains), HEX20/HEX27 with surface projection, periodic pairs by coordinates, Extract Set, Mesh Quality with the full hexahedron metric set and a summary table, Exodus sets and HEX20/27, Abaqus `.inp`, Gmsh `.msh` (iteration 57).
   - [x] M2b: plate with hole, dog-bone, 2-D quad sweep, collective packing, mesh commands (`mesh body`, `block`, `sideset`, `nodeset`) in the geometry language for bricks and cylinders, the benchmark's meshes as references (iteration 58).
-- [ ] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
+- [x] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
   - [x] M3a: overlay grid from geometry bodies, closed surfaces and labelled images, defeaturing and pinch removal, pillowing, projection along stair-step normals, guarded tiered smoothing and untangling, void meshing, domain/surface/interface side sets, periodic pairs, stair-step mode, `scheme overlay` in the geometry commands, Overlay Mesh filter (iteration 61).
-  - [ ] M3b: sharp edges (curves) kept by the overlay mesher, saddle-free pillowing on fine microstructures, faster smoothing.
+  - [x] M3b: sharp edges and corners kept by the overlay mesher (patches between creases for surfaces), saddle-free clean-up for fine microstructures, parallel smoothing (iteration 62).
 - [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
 - [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
 
@@ -429,6 +429,14 @@ model surfaces and material interfaces, periodic pairs, stair-step mode; `scheme
 any body in the geometry commands, Overlay Mesh filter. Quality floors pass on CSG, STL and
 synthetic voxel parts; a measured microstructure keeps a few nearly flat elements at saddles.
 Guide chapter: Geometry and meshing. Next: M3b.
+
+Done in iteration 62 (M3b, closing M3): the clean-up removes saddles and pinches by single-cell
+changes that only lower the problem count (so it ends), which makes every element of the
+measured AM Bench microstructure valid (smallest scaled Jacobian 0.15); smoothing runs in
+parallel over colour classes of nodes sharing no element (100 000 voxels in about 3 s instead
+of 10); convex sharp edges and corners are captured (bisection of the face change along
+surface edges, three-plane corners), with imported surfaces split into patches between
+creases. Guide chapter: Geometry and meshing. Next: G4.
 
 ## Status (2026-11-05)
 

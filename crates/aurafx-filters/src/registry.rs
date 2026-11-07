@@ -3377,6 +3377,7 @@ fn build() -> Vec<FilterDef> {
                 choice("mode", "Interfaces", &[crate::mesh_gen::OVERLAY_SMOOTH, crate::mesh_gen::OVERLAY_STAIR], crate::mesh_gen::OVERLAY_SMOOTH),
                 b("void", "Mesh the empty space", false),
                 b("periodic", "Periodic (pair opposite faces)", false),
+                b("sharp", "Keep sharp edges", true).help("Surfaces: nodes go onto the creases between flat patches and onto corners.").advanced(),
                 i("min_cells", "Smallest piece (cells)", 8, 0, 1_000_000).help("Pieces of a material with fewer cells join their surroundings.").advanced(),
                 i("smoothing", "Smoothing passes", 8, 0, 200).advanced(),
                 choice("element", "Element", &crate::mesh_gen::ELEMENT_TYPES, "HEX8").advanced(),
@@ -3394,6 +3395,7 @@ fn build() -> Vec<FilterDef> {
                         min_cells: p.i64("min_cells", 8).max(0) as usize,
                         smoothing: p.i64("smoothing", 8).max(0) as usize,
                         element: p.str("element"),
+                        sharp: p.bool("sharp", true),
                     },
                 )
             },

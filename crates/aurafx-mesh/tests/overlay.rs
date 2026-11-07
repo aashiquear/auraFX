@@ -175,3 +175,39 @@ fn overlay_grains() {
     assert_eq!(v.len(), 4);
 }
 
+
+
+/// Sharp edges: a brick turned off the grid keeps its edges (nodes are put on them), so its
+/// volume is close to exact; without that the edges are rounded off.
+#[test]
+fn overlay_sharp_edges() {
+    let cmds = "brick x 2 y 1 z 1; rotate body 1 angle 25 about z; rotate body 1 angle 10 about x";
+    let mut err = Vec::new();
+    for curves in [true, false] {
+        let (r, _) = mesh_model(cmds, 0.1, |o| o.curves = curves);
+        let v = volumes(&r.mesh)[&1];
+        // The corners of the brick: the distance to the nearest mesh node.
+        let model = Model::from_commands(cmds, None).unwrap();
+        let s = &model.bodies[&1].shape;
+        let mut far: f64 = 0.0;
+        for k in 0..8 {
+            let c = [(k & 1) as f64 - 0.5, ((k >> 1) & 1) as f64 - 0.5, ((k >> 2) & 1) as f64 - 0.5].map(|x| x);
+            let c = [2.0 * c[0], c[1], c[2]];
+            // The brick's corner in place: search the surface point of the shape nearest the
+            // turned corner (rotation about z by 25 degrees, then x by 10).
+            let (a, b) = (25f64.to_radians(), 10f64.to_radians());
+            let p = [c[0] * a.cos() - c[1] * a.sin(), c[0] * a.sin() + c[1] * a.cos(), c[2]];
+            let p = [p[0], p[1] * b.cos() - p[2] * b.sin(), p[1] * b.sin() + p[2] * b.cos()];
+            assert!(s.eval(p).0.abs() < 1e-9);
+            let d = r.mesh.points.iter().map(|q| ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2)).sqrt()).fold(f64::INFINITY, f64::min);
+            far = far.max(d);
+        }
+        eprintln!("curves {curves}: volume {v:.5} ({:+.2} %), min SJ {:.3}, farthest corner {far:.4}", 100.0 * (v - 2.0) / 2.0, r.min_sj);
+        assert_eq!(r.inverted, 0);
+        err.push((v - 2.0).abs());
+        if curves {
+            assert!(far < 0.3 * 0.1, "{far}");
+        }
+    }
+    assert!(err[0] < 0.5 * err[1], "{err:?}");
+}

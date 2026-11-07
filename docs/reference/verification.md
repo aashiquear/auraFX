@@ -336,9 +336,13 @@ Boundaries against a brute-force distance.
   -0.6 %), a plate with a hole (0.40, -0.15 %), a sphere inside a block (0.46, -1.1 % and
   +0.1 %), two crossed cylinders (0.21, -0.9 %), a cube surface turned 30 degrees about z
   (0.53, -1.1 %), a voxel sphere in a periodic cube and four voxel grains (0.30 and 0.32,
-  volumes summing to the cube). On the measured AM Bench feature window (179 grains, 82 000
-  voxels) at most 2 elements in 10 000 stay nearly flat (scaled Jacobian above -0.1), at
-  saddle-shaped grain boundaries.
+  volumes summing to the cube). On the measured AM Bench feature window (178 grains, 82 000
+  voxels) every element is valid, smallest scaled Jacobian 0.15, once saddles are removed
+  in the clean-up.
+- Sharp edges: a brick turned 25 and 10 degrees off the grid has its volume within -0.36 %
+  (-0.95 % without edge capture), its eight corners within 0.021 of a mesh node (six of them
+  exactly) at cell size 0.1; the turned cube surface (STL) within -0.33 %; the plate with a
+  hole within +0.03 %.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

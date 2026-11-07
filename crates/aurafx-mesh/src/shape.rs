@@ -269,7 +269,11 @@ impl Shape {
                     None => (d2, curve_faces[c]),
                 }
             }
-            Shape::Surface { mesh, face } => (mesh.distance(p), *face),
+            Shape::Surface { mesh, face } => {
+                // Patches between sharp edges are faces of their own, numbered from `face`.
+                let (d, k) = mesh.distance_patch(p);
+                (d, if *face == 0 { 0 } else { face + k })
+            }
             Shape::Transform { inner, rot, offset, scale } => {
                 let q = sub(p, *offset);
                 // rot^T q
@@ -373,7 +377,8 @@ impl Shape {
         match self {
             Shape::Brick { faces, .. } => out.extend(faces),
             Shape::Cylinder { faces, .. } | Shape::Cone { faces, .. } => out.extend(faces),
-            Shape::Sphere { face, .. } | Shape::Torus { face, .. } | Shape::Superquadric { face, .. } | Shape::Harmonic { face, .. } | Shape::Surface { face, .. } => out.push(*face),
+            Shape::Sphere { face, .. } | Shape::Torus { face, .. } | Shape::Superquadric { face, .. } | Shape::Harmonic { face, .. } => out.push(*face),
+            Shape::Surface { face, mesh } => out.extend((0..mesh.n_patches).map(|k| face + k)),
             Shape::Extrude { curve_faces, bottom, top, .. } => {
                 out.extend(curve_faces);
                 out.extend([bottom, top]);

@@ -328,6 +328,7 @@ pub struct OverlayParams {
     pub min_cells: usize,
     pub smoothing: usize,
     pub element: String,
+    pub sharp: bool,
 }
 
 /// Overlay Mesh: hexahedra on a Cartesian grid over a labelled image (each label a block, 0
@@ -335,7 +336,7 @@ pub struct OverlayParams {
 pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
     use aurafx_mesh::overlay::*;
     let smooth = p.mode != OVERLAY_STAIR;
-    let mut o = OverlayOptions { pillow: smooth, project: smooth, mesh_void: p.void, periodic: p.periodic, min_cells: p.min_cells, smoothing: p.smoothing, ..Default::default() };
+    let mut o = OverlayOptions { pillow: smooth, project: smooth, mesh_void: p.void, periodic: p.periodic, min_cells: p.min_cells, smoothing: p.smoothing, curves: p.sharp, ..Default::default() };
     let r = match ds {
         DataSet::ImageData(img) => {
             let v = crate::features::Vox::of(img);
@@ -361,6 +362,7 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
         }
         DataSet::PolyData(_) => {
             let tm = aurafx_mesh::model::surface_mesh(ds)?;
+            let np = tm.n_patches;
             let shape = aurafx_mesh::shape::Shape::Surface { mesh: std::sync::Arc::new(tm), face: 1 };
             let (lo, hi) = shape.bounds();
             let size = if p.cell > 0.0 { p.cell } else { (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max) / 30.0 };
@@ -369,7 +371,8 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
             o.cells = std::array::from_fn(|k| (((o.hi[k] - o.lo[k]) / size).round() as usize).max(1));
             o.names.insert(1, "solid".into());
             o.periodic = false;
-            o.face_names = vec![String::new(), "surface".into()];
+            // One side set per patch of the surface between sharp edges.
+            o.face_names = std::iter::once(String::new()).chain((1..=np).map(|k| if np == 1 { "surface".to_string() } else { format!("surface {k}") })).collect();
             let src = ShapeSource { shapes: vec![(1, &shape)] };
             overlay(&src, &o).map_err(|e| anyhow!(e))?
         }

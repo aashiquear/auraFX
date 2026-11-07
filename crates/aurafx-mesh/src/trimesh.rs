@@ -56,6 +56,10 @@ pub struct TriMesh {
     edge_n: HashMap<(u32, u32), V>,
     nodes: Vec<Node>,
     order: Vec<usize>,
+    /// Patch of each triangle: the pieces of the surface between sharp edges (where the
+    /// faces on either side turn by more than 30 degrees).
+    pub patch: Vec<u32>,
+    pub n_patches: u32,
     /// Bounds of the surface.
     pub lo: V,
     pub hi: V,
@@ -105,7 +109,36 @@ impl TriMesh {
                 *en = add(*en, n);
             }
         }
-        let mut m = TriMesh { verts, tris, face_n, vert_n, edge_n, nodes: Vec::new(), order: Vec::new(), lo, hi };
+        // Patches: triangles joined across edges where the surface turns by less than 30 degrees.
+        let mut by_edge: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+        for (i, t) in tris.iter().enumerate() {
+            for k in 0..3 {
+                by_edge.entry((t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3]))).or_default().push(i);
+            }
+        }
+        let mut patch = vec![u32::MAX; tris.len()];
+        let mut n_patches = 0;
+        let cos30 = 30f64.to_radians().cos();
+        for s0 in 0..tris.len() {
+            if patch[s0] != u32::MAX {
+                continue;
+            }
+            patch[s0] = n_patches;
+            let mut stack = vec![s0];
+            while let Some(i) = stack.pop() {
+                let t = tris[i];
+                for k in 0..3 {
+                    for &j in &by_edge[&(t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3]))] {
+                        if patch[j] == u32::MAX && dot(face_n[i], face_n[j]) >= cos30 {
+                            patch[j] = n_patches;
+                            stack.push(j);
+                        }
+                    }
+                }
+            }
+            n_patches += 1;
+        }
+        let mut m = TriMesh { verts, tris, face_n, vert_n, edge_n, nodes: Vec::new(), order: Vec::new(), patch, n_patches, lo, hi };
         m.build();
         Ok(m)
     }
@@ -202,6 +235,11 @@ impl TriMesh {
 
     /// Signed distance to the surface (negative inside).
     pub fn distance(&self, p: V) -> f64 {
+        self.distance_patch(p).0
+    }
+
+    /// Signed distance to the surface and the patch of the nearest triangle.
+    pub fn distance_patch(&self, p: V) -> (f64, u32) {
         let mut best = (f64::INFINITY, 0usize, [0.0; 3], Feature::Face);
         let mut stack = vec![0usize];
         while let Some(n) = stack.pop() {
@@ -240,11 +278,7 @@ impl TriMesh {
             }
         };
         let d = d2.sqrt();
-        if dot(sub(p, q), n) < 0.0 {
-            -d
-        } else {
-            d
-        }
+        (if dot(sub(p, q), n) < 0.0 { -d } else { d }, self.patch[t])
     }
 
     /// Enclosed volume (divergence theorem; positive for outward-facing triangles).

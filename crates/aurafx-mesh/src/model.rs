@@ -370,9 +370,13 @@ impl Model {
                 let mesh = read_surface(&path)?;
                 let s = a.num("scale")?.unwrap_or(1.0);
                 let stem = path.file_name().and_then(|f| f.to_str()).unwrap_or("surface").to_string();
+                let patches = mesh.n_patches;
                 let inner = Shape::Surface { mesh: Arc::new(mesh), face: 0 };
                 let id = self.add_body("surface", |m, id| {
                     let f = m.face(format!("surface {id} {stem}"));
+                    for k in 1..patches {
+                        m.face(format!("surface {id} {stem} {}", k + 1));
+                    }
                     let inner = match inner {
                         Shape::Surface { mesh, .. } => Shape::Surface { mesh, face: f },
                         x => x,

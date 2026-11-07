@@ -311,12 +311,17 @@ Overlay meshing fills any shape with hexahedra. It works in five steps:
 1. **Grid.** A grid of cubes is laid over the shape, and each cell takes the material found
    at most of its sample points.
 2. **Clean-up.** Pieces smaller than **Smallest piece**, and cells that stick out or form
-   layers one cell thick, join their surroundings. Places where a material would touch
-   itself only along an edge or at a corner are filled in.
+   layers one cell thick, join their surroundings. Around every grid node, each material
+   and the rest must each be connected through faces, and no material may form a saddle
+   (faces pointing both ways along an axis). Single cells are changed until this holds, so
+   the next step always has room.
 3. **Pillowing.** Each material is wrapped in a layer of elements. No element then has more
    than one face on a surface.
-4. **Surfaces.** The nodes on each surface move onto the true surface. Where the shape is
-   only known as voxels, they are smoothed along the surface instead.
+4. **Surfaces.** The nodes on each surface move onto the true surface. Where two faces of
+   the geometry meet at a convex edge, the nodes nearest the edge are put on it, and on its
+   corners. For imported surfaces, the faces are the patches between creases of more than
+   30°. Where the shape is only known as voxels, the nodes are smoothed along the surface
+   instead.
 5. **Smoothing.** The rest of the mesh is smoothed in stages:
    - Laplacian smoothing;
    - small moves of the nodes of elements whose scaled Jacobian is below 0.6;
@@ -337,7 +342,8 @@ The result has:
   named `grain N` for grain numbers. Label 0 is empty space. **Cell size** 0 meshes on the
   image's own voxels.
 - **A closed surface** (STL, OBJ, PLY, ...): the solid inside it. **Cell size** 0 uses a
-  thirtieth of its largest size.
+  thirtieth of its largest size. Each patch between creases gets a side set (`surface 1`,
+  `surface 2`, ...), and **Keep sharp edges** puts nodes on the creases and corners.
 - **Interfaces** *Smooth* runs all five steps; *Stair-step* keeps whole cells, every element
   a perfect cube.
 - **Mesh the empty space** meshes label 0, or the space around a surface, as a block of its
@@ -406,11 +412,11 @@ t = m.mesh_quality(output="Summary table")        # one row per metric
 - Inclusions must be star-shaped (one surface point along every direction from their
   centre) and cannot touch: each lies in its own box of grid cells, which caps how dense a
   packing can get even with collective packing.
-- Overlay meshes round sharp edges and corners that do not lie along the grid to about a
-  cell. Make the cell smaller near such edges, or use a structured scheme for bricks.
-- On measured microstructures with grains only a few voxels across, a few elements in
-  100 000 may stay nearly flat. This happens where a grain boundary has a saddle shape.
-  `InvertedElements` counts them; a larger **Smallest piece**, or *Stair-step*, avoids
-  them.
-- Overlay meshing of 100 000 voxels takes about 10 seconds.
+- Overlay meshes keep convex edges and corners. Concave edges, such as where two crossed
+  cylinders join, are rounded over about a cell, and so are features thinner than a
+  cell.
+- The clean-up may give a few cells at grain boundaries to the neighbouring grain, so very
+  small grains lose some volume: a voxel sphere 5 voxels in radius comes out about 8 %
+  smaller than the exact sphere.
+- Overlay meshing of 100 000 voxels takes about 3 seconds.
 - Gmsh files carry no node sets.

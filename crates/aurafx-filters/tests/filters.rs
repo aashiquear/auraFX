@@ -2132,10 +2132,8 @@ fn overlay_meshes() {
     let fd = m.field_data();
     let (sj, inv) = (fd.get("MinScaledJacobian").unwrap().get(0, 0), fd.get("InvertedElements").unwrap().get(0, 0));
     eprintln!("grains: {ncell} voxels -> {} elements, {} blocks, min SJ {sj:.3}", m.n_cells(), fd.get("ElementBlockIds").unwrap().len());
-    // A measured microstructure has grains of a few voxels with saddle-shaped boundaries; a
-    // handful of nearly flat elements may remain there (reported, never folded over).
-    assert!(inv <= 2e-4 * m.n_cells() as f64, "{inv}");
-    assert!(sj > -0.1, "{sj}");
+    assert_eq!(inv, 0.0);
+    assert!(sj > 0.1, "{sj}");
     let stair = run("overlay_mesh", Some(&d), &[("mode", "Stair-step".into())]);
     assert!(stair.n_cells() <= ncell);
     assert_eq!(stair.field_data().get("MinScaledJacobian").unwrap().get(0, 0), 1.0);

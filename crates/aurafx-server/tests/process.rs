@@ -1,5 +1,7 @@
 //! The real server executable, started the way the app starts it on a host (through
-//! `bash -lc`, here on this machine).
+//! `bash -lc`, here on this machine). This computer as a server needs a Unix shell; from
+//! Windows the app reaches servers over ssh.
+#![cfg(unix)]
 
 use aurafx_jobs::{Host, HostKind};
 use aurafx_pipeline::remote::{Payload, RemoteClient};

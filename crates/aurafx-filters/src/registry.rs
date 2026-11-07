@@ -3053,6 +3053,84 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "misorientation_distribution",
+            label: "Misorientation Distribution",
+            category: "Grains",
+            description: "The distribution of disorientation angles between neighbouring points, between random pairs of points and between random orientations (a table for the Charts panel).",
+            keywords: &["mdf", "misorientation distribution", "disorientation angle", "grain boundary angles", "mackenzie", "random distribution", "boundary statistics"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: {
+                let mut v = vec![
+                    f("min_angle", "Smallest angle (degrees)", 5.0, 0.0, 179.0).help("Angles below it (inside grains) are left out of every curve."),
+                    f("bin", "Bin size (degrees)", 1.0, 0.1, 30.0),
+                    i("pairs", "Random pairs", 100_000, 1000, 100_000_000).advanced(),
+                ];
+                v.extend(texture_selection_params(10_000_000).into_iter().filter(|p| p.key != "max_orientations"));
+                v
+            },
+            apply: |input, p| {
+                let (st, ph, mk) = (p.str("structure"), p.array("phases").map(|x| x.1), p.array("mask").map(|x| x.1));
+                let sel = texture_selection(p, &st, ph.as_deref(), mk.as_deref(), i64::MAX);
+                crate::crystal_texture::misorientation_distribution(input.unwrap(), &sel, p.f64("min_angle", 5.0), p.f64("bin", 1.0), p.i64("pairs", 100_000).max(1) as usize)
+            },
+        },
+        FilterDef {
+            id: "texture_components",
+            label: "Texture Components",
+            category: "Grains",
+            description: "The fraction of orientations with a crystal direction of each family within a cone around each sample axis (a table).",
+            keywords: &["texture fractions", "fiber fraction", "component fraction", "cube texture", "volume fraction", "100 fiber", "111 fiber"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: {
+                let mut v = vec![
+                    s("families", "Directions", "100, 110, 111"),
+                    s("axes", "Sample axes", "X, Y, Z"),
+                    f("cone", "Cone (degrees)", 15.0, 0.1, 90.0),
+                ];
+                v.extend(texture_selection_params(10_000_000));
+                v
+            },
+            apply: |input, p| {
+                let (st, ph, mk) = (p.str("structure"), p.array("phases").map(|x| x.1), p.array("mask").map(|x| x.1));
+                let sel = texture_selection(p, &st, ph.as_deref(), mk.as_deref(), 10_000_000);
+                crate::crystal_texture::texture_components(input.unwrap(), &sel, &p.str("families"), &p.str("axes"), p.f64("cone", 15.0))
+            },
+        },
+        FilterDef {
+            id: "chord_lengths",
+            label: "Chord Lengths",
+            category: "Grains",
+            description: "Grain-boundary chord lengths along lines in x, y and z of a map or volume, as a list or a histogram, with their means.",
+            keywords: &["chord length", "linear intercept", "grain size", "intercept length", "line intercept", "grain boundary spacing"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: {
+                let mut v = vec![
+                    f("threshold", "Boundary angle (degrees)", 10.0, 0.1, 180.0),
+                    f("spacing", "Line spacing", 0.0, 0.0, f64::INFINITY).help("Distance between the lines in length units; 0: every row of points."),
+                    choice("output", "Output", &[crate::crystal_texture::CHORDS, crate::crystal_texture::HISTOGRAM], crate::crystal_texture::CHORDS),
+                    f("bin", "Histogram bin (length)", 0.0, 0.0, f64::INFINITY).help("0: a thirtieth of the longest chord."),
+                    i("max_gap", "Largest gap (points)", 3, 0, 1000).help("Runs of more unused points end a line segment; chords touching a segment end are left out.").advanced(),
+                    b("despeckle", "Ignore single-point specks", false).advanced(),
+                ];
+                v.extend(texture_selection_params(10_000_000).into_iter().filter(|p| p.key != "max_orientations"));
+                v
+            },
+            apply: |input, p| {
+                let (st, ph, mk) = (p.str("structure"), p.array("phases").map(|x| x.1), p.array("mask").map(|x| x.1));
+                let sel = texture_selection(p, &st, ph.as_deref(), mk.as_deref(), i64::MAX);
+                crate::crystal_texture::chord_lengths(input.unwrap(), &sel, p.f64("threshold", 10.0), p.f64("spacing", 0.0), p.i64("max_gap", 3).max(0) as usize, p.bool("despeckle", false), &p.str("output"), p.f64("bin", 0.0))
+            },
+        },
+        FilterDef {
             id: "ipf_color_key",
             label: "IPF Color Key",
             category: "Sources",

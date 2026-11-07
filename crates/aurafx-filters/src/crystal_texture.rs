@@ -30,7 +30,8 @@ pub struct Sample {
     pub available: usize,
 }
 
-pub fn sample(ds: &DataSet, sel: &Selection) -> Result<Sample> {
+/// Every point's orientation when it is selected (None otherwise), and their crystal class.
+pub fn selected(ds: &DataSet, sel: &Selection) -> Result<(Vec<Option<Quat>>, Laue)> {
     let (assoc, a) = orientation_array(ds, sel.orientations.clone())?;
     let repr = Repr::guess(a.ncomp).ok_or_else(|| anyhow!("{}: {} components is not an orientation array (3, 4 or 9)", a.name, a.ncomp))?;
     let n = a.len();
@@ -45,9 +46,9 @@ pub fn sample(ds: &DataSet, sel: &Selection) -> Result<Sample> {
         Some(m) => Some(attrs.and_then(|x| x.get(m)).ok_or_else(|| anyhow!("no mask array {m}"))?),
         None => None,
     };
-    let mut idx = Vec::new();
     let mut laue: Option<Laue> = None;
-    for i in 0..n {
+    let mut out = vec![None; n];
+    for (i, o) in out.iter_mut().enumerate() {
         let p = ph.map(|p| p.get(i, 0) as i64).unwrap_or(1);
         if p <= 0 || (sel.phase > 0 && p != sel.phase) || mask.is_some_and(|m| m.get(i, 0) == 0.0) {
             continue;
@@ -58,28 +59,39 @@ pub fn sample(ds: &DataSet, sel: &Selection) -> Result<Sample> {
             Some(k) if k != l => bail!("the points belong to more than one crystal class: choose a phase"),
             _ => {}
         }
-        idx.push(i);
+        *o = Some(repr.decode_values(a, i));
     }
     let laue = laue.ok_or_else(|| anyhow!("no indexed orientations to analyse (check the phase and the mask)"))?;
-    let available = idx.len();
-    if idx.len() > sel.max.max(1) {
-        // A seeded partial shuffle.
-        let mut s = sel.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-        let mut next = || {
-            s ^= s << 13;
-            s ^= s >> 7;
-            s ^= s << 17;
-            s
-        };
-        let m = sel.max.max(1);
+    Ok((out, laue))
+}
+
+fn rng(seed: u64) -> impl FnMut() -> u64 {
+    let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    move || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    }
+}
+
+pub fn sample(ds: &DataSet, sel: &Selection) -> Result<Sample> {
+    let (all, laue) = selected(ds, sel)?;
+    let mut q: Vec<Quat> = all.into_iter().flatten().collect();
+    let available = q.len();
+    let m = sel.max.max(1);
+    if q.len() > m {
+        // A seeded partial shuffle, kept in the original order.
+        let mut idx: Vec<usize> = (0..q.len()).collect();
+        let mut next = rng(sel.seed);
         for k in 0..m {
             let j = k + (next() % (idx.len() - k) as u64) as usize;
             idx.swap(k, j);
         }
         idx.truncate(m);
         idx.sort_unstable();
+        q = idx.iter().map(|i| q[*i]).collect();
     }
-    let q = idx.iter().map(|i| repr.decode_values(a, *i)).collect();
     Ok(Sample { q, laue, available })
 }
 
@@ -285,4 +297,251 @@ pub fn odf_sections(ds: &DataSet, sel: &Selection, sections: &str, step_deg: f64
         mb.field_data.insert(Array::new(k, 1, ArrayData::F64(vec![v])));
     }
     Ok(DataSet::MultiBlock(mb))
+}
+
+// ------------------------------------------------------------------ G3b
+
+fn table(cols: Vec<Array>, field: Vec<(&str, f64)>) -> DataSet {
+    let mut t = Table::default();
+    for c in cols {
+        t.columns.insert(c);
+    }
+    for (k, v) in field {
+        t.field_data.insert(Array::new(k, 1, ArrayData::F64(vec![v])));
+    }
+    DataSet::Table(t)
+}
+
+fn col(name: &str, v: Vec<f64>) -> Array {
+    Array::new(name, 1, ArrayData::F64(v))
+}
+
+/// Misorientation Distribution: the disorientation angles (from `min_deg` up) between face
+/// neighbours, between random pairs of points, and between random orientations (exact), each
+/// as a density per degree over the angles shown.
+pub fn misorientation_distribution(ds: &DataSet, sel: &Selection, min_deg: f64, bin_deg: f64, pairs: usize) -> Result<DataSet> {
+    let img = crate::features::image(ds)?;
+    let v = crate::features::Vox::of(img);
+    let (q, laue) = selected(ds, sel)?;
+    if q.len() != v.len() {
+        bail!("the orientations must be cell data");
+    }
+    let uni = tx::random_disorientations(laue);
+    let bin = bin_deg.clamp(0.1, 30.0);
+    let lo = min_deg.clamp(0.0, 179.0);
+    let top = uni.max_angle().to_degrees();
+    let nb = (((top - lo) / bin).ceil() as usize).max(1);
+    let hist = |angles: &[f64]| -> (Vec<f64>, usize) {
+        let mut h = vec![0.0; nb];
+        let mut n = 0;
+        for a in angles {
+            if *a >= lo {
+                h[(((a - lo) / bin) as usize).min(nb - 1)] += 1.0;
+                n += 1;
+            }
+        }
+        (h.into_iter().map(|c| if n > 0 { c / n as f64 / bin } else { 0.0 }).collect(), n)
+    };
+    use rayon::prelude::*;
+    let nbr: Vec<f64> = (0..v.len())
+        .into_par_iter()
+        .flat_map_iter(|c| {
+            let nb = v.nbrs(c);
+            let q = &q;
+            [nb[3], nb[4], nb[5]].into_iter().flatten().filter_map(move |d| match (q[c], q[d]) {
+                (Some(a), Some(b)) => Some(aurafx_crystal::disorientation_angle(a, b, laue).to_degrees()),
+                _ => None,
+            })
+        })
+        .collect();
+    let (hn, above) = hist(&nbr);
+    let idx: Vec<usize> = (0..q.len()).filter(|i| q[*i].is_some()).collect();
+    let mut next = rng(7);
+    let rnd: Vec<f64> = (0..pairs)
+        .map(|_| {
+            let a = idx[(next() % idx.len() as u64) as usize];
+            let b = idx[(next() % idx.len() as u64) as usize];
+            aurafx_crystal::disorientation_angle(q[a].unwrap(), q[b].unwrap(), laue).to_degrees()
+        })
+        .collect();
+    let (hr, _) = hist(&rnd);
+    let r = |d: f64| d.to_radians();
+    let total = uni.fraction(r(lo), std::f64::consts::PI);
+    let hu: Vec<f64> = (0..nb).map(|k| uni.fraction(r(lo + k as f64 * bin), r(lo + (k + 1) as f64 * bin)) / total / bin).collect();
+    let starts: Vec<f64> = (0..nb).map(|k| lo + k as f64 * bin).collect();
+    let mean = nbr.iter().filter(|a| **a >= lo).sum::<f64>() / above.max(1) as f64;
+    Ok(table(
+        vec![
+            col("bin_start", starts.clone()),
+            col("bin_end", starts.iter().map(|s| s + bin).collect()),
+            col("bin_center", starts.iter().map(|s| s + bin / 2.0).collect()),
+            col("Neighbours", hn),
+            col("Random pairs", hr),
+            col("Uniform", hu),
+        ],
+        vec![("NeighbourPairs", nbr.len() as f64), ("NeighbourPairsShown", above as f64), ("MeanNeighbourAngle", mean)],
+    ))
+}
+
+fn axes(s: &str) -> Result<Vec<(String, [f64; 3])>> {
+    let mut out = Vec::new();
+    for t in s.split([',', ';', ' ']).map(str::trim).filter(|t| !t.is_empty()) {
+        let v = match t.to_ascii_uppercase().as_str() {
+            "X" => [1.0, 0.0, 0.0],
+            "Y" => [0.0, 1.0, 0.0],
+            "Z" => [0.0, 0.0, 1.0],
+            _ => bail!("{t}: sample axes are X, Y or Z"),
+        };
+        out.push((t.to_ascii_uppercase(), v));
+    }
+    if out.is_empty() {
+        bail!("no sample axes given");
+    }
+    Ok(out)
+}
+
+/// Texture Components: for every crystal direction family and sample axis, the fraction of the
+/// orientations with a direction of the family within `cone_deg` of the axis.
+pub fn texture_components(ds: &DataSet, sel: &Selection, families: &str, sample_axes: &str, cone_deg: f64) -> Result<DataSet> {
+    let fams = parse_families(families)?;
+    let ax = axes(sample_axes)?;
+    let s = sample(ds, sel)?;
+    let cmin = cone_deg.to_radians().cos();
+    let (mut dname, mut aname, mut frac, mut count) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (name, hkl) in &fams {
+        let fam = tx::pole_family(*hkl, s.laue);
+        for (an, a) in &ax {
+            let n = s
+                .q
+                .iter()
+                .filter(|g| {
+                    let c = aurafx_crystal::rotate(**g, *a);
+                    fam.iter().any(|p| (c[0] * p[0] + c[1] * p[1] + c[2] * p[2]) / (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() >= cmin)
+                })
+                .count();
+            dname.push(format!("<{name}>"));
+            aname.push(an.clone());
+            frac.push(n as f64 / s.q.len() as f64);
+            count.push(n as f64);
+        }
+    }
+    Ok(table(
+        vec![
+            Array::new("Direction", 1, ArrayData::String(dname)),
+            Array::new("Axis", 1, ArrayData::String(aname)),
+            col("Fraction", frac),
+            col("Count", count),
+        ],
+        vec![("Orientations", s.q.len() as f64), ("Cone", cone_deg)],
+    ))
+}
+
+/// The chords of one line of points (None: not used): the distances between successive
+/// boundaries (disorientation of at least `threshold`, radians) between the valid points, with
+/// runs of more than `max_gap` invalid points ending a segment; chords touching a segment end
+/// are dropped. `despeckle`: a single point that differs from two neighbours which agree is
+/// not a boundary.
+pub fn line_chords(line: &[Option<Quat>], laue: Laue, threshold: f64, max_gap: usize, despeckle: bool, step: f64) -> Vec<f64> {
+    let idx: Vec<usize> = (0..line.len()).filter(|i| line[*i].is_some()).collect();
+    if idx.len() < 3 {
+        return Vec::new();
+    }
+    let g = |k: usize| line[idx[k]].unwrap();
+    let m = idx.len() - 1;
+    let mut bnd: Vec<bool> = (0..m).map(|k| aurafx_crystal::disorientation_angle(g(k), g(k + 1), laue) >= threshold).collect();
+    if despeckle && idx.len() > 3 {
+        let spike: Vec<bool> = (0..m - 1).map(|k| bnd[k] && bnd[k + 1] && aurafx_crystal::disorientation_angle(g(k), g(k + 2), laue) < threshold).collect();
+        for (k, s) in spike.iter().enumerate() {
+            if *s {
+                bnd[k] = false;
+                bnd[k + 1] = false;
+            }
+        }
+    }
+    let gap: Vec<bool> = (0..m).map(|k| idx[k + 1] - idx[k] > max_gap + 1).collect();
+    let pos = |k: usize| 0.5 * (idx[k] + idx[k + 1]) as f64;
+    let cut: Vec<usize> = (0..m).filter(|k| bnd[*k] || gap[*k]).collect();
+    let mut out = Vec::new();
+    for w in cut.windows(2) {
+        let (a0, a1) = (w[0], w[1]);
+        if bnd[a0] && bnd[a1] && !gap[a0..=a1].iter().any(|x| *x) {
+            out.push((pos(a1) - pos(a0)) * step);
+        }
+    }
+    out
+}
+
+pub const CHORDS: &str = "Chords";
+pub const HISTOGRAM: &str = "Histogram";
+
+/// Chord Lengths: grain-boundary chords along lines in x, y (and z for volumes) every
+/// `spacing` length units, as a list or a histogram, with the mean per direction.
+#[allow(clippy::too_many_arguments)]
+pub fn chord_lengths(ds: &DataSet, sel: &Selection, threshold_deg: f64, spacing: f64, max_gap: usize, despeckle: bool, output: &str, bin: f64) -> Result<DataSet> {
+    let img = crate::features::image(ds)?;
+    let v = crate::features::Vox::of(img);
+    let (q, laue) = selected(ds, sel)?;
+    if q.len() != v.len() {
+        bail!("the orientations must be cell data");
+    }
+    let th = threshold_deg.to_radians();
+    let n = v.n;
+    let every = |a: usize| -> usize { if spacing > 0.0 { ((spacing / v.sp[a]).round() as usize).max(1) } else { 1 } };
+    let at = |i: usize, j: usize, k: usize| q[i + n[0] * (j + n[1] * k)];
+    let mut chords: Vec<Vec<f64>> = vec![Vec::new(); 3];
+    let dirs: Vec<usize> = (0..3).filter(|a| n[*a] > 1).collect();
+    for &a in &dirs {
+        let (b, c) = ((a + 1) % 3, (a + 2) % 3);
+        // Lines along a, stepping across the other axes (the slowest-varying last).
+        let (lo_ax, hi_ax) = if b < c { (b, c) } else { (c, b) };
+        let mut k2 = 0;
+        while k2 < n[hi_ax] {
+            let mut k1 = 0;
+            while k1 < n[lo_ax] {
+                let line: Vec<Option<Quat>> = (0..n[a])
+                    .map(|t| {
+                        let mut p = [0; 3];
+                        p[a] = t;
+                        p[lo_ax] = k1;
+                        p[hi_ax] = k2;
+                        at(p[0], p[1], p[2])
+                    })
+                    .collect();
+                chords[a].extend(line_chords(&line, laue, th, max_gap, despeckle, v.sp[a]));
+                k1 += every(lo_ax);
+            }
+            k2 += every(hi_ax);
+        }
+    }
+    let names = ["X", "Y", "Z"];
+    let mut field = Vec::new();
+    for &a in &dirs {
+        let c = &chords[a];
+        let mean = if c.is_empty() { 0.0 } else { c.iter().sum::<f64>() / c.len() as f64 };
+        field.push((["MeanChordX", "MeanChordY", "MeanChordZ"][a], mean));
+        field.push((["ChordsX", "ChordsY", "ChordsZ"][a], c.len() as f64));
+    }
+    if output == HISTOGRAM {
+        let top = chords.iter().flatten().cloned().fold(0.0, f64::max);
+        let w = if bin > 0.0 { bin } else { (top / 30.0).max(1e-12) };
+        let nb = ((top / w).floor() as usize + 1).max(1);
+        let mut cols = vec![col("bin_start", (0..nb).map(|k| k as f64 * w).collect()), col("bin_end", (0..nb).map(|k| (k + 1) as f64 * w).collect()), col("bin_center", (0..nb).map(|k| (k as f64 + 0.5) * w).collect())];
+        for &a in &dirs {
+            let mut h = vec![0.0; nb];
+            for c in &chords[a] {
+                h[((c / w) as usize).min(nb - 1)] += 1.0;
+            }
+            cols.push(col(names[a], h));
+        }
+        return Ok(table(cols, field));
+    }
+    let mut dn = Vec::new();
+    let mut len = Vec::new();
+    for &a in &dirs {
+        for c in &chords[a] {
+            dn.push(names[a].to_string());
+            len.push(*c);
+        }
+    }
+    Ok(table(vec![Array::new("Direction", 1, ArrayData::String(dn)), col("Length", len)], field))
 }

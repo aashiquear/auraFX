@@ -324,8 +324,12 @@ Boundaries against a brute-force distance.
     and Φ = 90° in full. With its grid and uniform value, auraFX reproduces it within 1e-9. The
     midpoint grid auraFX uses gives 2.4692 at 5° and 2.4696 at 2.5°, so the toolkit's value is
     7 % high;
-  - the random-disorientation distribution integrates to 1 for all eleven classes, and its
-    cubic maximum is 62.8°.
+  - the random-disorientation distribution integrates to 1 for all eleven classes; its cubic
+    maximum is 62.8° and its mean 40.74°;
+  - component fractions (<100> along X, Y and Z, <110> and <111> along Z, 15° cones) are equal
+    to the toolkit's;
+  - chord lengths of the first slice (10° boundaries, gaps of up to 3 points skipped), 474
+    along x and 347 along y, are the toolkit's `chords_from_map` list, chord for chord.
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

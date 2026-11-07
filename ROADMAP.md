@@ -279,9 +279,9 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
   - [x] G1a: `aurafx-crystal`, `.ang` (square grids) and `.ctf` readers, Orientation Colors, IPF Color Key, Convert Orientations, Rotate Orientations; 8-bit RGB arrays drawn as their own colors (iteration 53).
   - [x] G1b: `.h5ebsd`, EDAX/Bruker `.h5`, `.dream3d` readers; Crop, Change Resolution, Align Sections (iteration 54).
 - [x] G2 Features: Segment Features (misorientation, scalar, C-axis), Find Sizes/Neighbors/Shapes/Centroids/Boundary Cells/Surface Features/Average Orientations/Misorientations/Kernel Average Misorientation/Reference Misorientations/Euclidean Distance Map, Min Size, Fill Bad Data, Merge Twins, Find Twin Boundaries; Features and Ensembles tables.
-- [ ] G3 Texture: pole figures, inverse pole figures, ODF sections and texture index, MDF, texture fractions, chord lengths (charts, pictures, CSV).
+- [x] G3 Texture: pole figures, inverse pole figures, ODF sections and texture index, MDF, texture fractions, chord lengths (charts, pictures, CSV).
   - [x] G3a: pole figures (stereographic, equal area), inverse pole figures, ODF sections, texture index, CSV of multi-panel output (iteration 59).
-  - [ ] G3b: misorientation distribution, texture component fractions, chord lengths.
+  - [x] G3b: misorientation distribution, texture component fractions, chord lengths (iteration 60).
 - [ ] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
 - [ ] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [ ] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
@@ -410,6 +410,13 @@ number of copies of orientation space), the exact uniform kernel value from the 
 disorientation distribution of every class; pole figures and ODF values match the AM
 orientation toolkit within 1e-9 on the AM Bench window; CSV of multi-panel output with a Block
 column. Guide chapter: Grains and crystals. Next: G3b.
+
+Done in iteration 60 (G3b, closing G3): Misorientation Distribution (neighbour pairs, random
+pairs and the exact uniform distribution of the class, as densities per degree for the Charts
+panel), Texture Components (fractions within a cone of each sample axis) and Chord Lengths
+(grain-boundary chords along x, y, z with gaps and specks handled, list or histogram); the
+fractions and the chords equal the AM orientation toolkit's on the AM Bench window. Guide
+chapter: Grains and crystals. Next: M3.
 
 ## Status (2026-11-05)
 

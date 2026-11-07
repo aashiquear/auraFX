@@ -319,7 +319,7 @@ are distributed. Every density is in multiples of a random distribution (MRD): 1
 randomly oriented crystals give, 3 means three times as often as random. Each density is a
 smoothed count: every orientation spreads over a Gaussian of the **Smoothing** width.
 
-All three filters work on one phase:
+The texture filters work on one phase:
 - **Phase** chooses it. With 0, every indexed point is used, and they must all have one
   crystal class.
 - **Mask** can leave out more points.
@@ -378,10 +378,71 @@ orientation occurs, smoothed over the disorientation angle.
 
 ```python
 odf = ebsd.odf_sections(sections="0, 45, 65", step=5)
-print(odf.field_data["TextureIndex"])
+print(odf.array("TextureIndex", "field"))
 ```
 
 ![ODF sections at phi2 = 0, 45 and 65 degrees](images/odf_sections.png)
+
+### Misorientation Distribution
+
+**Misorientation Distribution** makes a table of disorientation angles (the smallest
+rotation between two orientations, allowing for crystal symmetry) with three columns:
+- **Neighbours:** between neighbouring points of a map or volume.
+- **Random pairs:** between randomly chosen pairs of points (**Random pairs** of them). This
+  shows what the texture alone gives, without any spatial correlation.
+- **Uniform:** between randomly oriented crystals, computed exactly for the crystal class.
+
+Each column is a density per degree, so all three can be plotted on one axis. Angles below
+**Smallest angle** (5° by default, meant to leave out the small angles inside grains) are
+left out of all three. Peaks in Neighbours that are missing from the other two point to
+special boundaries, such as twins near 60° in cubic metals.
+
+The table plots in the **Charts** panel with `bin_center` on the x axis. Its field data
+counts the neighbour pairs and gives their mean angle.
+
+```python
+m = ebsd.misorientation_distribution(min_angle=5, bin=1)
+x = m.array("bin_center")
+afx.plot(x, m.array("Neighbours"), label="Neighbours", clear=True)
+afx.plot(x, m.array("Uniform"), label="Uniform")
+```
+
+![The misorientation distribution of a measured nickel-superalloy volume in the Charts panel](images/misorientation_distribution.png)
+
+### Texture Components
+
+**Texture Components** makes a table of the fraction of orientations that have a crystal
+direction of a family within **Cone** degrees of a sample axis. It has one row per direction
+and axis, such as `<100> Z` for orientations with a cube axis along Z. The defaults are the
+families `100, 110, 111` against the axes `X, Y, Z`, with a 15° cone.
+
+```python
+tc = ebsd.texture_components(families="100, 111", axes="Z", cone=15)
+```
+
+### Chord Lengths
+
+**Chord Lengths** measures grain size along straight lines through a map or volume.
+- **Lines.** They run in x, y and, for a volume, z. **Line spacing** is the distance between
+  them, in length units; 0 uses every row of points.
+- **Boundaries.** A boundary lies between two neighbouring points whose disorientation is at
+  least **Boundary angle** (10° by default). A chord is the distance between two boundaries
+  that follow each other along a line.
+- **Unused points.** Points of other phases, unindexed points and masked points are skipped.
+  A run of more than **Largest gap** of them ends the line segment there.
+- **Partial chords.** A chord that touches a segment's end, or the edge of the data, is left
+  out, because its true length is unknown.
+- **Specks.** **Ignore single-point specks** stops a single stray point, whose two
+  neighbours agree with each other, from counting as two boundaries.
+
+**Output** gives either every chord (its direction and length) or a histogram with one column
+per direction. Both carry the mean chord and the number of chords per direction as field
+data (`MeanChordX`, `ChordsX`, ...).
+
+```python
+ch = ebsd.chord_lengths(threshold=10, output="Histogram", bin=2)
+print(ch.array("MeanChordX", "field"))
+```
 
 ## Limits
 

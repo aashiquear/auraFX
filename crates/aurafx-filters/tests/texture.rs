@@ -221,3 +221,77 @@ fn texture_filters() {
     assert!(aurafx_filters::crystal_texture::parse_families("100, -1-12, 1 2 3").unwrap().len() == 3);
     assert!(aurafx_filters::crystal_texture::parse_families("10").is_err());
 }
+
+#[test]
+fn chords_fractions_and_mdf() {
+    let r = reference();
+    let (d, _) = am_bench();
+    let DataSet::ImageData(img) = &d else { panic!() };
+    let c = img.cell_data.get("EulerAngles").unwrap();
+    let ph = img.cell_data.get("Phases").unwrap();
+    let (nx, ny) = (48, 40);
+    let sp = floats(&r["spacing"]);
+    let q = |i: usize, j: usize| -> Option<Quat> {
+        let k = i + nx * j;
+        (ph.get(k, 0) > 0.0).then(|| cx::euler_to_quat([c.get(k, 0), c.get(k, 1), c.get(k, 2)]))
+    };
+    // Chords of the first slice, along x (rows) and y (columns), as the toolkit lists them.
+    let th = 10f64.to_radians();
+    let mut first = Vec::new();
+    for j in 0..ny {
+        let line: Vec<_> = (0..nx).map(|i| q(i, j)).collect();
+        first.extend(aurafx_filters::crystal_texture::line_chords(&line, Laue::CubicHigh, th, 3, false, sp[0]));
+    }
+    let mut second = Vec::new();
+    for i in 0..nx {
+        let line: Vec<_> = (0..ny).map(|j| q(i, j)).collect();
+        second.extend(aurafx_filters::crystal_texture::line_chords(&line, Laue::CubicHigh, th, 3, false, sp[1]));
+    }
+    for (ours, theirs) in [(first, floats(&r["chords_first"])), (second, floats(&r["chords_second"]))] {
+        assert_eq!(ours.len(), theirs.len());
+        assert!(ours.iter().zip(&theirs).all(|(a, b)| (a - b).abs() < 1e-9));
+    }
+    // The filter on the whole volume adds the other slices and the z lines.
+    let ch = run("chord_lengths", Some(&d), &[]);
+    let fd = ch.field_data();
+    assert!(fd.get("ChordsX").unwrap().get(0, 0) > r["chords_first"].as_array().unwrap().len() as f64);
+    assert!(fd.get("MeanChordZ").is_some());
+    let h = run("chord_lengths", Some(&d), &[("output", "Histogram".into()), ("bin", 2.0.into())]);
+    let DataSet::Table(t) = &h else { panic!() };
+    let hx = t.columns.get("X").unwrap();
+    assert_eq!((0..hx.len()).map(|k| hx.get(k, 0)).sum::<f64>(), fd.get("ChordsX").unwrap().get(0, 0));
+    // Component fractions: the toolkit's five (BD = Z).
+    let tc = run("texture_components", Some(&d), &[]);
+    let DataSet::Table(t) = &tc else { panic!() };
+    let fr = t.columns.get("Fraction").unwrap();
+    let names = |k: usize| -> String {
+        let s = |n: &str| t.columns.get(n).unwrap().as_slice::<String>().unwrap()[k].clone();
+        format!("{} {}", s("Direction"), s("Axis"))
+    };
+    for (key, want) in [("f100_X", "<100> X"), ("f100_Y", "<100> Y"), ("f100_BD", "<100> Z"), ("f110_BD", "<110> Z"), ("f111_BD", "<111> Z")] {
+        let k = (0..fr.len()).find(|k| names(*k) == want).unwrap();
+        let theirs = r["fractions"][key].as_f64().unwrap();
+        assert!((fr.get(k, 0) - theirs).abs() < 1e-12, "{key}: {} vs {theirs}", fr.get(k, 0));
+    }
+    // Misorientation distribution: every curve is a density over the angles shown; the
+    // uniform cubic one has the known mean of 40.74 degrees.
+    let m = run("misorientation_distribution", Some(&d), &[("min_angle", 0.0.into()), ("bin", 0.5.into())]);
+    let DataSet::Table(t) = &m else { panic!() };
+    let get = |n: &str| -> Vec<f64> {
+        let a = t.columns.get(n).unwrap();
+        (0..a.len()).map(|k| a.get(k, 0)).collect()
+    };
+    let x = get("bin_center");
+    for n in ["Neighbours", "Random pairs", "Uniform"] {
+        let s: f64 = get(n).iter().sum::<f64>() * 0.5;
+        assert!((s - 1.0).abs() < 1e-9, "{n} {s}");
+    }
+    let mean: f64 = get("Uniform").iter().zip(&x).map(|(p, a)| p * a * 0.5).sum();
+    assert!((mean - 40.74).abs() < 0.05, "{mean}");
+    let rp: f64 = get("Random pairs").iter().zip(&x).map(|(p, a)| p * a * 0.5).sum();
+    assert!(rp > 30.0 && rp < 45.0, "{rp}");
+    // Every face pair with both points indexed is counted.
+    let v = aurafx_filters::features::Vox::of(img);
+    let n = (0..v.len()).map(|k| v.nbrs(k)[3..].iter().flatten().filter(|o| ph.get(**o, 0) > 0.0 && ph.get(k, 0) > 0.0).count()).sum::<usize>();
+    assert_eq!(t.field_data.get("NeighbourPairs").unwrap().get(0, 0) as usize, n);
+}

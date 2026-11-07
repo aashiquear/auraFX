@@ -110,10 +110,13 @@ jobs:
           echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
       - name: Build APK
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
           ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: scripts/package/android_apk.sh dist
+        # ANDROID_HOME is a runner variable (not in the workflow's env context), so the NDK path
+        # is built in the shell.
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          scripts/package/android_apk.sh dist
       - uses: actions/upload-artifact@v4
         with:
           name: aurafx-android

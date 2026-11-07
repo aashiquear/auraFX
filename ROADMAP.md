@@ -301,9 +301,10 @@ arbitrary and voxel geometry, with a command language, quality tables and sets. 
 - [x] M3 Overlay-grid mesher: volume fractions from geometry, STL or voxel images, interface reconstruction, projection, pillowing, tiered smoothing, defeaturing, void meshing, generated side sets, periodic RVE sets, stair-step fallback.
   - [x] M3a: overlay grid from geometry bodies, closed surfaces and labelled images, defeaturing and pinch removal, pillowing, projection along stair-step normals, guarded tiered smoothing and untangling, void meshing, domain/surface/interface side sets, periodic pairs, stair-step mode, `scheme overlay` in the geometry commands, Overlay Mesh filter (iteration 61).
   - [x] M3b: sharp edges and corners kept by the overlay mesher (patches between creases for surfaces), saddle-free clean-up for fine microstructures, parallel smoothing (iteration 62).
-- [ ] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
+- [x] M4 Refinement and tets: conformal and local refinement, smoothing schemes, Delaunay tri/tet meshing with sizing, THex/HTet, boundary layers.
   - [x] M4a: uniform refinement of hexahedra and tetrahedra, HTet/THex conversions, mesh smoothing (Laplacian, smart Laplacian, condition number), boundary layers, tetrahedron quality metrics (iteration 66).
-  - [ ] M4b: tetrahedral meshing of implicit and STL geometry with sizing, local refinement, triangle meshing.
+  - [x] M4b: tetrahedral meshing of implicit and STL geometry (isosurface stuffing), local refinement of tetrahedra, Tet mesh output and filters (iteration 67).
+  - [ ] Later: local refinement of hexahedra with transition templates, Winslow smoothing, graded sizing by curvature, sharp edges in tetrahedral meshes, conforming tetrahedra between touching bodies.
 - [ ] M5 Grains on meshes: Assign Grains (Voronoi, Laguerre, nearest voxel, from a volume), per-grain blocks and boundary side sets, Mesh Grains (M3 on FeatureIds); the worked geometry → mesh → grains → solver → statistics example.
 
 ---
@@ -469,6 +470,13 @@ uniform 8-way refinement of HEX8 and tetrahedral meshes, conforming hexahedron-t
 (Laplacian, smart Laplacian, condition-number optimisation), Boundary Layers on side sets,
 and 20 tetrahedron quality metrics matching ParaView. Guide chapter: Geometry and meshing.
 Next: M4b.
+
+Done in iteration 67 (M4b, closing M4 but for the items listed as later): isosurface stuffing
+(aurafx-mesh stuffing.rs: BCC lattice, warping by the published alpha values, cut tetrahedra
+split by coning from their lowest-numbered vertex) for geometry bodies (Geometry output Tet
+mesh) and closed surfaces (Tet Mesh), local refinement of tetrahedra with centre-point
+closure (Refine Region). Smallest dihedral angles 21-30 degrees on the test shapes. Guide
+chapter: Geometry and meshing. Next: G6.
 
 ## Status (2026-11-05)
 

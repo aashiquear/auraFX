@@ -379,6 +379,11 @@ Boundaries against a brute-force distance.
   side sets. Boundary layers keep the volume, give the asked first-layer thickness exactly and
   add the layers' side faces to the neighbouring side sets; smoothing raises the worst scaled
   Jacobian of a jiggled box from 0.25 to 0.97-1.
+- Tetrahedral meshing (crates/aurafx-mesh/tests/stuffing.rs): a sphere and a torus give
+  positive, conforming tetrahedra whose volumes come within -1.0 % and -0.26 % (sphere, sizes
+  0.2 and 0.1 of the radius) and -3.0 % and -0.7 % (torus, tube radius 0.35) of the exact
+  volume; the smallest dihedral angle is 21-30 degrees. Refine Region on the upper half of the
+  sphere keeps the mesh positive and conforming (smallest angle 13.6 degrees).
 - hexaform's periodic node sets use background-grid node numbers after the weld renumbered
   the nodes, and sort the pair list; auraFX pairs the welded nodes by their coordinates.
 - Exodus files with blocks, side sets, node sets and HEX27 elements written by auraFX open in

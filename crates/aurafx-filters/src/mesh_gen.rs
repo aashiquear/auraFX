@@ -512,3 +512,45 @@ pub fn boundary_layers(ds: &DataSet, side_set: &str, layers: usize, first: f64, 
     let faces = m.side_set(side_set).ok_or_else(|| anyhow!("no side set {side_set}"))?.clone();
     Ok(aurafx_mesh::improve::boundary_layers(&m, &faces, layers, first, growth).map_err(|e| anyhow!(e))?.to_dataset())
 }
+
+/// Tet Mesh: tetrahedra filling a closed surface (isosurface stuffing at `cell`, 0: a
+/// thirtieth of its largest size), a side set per patch of the surface between creases.
+pub fn tet_mesh(ds: &DataSet, cell: f64) -> Result<DataSet> {
+    let tm = aurafx_mesh::model::surface_mesh(ds)?;
+    let np = tm.n_patches;
+    let shape = aurafx_mesh::shape::Shape::Surface { mesh: std::sync::Arc::new(tm), face: 1 };
+    let (lo, hi) = shape.bounds();
+    let h = if cell > 0.0 { cell } else { (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max) / 30.0 };
+    let lo: [f64; 3] = std::array::from_fn(|a| lo[a] - 1.5 * h);
+    let hi: [f64; 3] = std::array::from_fn(|a| hi[a] + 1.5 * h);
+    let mut m = aurafx_mesh::stuffing::stuff(&|p| shape.eval(p).0, lo, hi, h).map_err(|e| anyhow!(e))?;
+    let mut sets: std::collections::BTreeMap<u32, Vec<(u32, u8)>> = Default::default();
+    for (e, s) in m.boundary_faces() {
+        let c = m.side_corners(e as usize, s);
+        let cen: [f64; 3] = std::array::from_fn(|a| c.iter().map(|k| m.points[*k as usize][a]).sum::<f64>() / 3.0);
+        sets.entry(shape.eval(cen).1).or_default().push((e, s));
+    }
+    for (f, faces) in sets {
+        m.side_sets.push((if np == 1 { "surface".to_string() } else { format!("surface {f}") }, faces));
+    }
+    Ok(m.to_dataset())
+}
+
+/// Refine Region: the tetrahedra whose centre lies in the box `lo`..`hi` (or, with `array`,
+/// whose cell value is at least `value`) split into eight, their neighbours closed.
+pub fn refine_region(ds: &DataSet, lo: [f64; 3], hi: [f64; 3], array: &str, value: f64) -> Result<DataSet> {
+    let m = aurafx_mesh::tet::TetMesh::from_dataset(ds).map_err(|e| anyhow!("{e} (Refine Region works on tetrahedral meshes; Convert Elements first)"))?;
+    let marked: Vec<bool> = if array.is_empty() {
+        m.tets.iter().map(|t| {
+            let c: [f64; 3] = std::array::from_fn(|a| t.iter().map(|k| m.points[*k as usize][a]).sum::<f64>() / 4.0);
+            (0..3).all(|a| c[a] >= lo[a] && c[a] <= hi[a])
+        }).collect()
+    } else {
+        let a = ds.cell_data().and_then(|c| c.get(array)).ok_or_else(|| anyhow!("no cell array {array}"))?;
+        (0..m.tets.len()).map(|i| a.get(i, 0) >= value).collect()
+    };
+    if !marked.iter().any(|x| *x) {
+        bail!("no element to refine");
+    }
+    Ok(aurafx_mesh::stuffing::refine_marked(&m, &marked, &|p| p).to_dataset())
+}

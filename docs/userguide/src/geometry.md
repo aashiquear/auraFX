@@ -358,6 +358,44 @@ part = afx.load("part.stl").overlay_mesh(cell=0.5)
 
 ![A measured nickel-superalloy microstructure meshed with one block per grain](images/overlay_grains.png)
 
+## Tetrahedral meshes
+
+The Geometry source's **Output** *Tet mesh* fills every body named in a `mesh body` command
+with tetrahedra of the size asked for. Each body is a block, and each geometry face a side
+set (with those of `sideset` and `nodeset` commands). **Filters › Mesh › Tet Mesh** does the
+same for a closed surface such as an STL file, with a side set per patch of the surface
+between creases.
+
+The tetrahedra are made in three steps:
+1. **Lattice.** A regular lattice of tetrahedra, from cubes and their centres, is laid over
+   the shape.
+2. **Snapping.** Lattice nodes close to the surface are moved onto it, so no element is cut
+   thin.
+3. **Cutting.** The tetrahedra the surface crosses are cut, and their inside parts split into
+   tetrahedra.
+
+Every element is positive and the mesh is conforming. The smallest dihedral angle stays
+around 20 degrees or more (above 21 on the test shapes). The volume converges to the
+shape's as the element size shrinks: a sphere meshed with elements a tenth of its radius
+is within 0.3 %.
+
+```python
+part = afx.geometry(output="Tet mesh", commands="sphere radius 1; mesh body 1 size 0.1")
+tets = afx.load("part.stl").tet_mesh(cell=0.5)
+```
+
+![A plate with a hole and a ball filled with tetrahedra, colored by their minimum dihedral angle](images/tet_mesh.png)
+
+### Refine Region
+
+**Filters › Mesh › Refine Region** refines part of a tetrahedral mesh:
+- **Which elements.** The tetrahedra whose centre lies in the box from **Box min** to **Box
+  max**, or whose value of a chosen cell array reaches **is at least**.
+- **How.** Each of them splits into eight.
+- **Neighbours.** A neighbour that shares split edges gets a centre point joined to its
+  faces, so the mesh stays conforming. This gives finer elements where they are needed.
+- **Sets.** Side sets and node sets follow.
+
 ## Refine Mesh
 
 **Filters › Mesh › Refine Mesh** splits every element into eight, **Levels** times.
@@ -485,6 +523,10 @@ t = m.mesh_quality(output="Summary table")        # one row per metric
 - Inclusions must be star-shaped (one surface point along every direction from their
   centre) and cannot touch: each lies in its own box of grid cells, which caps how dense a
   packing can get even with collective packing.
+- Tetrahedral meshes have one element size, refined locally with Refine Region; they round
+  sharp edges over about an element, and touching bodies are meshed separately (their nodes
+  do not match). Local refinement works on tetrahedra only, and smoothing has no Winslow
+  scheme.
 - Overlay meshes keep convex edges and corners. Concave edges, such as where two crossed
   cylinders join, are rounded over about a cell, and so are features thinner than a
   cell.

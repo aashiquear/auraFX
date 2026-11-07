@@ -3547,8 +3547,8 @@ fn build() -> Vec<FilterDef> {
                 ParamSpec::new("commands", "Commands", ParamKind::Code, ParamValue::Str(GEOMETRY_TEMPLATE.into()))
                     .help("One command per line (or separated by ;). See the Geometry and meshing chapter of the user guide, or ask the assistant."),
                 i("resolution", "Resolution", 64, 8, 1024).help("Cells along the longest side of each body when drawing its surface."),
-                choice("output", "Output", &[crate::geometry_model::OUT_SURFACE, crate::geometry_model::OUT_DISTANCE, crate::geometry_model::OUT_MESH], crate::geometry_model::OUT_SURFACE)
-                    .help("Surface: the bodies' surfaces with BodyId and FaceId. Distance field: the signed distance to the nearest body on a grid. Hex mesh: the hexahedral mesh of the bodies named by 'mesh body' commands."),
+                choice("output", "Output", &[crate::geometry_model::OUT_SURFACE, crate::geometry_model::OUT_DISTANCE, crate::geometry_model::OUT_MESH, crate::geometry_model::OUT_TET], crate::geometry_model::OUT_SURFACE)
+                    .help("Surface: the bodies' surfaces with BodyId and FaceId. Distance field: the signed distance to the nearest body on a grid. Hex mesh: the hexahedral mesh of the bodies named by 'mesh body' commands. Tet mesh: their tetrahedral mesh."),
                 b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface.").advanced(),
             ],
             apply: |_, p| crate::geometry_model::geometry(&p.str("commands"), p.i64("resolution", 64).max(2) as usize, &p.str("output"), p.bool("project", true)),
@@ -3847,6 +3847,40 @@ fn build() -> Vec<FilterDef> {
                 f("growth", "Growth ratio", 1.3, 1.0, 10.0),
             ],
             apply: |input, p| crate::mesh_gen::boundary_layers(input.unwrap(), &p.str("side_set"), p.i64("layers", 3).max(1) as usize, p.f64("first", 0.01), p.f64("growth", 1.3)),
+        },
+        FilterDef {
+            id: "tet_mesh",
+            label: "Tet Mesh",
+            category: "Mesh",
+            description: "Fill a closed surface (STL, OBJ, PLY ...) with well-shaped tetrahedra of one size, a side set per patch of the surface.",
+            keywords: &["tetrahedral mesh", "tetrahedralize", "stl to tet", "volume mesh", "isosurface stuffing", "tet4", "fem mesh"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("cell", "Element size", 0.0, 0.0, f64::INFINITY).help("0: a thirtieth of the surface's largest size.")],
+            apply: |input, p| crate::mesh_gen::tet_mesh(input.unwrap(), p.f64("cell", 0.0)),
+        },
+        FilterDef {
+            id: "refine_region",
+            label: "Refine Region",
+            category: "Mesh",
+            description: "Split the tetrahedra inside a box (or where a cell array reaches a value) into eight, keeping the mesh conforming around them.",
+            keywords: &["local refinement", "adaptive", "refine box", "refine where", "h-refinement", "tetrahedra"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("box_min", "Box min", [-1e30; 3]),
+                v3("box_max", "Box max", [1e30; 3]),
+                cell_arr("array", "Or where this cell array").advanced(),
+                f("value", "is at least", 1.0, f64::NEG_INFINITY, f64::INFINITY).advanced(),
+            ],
+            apply: |input, p| {
+                let arr = p.array("array").map(|x| x.1).unwrap_or_default();
+                crate::mesh_gen::refine_region(input.unwrap(), p.vec3("box_min", [-1e30; 3]), p.vec3("box_max", [1e30; 3]), &arr, p.f64("value", 1.0))
+            },
         },
         FilterDef {
             id: "elevate",

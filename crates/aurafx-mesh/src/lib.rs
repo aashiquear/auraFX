@@ -10,6 +10,7 @@ pub mod model;
 pub mod overlay;
 pub mod quality;
 pub mod specimens;
+pub mod stuffing;
 pub mod structured;
 pub mod tet;
 pub mod outline;

@@ -10,6 +10,7 @@ use rayon::prelude::*;
 pub const OUT_SURFACE: &str = "Surface";
 pub const OUT_DISTANCE: &str = "Distance field";
 pub const OUT_MESH: &str = "Hex mesh";
+pub const OUT_TET: &str = "Tet mesh";
 
 /// An image grid of points covering `lo`..`hi` with `res` cells along the longest side and
 /// two cells of margin, and its spacing.
@@ -204,6 +205,10 @@ fn tri_area(p: &[[f64; 3]], t: &[u32; 3]) -> f64 {
 pub fn geometry(commands: &str, resolution: usize, output: &str, project: bool) -> Result<DataSet> {
     if output == OUT_MESH {
         return crate::mesh_gen::geometry_mesh(commands);
+    }
+    if output == OUT_TET {
+        let model = aurafx_mesh::Model::from_commands(commands, None)?;
+        return Ok(aurafx_mesh::bodymesh::tet_mesh_model(&model).map_err(|e| anyhow::anyhow!(e))?.to_dataset());
     }
     let model = Model::from_commands(commands, None)?;
     if model.bodies.is_empty() {

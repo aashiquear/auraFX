@@ -2169,3 +2169,19 @@ fn mesh_refinement_filters() {
     let s = run("smooth_mesh", Some(&t), &[]);
     assert!(s.field_data().get("MinScaledJacobian").unwrap().get(0, 0) > 0.3);
 }
+
+/// Tetrahedral meshes of a surface and of command-built bodies, and local refinement.
+#[test]
+fn tet_meshing_filters() {
+    let s = run("sphere", None, &[("theta", 32.into()), ("phi", 32.into())]);
+    let t = run("tet_mesh", Some(&s), &[("cell", 0.08.into())]);
+    assert!(t.n_cells() > 1000);
+    assert!(t.field_data().get("SideSet surface").is_some());
+    let q = run("mesh_quality", Some(&t), &[]);
+    let md = q.cell_data().unwrap().get("MinimumDihedralAngle").unwrap();
+    assert!((0..md.len()).all(|i| md.get(i, 0) > 5.0));
+    let r = run("refine_region", Some(&t), &[("box_min", serde_json::json!([0.0, -1.0, -1.0])), ("box_max", serde_json::json!([1.0, 1.0, 1.0]))]);
+    assert!(r.n_cells() > 3 * t.n_cells());
+    let g = run("geometry", None, &[("commands", "brick x 2 y 1 z 1; cylinder radius 0.3 height 2; subtract body 2 from body 1; mesh body 1 size 0.1".into()), ("output", "Tet mesh".into())]);
+    assert!(g.field_data().get("SideSet cylinder 2 side").is_some() && g.field_data().get("SideSet brick 1 z+").is_some());
+}

@@ -258,3 +258,51 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
     }
     Ok(out)
 }
+
+/// Tetrahedral meshes of every body named by `mesh body` commands (isosurface stuffing at the
+/// size asked for), each body its own block (or the block of a `block` command), a side set per
+/// body face and those of `sideset` / `nodeset` commands.
+pub fn tet_mesh_model(model: &Model) -> Result<crate::tet::TetMesh, String> {
+    use crate::tet::TetMesh;
+    if model.mesh_requests.is_empty() {
+        return Err("no body to mesh: add a command like 'mesh body 1 size 0.1'".into());
+    }
+    let mut out = TetMesh::default();
+    let mut face_of: Vec<(u32, u8, u32)> = Vec::new();
+    for &(id, size, _) in &model.mesh_requests {
+        let body = model.bodies.get(&id).ok_or_else(|| format!("there is no body {id}"))?;
+        let (lo, hi) = body.shape.bounds();
+        let lo: P3 = std::array::from_fn(|a| lo[a] - 1.5 * size);
+        let hi: P3 = std::array::from_fn(|a| hi[a] + 1.5 * size);
+        let shape = &body.shape;
+        let m = crate::stuffing::stuff(&|p| shape.eval(p).0, lo, hi, size).map_err(|e| format!("body {id}: {e}"))?;
+        let bid = model.user_blocks.iter().find(|b| b.2.contains(&id)).map(|b| b.0).unwrap_or(id as i32);
+        let bname = model.user_blocks.iter().find(|b| b.0 == bid).map(|b| b.1.clone()).unwrap_or_else(|| body.name.clone());
+        let (n0, e0) = (out.points.len() as u32, out.tets.len() as u32);
+        for (e, s) in m.boundary_faces() {
+            let c = m.side_corners(e as usize, s);
+            let cen: P3 = std::array::from_fn(|a| c.iter().map(|k| m.points[*k as usize][a]).sum::<f64>() / 3.0);
+            face_of.push((e + e0, s, shape.eval(cen).1));
+        }
+        out.points.extend(m.points);
+        out.tets.extend(m.tets.iter().map(|t| t.map(|k| k + n0)));
+        out.block.extend(std::iter::repeat_n(bid, m.tets.len()));
+        out.block_names.insert(bid, bname);
+    }
+    let mut ids: Vec<u32> = face_of.iter().map(|f| f.2).filter(|f| *f > 0).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    for f in &ids {
+        out.side_sets.push((model.faces[*f as usize].clone(), face_of.iter().filter(|x| x.2 == *f).map(|x| (x.0, x.1)).collect()));
+    }
+    for (_, name, faces) in &model.user_sidesets {
+        out.side_sets.push((name.clone(), face_of.iter().filter(|x| faces.contains(&x.2)).map(|x| (x.0, x.1)).collect()));
+    }
+    for (_, name, faces) in &model.user_nodesets {
+        let mut nodes: Vec<u32> = face_of.iter().filter(|x| faces.contains(&x.2)).flat_map(|x| out.side_corners(x.0 as usize, x.1)).collect();
+        nodes.sort_unstable();
+        nodes.dedup();
+        out.node_sets.push((name.clone(), nodes));
+    }
+    Ok(out)
+}

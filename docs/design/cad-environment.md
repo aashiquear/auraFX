@@ -148,6 +148,12 @@ its B-rep kernel is the separate `solidcore` repository (Apache-2.0, a port of S
   solidcore as libraries (the naming rule allows crediting a library; the environment is
   described in auraFX's own words and its UI is auraFX's own).
 
+Decided (2026-11-07): the subtree route, not a copy script. The first commit of C6 is the
+whole upstream repository as a squashed subtree (large, once); the second commit prunes it.
+Prune by deleting directories only, never by editing upstream files, so `git subtree pull`
+merges cleanly: deleted paths that upstream later changes resolve as "keep deleted" (the
+pull script passes `-X ours` for `vendor/` and re-runs the prune list in `vendor/README.md`).
+
 **Diverging and taking upstream work later**
 
 - auraFX's features go into `aurafx-cad` and the app first. A change inside a vendored

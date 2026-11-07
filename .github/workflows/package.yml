@@ -26,7 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { key: package-linux-${{ matrix.arch }} }
+        with:
+          key: package-linux-${{ matrix.arch }}
       - name: System packages
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev file
       - name: Build packages
@@ -49,7 +50,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { key: package-macos-${{ matrix.arch }} }
+        with:
+          key: package-macos-${{ matrix.arch }}
       - name: Build packages
         run: scripts/package/macos.sh dist
         env:
@@ -66,7 +68,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { key: package-windows }
+        with:
+          key: package-windows
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Build packages
@@ -91,7 +94,8 @@ jobs:
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
-        with: { key: package-android }
+        with:
+          key: package-android
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
       - name: Signing key
@@ -121,7 +125,8 @@ jobs:
         with:
           targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
-        with: { key: package-ios }
+        with:
+          key: package-ios
       - name: Build IPA
         run: scripts/package/ios.sh dist
       - uses: actions/upload-artifact@v4

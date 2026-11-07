@@ -17,14 +17,32 @@
 //! - C6 `kernel::brep` (SolidCraft's kernel, carried in `vendor/`) and `io` (STEP, IGES,
 //!   3MF, `.sc`).
 
+pub mod analysis;
+pub mod assembly;
+pub mod document;
 pub mod expr;
+pub mod file;
 pub mod kernel;
+pub mod mesh;
+mod params;
+pub mod path;
+pub mod sketch;
+pub mod templates;
 
+pub use analysis::{interference_volume, MassProperties};
+pub use assembly::{Assembly, Component};
+pub use document::{
+    Axis, BlendKind, Binding, BooleanOp, Configuration, Document, EdgeTreatment, EndCondition, Feature, HoleKind, LoftSection, MirrorPlane,
+    Modifier, Parameter, Placement, Shape,
+};
+pub use file::{CadFile, FileError, FORMAT_VERSION};
 pub use expr::{eval, eval_const, eval_map, identifiers, unit_factor, ExprError};
 pub use kernel::{Evaluated, EvaluatedBody, EvaluatedFace, FaceKind, Kernel};
+pub use sketch::{Constraint, Dim, Entity, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
+pub use templates::templates;
 
 /// Errors of the document and its kernels.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum CadError {
     #[error("expression for '{name}': {source}")]
     Expr {
@@ -46,5 +64,5 @@ pub enum CadError {
 
 /// A stable identity of a feature, sketch entity or body: never reused within a document, so
 /// the downstream check and the B-rep mirror can follow an object across edits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub struct Id(pub u64);

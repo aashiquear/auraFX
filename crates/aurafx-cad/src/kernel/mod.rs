@@ -3,6 +3,8 @@
 //! `brep` (SolidCraft's B-rep kernel, carried in `vendor/` and built in). Stage C0 defines the
 //! contract they both fill.
 
+pub mod sdf;
+
 use crate::Id;
 use aurafx_data::DataSet;
 

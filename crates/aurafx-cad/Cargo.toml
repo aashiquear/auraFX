@@ -17,4 +17,5 @@ anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-glam.workspace = true
+glam = { workspace = true, features = ["serde"] }
+rayon.workspace = true

@@ -325,7 +325,7 @@ tests, write the guide entry in `docs/userguide/src/cad.md` with a `scripts/user
 screenshot, add the Python calls to the AI help, tick the box here, add a Status paragraph.
 
 - [x] C0 Skeleton: crate `aurafx-cad` (kernel trait, `Evaluated` contract, errors, `Id`), the expression evaluator ported with its tests, the design document, this section (iteration 72).
-- [ ] C1 Document: `document.rs` (Feature, Shape, Modifier, Parameter, Binding, Configuration, Document, resolution of parameters and configurations), `sketch.rs` + `path.rs` (entities, constraints, dimensions, the Levenberg-Marquardt solver with its DOF report), `templates.rs`, `analysis.rs` (mass properties, interference, sections), `assembly.rs`; `.afxcad` JSON files with a format version. Tests: EZ-YX-craft's, plus every template through a JSON round trip.
+- [x] C1 Document (iteration 73): `document.rs` (Feature, Shape, Modifier, Parameter, Binding, Configuration, Document, resolution of parameters and configurations), `sketch.rs` + `path.rs` (entities, constraints, dimensions, the Levenberg-Marquardt solver with its DOF report), `templates.rs`, `analysis.rs` (mass properties, interference, sections), `assembly.rs`; `.afxcad` JSON files with a format version. Tests: EZ-YX-craft's, plus every template through a JSON round trip.
 - [ ] C2 Implicit kernel and the node: `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
 - [ ] C3 Environment shell: `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
 - [ ] C5 Downstream check (before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
@@ -621,6 +621,20 @@ a B-rep kernel through SolidCraft, the port plan from EZ-YX-craft file by file),
 with stages C0 to C9, section 14 with the prioritized gaps against the reference programs,
 the crate `aurafx-cad` started (kernel contract, the expression evaluator ported with its
 tests). No feature code was written in this iteration. Next: C1.
+
+Done in iteration 73 (C1, the document): `aurafx-cad` now holds the whole part description,
+ported from the user's own EZ-YX-craft with its tests: `document.rs` (features with stable
+ids that are never reused, shapes, modifiers, parameters, bindings, configurations),
+`sketch.rs` and `path.rs` (constrained sketches with the damped least-squares solver and its
+degrees-of-freedom report), `params.rs` (unit-aware parameters in dependency order, cycles
+refused, bindings into any numeric field, configurations), `templates.rs` (six starter
+parts), `analysis.rs` (mass properties, sections, interference), `assembly.rs`, the
+signed-distance evaluator `kernel/sdf.rs` (the base of the implicit kernel of C2) and
+`mesh.rs` (triangle meshes, marching tetrahedra), and `file.rs`: `.afxcad` files, pretty JSON
+with a format version (older files load; a newer one is refused with a message), bare
+documents accepted, optional assembly. Every template survives the file round trip.
+50 tests. The guide chapter CAD modeling starts with C2, when the document becomes reachable
+from a source node and Python. Next: C2.
 
 ## Status (2026-11-05)
 

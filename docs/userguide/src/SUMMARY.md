@@ -21,6 +21,7 @@
 - [Python](python.md)
 - [AI assistant](ai-assistant.md)
 - [Plugins](plugins.md)
+- [Tutorials and examples](tutorials.md)
 
 # Data
 

@@ -49,20 +49,28 @@ in [ROADMAP.md](ROADMAP.md). The **user guide** is in [docs/userguide](docs/user
 | **Client/server** | File › Open on Server… reads and filters data on another machine through `aurafx-server` over SSH; only what you view comes back (its surface when big, or pictures drawn by the server's GPU when even that is too big); parallel servers spread data over many processes or machines (`processes=8`); `afx.load(path, host="cluster")`; see [docs/client-server.md](docs/client-server.md) |
 | **Plugins** | Python plugins add filters, sources and readers with `@afx.filter`, `@afx.source`, `@afx.reader`; reload on save; Plugins window (Edit menu); see [docs/plugins.md](docs/plugins.md) |
 | **AI** | Ollama (honours `OLLAMA_HOST`), Anthropic, OpenAI-compatible; streaming; pipeline-aware; **agent mode** runs code and iterates on results |
-| **Simulations** | Local, SSH and Slurm jobs; NVIDIA/AMD GPU selection; parameter sweeps; live logs; auto-open results; **live reload** of files a running solver writes; GPU monitor; remote file browser |
+| **Simulations** | Local, SSH and Slurm jobs; templates for LAMMPS, MOOSE, OpenFOAM, SPPARKS, PINNACLE and Python pipelines, three of which write their input files from the pipeline's data (grain meshes, microstructures); results reopened for analysis; NVIDIA/AMD GPU selection; parameter sweeps; live logs; auto-open results; **live reload** of files a running solver writes; GPU monitor; remote file browser |
 
-## Where it is going: grains and meshes in the same window
+## Grains and meshes in the same window
 
-The next two phases turn auraFX into one place for a materials workflow: build a geometry
-and an all-hex mesh on it (hexaform's structured meshing and a Sculpt-style overlay-grid
-mesher driven by a small command language), put a polycrystal on the mesh or build a
-synthetic one from grain statistics, packing and crystallography matching, run it in
-MOOSE, SPPARKS, PINNACLE or LAMMPS locally or over SSH with the existing job runner, and
-analyse the result or an EBSD scan with the grain filters (segmentation, sizes, shapes,
-misorientations, KAM and GND, pole figures and ODFs, Schmid and Taylor factors, SROD by
-build height) for FCC, BCC and HCP crystals. The design and its stages are in
+auraFX is one place for a materials workflow: build a geometry and an all-hex (or
+tetrahedral) mesh on it with a small command language, put a polycrystal on the mesh or build
+a synthetic one from grain statistics, write and run the case in MOOSE, SPPARKS, PINNACLE or
+LAMMPS locally or over SSH, and analyse the result or an EBSD scan with the grain filters
+(segmentation, sizes, shapes, misorientations, KAM and GND, pole figures and ODFs, Schmid
+and Taylor factors, SROD by build height) for FCC, BCC and HCP crystals. `.dream3d` files are
+read and written with the pipeline that made them. The design is in
 [docs/design/grains-and-meshing.md](docs/design/grains-and-meshing.md), tracked as sections
-11 and 12 of the roadmap.
+11 and 12 of the roadmap (both complete); the guide chapters are *Grains and crystals* and
+*Geometry and meshing*.
+
+## Examples and the project page
+
+`examples/` holds runnable examples and tutorials (heat diffusion, spinodal decomposition and
+Potts grain growth as Python pipelines; geometry-to-polycrystal and EBSD-analysis scripts),
+described in the guide's *Tutorials and examples* chapter. The project page with short videos
+of the application areas is `index.html` at the repository root
+([aashiquear.github.io/auraFX](https://aashiquear.github.io/auraFX/)).
 
 ## Installing
 

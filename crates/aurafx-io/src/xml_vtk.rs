@@ -621,7 +621,7 @@ fn read_multiblock(path: &Path, body: &Node) -> Result<DataSet> {
                 "DataSet" => match c.attr("file") {
                     Some(f) => {
                         let sub = crate::sibling(path, f);
-                        let ds = match crate::read_file(&sub)? {
+                        let ds = match crate::read_file_single(&sub)? {
                             crate::Loaded::Static(d) => Arc::try_unwrap(d).unwrap_or_else(|a| (*a).clone()),
                             crate::Loaded::Series(s) => {
                                 let first = s.steps.first().ok_or_else(|| anyhow!("empty series"))?;
@@ -769,7 +769,7 @@ fn read_amr(path: &Path, body: &Node, overlapping: bool) -> Result<DataSet> {
         }
         for d in b.children_named("DataSet") {
             let Some(f) = d.attr("file") else { continue };
-            let data = match crate::read_file(crate::sibling(path, f))? {
+            let data = match crate::read_file_single(crate::sibling(path, f))? {
                 crate::Loaded::Static(ds) => match &*ds {
                     DataSet::ImageData(i) => i.clone(),
                     other => bail!("{f}: AMR blocks must be image data, not {}", other.type_name()),

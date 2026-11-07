@@ -7,8 +7,12 @@ __pycache__/
 .DS_Store
 /dist
 # Large sample data (copied from ParaView examples or generated; see testdata/README.md)
-/testdata/can.ex2
 /testdata/bake.e
 /testdata/fcc_melt.dump
 /testdata/can_nc4.exo
 /dist
+# Series written by the example simulations (the scripts are committed, heat2d keeps its samples)
+/examples/phase_field/ch_*.vtk
+/examples/grain_growth/grains_*.vtk
+/examples/polycrystal/polycrystal_out/
+/examples/ebsd/grains.csv

@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>auraFX — scientific visualization, analysis and simulation</title>
+<meta name="description" content="auraFX is a fast, open-source workbench for scientific data: it reads the files your solvers write, renders them on any GPU, analyses grains and meshes, runs simulations locally or over SSH, and comes with an AI assistant and embedded Python.">
+<link rel="icon" href="assets/icons/aurafx-64.png">
+<meta property="og:title" content="auraFX">
+<meta property="og:description" content="Scientific visualization, analysis and simulation in one fast window.">
+<meta property="og:image" content="docs/images/screenshot.png">
+<style>
+:root {
+  --bg: #0e1117; --bg2: #151a23; --card: #1a2030; --line: #273043; --fg: #e6e9ef; --muted: #9aa4b5;
+  --accent: #f0b429; --accent2: #5ac8fa; --ok: #5bd18a; --max: 1180px;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f7f8fa; --bg2: #ffffff; --card: #ffffff; --line: #e2e6ee; --fg: #161b26; --muted: #5b6474; --accent: #b7791f; --accent2: #0a84c1; --ok: #1f8f4f; }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; background: var(--bg); color: var(--fg); }
+a { color: var(--accent2); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+pre { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0; }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+header.nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+header.nav .wrap { display: flex; align-items: center; gap: 22px; height: 58px; }
+header.nav img { height: 30px; }
+header.nav nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
+header.nav nav a { color: var(--fg); font-weight: 500; }
+.hero { padding: 64px 0 36px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; }
+.hero h1 { font-size: clamp(32px, 4.6vw, 52px); line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.02em; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero p.lead { font-size: 19px; color: var(--muted); margin: 0 0 24px; }
+.hero img { width: 100%; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.btns { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+.btn { display: inline-block; padding: 11px 18px; border-radius: 10px; font-weight: 600; border: 1px solid var(--line); background: var(--bg2); color: var(--fg); }
+.btn.primary { background: var(--accent); color: #141414; border-color: transparent; }
+.btn:hover { text-decoration: none; filter: brightness(1.06); }
+.tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-size: 13px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+section { padding: 56px 0; border-top: 1px solid var(--line); }
+section h2 { font-size: clamp(26px, 3vw, 34px); margin: 0 0 8px; letter-spacing: -0.01em; }
+section p.sub { color: var(--muted); margin: 0 0 28px; max-width: 820px; font-size: 17px; }
+.grid { display: grid; gap: 18px; }
+.g3 { grid-template-columns: repeat(3, 1fr); }
+.g4 { grid-template-columns: repeat(4, 1fr); }
+.g2 { grid-template-columns: repeat(2, 1fr); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.card video, .card img.shot { width: 100%; display: block; aspect-ratio: 16/10; object-fit: cover; background: #0b0d12; }
+.card .body { padding: 14px 16px 16px; }
+.card h3 { margin: 0 0 6px; font-size: 17px; }
+.card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.card .kicker { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+.feature { padding: 20px; }
+.feature h3 { margin: 0 0 8px; font-size: 18px; }
+.feature p { margin: 0; color: var(--muted); font-size: 15px; }
+.feature .num { font-size: 34px; font-weight: 800; color: var(--accent); line-height: 1; margin-bottom: 8px; letter-spacing: -0.02em; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center; }
+.split img { width: 100%; border-radius: 12px; border: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+td code { white-space: nowrap; }
+ul.plain { list-style: none; padding: 0; margin: 0; }
+ul.plain li { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.docs a.doc { display: block; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; color: var(--fg); }
+.docs a.doc:hover { border-color: var(--accent2); text-decoration: none; }
+.docs a.doc strong { display: block; margin-bottom: 4px; }
+.docs a.doc span { color: var(--muted); font-size: 14px; }
+footer { padding: 40px 0 60px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
+footer .notice { background: var(--bg2); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 16px 18px; margin-top: 18px; color: var(--fg); }
+.note { color: var(--muted); font-size: 14px; }
+@media (max-width: 980px) { .g4 { grid-template-columns: repeat(2, 1fr); } .g3 { grid-template-columns: repeat(2, 1fr); } .hero, .split { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .g4, .g3, .g2 { grid-template-columns: 1fr; } header.nav nav { display: none; } }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a href="#top"><picture>
+      <source media="(prefers-color-scheme: light)" srcset="assets/branding/logo-wordmark-light.png">
+      <img src="assets/branding/logo-wordmark.png" alt="auraFX"></picture></a>
+    <nav>
+      <a href="#applications">Applications</a>
+      <a href="#easy">Easy</a>
+      <a href="#fast">Fast</a>
+      <a href="#simulate">Simulations</a>
+      <a href="#install">Install</a>
+      <a href="#docs">Docs</a>
+      <a href="https://github.com/aashiquear/auraFX">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<div class="wrap hero">
+  <div>
+    <h1>Open your results. <em>See</em> them, <em>measure</em> them, <em>run</em> the next case.</h1>
+    <p class="lead">auraFX is an open-source workbench for scientific data, written in Rust. It reads the files your solvers
+      write, draws them on any GPU, analyses grains, meshes, flows and fields, launches simulations on your machine or a cluster,
+      and puts an AI assistant and an embedded Python next to the 3D view.</p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/aashiquear/auraFX/releases/latest">Download v0.1.0</a>
+      <a class="btn" href="docs/userguide/book/index.html">Read the user guide</a>
+      <a class="btn" href="https://github.com/aashiquear/auraFX">Source on GitHub</a>
+    </div>
+    <pre><code># Linux and macOS
+curl -fsSL https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.sh | sh
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1 | iex</code></pre>
+    <div class="tags">
+      <span class="tag">Linux · macOS · Windows · Android · iOS</span>
+      <span class="tag">MIT or Apache-2.0</span>
+      <span class="tag">Rust + wgpu</span>
+      <span class="tag">Python 3 built in</span>
+      <span class="tag">120+ file formats</span>
+    </div>
+  </div>
+  <div>
+    <img src="docs/userguide/src/images/main_window.png" alt="The auraFX main window: pipeline, properties, 3D view, Python console, assistant">
+  </div>
+</div>
+
+<section id="applications">
+  <div class="wrap">
+    <h2>What you can do with it</h2>
+    <p class="sub">Every clip below is auraFX's own rendering of real data: results of mechanics, phase-field, grain-growth,
+      molecular-dynamics, flow, chemistry and geoscience runs, meshes it generated, and microstructures it measured. No window
+      chrome, no retouching.</p>
+    <div class="grid g3">
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/can_crash.jpg" src="site/media/can_crash.mp4"></video>
+        <div class="body"><div class="kicker">Mechanics</div><h3>Explicit dynamics, 44 time steps</h3><p>A crushed can from an Exodus II file, colored by equivalent plastic strain. Play, scrub, chart any variable over time, export the clip.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/plate_cp.jpg" src="site/media/plate_cp.mp4"></video>
+        <div class="body"><div class="kicker">Crystal plasticity</div><h3>A polycrystal plate under tension</h3><p>Built in auraFX (geometry → hex mesh → 30 grains), run in a crystal-plasticity solver from the Simulations panel, read back with its grain boundaries. Displacements scaled up.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/spinodal.jpg" src="site/media/spinodal.mp4"></video>
+        <div class="body"><div class="kicker">Phase field</div><h3>Spinodal decomposition</h3><p>A Cahn–Hilliard run from the shipped examples, launched as a Python pipeline and opened as it writes its time series.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/grain_growth.jpg" src="site/media/grain_growth.mp4"></video>
+        <div class="body"><div class="kicker">Grain growth</div><h3>Potts-model coarsening</h3><p>Grain ids over 300 Monte Carlo sweeps. The same grain filters that segment EBSD scans measure sizes, shapes, neighbors and misorientations here.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/particles.jpg" src="site/media/particles.mp4"></video>
+        <div class="body"><div class="kicker">Particles</div><h3>Molecular dynamics</h3><p>A LAMMPS dump of a melting FCC crystal, atoms colored by potential energy. Dumps, data files and XYZ open directly, gzipped or not.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/flow.jpg" src="site/media/flow.mp4"></video>
+        <div class="body"><div class="kicker">Flow and heat</div><h3>Streamlines through a heated disk</h3><p>Stream Tracer and Tube on the velocity field, a translucent temperature contour, all multithreaded.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/molecule.jpg" src="site/media/molecule.mp4"></video>
+        <div class="body"><div class="kicker">Chemistry</div><h3>Molecules</h3><p>PDB, XYZ, VASP, Gaussian cube and CML files as ball-and-stick, van der Waals or liquorice models, with bond detection and orbital isosurfaces.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/ocean.jpg" src="site/media/ocean.mp4"></video>
+        <div class="body"><div class="kicker">Geoscience</div><h3>Ocean and climate models</h3><p>MPAS, POP, CAM-SE and CF NetCDF on the sphere; GeoTIFF, Esri grids and GIS vectors (Shapefile, GeoJSON, GeoPackage, …) without GDAL.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/terrain.jpg" src="site/media/terrain.mp4"></video>
+        <div class="body"><div class="kicker">Geoscience</div><h3>Terrain from an elevation model</h3><p>A GeoTIFF raised into 3D with Warp By Scalar, one filter and one color map away from the raw file.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/grains_orbit.jpg" src="site/media/grains_orbit.mp4"></video>
+        <div class="body"><div class="kicker">Microstructure</div><h3>Grain boundary surfaces</h3><p>Synthetic grains → boundary mesh → smoothing → each facet colored by its boundary plane in the crystal. The same chain works on a 3D EBSD volume.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/hex_mesh.jpg" src="site/media/hex_mesh.mp4"></video>
+        <div class="body"><div class="kicker">Meshing</div><h3>All-hex meshes of real parts</h3><p>Structured and overlay-grid hexahedral meshing, tetrahedra, boundary layers, quality tables, Exodus / Abaqus / Gmsh output.</p></div></div>
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/volume.jpg" src="site/media/volume.mp4"></video>
+        <div class="body"><div class="kicker">Rendering</div><h3>GPU volume rendering</h3><p>Volumes depth-merged with surfaces, path tracing, environment lighting, ambient occlusion, Eye-Dome Lighting, Surface LIC.</p></div></div>
+    </div>
+
+    <div class="grid g4" style="margin-top:18px">
+      <div class="card"><img class="shot" src="docs/userguide/src/images/ebsd_ipf_map.png" alt="EBSD orientation map colored by the inverse pole figure key"><div class="body"><div class="kicker">EBSD</div><p>Orientation maps, IPF keys, grains, KAM, GND, twins.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/pole_figures.png" alt="Pole figures"><div class="body"><div class="kicker">Texture</div><p>Pole figures, inverse pole figures, ODF sections, misorientation distributions.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/crystal_mechanics.png" alt="Schmid and Taylor factors on a microstructure"><div class="body"><div class="kicker">Mechanics</div><p>Schmid and Taylor factors, directional modulus, yield estimates for FCC, BCC, HCP.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/overlay_grains.png" alt="A hexahedral mesh of grains from a microstructure"><div class="body"><div class="kicker">Grains on meshes</div><p>Mesh a measured or synthetic microstructure, one block per grain, ready for a solver.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/amr_view.png" alt="AMR data"><div class="body"><div class="kicker">AMR</div><p>AMReX, FLASH, Enzo, Chombo and VTK AMR with their particles.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/htg_surface.png" alt="Hyper tree grid"><div class="body"><div class="kicker">Hyper tree grids</div><p>Trees, material interfaces, dual grids, depth limits.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/gis_vectors.png" alt="GIS vectors"><div class="body"><div class="kicker">GIS</div><p>Rasters and vector layers with their projections, no GDAL needed.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/raytrace_view.png" alt="Path-traced contour"><div class="body"><div class="kicker">Pictures</div><p>Path tracing, metal and rough materials, environment maps for the final figure.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="easy">
+  <div class="wrap">
+    <h2>Easy to use</h2>
+    <p class="sub">A new user can drive it without the manual: open a file by dropping it on the window, click a filter in the
+      toolbar, pick a color map. When you want more, the assistant and the Python console are one tab away and speak the same language.</p>
+    <div class="split">
+      <div>
+        <ul class="plain">
+          <li><strong>Ask for it.</strong> The AI assistant sees your pipeline and writes runnable code: “slice through the middle and color by temperature”, “plot the maximum stress over time”. Agent mode runs the code and iterates on what it sees. Works with Claude, any OpenAI-compatible API, or local models through Ollama.</li>
+          <li><strong>One line per idea.</strong> <code>afx.load("run.e").slice(normal=(1,0,0)).set(color_by="Temp")</code>. NumPy in and out, a console with completion, scripts at startup, a trace of everything you clicked.</li>
+          <li><strong>Command palette</strong> (Ctrl+K) for every filter, source and view; undo and redo; sessions saved as one file; dark, light or system theme.</li>
+          <li><strong>Every feature is documented</strong> in a user guide with a screenshot per feature, generated from the repository, so the pictures always match the app.</li>
+        </ul>
+      </div>
+      <img src="docs/userguide/src/images/assistant.png" alt="The AI assistant panel writing and running a visualization script">
+    </div>
+    <div class="grid g3" style="margin-top:28px">
+      <div class="card feature"><h3>Python that reads like notes</h3><pre><code>d = afx.load("run.e")
+d.contour(array="Temp", values=[400])
+   .set(color_by="Temp", metallic=1)
+afx.over_time(d, "Temp", stat="max")
+afx.save_animation("turn.mp4", orbit=72)</code></pre></div>
+      <div class="card feature"><h3>Plugins in Python</h3><p>Add a filter, source or reader with a decorator; the app reloads it when the file is saved and the assistant learns it.</p><pre style="margin-top:10px"><code>@afx.filter("Double it")
+def double(ds, factor=2.0):
+    ds["T"] = ds["T"] * factor
+    return ds</code></pre></div>
+      <div class="card feature"><h3>Generated meshes, in words</h3><pre><code>brick x 4 y 2 z 1
+cylinder radius 0.4 height 2
+subtract body 2 from body 1
+mesh body 1 size 0.1 scheme overlay
+sideset 1 add face 6 name 'top'</code></pre></div>
+    </div>
+  </div>
+</section>
+
+<section id="fast">
+  <div class="wrap">
+    <h2>Fast by construction</h2>
+    <p class="sub">Rust, no garbage collector, every core for the filters, and a wgpu renderer that speaks Vulkan, Metal and DX12 natively.
+      Big data stays where it is: a server reads and filters it on the cluster and sends back only what you look at.</p>
+    <div class="grid g4">
+      <div class="card feature"><div class="num">~80 ms</div><h3>4-million-cell slice</h3><p>Slice, Contour, Clip, Threshold, Extract Surface, Stream Tracer and Gradient run on all cores and give the same answer on any thread count.</p></div>
+      <div class="card feature"><div class="num">GPU</div><h3>Volumes and millions of points</h3><p>GPU volume rendering merged with surfaces, instanced glyphs, order-independent transparency, 60 fps interaction on laptop GPUs.</p></div>
+      <div class="card feature"><div class="num">0 copies</div><h3>Remote data</h3><p><code>afx.load(path, host="cluster")</code> runs the pipeline where the file is; only the visible surface comes over, or just pictures when even that is too big.</p></div>
+      <div class="card feature"><div class="num">1 file</div><h3>Nothing to install around it</h3><p>Packages bundle Python 3.12 and NumPy. No Qt, no VTK, no environment to set up. The portable Linux tarball runs from any folder.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="simulate">
+  <div class="wrap">
+    <h2>From the first picture to the next run</h2>
+    <p class="sub">The Simulations panel launches solvers on this computer, on a remote GPU box over SSH, or through Slurm, follows their logs,
+      and opens the results when they finish. Three templates write their input files from the data in your pipeline.</p>
+    <div class="split">
+      <img src="docs/userguide/src/images/simulation_case.png" alt="The Simulations panel writing a crystal-plasticity case from a grain mesh">
+      <div>
+        <ul class="plain">
+          <li><strong>Templates</strong> for LAMMPS, MOOSE applications, OpenFOAM, SPPARKS, PINNACLE and Python pipelines; or any shell command.</li>
+          <li><strong>Cases from the pipeline:</strong> a grain mesh becomes a crystal-plasticity case (mesh, orientations, slip systems, input deck); a microstructure volume becomes a Potts grain-growth run.</li>
+          <li><strong>Parameter sweeps</strong>, NVIDIA and AMD GPU selection, environment lines, Slurm partitions and time limits.</li>
+          <li><strong>Live reload</strong> of files a running solver writes; a GPU monitor and a remote file browser for every host.</li>
+          <li><strong>Reopen for analysis:</strong> results are named after their run and carry the grains back, so sizes, misorientations, Schmid factors and statistics per grain are a filter away.</li>
+        </ul>
+        <pre style="margin-top:14px"><code>poly = afx.plate_mesh().assign_grains(grains=30, blocks=True)
+afx.run_case(poly, "pinnacle", "~/runs/plate", host="cluster",
+             np=16, strain=0.02, steps=40)      # results open when done</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="formats">
+  <div class="wrap">
+    <h2>Reads what your codes write</h2>
+    <p class="sub">All readers are written in Rust and checked against reference implementations; writers are read back and compared.</p>
+    <table>
+      <tr><th>Meshes and fields</th><td>Exodus II, VTK legacy and XML (all types, parallel, multiblock, <code>.pvd</code>), VTKHDF, OpenFOAM (ASCII/binary/gzip, decomposed), EnSight Gold, CGNS (HDF5 and ADF), Xdmf 2/3, Tecplot, PLOT3D, Abaqus and Gmsh (written), STL, PLY, OBJ, CSV</td></tr>
+      <tr><th>Particles and molecules</th><td>LAMMPS dumps and data files, XYZ / extended XYZ, PDB, VASP, Gaussian cube, CML</td></tr>
+      <tr><th>Climate, ocean, GIS</th><td>NetCDF (CF, POP, CAM-SE, MPAS), GeoTIFF, Esri ASCII grid, ERDAS Imagine, Shapefile, GeoJSON, KML/KMZ, GeoPackage, FlatGeobuf, GML, MapInfo, file geodatabases</td></tr>
+      <tr><th>Adaptive and special grids</th><td>AMReX plotfiles, FLASH, Enzo, Chombo (1-D to 4-D) with particles; hyper tree grids; discontinuous-Galerkin cell grids; Lagrange and Bezier cells of any order, drawn curved</td></tr>
+      <tr><th>Materials</th><td>EBSD maps (<code>.ang</code>, <code>.ctf</code>, <code>.h5ebsd</code>, EDAX and Bruker <code>.h5</code>), <code>.dream3d</code> volumes and meshes (read and written, with the pipeline that made them), SPPARKS site files, orientation <code>.tex</code> files</td></tr>
+      <tr><th>Writers</th><td>VTK XML and legacy, VTKHDF, Exodus II, EnSight, Xdmf, CGNS, Abaqus <code>.inp</code>, Gmsh <code>.msh</code>, <code>.dream3d</code>, STL, PLY, CSV; glTF, OBJ, X3D and VRML scenes; PNG, SVG, GIF and MP4</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">Prebuilt packages for every release are on <a href="https://github.com/aashiquear/auraFX/releases/latest">GitHub Releases</a>.
+      Desktop packages bundle their own Python 3.12 with NumPy; nothing else is needed besides a GPU driver (Vulkan on Linux and Windows, Metal on macOS).</p>
+    <table>
+      <tr><th>Platform</th><th>Package</th><th>How</th></tr>
+      <tr><td>Linux x86_64, aarch64</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-x86_64.AppImage"><code>.AppImage</code></a>, <a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-linux-x86_64.tar.gz"><code>.tar.gz</code></a></td><td><code>curl -fsSL https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.sh | sh</code>, or run the AppImage</td></tr>
+      <tr><td>macOS 11+ (Apple silicon, Intel)</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-macos-arm64.dmg"><code>.dmg</code></a></td><td>the same <code>install.sh</code> line, or drag the app to Applications</td></tr>
+      <tr><td>Windows 10/11 x64</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-windows-x64-setup.exe">installer</a>, <a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-windows-x64.zip">portable <code>.zip</code></a></td><td><code>irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1 | iex</code></td></tr>
+      <tr><td>Android 8+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-android.apk"><code>.apk</code></a> (viewer build)</td><td>download and open the APK</td></tr>
+      <tr><td>iOS / iPadOS 15+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-ios-unsigned.ipa">unsigned <code>.ipa</code></a> (viewer build)</td><td>sign and install with Xcode, AltStore or Sideloadly</td></tr>
+      <tr><td>Remote data server</td><td><code>aurafx-server</code> (in every desktop package)</td><td><strong>File › Open on Server… › Install server</strong> copies it to a host over SSH; see <a href="docs/userguide/book/client-server.html">Data on another machine</a></td></tr>
+      <tr><td>From source</td><td>Rust 1.85+, Python 3.10+ headers</td><td><code>cargo build --release</code> then <code>target/release/aurafx</code></td></tr>
+    </table>
+    <p class="note" style="margin-top:12px">The mobile builds are viewers (no embedded Python, no simulations). Release packages are built by GitHub Actions from the tagged source; checksums are in <code>SHA256SUMS</code> next to them.</p>
+  </div>
+</section>
+
+<section id="docs">
+  <div class="wrap">
+    <h2>Documentation</h2>
+    <p class="sub">One user guide, three formats, all generated from the same Markdown sources in the repository.</p>
+    <div class="grid g3 docs">
+      <a class="doc" href="docs/userguide/book/index.html"><strong>User guide — online book</strong><span>Searchable HTML with every chapter: getting started, filters, color maps, views, time and animation, rendering, Python, the assistant, plugins, file formats, simulations, remote data, grains and crystals, geometry and meshing.</span></a>
+      <a class="doc" href="docs/userguide/auraFX-user-guide.pdf"><strong>User guide — PDF</strong><span>The same book as one printable file.</span></a>
+      <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/userguide/src/SUMMARY.md"><strong>User guide — Markdown</strong><span>The sources on GitHub, chapter by chapter.</span></a>
+      <a class="doc" href="https://github.com/aashiquear/auraFX/tree/main/examples"><strong>Examples and tutorials</strong><span>Heat diffusion, spinodal decomposition and grain growth as Python pipelines; geometry-to-polycrystal and EBSD-analysis tutorial scripts.</span></a>
+      <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/README.md"><strong>README and feature table</strong><span>What works today, in one page.</span></a>
+      <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/ROADMAP.md"><strong>Roadmap</strong><span>Every reader, filter and view of the catalog mapped to a delivery phase, with the status of each.</span></a>
+      <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/ARCHITECTURE.md"><strong>Architecture</strong><span>The crates, the data model, the pipeline and the renderer, for contributors.</span></a>
+      <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/plugins.md"><strong>Plugins</strong><span>Writing filters, sources and readers in Python.</span></a>
+      <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/reference/verification.md"><strong>Verification notes</strong><span>How each reader, writer, filter and mesher was checked against a reference.</span></a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><strong>License.</strong> auraFX is free software, dual-licensed under the <a href="https://github.com/aashiquear/auraFX/blob/main/LICENSE-MIT">MIT License</a> or the
+      <a href="https://github.com/aashiquear/auraFX/blob/main/LICENSE-APACHE">Apache License 2.0</a>, at your option. Third-party crates keep their own licenses. The bundled Python is CPython (PSF license) with NumPy (BSD).
+      auraFX is inspired by ParaView, DREAM.3D and Cubit and shares no code with them; test data from public sources is credited in <code>testdata/README.md</code>.</p>
+    <p><strong>How it was built.</strong> auraFX was developed with Anthropic's Claude models, Opus 5.5 and Fable 5.1, working from a written roadmap and design, with
+      every reader, writer, filter and mesher checked against a reference implementation where one exists (see the verification notes) and a test suite of over two hundred tests run on every change.</p>
+    <div class="notice">
+      <strong>Please read before relying on results.</strong> auraFX is software written largely by AI systems. Use it with care and with the judgement you would apply to any new scientific tool.
+      It is provided “as is”, without warranty of any kind. The distributor accepts no liability for its use and makes no claim about the validity of any result, picture,
+      mesh, statistic or simulation input it produces. Verify outputs that matter against an independent method, a known solution or your own analysis before you act on them.
+    </div>
+    <p style="margin-top:18px">© auraFX contributors · <a href="https://github.com/aashiquear/auraFX">github.com/aashiquear/auraFX</a></p>
+  </div>
+</footer>
+</body>
+</html>

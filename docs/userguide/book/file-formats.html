@@ -1,0 +1,873 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>File formats - auraFX User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-d8ec7292.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-1384fa24.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">auraFX User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/aashiquear/auraFX" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="file-formats"><a class="header" href="#file-formats">File formats</a></h1>
+<p>Every reader was checked against a reference implementation: the same points, cells, bounds
+and value ranges on the same files. The comparisons are listed in the verification notes
+(<code>docs/reference/verification.md</code> in the source tree).</p>
+<h2 id="readers"><a class="header" href="#readers">Readers</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Format</th><th>Extensions</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Exodus II</td><td><code>.e .exo .ex2 .g .gen</code></td><td>NetCDF-3 and NetCDF-4; blocks, side and node sets, nodal/element/global variables, time steps, displacements</td></tr>
+<tr><td>VTK legacy</td><td><code>.vtk</code></td><td>ASCII and binary, all dataset types</td></tr>
+<tr><td>VTK XML</td><td><code>.vtu .vtp .vti .vtr .vts .vtt</code>, parallel <code>.pvtu …</code>, <code>.vtm</code>, <code>.pvd</code></td><td>inline, appended, base64; zlib and LZ4; curved (Lagrange/Bezier) cells</td></tr>
+<tr><td>AMR (adaptive mesh refinement)</td><td>VTK <code>.vthb .vth</code>, AMReX/BoxLib plotfiles (the folder, or its <code>Header</code>), FLASH and Chombo HDF5 files, Enzo (<code>.hierarchy</code>)</td><td>levels of boxes with cell data; coarse cells under finer boxes are left out; see below</td></tr>
+<tr><td>Hyper tree grids</td><td>VTK <code>.htg</code> (XML version 2)</td><td>trees of refined cells; drawn as their leaves; see below</td></tr>
+<tr><td>Cell grids (discontinuous Galerkin fields)</td><td>VTK <code>.dg</code></td><td>cells whose fields are polynomials; drawn with the fields at the corners; see below</td></tr>
+<tr><td>VTKHDF</td><td><code>.vtkhdf .hdf</code></td><td>image data, unstructured grids, poly data, partitioned collections with their assembly, time steps; chunked and gzip storage; no HDF5 library needed</td></tr>
+<tr><td>OpenFOAM</td><td><code>.foam</code></td><td>ASCII/binary/gzip, decomposed and reconstructed cases, time directories, boundary patches</td></tr>
+<tr><td>EnSight Gold</td><td><code>.case .encas</code></td><td>ASCII and C binary, all element types, structured blocks, time sets, wildcard file names</td></tr>
+<tr><td>CGNS</td><td><code>.cgns</code></td><td>HDF5 and ADF storage; structured and unstructured zones, MIXED and NGON/NFACE sections, solutions, time steps</td></tr>
+<tr><td>Xdmf 2/3</td><td><code>.xmf .xdmf</code></td><td>inline, HDF5 and raw binary data; collections; <code>xi:include</code> and XPath references (FEniCS/Dolfinx); HyperSlab and JOIN items</td></tr>
+<tr><td>NetCDF (CF)</td><td><code>.nc .nc4 .cdf</code></td><td>classic and NetCDF-4; lon/lat grids on a sphere with cell bounds, curvilinear grids with 2-D longitude/latitude (POP, CICE, ROMS), rectilinear otherwise; time steps; packing; fill values become NaN (grey); see below</td></tr>
+<tr><td>CAM-SE</td><td><code>.nc</code> + connectivity file (found from the contents)</td><td>CESM atmosphere on its cubed sphere: lon/lat map or sphere, surface, midpoint or interface variables, one level or all; see below</td></tr>
+<tr><td>MPAS</td><td><code>.nc</code> (found from the file’s contents)</td><td>MPAS ocean, atmosphere and land-ice output: cell centers joined into triangles, any vertical level or all of them, sphere or lon/lat map, time steps; see below</td></tr>
+<tr><td>Tecplot</td><td><code>.dat .plt .tec .tp</code></td><td>ASCII (ordered and FE zones, BLOCK/POINT, cell-centered variables) and binary <code>.plt</code>; <code>.szplt</code> is not read</td></tr>
+<tr><td>PLOT3D</td><td><code>.xyz .x .p3d .bin</code> + <code>.q</code></td><td>layout detected from the file (Fortran/C binary, byte order, precision, multi-grid, 2-D/3-D, IBLANK), ASCII</td></tr>
+<tr><td>LAMMPS</td><td><code>.dump .lammpstrj .atom</code> (+<code>.gz</code>), <code>.data .lmp</code></td><td>multi-frame dumps with any columns, triclinic boxes; data files with bonds</td></tr>
+<tr><td>XYZ / extended XYZ</td><td><code>.xyz .extxyz</code></td><td>multi-frame; properties and lattice from the comment line</td></tr>
+<tr><td>PDB</td><td><code>.pdb .ent</code></td><td>all atoms (hydrogens kept), MODELs as time steps, CONECT and distance bonds, residues and chains</td></tr>
+<tr><td>Gaussian cube</td><td><code>.cube</code></td><td>the density as a volume in Å, plus the atoms with bonds</td></tr>
+<tr><td>Chemical Markup Language</td><td><code>.cml</code></td><td>the atoms and the file’s bonds with their orders (<code>bond_order</code>)</td></tr>
+<tr><td>VASP</td><td><code>POSCAR</code>, <code>CONTCAR</code>, <code>CHGCAR</code>, <code>LOCPOT</code>, <code>ELFCAR</code>, <code>PARCHG</code> (by name), <code>.vasp</code></td><td>atoms with bonds and the lattice; volumes on the cell’s axes (charge per Å³)</td></tr>
+<tr><td>Images</td><td><code>.png .jpg .bmp .tif</code></td><td>as image data; multi-page TIFFs and <code>img_*.png</code> wildcards as volumes</td></tr>
+<tr><td>GIS rasters</td><td>GeoTIFF <code>.tif</code>, Esri ASCII grid <code>.asc</code></td><td>at their map coordinates, a cell per pixel, every band; no-data values become NaN (grey); see below</td></tr>
+<tr><td>GIS vectors</td><td>Shapefile <code>.shp</code>, GeoJSON <code>.geojson .json</code>, KML <code>.kml</code>, KMZ <code>.kmz</code>, GeoPackage <code>.gpkg</code>, FlatGeobuf <code>.fgb</code>, GML <code>.gml</code></td><td>points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below</td></tr>
+<tr><td>EBSD maps and microstructures</td><td>TSL/EDAX <code>.ang</code>, Oxford <code>.ctf</code>, <code>.h5ebsd</code> stacks, EDAX and Bruker <code>.h5</code>, <code>.dream3d</code></td><td>crystal orientations on a square grid with phases and quality columns; voxel volumes and meshes with feature and phase arrays; see <a href="grains.html">Grains and crystals</a></td></tr>
+<tr><td>SPPARKS sites</td><td><code>.spparks</code>, <code>.sites</code>; lattice text dumps (<code>id i1 x y z</code>)</td><td>a site file without a <code>Sites</code> section (a lattice filling its box) and a dump of every site of a lattice open as a volume with <code>FeatureIds</code> (from <code>i1</code>); a site file with coordinates opens as points</td></tr>
+<tr><td>Surfaces</td><td><code>.stl .ply .obj</code></td><td></td></tr>
+<tr><td>CSV / TSV</td><td><code>.csv .tsv .txt</code></td><td>delimiter and header detection; tables with x, y, z columns become points</td></tr>
+</tbody>
+</table>
+</div>
+<p>Numbered files (<code>run_0001.vtu</code>…) open as a series when one of them is opened.</p>
+<p>CGNS files come in two storage formats with the same <code>.cgns</code> extension: HDF5, the default
+since CGNS 3.4, and ADF, which older solvers and older CGNS libraries write. auraFX looks at
+the file and reads either one the same way, with <strong>File › Open</strong> or <code>afx.load("wing.cgns")</code>.
+Both the 64-bit ADF layout and the older 32-bit one are read, in either byte order. Links
+inside the file and links to other ADF files are followed. A link to an HDF5 file from an ADF
+file is not.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cgns_adf.png" alt="A CGNS file in ADF storage, clipped and colored by RTData"><span class="img-wrapper"><img src="images/cgns_adf.png" alt="A CGNS file in ADF storage, clipped and colored by RTData"></span></label></p>
+<h3 id="netcdf-climate-and-ocean-files"><a class="header" href="#netcdf-climate-and-ocean-files">NetCDF climate and ocean files</a></h3>
+<p>Files that follow the CF conventions are placed by their coordinates:</p>
+<ul>
+<li>Longitude and latitude axes put the grid on a sphere of radius 1. A third (vertical)
+axis becomes the radius. Depths marked <code>positive="down"</code> are turned around,
+and all levels are shifted so that none is below zero, so deeper levels lie further in
+(the deepest at the center).</li>
+<li>Ocean and sea-ice models such as POP (CESM’s ocean), CICE and ROMS use index dimensions
+(<code>nlat</code>, <code>nlon</code>) and give each point’s longitude and latitude in 2-D variables (<code>TLONG</code>,
+<code>TLAT</code>) named in the <code>coordinates</code> attribute. These become curvilinear grids on the
+sphere. The coordinate variables themselves are not shown as data.</li>
+<li>When the variables live on different grids (say <code>TEMP</code> on depth, latitude and longitude,
+and <code>SSH</code> on the surface only), <strong>Reader options › Variables on</strong> picks the grid. Python:
+<code>ds.set(variables="(nlat, nlon)")</code>. The grid with the most dimensions is read first.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pop_ocean.png" alt="A POP-style ocean file: sea surface height on its curvilinear TLONG/TLAT grid; the island has no data (grey)"><span class="img-wrapper"><img src="images/pop_ocean.png" alt="A POP-style ocean file: sea surface height on its curvilinear TLONG/TLAT grid; the island has no data (grey)"></span></label></p>
+<p>CAM-SE output (the spectral-element core of CESM’s atmosphere model) comes as two files:
+the data, with columns <code>ncol</code> at <code>lat</code>/<code>lon</code>, and a connectivity file whose
+<code>element_corners</code> joins the columns into quads. Open the data file. auraFX finds the
+connectivity file in the same folder, or you can name it under <strong>Reader options ›
+Connectivity file</strong> (Python: <code>ds.set(connectivity="ne30np4_connectivity.nc")</code>). It draws
+the grid on a flat lon/lat map:</p>
+<ul>
+<li>Quads that cross the 0/360° seam are moved to the side where they stick out least, on
+copies of their points, so the map runs a little past 0 and 360.</li>
+<li><strong>Variables</strong> picks the surface variables <code>[time, ncol]</code>, or those on midpoint
+(<code>lev</code>) or interface (<code>ilev</code>) levels. With <strong>All levels</strong> on, the default, each quad
+becomes a column of hexahedra, the top level highest, and the <code>lev</code> (or <code>ilev</code>) array
+holds each point’s level. With it off, <strong>Level</strong> chooses one level.</li>
+<li><strong>Layout › Sphere</strong> puts the columns on a sphere instead. There is no seam on a sphere.</li>
+<li>A single level lies at height 0.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cam_se_map.png" alt="CAM-SE surface pressure on the lon/lat map; quads crossing the 0/360 seam stick out at both edges"><span class="img-wrapper"><img src="images/cam_se_map.png" alt="CAM-SE surface pressure on the lon/lat map; quads crossing the 0/360 seam stick out at both edges"></span></label></p>
+<p>MPAS output (from the ocean, atmosphere or land-ice models of the Model for Prediction
+Across Scales) is NetCDF too. When a <code>.nc</code> file has MPAS’s mesh variables (<code>xCell</code>,
+<code>cellsOnVertex</code>), auraFX reads it as MPAS instead of as a CF grid:</p>
+<ul>
+<li>Each MPAS cell center becomes a point, and the cells around each MPAS vertex are joined
+into a triangle (or a quad, on quad meshes). On a sphere, the points lie at the planet’s
+radius in meters.</li>
+<li>Variables on cells (<code>temperature</code>, <code>ssh</code>…) become point data, and variables on vertices
+(<code>relativeVorticity</code>…) become cell data. Time steps are numbered 0, 1, 2…, and the date
+of each step (<code>xtime</code>) is kept with the data.</li>
+<li>For other dimensions than time and position, the first index is used, except the vertical
+levels, which you choose with the reader options below.</li>
+</ul>
+<h4 id="reader-options"><a class="header" href="#reader-options">Reader options</a></h4>
+<p>Some readers have settings for the file they read. They appear under <strong>Properties ›
+Reader options</strong> when the file is selected, and from Python they are set like any other
+property, with <code>node.set(...)</code>. Changing one reads the file again; the choice is saved with
+the state file. <strong>Reset to defaults</strong> goes back to the file as first opened.</p>
+<p>An MPAS file offers:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Option</th><th>Python</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>Vertical level</td><td><code>vertical_level=2</code></td><td>which level of 3-D variables is shown (0 is the top of the ocean, the bottom of the atmosphere)</td></tr>
+<tr><td>All levels (multilayer)</td><td><code>multilayer=True</code></td><td>stacks every level: each triangle becomes a column of wedges, and points carry each level’s values</td></tr>
+<tr><td>Layer thickness</td><td><code>layer_thickness=10000</code></td><td>the distance between levels in the multilayer view, in meters on the sphere and degrees on the map; 0 picks one so that the whole stack is easy to see</td></tr>
+<tr><td>Layers go up (atmosphere)</td><td><code>atmosphere=True</code></td><td>stacks levels outwards (or upwards on the map) instead of downwards</td></tr>
+<tr><td>Layout</td><td><code>layout="Lat/Lon map"</code></td><td><code>"Sphere"</code> (default) or a flat map with longitude and latitude in degrees</td></tr>
+<tr><td>Map center longitude</td><td><code>center_lon=0</code></td><td>the longitude in the middle of the map (180 by default)</td></tr>
+</tbody>
+</table>
+</div>
+<pre><code class="language-python">ocean = afx.load("output.nc")
+ocean.set(vertical_level=10)                         # the 11th level down
+ocean.set(layout="Lat/Lon map", multilayer=True)     # all levels, as a flat 3-D map
+</code></pre>
+<p>On the map, cells that cross its left or right edge are drawn on both sides, so the map
+reaches a little beyond 360°.</p>
+<ul>
+<li>The triangles at a mesh boundary and, when the file has <code>maxLevelCell</code>, the triangles that
+touch land are left out, so land shows as holes. In the multilayer view, the levels below
+the sea floor are left out too, and each point carries its level’s value.</li>
+<li>Reader options do not reach files opened on another machine through a server yet.</li>
+</ul>
+<p>Verified against a reference implementation; the comparisons are listed in the
+verification notes (<code>docs/reference/verification.md</code> in the source tree).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/mpas_ocean.png" alt="MPAS ocean output: temperature at the top level on the sphere, with land left out"><span class="img-wrapper"><img src="images/mpas_ocean.png" alt="MPAS ocean output: temperature at the top level on the sphere, with land left out"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/mpas_options.png" alt="The same file as a lon/lat map with all four levels stacked; the reader options are under Properties"><span class="img-wrapper"><img src="images/mpas_options.png" alt="The same file as a lon/lat map with all four levels stacked; the reader options are under Properties"></span></label></p>
+<h3 id="gis-rasters"><a class="header" href="#gis-rasters">GIS rasters</a></h3>
+<p>A GeoTIFF is a TIFF that also records where it lies on the map. auraFX notices these tags and
+reads the file as a map raster instead of as a picture. Esri ASCII grids (<code>.asc</code>), a common
+text format for elevation models, and ERDAS Imagine files (<code>.img</code>, common in remote sensing)
+are read the same way. Open them with <strong>File › Open</strong> or
+<code>afx.load("dem.tif")</code>.</p>
+<ul>
+<li>The raster becomes image data with one cell per pixel, placed at its map coordinates
+(meters for UTM, degrees for longitude/latitude), with north up.</li>
+<li>Values are cell data. A single band, such as an elevation model, is named <code>Elevation</code>.
+In a file with several bands, the first is <code>Elevation</code> and the others are
+<code>Band 2</code>, <code>Band 3</code>… An RGB(A) image becomes one <code>Elevation</code> array with 3 or 4 components.</li>
+<li>Pixels equal to the file’s no-data value become NaN and are drawn grey (after Warp By
+Scalar they leave a hole, since a NaN height has no place).</li>
+<li>The field data holds <code>NO_DATA_VALUE</code> per band and <code>MAP_PROJECTION</code>. For a GeoTIFF that is
+the EPSG code (<code>EPSG:32633</code>). For an ASCII grid it is the text of the <code>.prj</code> file beside
+it.</li>
+<li>8- to 64-bit integer and floating-point bands are read, compressed or not, in strips or
+tiles, with the bands stored together or one after another. A pixel-is-point GeoTIFF is
+moved half a pixel to its corner, as GDAL does.</li>
+<li>ERDAS Imagine: every layer of the same size is a band (1-, 2- and 4-bit, 8- to 32-bit
+integer and 32- and 64-bit floating-point layers, in tiles, plain or run-length
+compressed), placed by its map information as GDAL does. The no-data value is the layer’s
+“non-initialized” value. <code>MAP_PROJECTION</code> is the EPSG code for UTM and longitude/latitude
+on WGS 84, and the projection’s name otherwise. The layers are bands as above: an RGB
+<code>.img</code> gives <code>Elevation</code>, <code>Band 2</code> and <code>Band 3</code> (it does not say which layer is which
+color). Data kept in a separate <code>.ige</code> file (very large images) is not read.</li>
+</ul>
+<p>To see an elevation model as terrain, move the values to the points with <strong>Cell Data to
+Point Data</strong>, then raise them with <strong>Warp By Scalar</strong>:</p>
+<pre><code class="language-python">dem = afx.load("dem.tif")                    # or dem.img (ERDAS Imagine)
+terrain = dem.cell_data_to_point_data().warp_by_scalar(array="Elevation", scale=1.0)
+terrain.set(color_by="Elevation")
+</code></pre>
+<p>Verified against a reference implementation; the comparisons are listed in the
+verification notes (<code>docs/reference/verification.md</code> in the source tree).</p>
+<p>Other GDAL raster formats (NetCDF through GDAL, JPEG 2000…) are not read yet.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geotiff_terrain.png" alt="A GeoTIFF elevation model raised into terrain (heights doubled); the missing far corner has no data"><span class="img-wrapper"><img src="images/geotiff_terrain.png" alt="A GeoTIFF elevation model raised into terrain (heights doubled); the missing far corner has no data"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/erdas_img.png" alt="The same elevation model read from a run-length compressed ERDAS Imagine file, raised into terrain and colored by height"><span class="img-wrapper"><img src="images/erdas_img.png" alt="The same elevation model read from a run-length compressed ERDAS Imagine file, raised into terrain and colored by height"></span></label></p>
+<h3 id="gis-vectors"><a class="header" href="#gis-vectors">GIS vectors</a></h3>
+<p>Maps of points, lines and areas, such as countries, roads, rivers, wells or survey sites, open
+like any other file:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Format</th><th>Files</th></tr>
+</thead>
+<tbody>
+<tr><td>ESRI Shapefile</td><td><code>name.shp</code> with <code>name.dbf</code> (attributes) and <code>name.prj</code> (coordinate system) beside it; open the <code>.shp</code></td></tr>
+<tr><td>GeoJSON</td><td><code>.geojson</code>, or a <code>.json</code> file that holds GeoJSON</td></tr>
+<tr><td>KML (Google Earth)</td><td><code>.kml</code>; each folder is a layer</td></tr>
+<tr><td>KMZ</td><td><code>.kmz</code>: a zipped KML (Google Earth’s usual download); the KML document inside is read</td></tr>
+<tr><td>GeoPackage</td><td><code>.gpkg</code>; each feature table is a layer</td></tr>
+<tr><td>FlatGeobuf</td><td><code>.fgb</code>: a fast binary format for large vector data; one layer</td></tr>
+<tr><td>GML</td><td><code>.gml</code> (GML 2, 3 and 3.2, as GDAL and most web feature services write it); each feature type is a layer, typed by the <code>.xsd</code> schema beside the file when there is one</td></tr>
+<tr><td>MapInfo table</td><td><code>name.tab</code> with <code>name.map</code> (geometry), <code>name.id</code> (its index) and <code>name.dat</code> (attributes) beside it; open the <code>.tab</code></td></tr>
+<tr><td>MapInfo interchange</td><td><code>name.mif</code> (geometry, in text) with <code>name.mid</code> (attributes) beside it; open the <code>.mif</code></td></tr>
+<tr><td>Esri file geodatabase</td><td>a <code>name.gdb</code> folder; open the folder (or any file in it). Each feature class and table is a layer</td></tr>
+</tbody>
+</table>
+</div>
+<p>What you get:</p>
+<ul>
+<li>The coordinates stay as stored: longitude and latitude in degrees for most GeoJSON and KML
+files, or meters for projected shapefiles. Heights (the third coordinate) are kept, so a
+file with heights in meters on a map in degrees looks very tall. Flatten it with
+<strong>Transform</strong> (scale z by 0) if that gets in the way.</li>
+<li>Points become vertices, lines become polylines, and polygon rings become closed lines.</li>
+<li>Each feature’s attributes become cell data on its cells: whole numbers as integers,
+decimals as doubles, and anything else (names, dates) as text. 64-bit integers stay
+numbers.</li>
+<li><code>MAP_PROJECTION</code> in the field data holds the coordinate system: the <code>.prj</code> text, the EPSG
+code of a GeoPackage, FlatGeobuf or GML layer, the coordinate system text of a file
+geodatabase layer, or <code>EPSG:4326</code> (longitude/latitude) for GeoJSON and KML.</li>
+<li>File geodatabases store coordinates on a fine grid and add <code>Shape_Length</code> and <code>Shape_Area</code>
+attributes to lines and areas; both come through as stored.</li>
+<li>MapInfo tables store coordinates as whole numbers on a grid set by the file (a millionth of
+a degree for longitude and latitude). auraFX converts them as GDAL does, rounding to that
+grid. A MapInfo region’s rings are grouped into
+areas with holes: a <code>.tab</code> file says which rings are holes. In a <code>.mif</code> file, a ring inside
+a larger one is a hole, as GDAL decides it.</li>
+<li>GML in a geographic coordinate system named the long way (<code>urn:ogc:def:crs:EPSG::4326</code>)
+stores latitude first. auraFX swaps it back to longitude, latitude, as GDAL does, so GML
+lines up with the other formats.</li>
+</ul>
+<p><strong>Reader options</strong> (Properties › Reader options, or <code>node.set(...)</code>):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Option</th><th>Choices</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Layer</strong> (files with several layers)</td><td><strong>All</strong> or one layer by name</td></tr>
+<tr><td><strong>Blocks</strong></td><td><strong>One per layer</strong> (default: one block per layer, a row of attributes per feature), or <strong>One per feature</strong>: one block per feature, slow for thousands of features</td></tr>
+<tr><td><strong>Polygons</strong></td><td><strong>Outlines</strong>, or <strong>Filled</strong>: triangles covering each area, with holes left open, to color areas by an attribute</td></tr>
+<tr><td><strong>Feature ids</strong></td><td>adds the feature number as <code>_vtkPedigreeIds</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/gis_vectors.png" alt="Countries from a shapefile, filled and colored by population (log scale), rivers from GeoJSON and cities as points"><span class="img-wrapper"><img src="images/gis_vectors.png" alt="Countries from a shapefile, filled and colored by population (log scale), rivers from GeoJSON and cities as points"></span></label></p>
+<pre><code class="language-python">countries = afx.load("countries.shp")
+countries.set(polygons="Filled")
+countries.set(color_by="pop", log_scale=True)
+roads = afx.load("world.gpkg")
+roads.set(layer="roads")                      # one layer of a GeoPackage
+sites = afx.load("sites.fgb")                 # FlatGeobuf
+rivers = afx.load("hydro.gml")                # GML, a block per feature type
+places = afx.load("trip.kmz")                 # Google Earth KMZ
+parcels = afx.load("parcels.tab")             # MapInfo (or parcels.mif)
+lots = afx.load("city.gdb")                   # an Esri file geodatabase folder
+lots.set(layer="lots", polygons="Filled")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/gis_formats.png" alt="Countries (filled, colored by area), rivers and cities from a GML file, with 300 points from a FlatGeobuf file colored by their value"><span class="img-wrapper"><img src="images/gis_formats.png" alt="Countries (filled, colored by area), rivers and cities from a GML file, with 300 points from a FlatGeobuf file colored by their value"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/mapinfo.png" alt="A MapInfo table of lots (filled, some with holes, colored by size), roads, wells and a fork, with the same layer from the MapInfo interchange file drawn as outlines on top"><span class="img-wrapper"><img src="images/mapinfo.png" alt="A MapInfo table of lots (filled, some with holes, colored by size), roads, wells and a fork, with the same layer from the MapInfo interchange file drawn as outlines on top"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/filegdb.png" alt="Three layers of one file geodatabase: lots filled and colored by size, roads as wide lines and wells as points"><span class="img-wrapper"><img src="images/filegdb.png" alt="Three layers of one file geodatabase: lots filled and colored by size, roads as wide lines and wells as points"></span></label></p>
+<p>A feature without geometry gives an empty block. Any layer of a file can be picked on its
+own, and by default all layers are read.</p>
+<p>Verified against a reference implementation; the comparisons are listed in the
+verification notes (<code>docs/reference/verification.md</code> in the source tree).</p>
+<p>Not read yet: curved geometry (arcs; a file geodatabase’s curves are read as straight lines
+between their vertices) and file geodatabase rasters and multipatches. In MapInfo files, text,
+arcs, rectangles, ellipses and collections are read without their geometry (their attributes
+are kept). Shapefile multipatches (3-D surfaces) are skipped.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/netcdf_globe_view.png" alt="Sea surface temperature from a NetCDF CF file, on the globe"><span class="img-wrapper"><img src="images/netcdf_globe_view.png" alt="Sea surface temperature from a NetCDF CF file, on the globe"></span></label></p>
+<h3 id="amr-data-adaptive-mesh-refinement"><a class="header" href="#amr-data-adaptive-mesh-refinement">AMR data (adaptive mesh refinement)</a></h3>
+<p>AMR simulations (AMReX, BoxLib, Castro, MAESTRO, Nyx, WarpX, FLASH, Enzo…) store their domain
+as levels of boxes: a coarse level everywhere and finer boxes where more detail was needed.
+auraFX reads:</p>
+<ul>
+<li><strong>AMReX / BoxLib plotfiles</strong>: a folder like <code>plt00100</code> with a <code>Header</code> file. Open the
+<code>Header</code> file in <strong>File › Open</strong> (choose “All files”), drop the folder on the window, or
+<code>afx.load("plt00100")</code>.</li>
+<li><strong>VTK AMR files</strong> (<code>.vthb</code>, <code>.vth</code>).</li>
+<li><strong>FLASH</strong> plot and checkpoint files (<code>name_hdf5_plt_cnt_0007</code>, <code>name_hdf5_chk_0003</code>; HDF5,
+FLASH 2 to 4). They usually have no extension: open them in <strong>File › Open</strong> with “All
+files”; auraFX recognizes them by their contents. Every block of the PARAMESH tree becomes
+a box on its refinement level (FLASH’s level 1 is auraFX’s Level 0), with every variable in
+<code>unknown names</code> as cell data in double precision. 1-D, 2-D and 3-D files are read.</li>
+<li><strong>Enzo</strong> output: open the <code>.hierarchy</code> file of a data dump (<code>DD0010/data0010.hierarchy</code>). The
+parameter file (<code>data0010</code>) and the grid files (<code>data0010.cpu0000</code>…) must be beside it.
+Each grid is a box on its level; fields keep their stored type (usually single precision).
+Reader option <strong>Convert to CGS</strong> multiplies each field by its <code>#DataCGSConversionFactor</code>
+from the parameter file. It is off by default.</li>
+<li><strong>Particles</strong> in FLASH and Enzo files: when a file has them, the reader option <strong>Data</strong>
+switches between <strong>Grid</strong> (the AMR data) and <strong>Particles</strong>, a point for every particle with
+its properties as point data (FLASH’s as doubles, Enzo’s in their stored types). Open the
+file twice to see both, as in the picture below. Chombo files with a <code>particles</code> group get
+the same option (properties as doubles).</li>
+<li><strong>Chombo</strong> files (<code>.hdf5</code>, <code>.h5</code>; 1-D to 3-D), as Chombo-based codes write them (<code>level_0</code>,
+<code>level_1</code>… groups with boxes). The component names become cell arrays, or point arrays in
+node-centered files. Ghost cells stored around each box are dropped, and the boxes are
+placed from <code>prob_lo</code> and the level’s <code>dx</code> (or <code>vec_dx</code>).</li>
+<li><strong>4-D Chombo</strong> files (two space axes and two velocity axes, as gyrokinetic codes such as
+COGENT write them, single level): a 2-D grid over the space axes,
+whose every cell holds each component as an array with one value per velocity cell
+(parallel velocity major, magnetic moment minor). <code>_vpar</code> and <code>_mu</code> hold those cells’
+velocity coordinates, and <code>&lt;component&gt;_sum</code> the sum over the velocity cells (leaving out
+velocity cells no box covers, which are NaN in the arrays).
+Color by a component of the array to see one velocity cell, or by the sum.</li>
+</ul>
+<p>What you get:</p>
+<ul>
+<li>One block per level (<strong>Level 0</strong>, <strong>Level 1</strong>, …), each holding that level’s boxes as image
+data with the variables as cell data. The <strong>Information</strong> panel lists them.</li>
+<li>Coarse cells that a finer box covers are marked as hidden in <code>vtkGhostType</code>.
+Surfaces, slices, clips, contours, thresholds, Integrate Variables, Resample To Image and
+probing skip them, so every place is shown and counted once, at its finest level.</li>
+<li>AMReX vector variables written as <code>amrexvec_&lt;name&gt;_x</code>, <code>_y</code>, <code>_z</code> become one vector
+<code>&lt;name&gt;</code>. In 2-D files the missing z is 0.</li>
+<li>The time of the plotfile or dump is in the field data (<code>TimeValue</code>). Single- and
+double-precision files are read.</li>
+<li><strong>Outline</strong> draws the outline of every box, which shows where the refinement is.</li>
+<li>Contours of cell data are stitched across levels (see below).</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/amr_view.png" alt="An AMReX plotfile: the outlines of its two coarse boxes and one finer box, and a slice through both levels colored by density"><span class="img-wrapper"><img src="images/amr_view.png" alt="An AMReX plotfile: the outlines of its two coarse boxes and one finer box, and a slice through both levels colored by density"></span></label></p>
+<pre><code class="language-python">amr = afx.load("plt00100")                 # the plotfile folder
+amr.set(representation="Outline")          # where the refinement is
+s = amr.slice(normal=(0, 0, 1))            # finest data on the cut
+s.set(color_by="density")
+lev = amr.overlapping_amr_level_ids()      # LevelIdScalars: each cell's level
+flash = afx.load("sedov_hdf5_plt_cnt_0010")  # FLASH
+enzo = afx.load("DD0010/data0010.hierarchy")  # Enzo
+enzo.set(cgs=True)                         # fields in CGS units
+chombo = afx.load("plot.0010.2d.hdf5")      # Chombo
+stars = afx.load("DD0010/data0010.hierarchy")
+stars.set(data="Particles")                # the particles instead of the grid
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/amr_particles.png" alt="An Enzo dump read twice: its grid as box outlines and its particles as spheres colored by mass"><span class="img-wrapper"><img src="images/amr_particles.png" alt="An Enzo dump read twice: its grid as box outlines and its particles as spheres colored by mass"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/chombo_particles.png" alt="A 2-D Chombo file read twice: its two levels colored by density, and its particles as spheres colored by mass"><span class="img-wrapper"><img src="images/chombo_particles.png" alt="A 2-D Chombo file read twice: its two levels colored by density, and its particles as spheres colored by mass"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/chombo4d.png" alt="A 4-D Chombo file’s space grid (two boxes) colored by the sum of f over velocity space, with its cell edges; the right box’s data does not cover the highest parallel velocities, so its sums are lower"><span class="img-wrapper"><img src="images/chombo4d.png" alt="A 4-D Chombo file’s space grid (two boxes) colored by the sum of f over velocity space, with its cell edges; the right box’s data does not cover the highest parallel velocities, so its sums are lower"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/chombo.png" alt="A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells"><span class="img-wrapper"><img src="images/chombo.png" alt="A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/flash_enzo.png" alt="A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way"><span class="img-wrapper"><img src="images/flash_enzo.png" alt="A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way"></span></label></p>
+<p><strong>Sources › AMR Gaussian Pulse</strong> makes a small AMR test dataset: a coarse box and
+two finer boxes holding a Gaussian pulse, in 2-D or 3-D. <strong>Filters › Overlapping AMR Level
+Ids</strong> adds the cell array <code>LevelIdScalars</code> with each cell’s level.</p>
+<p><strong>Filters › Resample AMR</strong> samples AMR data on one uniform grid, so tools that want a single
+image can use it (volume rendering, image filters, export). <strong>Number of samples</strong> sets the
+grid points per axis; with <strong>Whole domain</strong> off, <strong>Min</strong> and <strong>Max</strong> pick a box (clipped to the
+data, dropping the samples that fall outside). Each point takes the values of
+the finest cell holding it. With <strong>Transfer to nodes</strong> off, the values are taken at the
+cell centers instead and become cell data. Points no box holds are marked hidden.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/resample_amr.png" alt="The AMR Gaussian Pulse’s boxes as outlines and the pulse resampled onto 40 x 40 x 40 points, drawn as a volume"><span class="img-wrapper"><img src="images/resample_amr.png" alt="The AMR Gaussian Pulse’s boxes as outlines and the pulse resampled onto 40 x 40 x 40 points, drawn as a volume"></span></label></p>
+<pre><code class="language-python">grid = amr.resample_amr(samples=(64, 64, 64))
+part = amr.resample_amr(samples=(32, 32, 16), whole_domain=False, min=(0, 0, 0), max=(1, 1, 0.5))
+</code></pre>
+<p>Resample AMR always uses every level of the data. 2-D FLASH files are read like 3-D ones.
+Ghost cells stored in Chombo files are dropped on every level. FLASH particles are given once
+each, with their own properties.</p>
+<p>Verified against a reference implementation; the comparisons are listed in the
+verification notes (<code>docs/reference/verification.md</code> in the source tree).</p>
+<h4 id="contours-of-amr-data"><a class="header" href="#contours-of-amr-data">Contours of AMR data</a></h4>
+<p>Values of AMR data sit at cell centers, and cells change size where levels meet. Averaging
+them to points box by box leaves gaps and overlaps along every level boundary. <strong>Filters ›
+AMR Contour</strong> joins the cell centers of all levels into one mesh, the <em>dual grid</em>. Where a
+finer box meets coarser cells, its border cells reach out to the coarse cell centers, so the
+isosurface continues across the boundary without a crack. The other cell arrays are
+interpolated onto the surface. <strong>Contour</strong> on a cell array of AMR data does the same
+automatically. In 2-D data the result is closed isolines.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/amr_contour.png" alt="The density isosurface of an AMReX plotfile: one closed surface across the fine box (smaller triangles) and the coarse boxes, colored by temperature"><span class="img-wrapper"><img src="images/amr_contour.png" alt="The density isosurface of an AMReX plotfile: one closed surface across the fine box (smaller triangles) and the coarse boxes, colored by temperature"></span></label></p>
+<pre><code class="language-python">c = amr.amr_contour(array="density", values=[0.3])
+c = amr.contour(array="density", values=[0.3])     # the same, for AMR cell data
+dual = amr.amr_dual_grid()                          # cell values on one stitched mesh
+cut = dual.clip(type="Scalar", array="density", value=0.3)   # a crack-free "dual clip"
+</code></pre>
+<p><strong>Filters › AMR Dual Grid</strong> gives that mesh itself: one point per cell center, carrying all the
+cell arrays as point data. Clip, Slice, Stream Tracer and other filters that interpolate point
+data work on it across levels without seams.</p>
+<p>On a test plotfile whose density isosurface is a sphere crossing from the fine box into the
+coarse ones, the contour is closed (every edge shared by exactly two triangles, the topology
+of a sphere), its area is within 0.2 % of the sphere’s, and its center is within 0.001 of the
+sphere’s center. The box-by-box contour had 346 open edges there. More in the verification
+notes (<code>docs/reference/verification.md</code> in the source tree).</p>
+<p>Not read yet: plotfiles without FAB headers (the “NoFabHeader” variants) and AMReX
+particles. Not available yet: material-interface filters for CTH data (AMR
+Fragments, Material Interface).</p>
+<h3 id="hyper-tree-grids"><a class="header" href="#hyper-tree-grids">Hyper tree grids</a></h3>
+<p>A <em>hyper tree grid</em> (HTG) starts from a grid of root cells. Each root cell is the top of a
+tree: a refined cell splits into 2×2×2 children (3×3×3 with branch factor 3; 2×2 or 3×3 in
+2-D), and so on down to the leaves. Every cell of every tree, coarse or leaf, can hold values.
+A <em>mask</em> can hide cells. It is VTK’s tree-based format for adaptive meshes. auraFX reads VTK’s
+<code>.htg</code> files (XML version 2).</p>
+<p>What you get:</p>
+<ul>
+<li>The grid is drawn as its visible leaves. Every filter that works on cells (Slice, Clip,
+Threshold, Contour after Cell Data to Point Data, Cell Centers, Integrate Variables…) sees
+those leaves as voxels (pixels in 2-D) with their values.</li>
+<li><strong>Information</strong> shows the dimension, branch factor, number of visible leaves and depth.
+The cell count is the number of all cells (coarse ones included).</li>
+<li>A grid with <strong>material interfaces</strong> is drawn cut to its material (see below). Other filters
+still see whole leaves.</li>
+<li>Saving as <code>.htg</code> keeps the grid: its trees, the mask and every cell’s values (the
+version 2 files). Saving as any other format (<code>.vtu</code> and the rest) writes the
+visible leaves as an unstructured grid.</li>
+</ul>
+<p><strong>Sources:</strong></p>
+<ul>
+<li><strong>Hyper Tree Grid</strong> builds a grid from a text descriptor. Levels are separated by <code>|</code>.
+Each level lists <code>R</code> (refined) or <code>.</code> (leaf) for every cell of that level, all trees in
+order; spaces are ignored. <strong>Dimensions</strong> (points per axis; 1 makes an axis flat), <strong>Branch
+factor</strong>, <strong>Max depth</strong>, <strong>Grid scale</strong>, and <strong>Use mask</strong> with a <strong>Mask</strong> string of the same
+layout (<code>0</code> hides a leaf, <code>1</code> keeps it). The mask is ignored on refined cells.</li>
+<li><strong>Random Hyper Tree Grid</strong> refines cells at random. <strong>Split fraction</strong> is each cell’s
+chance of being refined, down to <strong>Max depth</strong>. The same <strong>Seed</strong> gives the same grid.
+<strong>Masked fraction</strong> hides about that share of the volume, whole subtrees at a time (the same
+settings hide the same cells). Its masking can hide a cell while leaving some cells below
+it unmasked; those stay hidden.</li>
+</ul>
+<p><strong>Filters</strong> (Filters › Data):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Filter</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Hyper Tree Grid To Unstructured Grid</strong></td><td>the visible leaves as an unstructured grid, with <code>OriginalIds</code> (each leaf’s cell index)</td></tr>
+<tr><td><strong>Hyper Tree Grid Depth Limiter</strong></td><td>cuts every tree at a depth: cells at that depth become leaves (Depth 0 keeps only the root cells)</td></tr>
+<tr><td><strong>Hyper Tree Grid Generate Fields</strong></td><td><code>CellSize</code> (volume, area or length of every cell), <code>ValidCell</code> (1 on visible leaves), <code>CellCenter</code>, and <code>TotalVisibleVolume</code> in the field data</td></tr>
+<tr><td><strong>Hyper Tree Grid To Dual Grid</strong></td><td>a point at the center of every visible leaf, with the leaf’s values as point data, and a cell (voxel, pixel or line) joining the leaves around every corner. Use it for smooth contours and for filters that need point data. Points on the grid’s boundary sit on the boundary; next to masked leaves they move onto the face shared with the masked cell</td></tr>
+<tr><td><strong>Hyper Tree Grid Geometry</strong></td><td>the outside of the visible leaves as polygons with their values: in 3-D the faces on the grid’s boundary and the walls next to masked cells (a face of a masked cell next to a coarser visible leaf carries that leaf’s values); in 2-D a quad per visible leaf, in 1-D a line</td></tr>
+<tr><td></td><td>With material interfaces, mixed cells are cut to their material (see below). <strong>Fill material</strong> (on by default): off draws only the interface lines in 2-D and leaves out pure cells in 1-D and 2-D</td></tr>
+<tr><td><strong>Hyper Tree Grid Feature Edges</strong></td><td>the edges of the visible region as lines with their leaves’ values: the outline in 2-D, the outer corners and folds in 3-D</td></tr>
+<tr><td><strong>Hyper Tree Grid Evaluate Coarse</strong></td><td>fills the values of refined cells from their children: Min, Max, Sum, Average, Unmasked Average, Elder Child (the first child) or Splatting Average</td></tr>
+</tbody>
+</table>
+</div>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/hyper_tree_grid.png" alt="A random 2-D hyper tree grid (a quadtree) drawn with its cell edges, colored by depth"><span class="img-wrapper"><img src="images/hyper_tree_grid.png" alt="A random 2-D hyper tree grid (a quadtree) drawn with its cell edges, colored by depth"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/htg_surface.png" alt="A random 3-D hyper tree grid with 40 % masked: its Geometry (see-through, colored by depth) shows the walls next to the masked cells, and its Feature Edges are the dark lines"><span class="img-wrapper"><img src="images/htg_surface.png" alt="A random 3-D hyper tree grid with 40 % masked: its Geometry (see-through, colored by depth) shows the walls next to the masked cells, and its Feature Edges are the dark lines"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/htg_dual.png" alt="A random 2-D hyper tree grid’s leaves (gray lines) with its dual grid on top, colored by depth: large cells joining coarse leaves, small ones where the grid is refined"><span class="img-wrapper"><img src="images/htg_dual.png" alt="A random 2-D hyper tree grid’s leaves (gray lines) with its dual grid on top, colored by depth: large cells joining coarse leaves, small ones where the grid is refined"></span></label></p>
+<p><strong>Material interfaces.</strong> A grid can describe where a material ends inside some cells, for
+simulations that track interfaces between materials. The file names two
+cell arrays (VTK’s <code>InterfaceNormalsName</code> and <code>InterfaceInterceptsName</code>). For each cell they
+hold a normal <em>n</em> (three values) and intercepts (<em>d1</em>, <em>d2</em>, <em>type</em>); each interface is the plane
+<em>n</em>·<em>x</em> + <em>d</em> = 0:</p>
+<ul>
+<li><em>type</em> −1: one plane (<em>d1</em>); the material is where <em>n</em>·<em>x</em> + <em>d1</em> ≥ 0;</li>
+<li><em>type</em> 1: one plane (<em>d2</em>); the material is where <em>n</em>·<em>x</em> + <em>d2</em> ≤ 0;</li>
+<li><em>type</em> 0: the material lies between the two planes;</li>
+<li><em>type</em> 2 or more, or a zero normal: the cell is pure (all material).</li>
+</ul>
+<p>Hyper Tree Grid Geometry (and the default drawing) cuts each mixed cell by its planes:</p>
+<ul>
+<li>In 1-D and 2-D, each mixed leaf becomes the part of its line or quad that is in the
+material.</li>
+<li>In 3-D, the faces of mixed cells and of their neighbors are drawn cut to the material, and
+each mixed cell adds its interface polygons.</li>
+</ul>
+<p>With <strong>Fill material</strong> off, 2-D grids give only the interface lines. Saving as <code>.htg</code> keeps
+the interface arrays.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/htg_interfaces.png" alt="A 2-D hyper tree grid whose cells crossing a ring carry interfaces, drawn cut to its material with its cell edges and colored by interface type, with the interface lines (Fill material off) in red, 4 pixels wide"><span class="img-wrapper"><img src="images/htg_interfaces.png" alt="A 2-D hyper tree grid whose cells crossing a ring carry interfaces, drawn cut to its material with its cell edges and colored by interface type, with the interface lines (Fill material off) in red, 4 pixels wide"></span></label></p>
+<pre><code class="language-python">h = afx.random_hyper_tree_grid(dimensions=(7, 5, 1), max_depth=5, split_fraction=0.45, seed=3)
+h.set(color_by="Depth", representation="Surface With Edges")
+t = afx.hyper_tree_grid(dimensions=(3, 3, 1), max_depth=3, descriptor="R... | .R.. | ....")
+coarse = h.hyper_tree_grid_evaluate_coarse(operator="Max")
+top = h.hyper_tree_grid_depth_limiter(depth=2)
+leaves = afx.load("tree.htg").hyper_tree_grid_to_unstructured_grid()
+dual = h.hyper_tree_grid_to_dual_grid()
+holes = afx.random_hyper_tree_grid(seed=3, masked_fraction=0.25)
+walls = holes.hyper_tree_grid_geometry()
+edges = holes.hyper_tree_grid_feature_edges()
+h.save("tree.htg")
+m = afx.load("interface_plane.htg")       # drawn cut to its material
+lines = m.hyper_tree_grid_geometry(fill_material=False)
+</code></pre>
+<p>To Unstructured Grid gives every leaf its index in <code>OriginalIds</code>, masked files included. To
+Dual Grid makes points for visible leaves only. <strong>Cell Centers</strong> works on hyper tree grids
+directly; there is no separate Axis Reflection filter for them. <code>.htg</code> files auraFX writes read
+back unchanged.</p>
+<p>Verified against a reference implementation; the comparisons are listed in the
+verification notes (<code>docs/reference/verification.md</code> in the source tree).</p>
+<p>Not available yet: version 1 <code>.htg</code> files. Ghost Cells only matters for data split across
+processes. Interfaces are used by Geometry only: slicing or clipping a grid
+with interfaces works on whole leaves.</p>
+<h3 id="cell-grids"><a class="header" href="#cell-grids">Cell grids</a></h3>
+<p>A <em>cell grid</em> holds cells whose fields are polynomials rather than one value per point or
+cell. Simulation codes using finite elements of the discontinuous Galerkin (DG) kind write
+fields this way. On each cell a field is a sum of basis functions, each times a coefficient
+stored in the file. A field can jump from one cell to the next. It is VTK’s newest data type.
+auraFX reads VTK’s <code>.dg</code> files (JSON).</p>
+<p>Cells can be hexahedra, tetrahedra, wedges, pyramids, quadrilaterals, triangles, edges and
+vertices. Fields can be:</p>
+<ul>
+<li><strong>nodal</strong> (values at the corners, linear or quadratic; quadratic cells also have nodes on
+their edges, faces and middle), either shared between cells or kept per cell;</li>
+<li><strong>edge</strong> fields (the H(curl) kind, for electric fields: their tangential part is continuous
+across faces);</li>
+<li><strong>face</strong> fields (the H(div) kind, for fluxes: their normal part is continuous across faces);</li>
+<li><strong>constant</strong> fields, one value per cell.</li>
+</ul>
+<p>Edge and face fields are turned from the cell’s own coordinates into space with the cell’s
+shape (its Jacobian), as in VTK. The cells’ shape can itself be quadratic (curved).</p>
+<p>What you get:</p>
+<ul>
+<li>The grid is drawn as its cells with every field evaluated at the corners. Quadratic cells
+are drawn as linear cells through their corners. Where cells meet, a field that jumps
+between them is averaged. Color by, the Spreadsheet, picking and every
+other filter see that mesh.</li>
+<li><strong>Information</strong> names the cell types and the number of fields (and, after Compute Sides,
+the number of sides shown).</li>
+<li>Saving as <code>.dg</code> keeps the cell grid (every array, attribute and cell type, in the layout
+VTK writes). Saving as any other format writes the corner mesh
+as an unstructured grid.</li>
+</ul>
+<p><strong>Source</strong> (Sources › Cell Grid): one cell of a chosen <strong>Cell type</strong> with test fields:
+<code>hgrad</code> (1, 0, 0 at the first corner, 0 elsewhere), and on hexahedra, tetrahedra, wedges,
+quadrilaterals and triangles <code>hcurl</code> and <code>hdiv</code> (an edge and a face field whose first
+coefficient is 1). A vertex gets a <code>constant</code> field.</p>
+<p><strong>Filters</strong> (Filters › Data):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Filter</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Cell Grid To Unstructured Grid</strong></td><td>the cells with the fields at their corners (what is drawn); corners at the same place become one point</td></tr>
+<tr><td><strong>Cell Grid Centers</strong></td><td>a point at the center of every cell with every field evaluated there (exact, not averaged)</td></tr>
+<tr><td><strong>Cell Grid Elevation</strong></td><td>adds a field: the distance from <strong>Origin</strong> along <strong>Axis</strong> (or, with Spherical distance, from Origin)</td></tr>
+<tr><td><strong>Cell Grid Transform</strong></td><td>moves, rotates (degrees) and scales the cells, as <strong>Transform</strong> does, or another 3-D attribute shared at points or stored per cell. Edge and face fields follow the new shape</td></tr>
+<tr><td><strong>Cell Grid Warp</strong></td><td>moves the cells’ points by <strong>Scale</strong> times a vector attribute shared at the points (the same basis and order as the shape)</td></tr>
+<tr><td><strong>Cell Grid Probe</strong></td><td>finds the cells holding the points of a second dataset (the <strong>Probe points</strong>): a point for every cell each one is in, with <code>ContainingCellID</code> (the cell’s number within its type), <code>CellType</code> (the VTK cell type number), <code>ParametricCoordinates</code> (where in the cell, in the cell’s own coordinates) and, when <strong>Attribute</strong> names a field, the field’s exact value there. Points in no cell are left out. A point on a face shared by two cells is listed twice</td></tr>
+<tr><td><strong>Cell Grid Compute Sides</strong></td><td>finds the sides of the cells and draws them instead of the 3-D cells: by default the faces on the outside (those not shared by two cells). <strong>Sides to include</strong> picks faces, edges or corners; see below</td></tr>
+<tr><td><strong>Convert To Cell Grid</strong></td><td>makes a cell grid from a mesh of vertices, lines, triangles, quads, tetrahedra, hexahedra, wedges and pyramids (other cells are skipped): point data becomes fields shared at the points, cell data constant fields (renamed “(cell)” when point data has the same name)</td></tr>
+</tbody>
+</table>
+</div>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cell_grid.png" alt="VTK’s two-hexahedron cell grid, see-through and colored by a field, with its cell centers as spheres colored by an edge field"><span class="img-wrapper"><img src="images/cell_grid.png" alt="VTK’s two-hexahedron cell grid, see-through and colored by a field, with its cell centers as spheres colored by an edge field"></span></label></p>
+<pre><code class="language-python">g = afx.load("dgHexahedra.dg")
+g.set(color_by="scalar2", representation="Surface With Edges")
+centers = g.cell_grid_centers()
+centers.set(color_by="curl1", points_as_spheres=True)
+height = g.cell_grid_elevation(axis=(0, 0, 1))
+cell = afx.cell_grid(cell_type="Tetrahedron")
+mesh = g.cell_grid_to_unstructured_grid()
+turned = g.cell_grid_transform(rotate=(0, 0, 30), scale=(1, 1, 2))
+grid = afx.load("mesh.vtu").convert_to_cell_grid()
+grid.save("mesh.dg")
+cloud = afx.point_source(center=(1, 0.6, 0.5), radius=0.75, count=4000)
+found = g.cell_grid_probe(cloud, attribute="quadratic")
+outside = g.cell_grid_compute_sides()
+edges = g.cell_grid_compute_sides(include="Edges of inputs", omit_renderable=False)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cell_grid_transform.png" alt="VTK’s two-hexahedron cell grid (left) and a copy turned, stretched and moved with Cell Grid Transform (right), both colored by the same field"><span class="img-wrapper"><img src="images/cell_grid_transform.png" alt="VTK’s two-hexahedron cell grid (left) and a copy turned, stretched and moved with Cell Grid Transform (right), both colored by the same field"></span></label></p>
+<p><strong>Cell Grid Probe</strong> looks up points in the cells. Select the cell grid, Ctrl+click the dataset whose
+points you want to look up (any dataset: its points are used), then choose Filters › Data ›
+Cell Grid Probe. In Properties, <strong>Probe points</strong> picks the second input and <strong>Attribute</strong> the
+field to sample (empty: only find the cells). A cell is searched with a quick test first:
+the point must lie behind each of the cell’s faces, taken as flat planes through the corners
+(on a flat cell, the edges’ directions stand in for the normals).
+Then the point’s coordinates in the cell are found step by step from the cell’s middle. On a
+cell with curved faces a point just outside can pass the quick test; it is kept, with empty
+(NaN) coordinates and values. Points on an edge cell are kept when they lie between the two
+end planes and within the sphere around the edge, and are then kept only if they lie on the
+edge. The output points are in single precision, and with several cell types they are listed
+in the file’s order. The grey points in the picture are such points,
+next to the curved face the two cells share.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cell_grid_probe.png" alt="VTK’s two-hexahedron cell grid as a wireframe, probed with a cloud of random points: the points found in the cells as spheres colored by the quadratic field, grey ones near the shared curved face"><span class="img-wrapper"><img src="images/cell_grid_probe.png" alt="VTK’s two-hexahedron cell grid as a wireframe, probed with a cloud of random points: the points found in the cells as spheres colored by the quadratic field, grey ones near the shared curved face"></span></label></p>
+<p><strong>Cell Grid Compute Sides</strong> finds the sides of the cells. Every side of every cell is
+listed, by cell and then by side, and a side is matched with the same side of a neighbor
+cell whichever way round its corners go. A side is kept once, for the first cell that has
+it. Properties:</p>
+<ul>
+<li><strong>Sides to include</strong>:
+<ul>
+<li><em>Next lowest dimension</em> (the default): the faces of 3-D cells, the edges of 2-D cells and
+the end points of edges;</li>
+<li><em>Surfaces of inputs</em>: the faces of 3-D cells;</li>
+<li><em>Edges of inputs</em>: the edges of 3-D and 2-D cells;</li>
+<li><em>Vertices of inputs</em>: the corners of every cell;</li>
+<li><em>All sides</em>: all of these.</li>
+</ul>
+</li>
+<li><strong>Omit sides of surfaces and lines</strong> (on by default): 2-D and 1-D cells give no sides, since
+they can be drawn as they are.</li>
+<li><strong>Keep surfaces and lines</strong> (on by default): keep drawing the 2-D and 1-D cells and the
+sides already listed. 3-D cells are always hidden behind their sides.</li>
+<li><strong>Keep</strong> (advanced):
+<ul>
+<li><em>Boundary</em> (the default): faces of 3-D cells (or edges of 2-D cells, end points of edges)
+found once, so not shared by two cells, and every lower side (edges and corners of 3-D
+cells) once;</li>
+<li><em>Odd count</em>: every side found an odd number of times;</li>
+<li><em>Every side</em>: each side once.</li>
+</ul>
+</li>
+</ul>
+<p>The sides are stored in the grid as lists of (cell, side number) pairs, one per side shape
+(“quadrilateral sides of vtkDGHex”), as VTK stores them. The fields on a side are the fields of
+its cell, so a field that jumps between cells shows the value from the cell the side belongs
+to. Running Compute Sides on its result adds the sides of those sides, for example the edges of
+the outer faces. Saving as <code>.dg</code> keeps the lists. Any filter other than the cell grid ones
+works on what is drawn: the sides. VTK’s markings of ghost and hidden points (which skip
+sides) are not read.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cell_grid_sides.png" alt="A wavelet clipped by a slanted plane, made a cell grid and reduced with Cell Grid Compute Sides to the faces on its outside, drawn with their edges and colored by RTData"><span class="img-wrapper"><img src="images/cell_grid_sides.png" alt="A wavelet clipped by a slanted plane, made a cell grid and reduced with Cell Grid Compute Sides to the faces on its outside, drawn with their edges and colored by RTData"></span></label></p>
+<p>On quadrilaterals and triangles the cell’s shape matrix (its Jacobian) is flat, so it is
+completed with the cell’s unit normal; edge and face fields then lie in the cell’s plane, and
+Cell Grid Probe gives coordinates on flat cells and edges.</p>
+<p>Verified against a reference implementation; the comparisons are listed in the
+verification notes (<code>docs/reference/verification.md</code> in the source tree).</p>
+<p>Not available yet: cell grid range and copy filters. Slicing or clipping works on the corner
+mesh, so curved cells come out straight.</p>
+<h2 id="writers"><a class="header" href="#writers">Writers</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Format</th><th>Extensions</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>VTK XML</td><td><code>.vtu .vtp .vti .vtr .vts .vtm</code></td><td>appended binary; multiblocks as a folder of pieces</td></tr>
+<tr><td>VTK hyper tree grid</td><td><code>.htg</code></td><td>XML version 2: the trees, mask and cell data</td></tr>
+<tr><td>VTK cell grid</td><td><code>.dg</code></td><td>the JSON layout VTK writes: arrays, attributes and cell types</td></tr>
+<tr><td>VTK legacy</td><td><code>.vtk</code></td><td></td></tr>
+<tr><td>VTKHDF</td><td><code>.vtkhdf</code></td><td>all dataset kinds; multiblocks as a collection; time series with <code>all_times=True</code>; written with auraFX’s own HDF5 encoder (read by h5py and VTK)</td></tr>
+<tr><td>Exodus II</td><td><code>.exo</code></td><td>blocks, nodal and element variables, every time step with <code>all_times=True</code>; HEX20 and HEX27 elements; the element blocks, side sets and node sets of generated meshes (see <a href="geometry.html#meshes-blocks-and-sets">Geometry and meshing</a>)</td></tr>
+<tr><td>Abaqus input</td><td><code>.inp</code></td><td>nodes, elements (C3D8, C3D20, C3D27, tetrahedra, wedges, pyramids) in one element set per block, node sets, side sets as element-based surfaces</td></tr>
+<tr><td>Gmsh</td><td><code>.msh</code></td><td>version 4.1 ASCII: one physical volume per element block, one physical surface of quadrilaterals per side set (node sets are not part of the format)</td></tr>
+<tr><td>EnSight Gold</td><td><code>.case</code></td><td>C binary; one part per block (image, rectilinear and structured grids as blocks, the rest as elements of every standard type, polygons and polyhedra); every time step with <code>all_times=True</code>, the geometry written once when it does not change</td></tr>
+<tr><td>CGNS</td><td><code>.cgns</code></td><td>HDF5 storage (CGNS 4): a zone per block, image/rectilinear/structured grids as structured zones, the rest as one element section (MIXED when the cell types differ) plus NGON/NFACE for polygons and polyhedra; vectors as <code>NameX/NameY/NameZ</code>; with <code>all_times=True</code> one solution per step (and coordinates per step when the points move), but the cells must stay the same</td></tr>
+<tr><td>Xdmf 3</td><td><code>.xmf</code> + <code>.h5</code></td><td>the description in the <code>.xmf</code>, the arrays in an HDF5 file beside it; block trees as spatial collections, time steps as a temporal collection that shares unchanged points and cells</td></tr>
+<tr><td>Grain orientations</td><td><code>.tex</code></td><td>four header lines (the fourth <code>B N</code>), then one line per grain id from 1: φ1 Φ φ2 in degrees and a weight of 1 (meshes with grains from Assign Grains or Overlay Mesh); grains without elements get 0 0 0</td></tr>
+<tr><td>Microstructure files</td><td><code>.dream3d</code></td><td>volumes (an image geometry), point sets and meshes of one element type (vertex, edge, triangle, quad, tetrahedral, hexahedral geometries) with their cell, vertex, feature and phase arrays; multiblocks as one data container per block; the pipeline that made the data is recorded in the file (see <a href="grains.html#pipelines-in-dream3d-files">Grains and crystals</a>)</td></tr>
+<tr><td>SPPARKS sites</td><td><code>.spparks</code></td><td>the <code>FeatureIds</code> of a volume as the <code>Values</code> of a simple-cubic lattice filling the box, x fastest</td></tr>
+<tr><td>CSV, STL, PLY</td><td></td><td>a multiblock of surfaces saved as <code>name.stl</code> writes one file per block, <code>name_&lt;block&gt;.stl</code> (Feature Surfaces gives one per grain)</td></tr>
+<tr><td>Scenes</td><td><code>.glb .obj .x3d .wrl</code></td><td>see <a href="exporting.html">Exporting</a></td></tr>
+<tr><td>Pictures</td><td><code>.png .svg</code>, GIF/MP4 animations</td><td>see <a href="exporting.html">Exporting</a></td></tr>
+</tbody>
+</table>
+</div>
+<p>Files written by the VTK XML, VTKHDF, Exodus, EnSight, Xdmf and CGNS writers were read back
+with the same points, cells and values (verified against a reference implementation; the
+comparisons are listed in the verification notes, <code>docs/reference/verification.md</code> in the
+source tree). EnSight groups the cells of each part by type, and
+CGNS puts polyhedra after the other cells, so cells can come back in a different order (each
+keeps its values). Cell types a format does not have (Lagrange and Bezier cells, for example)
+are written by their corner points. A CGNS zone holds cells of one dimension: in a volume
+mesh, boundary faces and lines are left out.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/writers.png" alt="The can crash saved with all 44 time steps as EnSight (left), Xdmf (top right) and CGNS (bottom right), opened again"><span class="img-wrapper"><img src="images/writers.png" alt="The can crash saved with all 44 time steps as EnSight (left), Xdmf (top right) and CGNS (bottom right), opened again"></span></label></p>
+<h2 id="curved-cells"><a class="header" href="#curved-cells">Curved cells</a></h2>
+<p>VTK’s Lagrange and Bezier cells of any order, quadratic cells and serendipity cells are read
+with their node numbering, drawn curved and cut by the filters along their curvature; see
+<a href="representations.html#curved-cells">Volumes, point clouds and curved cells</a>.</p>
+<h2 id="your-own-formats"><a class="header" href="#your-own-formats">Your own formats</a></h2>
+<p>A <a href="plugins.html">plugin</a> reader is a Python function with <code>@afx.reader(extensions=[...])</code>; it
+takes precedence over the built-in reader for its extensions and appears in the Open dialog.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="tutorials.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="exporting.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="tutorials.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="exporting.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

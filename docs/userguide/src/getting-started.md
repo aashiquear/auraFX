@@ -2,15 +2,29 @@
 
 ## Installing
 
-Prebuilt packages for Linux, macOS and Windows are attached to each release, and a one-line
-installer puts the app in your path:
+Prebuilt packages are attached to each release on GitHub
+(`github.com/aashiquear/auraFX/releases`). A one-line installer downloads the right one and
+puts the app in your path:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.sh | sh   # Linux, macOS
 irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1 | iex          # Windows PowerShell
 ```
 
-Desktop packages bundle Python 3.12 with NumPy, so the Python console works without setup.
+| System | Package | Notes |
+|---|---|---|
+| Linux (x86_64, aarch64) | `auraFX-<version>-<arch>.AppImage`, `auraFX-<version>-linux-<arch>.tar.gz` | the AppImage runs from anywhere (`chmod +x` first); the installer unpacks the tarball into `~/.local` and adds a menu entry (`--prefix DIR` for another place, `--uninstall` to remove); needs a Vulkan driver (Mesa or the vendor's) |
+| macOS 11 or newer (Apple silicon, Intel) | `auraFX-<version>-macos-<arch>.dmg` | drag the app to Applications, or use the installer line; the app is signed ad hoc, so the first start is **right-click › Open** |
+| Windows 10/11 (x64) | `auraFX-<version>-windows-x64-setup.exe`, `auraFX-<version>-windows-x64.zip` | the installer adds a Start-menu entry and file associations; the zip is portable (unpack anywhere and run `aurafx.exe`) |
+| Android 8 or newer | `auraFX-<version>-android.apk` | a viewer build (files, filters, rendering; no Python console, no simulations); allow the install from the browser or file manager |
+| iOS / iPadOS 15 or newer | `auraFX-<version>-ios-unsigned.ipa` | a viewer build; sign and install it with Xcode, AltStore or Sideloadly using your own Apple ID |
+
+Desktop packages bundle Python 3.12 with NumPy, so the Python console works without setup;
+the packages carry `aurafx-server` as well, for reading data on another machine (see [Data on
+another machine](client-server.md): **File › Open on Server… › Install server** copies it to a
+host over SSH). On Linux the installer also sets up the `.desktop` entry
+(`scripts/install-desktop.sh` does only that, for a build from source).
+
 To build from source you need Rust 1.85 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:
 

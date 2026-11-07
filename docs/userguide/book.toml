@@ -11,7 +11,7 @@ build-dir = "book"
 default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/aashiquear/auraFX"
-site-url = "/auraFX/"
+site-url = "/auraFX/docs/userguide/book/"
 
 [output.html.print]
 enable = true

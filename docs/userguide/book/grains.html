@@ -1,0 +1,973 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Grains and crystals - auraFX User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-d8ec7292.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-1384fa24.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">auraFX User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/aashiquear/auraFX" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="grains-and-crystals"><a class="header" href="#grains-and-crystals">Grains and crystals</a></h1>
+<p>auraFX reads electron backscatter diffraction (EBSD) maps, serial-section stacks and voxel
+microstructures, and works with crystal orientations. It colors them, converts them between
+representations and re-expresses them in a turned reference frame. It also crops, resamples
+and aligns voxel volumes. It finds the grains (features) and measures them: sizes, shapes,
+average orientations, misorientations, neighbours and boundaries. Texture analysis and
+building synthetic microstructures come in later releases.</p>
+<h2 id="ebsd-maps"><a class="header" href="#ebsd-maps">EBSD maps</a></h2>
+<p>Open a map with <strong>File › Open</strong> or <code>afx.load("scan.ang")</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Format</th><th>Extension</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>TSL/EDAX</td><td><code>.ang</code></td><td>square grids; hexagonal grids are not read yet</td></tr>
+<tr><td>Oxford</td><td><code>.ctf</code></td><td>angles in degrees in the file, converted to radians</td></tr>
+<tr><td>EBSD stacks</td><td><code>.h5ebsd</code></td><td>serial sections from TSL or Oxford (HKL) maps, read as one volume</td></tr>
+<tr><td>EDAX OIM HDF5</td><td><code>.h5</code></td><td>square-grid scans; choose the scan with the <strong>Scan</strong> reader option</td></tr>
+<tr><td>Bruker Esprit HDF5</td><td><code>.h5</code></td><td>angles in degrees in the file; phases from their space group</td></tr>
+<tr><td>Microstructures</td><td><code>.dream3d</code></td><td>voxel volumes and meshes with their cell, feature and phase arrays; see below</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>.h5</code> files are recognised by their contents, so other HDF5 files with that extension still
+open with their own readers.</p>
+<p>A map becomes image data with one cell per measured point, the cells centered on the points
+(so the map’s corner lies half a step before the first point). Its arrays are:</p>
+<ul>
+<li><strong>Cell data:</strong> <code>EulerAngles</code> (three Bunge angles φ1, Φ, φ2 in radians, as stored in the
+file) and <code>Phases</code> (the phase of each point, 0 where the pattern was not indexed). A <code>.ang</code>
+file adds <code>Image Quality</code>, <code>Confidence Index</code>, <code>SEM Signal</code> and <code>Fit</code>. A <code>.ctf</code> file adds
+<code>Bands</code>, <code>Error</code>, <code>MAD</code>, <code>BC</code> and <code>BS</code>.</li>
+<li><strong>Field data:</strong> one entry per phase, entry 0 standing for “not indexed”.
+<code>CrystalStructures</code> holds the crystal class of each phase (see the numbers below),
+<code>MaterialName</code> its name and <code>LatticeConstants</code> a, b, c, α, β, γ.</li>
+</ul>
+<p>A single-phase <code>.ang</code> scan writes phase 0 for every point. auraFX counts those points as
+phase 1, unless their confidence index is negative.</p>
+<p>An <code>.h5ebsd</code> stack becomes one volume with a cell layer per slice, the slices <code>Z Resolution</code>
+apart. The stack’s sample and Euler transformations are not applied. They are kept as the
+field arrays <code>SampleTransformationAngle</code>, <code>SampleTransformationAxis</code>,
+<code>EulerTransformationAngle</code> and <code>EulerTransformationAxis</code>. Apply them with Rotate Orientations
+(and Transform for the sample) if you need them.</p>
+<p><strong>Hexagonal axes.</strong> Oxford files describe hexagonal crystals with the [10-10] direction along
+x. auraFX, <code>.ang</code> files and the color key put [2-1-10] along x. By default the <code>.ctf</code> reader
+adds 30° to φ2 of hexagonal and trigonal phases to match. To keep the angles as stored, set
+the reader option <strong>Hexagonal axes</strong> to <em>As stored</em> in the Properties panel, or in Python:</p>
+<pre><code class="language-python">m = afx.load("titanium.ctf", hexagonal_axes="As stored")
+</code></pre>
+<h3 id="crystal-classes"><a class="header" href="#crystal-classes">Crystal classes</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Number</th><th>Class</th><th></th><th>Number</th><th>Class</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Hexagonal 6/mmm</td><td></td><td>6</td><td>Orthorhombic mmm</td></tr>
+<tr><td>1</td><td>Cubic m-3m</td><td></td><td>7</td><td>Tetragonal 4/m</td></tr>
+<tr><td>2</td><td>Hexagonal 6/m</td><td></td><td>8</td><td>Tetragonal 4/mmm</td></tr>
+<tr><td>3</td><td>Cubic m-3</td><td></td><td>9</td><td>Trigonal -3</td></tr>
+<tr><td>4</td><td>Triclinic -1</td><td></td><td>10</td><td>Trigonal -3m</td></tr>
+<tr><td>5</td><td>Monoclinic 2/m</td><td></td><td>999</td><td>Unknown</td></tr>
+</tbody>
+</table>
+</div>
+<p>Face-centered and body-centered cubic metals (nickel, aluminium, iron) are Cubic m-3m.
+Hexagonal close-packed metals (titanium, magnesium, zirconium) are Hexagonal 6/mmm.</p>
+<h3 id="microstructure-files-dream3d"><a class="header" href="#microstructure-files-dream3d">Microstructure files (.dream3d)</a></h3>
+<p>A <code>.dream3d</code> file holds one or more data containers, each a geometry with arrays. auraFX reads
+image (voxel), rectilinear, vertex, edge, triangle, quadrilateral, tetrahedral and
+hexahedral geometries.</p>
+<ul>
+<li>Cell arrays (voxels, triangles, …) become cell data, and vertex arrays become point data.</li>
+<li>Feature arrays (one row per feature, such as <code>AvgQuats</code>, <code>Volumes</code> or <code>Centroids</code>) and phase
+arrays (<code>CrystalStructures</code>, <code>LatticeConstants</code>, <code>MaterialName</code>) become field data.</li>
+<li>Neighbor lists are not read.</li>
+<li>A file with several data containers opens as blocks. The <strong>Data container</strong> reader option
+picks one.</li>
+<li>Large volumes load faster with only the arrays you need. Give their names in the <strong>Arrays</strong>
+reader option, separated by commas.</li>
+</ul>
+<pre><code class="language-python">v = afx.load("volume.dream3d", arrays="EulerAngles, Phases, FeatureIds")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/dream3d_volume.png" alt="A window of a real additively manufactured nickel alloy volume read from a .dream3d file, drawn with the inverse pole figure colors stored in it"><span class="img-wrapper"><img src="images/dream3d_volume.png" alt="A window of a real additively manufactured nickel alloy volume read from a .dream3d file, drawn with the inverse pole figure colors stored in it"></span></label></p>
+<p><strong>Saving.</strong> <strong>File › Save Data</strong> writes <code>.dream3d</code> files of volumes, meshes and point sets
+(see <a href="file-formats.html#writers">File formats</a>). The file also records the pipeline that made
+the data.</p>
+<h3 id="pipelines-in-dream3d-files"><a class="header" href="#pipelines-in-dream3d-files">Pipelines in .dream3d files</a></h3>
+<p><strong>File › Import Pipeline…</strong> builds a pipeline from a pipeline file:</p>
+<ul>
+<li>a <code>.json</code> pipeline with numbered steps, the form <code>.dream3d</code> files record;</li>
+<li>the pipeline inside a <code>.dream3d</code> file.</li>
+</ul>
+<p>Files auraFX wrote rebuild exactly: the same filters, parameters and inputs, starting from the
+same files.</p>
+<p>Pipelines from other <code>.dream3d</code> files are built as a chain of the auraFX filters that do the
+same work:</p>
+<ul>
+<li>reading steps open their file when it exists; otherwise the chain starts from the data
+selected in the pipeline;</li>
+<li>Crop, Change Resolution, Rotate Orientations, Convert Orientations;</li>
+<li>thresholds (as a Calculator mask), Segment Features, Fill Bad Data, Minimum Size;</li>
+<li>the per-feature steps (sizes, centroids, shapes, neighbors, average and reference
+orientations, kernel average misorientation, distances, merging twins);</li>
+<li>IPF colors, Align Sections, Quick Surface Mesh and Smooth Boundaries.</li>
+</ul>
+<p>Steps without a counterpart are listed in the Log and the notice: writing files, deleting
+arrays, image filters, point cloud alignment and the like.</p>
+<pre><code class="language-python">v = afx.load("window.dream3d")
+steps = afx.import_pipeline("segmentation.json", v)   # the new nodes; skipped steps are printed
+seg = v.segment_features(tolerance=3, mask="SampleVoxels")
+seg.save("segmented.dream3d")                          # records Open File and Segment Features
+print(seg.pipeline_json())
+again = afx.import_pipeline("segmented.dream3d")       # the same pipeline, rebuilt
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/import_pipeline.png" alt="The segmentation steps of the AM Bench pipeline imported onto a window of the volume: the pipeline browser lists the auraFX filters, the view shows the inverse pole figure colors"><span class="img-wrapper"><img src="images/import_pipeline.png" alt="The segmentation steps of the AM Bench pipeline imported onto a window of the volume: the pipeline browser lists the auraFX filters, the view shows the inverse pole figure colors"></span></label></p>
+<p>Limits:</p>
+<ul>
+<li>Pipelines with numbered steps (version 6) are read. The newer layout with a <code>pipeline</code> list
+is not.</li>
+<li>A pipeline from another program becomes one chain, so steps that worked on another data
+container continue from the previous step.</li>
+</ul>
+<h2 id="orientation-conventions"><a class="header" href="#orientation-conventions">Orientation conventions</a></h2>
+<p>An orientation turns the sample axes into the crystal axes. A direction with sample
+coordinates <em>s</em> has crystal coordinates <em>g s</em>, where <em>g</em> is the orientation matrix. Euler
+angles are Bunge angles in radians: <em>g</em> = Rz(φ2) Rx(Φ) Rz(φ1). Quaternion arrays store
+(x, y, z, w), with w ≥ 0. Orientation matrices are stored row by row (9 components).</p>
+<h2 id="orientation-colors"><a class="header" href="#orientation-colors">Orientation Colors</a></h2>
+<p><strong>Filters › Grains › Orientation Colors</strong> adds an 8-bit RGB array named <code>IPFColor</code>. Each
+point is colored by one of two keys:</p>
+<ul>
+<li><strong>Inverse pole figure</strong> (the default). The reference direction, z by default (the map
+normal), is turned into crystal coordinates. The crystal’s symmetry brings it into the
+standard triangle of its class, and its place there gives the color. For cubic crystals,
+[001] is red, [101] green and [111] blue. For hexagonal crystals, [0001] is red,
+[2-1-10] green and [10-10] blue. Choose x or y as the reference direction to see the
+orientation along the map’s edges.</li>
+<li><strong>Euler angles</strong>: φ1, Φ and φ2 scaled to red, green and blue.</li>
+</ul>
+<p>The class of each point comes from its phase and <code>CrystalStructures</code>, as EBSD files give
+them. For data without phases, choose the class under <strong>Crystal structure</strong>. Points not
+indexed, of an unknown class, or where the optional <strong>Mask</strong> array is 0, are black. The
+orientation array can hold Euler angles (3 components), quaternions (4) or orientation
+matrices (9). If none is chosen, the filter uses <code>EulerAngles</code>, <code>Quats</code> or
+<code>OrientationMatrix</code>, whichever it finds first.</p>
+<pre><code class="language-python">m = afx.load("scan.ang")
+ipf = m.orientation_colors(direction=(0, 0, 1))      # key="Euler angles" for the other key
+ipf.set(color_by="IPFColor")
+</code></pre>
+<h3 id="arrays-drawn-as-their-own-colors"><a class="header" href="#arrays-drawn-as-their-own-colors">Arrays drawn as their own colors</a></h3>
+<p>An array of 8-bit values with 3 or 4 components, like <code>IPFColor</code>, is drawn with its own
+colors when you color by it, not through a color map. No legend is shown for it. To map
+such an array through a color map instead, clear <strong>Colors: the array’s own colors</strong> under
+Color by in the Properties panel, or use <code>node.set(direct_colors=False)</code>. Choosing one component of the
+array also uses the color map.</p>
+<h2 id="ipf-color-key"><a class="header" href="#ipf-color-key">IPF Color Key</a></h2>
+<p><strong>Sources › IPF Color Key</strong> draws the color key of a crystal class: its standard triangle in
+stereographic projection, colored as Orientation Colors colors it. It lies around the origin
+in the xy plane, about half a unit across, so move and enlarge it with <strong>Transform</strong> to place
+it next to a map.</p>
+<pre><code class="language-python">key = afx.ipf_color_key(structure="Cubic m-3m", resolution=60)
+key.transform(scale=(20, 20, 1), translate=(42, 12, 0)).set(color_by="IPFColor")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/ebsd_ipf_map.png" alt="A nickel EBSD map colored by the inverse pole figure key along the map normal, with the cubic color key beside it"><span class="img-wrapper"><img src="images/ebsd_ipf_map.png" alt="A nickel EBSD map colored by the inverse pole figure key along the map normal, with the cubic color key beside it"></span></label></p>
+<h2 id="convert-orientations"><a class="header" href="#convert-orientations">Convert Orientations</a></h2>
+<p><strong>Filters › Grains › Convert Orientations</strong> writes the orientations in another
+representation. It reads and writes Euler angles, quaternions, orientation matrices,
+axis-angle pairs (the unit axis and the angle in radians), Rodrigues vectors (the unit axis
+and tan(ω/2)) and homochoric vectors. With <strong>Reduce to the fundamental zone</strong>, each
+orientation is replaced by its symmetry equivalent with the smallest rotation angle (for cubic
+crystals, at most 62.8°). The output is named after the representation (<code>Quats</code>,
+<code>OrientationMatrix</code>, …) unless you give a name.</p>
+<pre><code class="language-python">q = m.convert_orientations(input_type="Euler angles", output_type="Quaternions", reduce=True)
+</code></pre>
+<h2 id="rotate-orientations"><a class="header" href="#rotate-orientations">Rotate Orientations</a></h2>
+<p><strong>Filters › Grains › Rotate Orientations</strong> re-expresses the orientations after the reference
+frame is turned by an angle (degrees) about an axis. The points do not move; only the
+description of their orientations changes.</p>
+<ul>
+<li><strong>Sample</strong> frame: use this when the map’s axes differ from those you want, such as a scan
+taken with the sample turned 90° about its normal.</li>
+<li><strong>Crystal</strong> frame: turns the crystal axes the orientations refer to.</li>
+</ul>
+<pre><code class="language-python">r = m.rotate_orientations(frame="Sample", axis=(0, 0, 1), angle=90)
+</code></pre>
+<h2 id="crop"><a class="header" href="#crop">Crop</a></h2>
+<p><strong>Filters › Grains › Crop</strong> keeps the cells of a voxel volume or EBSD map whose centres lie
+inside a box, given in sample coordinates (leave a side unset to keep everything on that
+side). The cells keep their place in space. With <strong>Renumber features</strong> (on by default), the
+remaining feature ids are numbered from 1 and the per-feature field arrays keep only the
+rows of those features. To crop by grid index instead, use <strong>Extract Subset</strong>.</p>
+<pre><code class="language-python">c = v.crop_volume(min=(0, 0, 0), max=(100, 80, 20))
+</code></pre>
+<h2 id="change-resolution"><a class="header" href="#change-resolution">Change Resolution</a></h2>
+<p><strong>Filters › Grains › Change Resolution</strong> resamples a voxel volume or EBSD map onto cells of
+another size. Each new cell takes the values of the old cell that holds its centre, so
+orientations, phases and feature ids stay valid. The volume keeps its corner and, rounded to
+whole cells, its size. Features that disappear are dropped and the rest renumbered, as in
+Crop. Point data is not carried over.</p>
+<pre><code class="language-python">coarse = v.change_resolution(spacing=(2, 2, 2))
+</code></pre>
+<h2 id="align-sections"><a class="header" href="#align-sections">Align Sections</a></h2>
+<p><strong>Filters › Grains › Align Sections</strong> moves each z slice of a serial-section volume in x and
+y, by whole cells, so it matches the slice below. Choose how slices are compared:</p>
+<ul>
+<li><strong>Misorientation</strong> (the default): two cells match when their orientations differ by less
+than the <strong>Tolerance</strong> (5° by default), with the crystal class of their phase.</li>
+<li><strong>Feature ids</strong>: two cells match when they belong to the same feature.</li>
+<li><strong>Given shifts</strong>: no search. Each slice moves by the x and y cells you give, against the
+slice below.</li>
+</ul>
+<p>The search starts from no move and steps to the neighbouring shift with fewer differing cells
+until none is better, at most <strong>Largest shift</strong> cells each way. A <strong>Mask</strong> array (a sample or
+good-data mask) limits the comparison to cells where it is not 0. Cells uncovered by a move
+are set to 0 (phase 0, not indexed). The total shift of each slice is kept as the field array
+<code>SectionShifts</code> (x, y cells). Point data is not carried over.</p>
+<pre><code class="language-python">a = stack.align_sections(method="Misorientation", tolerance=5, mask="SampleVoxels")
+a.align_sections(method="Given shifts", shifts=[2, -1, 3, 1, -1, 2])   # 3 slices after the first
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/align_sections.png" alt="A stack of four shifted slices colored by orientation, as read (left) and after Align Sections (right); both are stretched along z, and the black edges are cells uncovered by the moves"><span class="img-wrapper"><img src="images/align_sections.png" alt="A stack of four shifted slices colored by orientation, as read (left) and after Align Sections (right); both are stretched along z, and the black edges are cells uncovered by the moves"></span></label></p>
+<h2 id="features-grains"><a class="header" href="#features-grains">Features (grains)</a></h2>
+<p>A feature is a connected set of cells, cells sharing a face, that belong together: usually a
+grain. <strong>Segment Features</strong> finds them and writes the cell array <code>FeatureIds</code> (0 for cells
+in no feature). The other feature filters then add per-feature results as field arrays, one
+row per feature id (row 0 stands for id 0). All of them are under <strong>Filters › Grains</strong> and work
+on voxel volumes and on flat EBSD maps.</p>
+<p>A typical sequence for an EBSD volume:</p>
+<pre><code class="language-python">v = afx.load("scan.dream3d")
+g = (v.segment_features(tolerance=2, mask="SampleVoxels")
+      .fill_bad_data(min_defect=7)
+      .minimum_size(min_cells=7)
+      .feature_sizes().feature_centroids().feature_shapes()
+      .average_orientations().reference_misorientations()
+      .kernel_average_misorientation(kernel=(2, 2, 1))
+      .feature_neighbors())
+table = g.feature_table()           # one row per grain, for the Spreadsheet, charts and CSV
+g.feature_colors().set(color_by="FeatureColors")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/grain_map.png" alt="An EBSD map segmented at 5 degrees, each grain in its own color, with the boundaries between grains"><span class="img-wrapper"><img src="images/grain_map.png" alt="An EBSD map segmented at 5 degrees, each grain in its own color, with the boundaries between grains"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/grain_volume.png" alt="A window of a real nickel alloy volume segmented into grains (2 degrees, within the sample mask, small defects and grains under 7 cells cleaned up), colored by grain"><span class="img-wrapper"><img src="images/grain_volume.png" alt="A window of a real nickel alloy volume segmented into grains (2 degrees, within the sample mask, small defects and grains under 7 cells cleaned up), colored by grain"></span></label></p>
+<h3 id="segment-features"><a class="header" href="#segment-features">Segment Features</a></h3>
+<p>Neighbouring cells join the same feature when they pass the test of <strong>Group by</strong>:</p>
+<ul>
+<li><strong>Misorientation</strong>: same phase, and misorientation below the <strong>Tolerance</strong> in degrees.</li>
+<li><strong>C-axis alignment</strong>: same phase, and crystal c axes within the tolerance either way round.
+This is for hexagonal crystals.</li>
+<li><strong>Scalar</strong>: values of the chosen cell array differ by at most the tolerance.</li>
+</ul>
+<p>Cells outside the <strong>Mask</strong> (cells where it is 0), and cells of no known crystal class, stay
+at 0. Features are numbered in the order their first cell appears (x fastest, then y, then
+z). <strong>Shuffle ids</strong> numbers them in a shuffled order instead, which gives better colors
+when coloring by id. The field arrays <code>Active</code> and <code>FeaturePhases</code> (the phase of each
+feature) are added, and per-feature arrays from an earlier segmentation are removed.</p>
+<h3 id="cleaning-up"><a class="header" href="#cleaning-up">Cleaning up</a></h3>
+<ul>
+<li><strong>Fill Bad Data</strong>: clusters of cells without a feature that are smaller than <strong>Smallest
+kept defect</strong> are filled from the surrounding features. Each cell takes every cell array
+from the neighbour whose feature most of its neighbours belong to, sweep after sweep.
+Larger clusters (pores, the outside of the sample) stay 0.</li>
+<li><strong>Minimum Size</strong>: features with fewer cells than <strong>Fewest cells</strong> are removed and filled
+from their neighbours the same way. Feature 0 can win, so a small feature against the
+outside may become outside. The remaining features are renumbered from 1 in their old
+order, and per-feature field arrays keep their rows.</li>
+</ul>
+<h3 id="per-feature-results"><a class="header" href="#per-feature-results">Per-feature results</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Filter</th><th>Field arrays (per feature)</th><th>Cell arrays</th></tr>
+</thead>
+<tbody>
+<tr><td>Feature Sizes</td><td><code>NumElements</code>, <code>Volumes</code>, <code>EquivalentDiameters</code> (sphere of equal volume; circle of equal area on flat maps)</td><td></td></tr>
+<tr><td>Feature Centroids</td><td><code>Centroids</code> (mean of the cell centres)</td><td></td></tr>
+<tr><td>Feature Shapes</td><td><code>AxisLengths</code> (semi-axes a ≥ b ≥ c of the ellipsoid with the same moments of inertia), <code>AspectRatios</code> (b/a, c/a), <code>AxisEulerAngles</code> (Bunge angles of the axes: the rows of the rotation are the a, b and c directions), <code>Omega3s</code> (1 for an ellipsoid, smaller for other shapes)</td><td></td></tr>
+<tr><td>Average Orientations</td><td><code>AvgQuats</code> (x, y, z, w), <code>AvgEulerAngles</code></td><td></td></tr>
+<tr><td>Reference Misorientations</td><td><code>FeatureAvgMisorientations</code></td><td><code>FeatureReferenceMisorientations</code> (degrees from the feature’s average orientation)</td></tr>
+<tr><td>Kernel Average Misorientation</td><td></td><td><code>KernelAverageMisorientations</code> (degrees)</td></tr>
+<tr><td>Feature Neighbors</td><td><code>NumNeighbors</code>, <code>SurfaceFeatures</code> (1 when touching the edge of the volume or cells without a feature), <code>AvgMisorientations</code> (mean misorientation to the neighbouring features of the same crystal class, when average orientations exist)</td><td><code>BoundaryCells</code> (face neighbours in another feature)</td></tr>
+<tr><td>Distance to Boundaries</td><td></td><td><code>GBEuclideanDistances</code>, <code>TJEuclideanDistances</code>, <code>QPEuclideanDistances</code> (distance between cell centres to the nearest boundary, triple-line and quadruple-point cell; -1 where there is none)</td></tr>
+<tr><td>Merge Twins</td><td><code>ParentIds</code></td><td><code>ParentIds</code></td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><strong>Feature Shapes</strong> uses the exact second moments of the cells: each cell counted at its
+centre with its own inertia. On flat maps it gives the ellipse of the same moments: a and b,
+b/a, and the angle of the long axis in the plane as the first Euler angle.</li>
+<li><strong>Average Orientations</strong> adds, cell by cell, the symmetry equivalent nearest the running
+average (the identity for the first cell), then normalises.</li>
+<li><strong>Kernel Average Misorientation</strong> averages a cell’s misorientation to the cells of the same
+feature within <strong>Kernel</strong> cells along x, y and z (1 1 1 means the 26 neighbours). The cell
+itself counts, with 0. Cells without a feature get 0.</li>
+<li><strong>Merge Twins</strong> gives neighbouring cubic m-3m features a common parent when their average
+orientations differ by 60° about a ⟨111⟩ axis, within the <strong>Axis</strong> and <strong>Angle</strong>
+tolerances. Chains of twins share one parent. Parents are numbered in the order of their
+first feature.</li>
+</ul>
+<h3 id="boundaries-colors-and-the-table"><a class="header" href="#boundaries-colors-and-the-table">Boundaries, colors and the table</a></h3>
+<ul>
+<li><strong>Feature Boundaries</strong> gives the cell faces between different features as a surface. Each
+face has <code>FeatureIdA</code> and <code>FeatureIdB</code>, the <code>Misorientation</code> (degrees) between the two
+cells, and <code>Twin</code> (1 on twin boundaries of cubic m-3m crystals). <strong>Include the outer
+surface</strong> adds the faces against cells without a feature and the edge of the volume.
+Draw it as <strong>Wireframe</strong> over a flat map to see the boundaries as lines.</li>
+<li><strong>Feature Colors</strong> gives each feature a distinct, stable color (<code>FeatureColors</code>, drawn as
+its own colors).</li>
+<li><strong>Feature Table</strong> turns the per-feature field arrays into a table, one row per feature with
+a <code>FeatureId</code> column, for the Spreadsheet, charts and <strong>Export CSV</strong>.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/feature_table.png" alt="The per-feature results of an EBSD map in the Spreadsheet as a Feature Table"><span class="img-wrapper"><img src="images/feature_table.png" alt="The per-feature results of an EBSD map in the Spreadsheet as a Feature Table"></span></label></p>
+<h2 id="texture"><a class="header" href="#texture">Texture</a></h2>
+<p>The texture filters (<strong>Filters › Grains</strong>) describe how the orientations of a map or volume
+are distributed. Every density is in multiples of a random distribution (MRD): 1 is what
+randomly oriented crystals give, 3 means three times as often as random. Each density is a
+smoothed count: every orientation spreads over a Gaussian of the <strong>Smoothing</strong> width.</p>
+<p>The texture filters work on one phase:</p>
+<ul>
+<li><strong>Phase</strong> chooses it. With 0, every indexed point is used, and they must all have one
+crystal class.</li>
+<li><strong>Mask</strong> can leave out more points.</li>
+<li><strong>Orientations used at most</strong> caps how many are counted (60 000 for the figures, 10 000 for
+the ODF). When there are more, a random subset with a fixed seed is taken, so the result is
+the same each time.</li>
+</ul>
+<p>The figures come out as flat panels side by side in the view, colored by <code>MRD</code> or <code>ODF</code>. To
+keep the numbers, save the output as CSV: every panel goes into one file, with a <code>Block</code>
+column naming the panel and the direction or angles of each point.</p>
+<h3 id="pole-figure"><a class="header" href="#pole-figure">Pole Figure</a></h3>
+<p><strong>Pole Figure</strong> shows where the crystal directions of a family point in the sample.</p>
+<ul>
+<li><strong>Directions</strong> lists the families, written like <code>100, 110, 111</code>, <code>-112</code> or <code>1 2 3</code>.
+Every symmetry-equivalent direction and its opposite are counted.</li>
+<li>Each family is a disk: sample X to the right, Y up, sample Z at the centre and the
+horizontal plane at the rim.</li>
+<li><strong>Projection</strong> is <em>Stereographic</em>, which keeps angles, or <em>Equal area</em>, which keeps areas.</li>
+<li>The directions are first gathered in <strong>Bin size</strong> cells (2° by default) before smoothing.
+This keeps large maps fast.</li>
+</ul>
+<pre><code class="language-python">pf = ebsd.pole_figure(families="100, 110, 111", projection="Stereographic", sigma=7.5)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pole_figures.png" alt="The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume"><span class="img-wrapper"><img src="images/pole_figures.png" alt="The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume"></span></label></p>
+<h3 id="inverse-pole-figure"><a class="header" href="#inverse-pole-figure">Inverse Pole Figure</a></h3>
+<p><strong>Inverse Pole Figure</strong> shows which crystal directions lie along a sample direction (X, Y
+or Z, or all three side by side). The density is drawn on the standard triangle of the
+crystal class, the same region the orientation color key uses. A fibre texture shows here
+as one bright corner or spot.</p>
+<pre><code class="language-python">ipf = ebsd.inverse_pole_figure(directions="X, Y and Z")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/inverse_pole_figures.png" alt="Inverse pole figures for sample X, Y and Z on the cubic standard triangle"><span class="img-wrapper"><img src="images/inverse_pole_figures.png" alt="Inverse pole figures for sample X, Y and Z on the cubic standard triangle"></span></label></p>
+<h3 id="odf-sections"><a class="header" href="#odf-sections">ODF Sections</a></h3>
+<p><strong>ODF Sections</strong> computes the orientation distribution function (ODF): how often each
+orientation occurs, smoothed over the disorientation angle.</p>
+<ul>
+<li>Each section has a constant φ2 (<strong>Sections</strong>, 0, 45 and 65° by default). φ1 runs across
+from 0 to 360°, and Φ runs down from 0 to 90° for classes with a two-fold axis across the
+c axis (otherwise to 180°).</li>
+<li>Each point’s Euler angles are kept with its value.</li>
+<li>The output also carries the <strong>texture index</strong> <code>TextureIndex</code>: the mean of the squared ODF
+over all orientations. It is 1 for a random texture and grows as the texture sharpens.</li>
+<li><code>MaxODF</code> is the ODF’s largest value. Both come from a grid of <strong>Texture index step</strong>
+degrees over the whole orientation space.</li>
+<li>With a finite number of orientations, even a random set gives an index a little above 1:
+about 1.001 for 20 000 random orientations with 7.5° smoothing.</li>
+</ul>
+<pre><code class="language-python">odf = ebsd.odf_sections(sections="0, 45, 65", step=5)
+print(odf.array("TextureIndex", "field"))
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/odf_sections.png" alt="ODF sections at phi2 = 0, 45 and 65 degrees"><span class="img-wrapper"><img src="images/odf_sections.png" alt="ODF sections at phi2 = 0, 45 and 65 degrees"></span></label></p>
+<h3 id="misorientation-distribution"><a class="header" href="#misorientation-distribution">Misorientation Distribution</a></h3>
+<p><strong>Misorientation Distribution</strong> makes a table of disorientation angles (the smallest
+rotation between two orientations, allowing for crystal symmetry) with three columns:</p>
+<ul>
+<li><strong>Neighbours:</strong> between neighbouring points of a map or volume.</li>
+<li><strong>Random pairs:</strong> between randomly chosen pairs of points (<strong>Random pairs</strong> of them). This
+shows what the texture alone gives, without any spatial correlation.</li>
+<li><strong>Uniform:</strong> between randomly oriented crystals, computed exactly for the crystal class.</li>
+</ul>
+<p>Each column is a density per degree, so all three can be plotted on one axis. Angles below
+<strong>Smallest angle</strong> (5° by default, meant to leave out the small angles inside grains) are
+left out of all three. Peaks in Neighbours that are missing from the other two point to
+special boundaries, such as twins near 60° in cubic metals.</p>
+<p>The table plots in the <strong>Charts</strong> panel with <code>bin_center</code> on the x axis. Its field data
+counts the neighbour pairs and gives their mean angle.</p>
+<pre><code class="language-python">m = ebsd.misorientation_distribution(min_angle=5, bin=1)
+x = m.array("bin_center")
+afx.plot(x, m.array("Neighbours"), label="Neighbours", clear=True)
+afx.plot(x, m.array("Uniform"), label="Uniform")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/misorientation_distribution.png" alt="The misorientation distribution of a measured nickel-superalloy volume in the Charts panel"><span class="img-wrapper"><img src="images/misorientation_distribution.png" alt="The misorientation distribution of a measured nickel-superalloy volume in the Charts panel"></span></label></p>
+<h3 id="texture-components"><a class="header" href="#texture-components">Texture Components</a></h3>
+<p><strong>Texture Components</strong> makes a table of the fraction of orientations that have a crystal
+direction of a family within <strong>Cone</strong> degrees of a sample axis. It has one row per direction
+and axis, such as <code>&lt;100&gt; Z</code> for orientations with a cube axis along Z. The defaults are the
+families <code>100, 110, 111</code> against the axes <code>X, Y, Z</code>, with a 15° cone.</p>
+<pre><code class="language-python">tc = ebsd.texture_components(families="100, 111", axes="Z", cone=15)
+</code></pre>
+<h3 id="chord-lengths"><a class="header" href="#chord-lengths">Chord Lengths</a></h3>
+<p><strong>Chord Lengths</strong> measures grain size along straight lines through a map or volume.</p>
+<ul>
+<li><strong>Lines.</strong> They run in x, y and, for a volume, z. <strong>Line spacing</strong> is the distance between
+them, in length units; 0 uses every row of points.</li>
+<li><strong>Boundaries.</strong> A boundary lies between two neighbouring points whose disorientation is at
+least <strong>Boundary angle</strong> (10° by default). A chord is the distance between two boundaries
+that follow each other along a line.</li>
+<li><strong>Unused points.</strong> Points of other phases, unindexed points and masked points are skipped.
+A run of more than <strong>Largest gap</strong> of them ends the line segment there.</li>
+<li><strong>Partial chords.</strong> A chord that touches a segment’s end, or the edge of the data, is left
+out, because its true length is unknown.</li>
+<li><strong>Specks.</strong> <strong>Ignore single-point specks</strong> stops a single stray point, whose two
+neighbours agree with each other, from counting as two boundaries.</li>
+</ul>
+<p><strong>Output</strong> gives either every chord (its direction and length) or a histogram with one column
+per direction. Both carry the mean chord and the number of chords per direction as field
+data (<code>MeanChordX</code>, <code>ChordsX</code>, …).</p>
+<pre><code class="language-python">ch = ebsd.chord_lengths(threshold=10, output="Histogram", bin=2)
+print(ch.array("MeanChordX", "field"))
+</code></pre>
+<h2 id="synthetic-microstructures"><a class="header" href="#synthetic-microstructures">Synthetic microstructures</a></h2>
+<p>These sources build microstructures without measured data. They have the same arrays an
+EBSD reader gives: <code>FeatureIds</code>, <code>Phases</code> and <code>EulerAngles</code> per cell, and
+<code>CrystalStructures</code>. Every filter in this chapter therefore works on them, and Overlay Mesh
+turns them into a mesh. A fixed <strong>Random seed</strong> gives the same microstructure every time.</p>
+<h3 id="voronoi-grains"><a class="header" href="#voronoi-grains">Voronoi Grains</a></h3>
+<p><strong>Sources › Voronoi Grains</strong> places <strong>Grains</strong> seeds at random in a grid of <strong>Cells</strong> and
+gives every cell to its nearest seed.</p>
+<ul>
+<li><strong>Size spread</strong> above 0 makes Laguerre grains: each seed gets a radius drawn from a
+lognormal distribution with that log-sigma, and a cell goes to the seed with the
+smallest squared distance minus the squared radius. Grain sizes then vary much more than
+in Voronoi grains.</li>
+<li><strong>Periodic</strong> wraps the grains across opposite faces, for representative volume elements.</li>
+<li><strong>Orientations</strong> are random, or a fibre with <code>&lt;100&gt;</code> or <code>&lt;111&gt;</code> along Z, scattered by
+<strong>Fibre spread</strong> and random about Z.</li>
+<li>The seed positions are kept as the field array <code>Seeds</code>.</li>
+</ul>
+<pre><code class="language-python">v = afx.voronoi_grains(cells=[64, 64, 64], grains=300, size_sigma=0.4, periodic=True)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/voronoi_grains.png" alt="Laguerre grains colored by the inverse pole figure key"><span class="img-wrapper"><img src="images/voronoi_grains.png" alt="Laguerre grains colored by the inverse pole figure key"></span></label></p>
+<h3 id="columnar-grains"><a class="header" href="#columnar-grains">Columnar Grains</a></h3>
+<p><strong>Sources › Columnar Grains</strong> grows the columnar grains of an additive build along Z:</p>
+<ul>
+<li><strong>Columns.</strong> As many columns as fit one <strong>Grain width</strong> apart are alive at every height.
+Each is tilted at random (<strong>Column tilt</strong>) and grows to a lognormal height (<strong>Median
+grain height</strong>, <strong>Height spread</strong>).</li>
+<li><strong>Ending.</strong> A column also ends when its neighbours grow over it. Each slice of the box is
+shared among the columns alive there, so a column can lose its whole cross-section.</li>
+<li><strong>Renewal.</strong> A column that ends is replaced at that height by a new grain at a random
+position.</li>
+<li><strong>Widths.</strong> <strong>Width spread</strong> and <strong>Width grows with height</strong> make the columns differ in
+width, with tall grains wider.</li>
+<li><strong>Orientations.</strong> By default every grain has a <code>&lt;100&gt;</code> direction near Z, as in many
+additively built cubic metals.</li>
+<li><strong>Per-grain field arrays:</strong> <code>GrainBase</code>, <code>GrainTop</code>, <code>GrainTilt</code> and <code>Originating</code>
+(1 for grains that start inside the build rather than on the base plate).</li>
+</ul>
+<pre><code class="language-python">g = afx.columnar_grains(size=(300, 300, 450), voxel=5, width=50, height=150)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/columnar_grains.png" alt="Columnar grains of an additive build colored by the inverse pole figure key for X"><span class="img-wrapper"><img src="images/columnar_grains.png" alt="Columnar grains of an additive build colored by the inverse pole figure key for X"></span></label></p>
+<h3 id="add-orientation-noise-and-jumble-orientations"><a class="header" href="#add-orientation-noise-and-jumble-orientations">Add Orientation Noise and Jumble Orientations</a></h3>
+<p><strong>Add Orientation Noise</strong> turns every point’s orientation by a small random rotation. The
+rotation is about a random axis, with an angle drawn from a normal distribution with
+standard deviation <strong>Angle</strong>, so the mean turn is about 0.8 times <strong>Angle</strong>. With <strong>One
+rotation per feature</strong>, every point of a grain turns alike.</p>
+<p><strong>Jumble Orientations</strong> gives the grains each other’s orientations at random. The texture
+stays the same, but any link between a grain’s orientation and its neighbours’ or its
+shape is lost. Each grain takes the orientation of the first point of the grain it
+swapped with.</p>
+<pre><code class="language-python">noisy = v.orientation_noise(sigma=2)
+mixed = v.jumble_orientations()
+</code></pre>
+<h3 id="generate-ensemble-statistics"><a class="header" href="#generate-ensemble-statistics">Generate Ensemble Statistics</a></h3>
+<p><strong>Generate Ensemble Statistics</strong> describes a segmented microstructure (one with
+<code>FeatureIds</code>) as a table of fits:</p>
+<ul>
+<li><strong>Size:</strong> a lognormal fit of the equivalent diameters (<code>ESD mu</code> and <code>ESD sigma</code> of their
+logarithms), with the mean, smallest and largest diameter.</li>
+<li><strong>Shape:</strong> beta-distribution fits of the aspect ratios b/a and c/a (a, b and c are a
+grain’s axes, longest first).</li>
+<li><strong>Neighbours:</strong> a lognormal fit of the neighbour counts.</li>
+</ul>
+<p>Features touching the outside are left out unless <strong>Include features on the surface</strong> is
+on, because their size and neighbours are cut short. The values are also field data of the
+table.</p>
+<pre><code class="language-python">st = v.ensemble_statistics(include_surface=True)
+print(st.array("ESD sigma", "field"))
+</code></pre>
+<h3 id="pack-grains"><a class="header" href="#pack-grains">Pack Grains</a></h3>
+<p><strong>Sources › Pack Grains</strong> builds a microstructure from goal statistics.</p>
+<ul>
+<li><strong>Size.</strong> Equivalent diameters are lognormal: <strong>Size mu</strong> and <strong>Size sigma</strong> describe their
+logarithms. The advanced cut-offs limit the draws to a few sigmas either side.</li>
+<li><strong>Shape.</strong> The aspect ratios follow beta distributions: <strong>b/a</strong> and <strong>c/a</strong>, each given as
+(alpha, beta), so their mean is alpha / (alpha + beta).</li>
+<li><strong>Grain shape</strong> is an ellipsoid, a superellipsoid (boxier as its exponent grows), a
+cube-octahedron or a cylinder. Its axes are turned at random, or lie along x, y, z with
+<strong>Axes along x, y, z</strong>.</li>
+<li><strong>Filling.</strong> Grains are drawn until their volume fills the box. Each is then moved about
+at random, and a move is kept when it lowers the overlap and the gaps. Every cell goes to
+the grain it lies deepest inside, and the gaps are filled by growing the grains a layer at
+a time.</li>
+<li><strong>Matrix.</strong> With a <strong>Grain volume fraction</strong> below 1, grains are added until they cover
+that fraction. The rest of the box becomes a matrix phase (phase 2, one feature).</li>
+<li><strong>Calibration.</strong> Grains that fill space come out a little smaller and flatter than the
+shapes drawn. <strong>Match the goal sizes and shapes</strong> (on by default)
+measures the result, shifts the goals by what is missing and packs again, up to four
+times. The grains away from the box faces then match the goal mean size and aspect
+ratios to within about 0.02.</li>
+</ul>
+<p><code>OverlapFraction</code> in the output’s field data is the share of cells that more than one grain
+reached during packing.</p>
+<pre><code class="language-python">g = afx.pack_grains(cells=[80, 80, 80], esd_mu=2.48, esd_sigma=0.15, ba=[12, 4], ca=[10, 6])
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pack_grains.png" alt="Grains packed from goal statistics, elongated along x, with precipitates on their boundaries"><span class="img-wrapper"><img src="images/pack_grains.png" alt="Grains packed from goal statistics, elongated along x, with precipitates on their boundaries"></span></label></p>
+<h3 id="pack-like"><a class="header" href="#pack-like">Pack Like</a></h3>
+<p><strong>Pack Like</strong> makes a statistical copy of a segmented microstructure in a box of any size:</p>
+<ul>
+<li>It measures the input like Generate Ensemble Statistics.</li>
+<li>It packs grains with those size and shape statistics.</li>
+<li>The new grains take orientations of the measured grains, chosen in proportion to their
+volume, so the copy has the same texture.</li>
+</ul>
+<pre><code class="language-python">copy = measured.pack_like(cells=[100, 100, 100])
+</code></pre>
+<h3 id="insert-precipitates"><a class="header" href="#insert-precipitates">Insert Precipitates</a></h3>
+<p><strong>Insert Precipitates</strong> adds particles of a new phase to a microstructure until they fill
+the <strong>Volume fraction</strong>:</p>
+<ul>
+<li><strong>Shape and size.</strong> Particles are spheres whose diameters are lognormal (<strong>Size mu</strong>,
+<strong>Size sigma</strong>).</li>
+<li><strong>Placement.</strong> They are placed at random, or on grain boundaries with <strong>On grain
+boundaries</strong>. No two particles touch.</li>
+<li><strong>Output.</strong> Each particle is a feature with a random orientation, in the next phase
+number, whose crystal structure is added to <code>CrystalStructures</code>.</li>
+</ul>
+<h3 id="match-crystallography"><a class="header" href="#match-crystallography">Match Crystallography</a></h3>
+<p><strong>Match Crystallography</strong> takes a second input: a reference microstructure, normally the
+measured one. It works in two steps:</p>
+<ol>
+<li><strong>Texture.</strong> Each grain of phase 1 gets an orientation drawn from the reference’s grains
+by volume, which reproduces the texture.</li>
+<li><strong>Boundaries.</strong> It swaps orientations between grains, or draws new ones, whenever that
+brings the distribution of disorientation angles across grain boundaries closer to the
+reference’s. The distributions are weighted by boundary area, in 5° bins.</li>
+</ol>
+<p>The field data <code>MDFErrorBefore</code> and <code>MDFErrorAfter</code> give the summed difference between the
+two distributions before and after the swaps.</p>
+<pre><code class="language-python">matched = synthetic.match_crystallography(measured)
+</code></pre>
+<h2 id="grain-boundary-surfaces"><a class="header" href="#grain-boundary-surfaces">Grain boundary surfaces</a></h2>
+<p>These filters work on the boundaries between the features of a segmented volume.</p>
+<h3 id="quick-surface-mesh"><a class="header" href="#quick-surface-mesh">Quick Surface Mesh</a></h3>
+<p><strong>Quick Surface Mesh</strong> turns every voxel face between two different features into two
+triangles, including the faces on the outside of the volume.</p>
+<ul>
+<li><strong><code>FaceLabels</code></strong> (two per triangle) are the features on either side. The triangle’s
+normal points out of the first and into the second, and -1 is the outside.</li>
+<li><strong><code>NodeType</code></strong> counts the features meeting at each node: 2 on a boundary, 3 on a triple
+line, 4 at a quadruple point. Nodes on the outer faces of the volume get 10 more (12, 13,
+14).</li>
+<li><strong>Orientations.</strong> When the volume has orientations, the surface keeps each feature’s mean
+orientation (<code>AvgQuats</code>) and phase (<code>FeaturePhases</code>) for the filters below.</li>
+</ul>
+<h3 id="smooth-boundaries"><a class="header" href="#smooth-boundaries">Smooth Boundaries</a></h3>
+<p><strong>Smooth Boundaries</strong> removes the voxel staircase.</p>
+<ul>
+<li><strong>Steps.</strong> Each node moves towards the mean of its neighbours by <strong>Step (lambda)</strong>, and
+on every other pass back by <strong>Inflating step (mu)</strong>. This is Taubin smoothing, which keeps
+the grains’ volumes. With mu 0 it is plain Laplacian smoothing, which shrinks them.</li>
+<li><strong>Triple lines</strong> follow only their neighbours on triple lines, with their own step.
+<strong>Quadruple points</strong> stay put by default.</li>
+<li><strong>Outer faces.</strong> Nodes on the outer faces of the volume move only within those faces.</li>
+</ul>
+<h3 id="triangle-geometry-and-feature-surfaces"><a class="header" href="#triangle-geometry-and-feature-surfaces">Triangle Geometry and Feature Surfaces</a></h3>
+<p><strong>Triangle Geometry</strong> measures each triangle: <code>FaceAreas</code>, <code>FaceNormals</code>, <code>FaceCentroids</code>,
+and <code>FaceMinimumAngles</code> (its smallest corner angle, a measure of its quality). For every
+feature it also adds, as field data, the volume its boundary encloses (<code>SurfaceVolumes</code>) and
+its boundary area (<code>SurfaceAreas</code>).</p>
+<p><strong>Feature Surfaces</strong> gives the closed surface of each feature, its triangles facing
+outwards, one block per feature. Saved as STL (<code>grains.stl</code>), it writes one file per
+feature: <code>grains_feature_1.stl</code>, <code>grains_feature_2.stl</code>, … <strong>Features</strong> chooses some
+of them.</p>
+<pre><code class="language-python">s = volume.quick_surface_mesh().smooth_boundaries(iterations=20)
+s.feature_surfaces().save("grains.stl")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/grain_boundary_mesh.png" alt="Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane"><span class="img-wrapper"><img src="images/grain_boundary_mesh.png" alt="Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane"></span></label></p>
+<h3 id="face-orientation-colors"><a class="header" href="#face-orientation-colors">Face Orientation Colors</a></h3>
+<p><strong>Face Orientation Colors</strong> colours each triangle three ways:</p>
+<ul>
+<li><strong><code>FaceIPFColors</code>:</strong> the inverse pole figure key of its plane, in the crystal of the
+feature it faces out of (on the outer surface, the feature inside).</li>
+<li><strong><code>FaceMisorientations</code>:</strong> the disorientation angle across it, in degrees.</li>
+<li><strong><code>FaceMisorientationColors</code>:</strong> a colour for that disorientation. The hue comes from where
+its axis falls in the standard triangle, and it is darker for smaller angles.</li>
+</ul>
+<h3 id="gbcd-section"><a class="header" href="#gbcd-section">GBCD Section</a></h3>
+<p>The grain boundary character distribution (GBCD) tells how often each boundary plane occurs
+for each misorientation, in multiples of random. <strong>GBCD Section</strong> shows one misorientation
+(<strong>Misorientation angle</strong> about <strong>Misorientation axis</strong>, within <strong>Tolerance</strong>). It is a disk
+of crystal directions (stereographic or equal area, [001] at the centre), colored by how
+often boundaries of that misorientation lie on each plane.</p>
+<ul>
+<li><strong>How it is counted.</strong> Every boundary triangle counts from both sides, with every
+symmetry-equivalent description of its misorientation, weighted by its area.</li>
+<li><strong>Random.</strong> A microstructure with random orientations and planes gives 1 everywhere.</li>
+<li><strong><code>MisorientationMRD</code></strong> is how much more often than random the boundaries have that
+misorientation at all.</li>
+<li><strong>Smooth first.</strong> The voxel staircase points the faces along the grid axes, so a GBCD of
+an unsmoothed surface smears each plane into a ring. Use Smooth Boundaries first.</li>
+</ul>
+<pre><code class="language-python">g = s.gbcd_section(angle=60, axis=(1, 1, 1), tolerance=5)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/gbcd_section.png" alt="The Sigma 3 GBCD of a synthetic volume of twin lamellae, peaking at (111)"><span class="img-wrapper"><img src="images/gbcd_section.png" alt="The Sigma 3 GBCD of a synthetic volume of twin lamellae, peaking at (111)"></span></label></p>
+<h2 id="mechanics-and-additive-manufacturing"><a class="header" href="#mechanics-and-additive-manufacturing">Mechanics and additive manufacturing</a></h2>
+<h3 id="crystal-mechanics"><a class="header" href="#crystal-mechanics">Crystal Mechanics</a></h3>
+<p><strong>Crystal Mechanics</strong> works out, for every orientation and a <strong>Loading direction</strong> in the
+sample, three quantities:</p>
+<ul>
+<li><strong><code>SchmidFactor</code>:</strong> the largest Schmid factor of the material’s slip systems, with the
+system in <code>SlipSystem</code> (numbered as in the field array <code>SlipSystemNames</code>).</li>
+<li><strong><code>TaylorFactor</code>:</strong> the full-constraint Taylor factor for straining along the direction. It
+is exact: every set of five independent slip systems is tried, weighted by the relative
+resistance of their families.</li>
+<li><strong><code>YoungsModulus</code>:</strong> in GPa, from the elastic constants.</li>
+</ul>
+<p>The field data gives the means, the Voigt (<code>YoungsModulusVoigt</code>), Reuss and Hill averages of
+the modulus, and, for materials with a known base strength, a yield estimate:</p>
+<blockquote>
+<p>σy = σbase · M / 3.06 + α μ b M √ρ</p>
+</blockquote>
+<p>Here M is the mean Taylor factor, 3.06 is a random texture’s, and ρ is the mean of an
+optional dislocation-density array (from GND Density). The result is in
+<code>YieldEstimateMPa</code>, with its two parts in <code>YieldTextureMPa</code> and <code>YieldDislocationMPa</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Material</th><th>Lattice</th><th>Slip families (relative resistance)</th><th>Base strength</th></tr>
+</thead>
+<tbody>
+<tr><td>IN718, CoNi GammaPrint-700</td><td>FCC</td><td>{111}&lt;110&gt;</td><td>647.6 MPa, 400 MPa</td></tr>
+<tr><td>Nickel, Copper, Aluminium</td><td>FCC</td><td>{111}&lt;110&gt;</td><td></td></tr>
+<tr><td>Iron (BCC)</td><td>BCC</td><td>{110}&lt;111&gt;, {112}&lt;111&gt;</td><td></td></tr>
+<tr><td>Titanium (HCP)</td><td>HCP, c/a 1.587</td><td>basal 1, prismatic 0.7, pyramidal <a> 1, pyramidal &lt;c+a&gt; 3</a></td><td></td></tr>
+<tr><td>Magnesium (HCP)</td><td>HCP, c/a 1.624</td><td>basal 1, prismatic 10, pyramidal <a> 10, pyramidal &lt;c+a&gt; 15</a></td><td></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Custom</strong> takes the lattice, the elastic constants (C11 C12 C44, or C11 C12 C13 C33 C44 for
+hexagonal crystals), the shear modulus, the Burgers vector, c/a and the slip families
+(written like <code>Basal &lt;a&gt;=1, Prismatic &lt;a&gt;=0.7</code>). The families available are {111}&lt;110&gt; for
+FCC; {110}, {112} and {123}&lt;111&gt; for BCC; basal, prismatic and pyramidal <a>, and pyramidal
+&lt;c+a&gt;, for HCP.</a></p>
+<pre><code class="language-python">m = volume.crystal_mechanics(material="IN718", direction=(0, 0, 1))
+print(m.array("YieldEstimateMPa", "field"))
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/crystal_mechanics.png" alt="A measured nickel-superalloy volume colored by the Taylor factor for loading along the build direction"><span class="img-wrapper"><img src="images/crystal_mechanics.png" alt="A measured nickel-superalloy volume colored by the Taylor factor for loading along the build direction"></span></label></p>
+<h3 id="srod"><a class="header" href="#srod">SROD</a></h3>
+<p>In an additive build, a grain’s orientation turns slowly as it grows layer by layer. <strong>SROD</strong>
+measures, for every grain, how far its orientation has turned from the orientation it
+started with, with z the build direction.</p>
+<ul>
+<li><strong>Reference.</strong> A grain’s starting orientation is the mean of its lowest sections that hold
+the <strong>Reference volume</strong> (at most a few sections).</li>
+<li><strong>Cells.</strong> Every cell gets its disorientation from that reference (<code>SROD</code>, degrees). Cells
+of grains smaller than <strong>Smallest grain</strong> are left out and drawn grey.</li>
+<li><strong>Bins.</strong> Bins of one <strong>Layer thickness</strong>, counted from the grain’s lowest section, give
+the disorientation of their mean orientation.</li>
+<li><strong>Rate.</strong> A grain’s rate (<code>SRODRate</code>, degrees per layer) is the straight-line slope of its
+bins after the first.</li>
+<li><strong>Classes</strong>, by where a grain starts relative to the <strong>Plate top</strong>:
+<ul>
+<li><em>plate</em>: wholly below it;</li>
+<li><em>epitaxial</em>: growing out of the plate;</li>
+<li><em>interface</em>: starting within <strong>Interface height</strong> of it;</li>
+<li><em>originating</em>: starting higher in the build.</li>
+</ul>
+</li>
+</ul>
+<p><strong>Output</strong> <em>Volume</em> keeps the volume with <code>SROD</code> and the per-grain field arrays (class, base,
+top, bins, first-bin and largest SROD, rate). <em>Bins</em> gives one row per grain and bin, with the
+spread of its cells (mean and 10th to 90th percentiles). <em>By height</em> gives the mean SROD of
+each class layer by layer, for the Charts panel.</p>
+<pre><code class="language-python">s = volume.srod(layer=40, plate_top=0)
+by_height = volume.srod(layer=40, plate_top=0, output="By height")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/srod.png" alt="A measured nickel-superalloy volume colored by each cell’s SROD"><span class="img-wrapper"><img src="images/srod.png" alt="A measured nickel-superalloy volume colored by each cell’s SROD"></span></label></p>
+<h3 id="gnd-density"><a class="header" href="#gnd-density">GND Density</a></h3>
+<p><strong>GND Density</strong> estimates the density of geometrically necessary dislocations in every
+cell (<code>GND</code>, 1/m²):</p>
+<ul>
+<li><strong>Nye tensor</strong> fits the lattice curvature inside the grain over a <strong>Kernel</strong> of cells, by
+least squares on the small rotations to the neighbouring cells. It turns the curvature
+into Nye’s dislocation tensor and sums its entries over the <strong>Burgers vector</strong>. Cells with
+too few neighbours in their grain are left empty.</li>
+<li><strong>From KAM</strong> converts a kernel average misorientation array (Kernel Average
+Misorientation) as KAM / (step · b).</li>
+</ul>
+<p>The field data gives the mean, median and 90th percentile.</p>
+<pre><code class="language-python">g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
+</code></pre>
+<h2 id="limits"><a class="header" href="#limits">Limits</a></h2>
+<ul>
+<li>Hexagonal-grid <code>.ang</code> and EDAX files, Oxford <code>.h5oina</code> files, and <code>.dream3d</code> neighbor lists
+are not read yet.</li>
+<li>Cubochoric vectors are not among the representations.</li>
+<li>Neighbor lists (each feature’s neighbours and shared areas) are not kept as arrays; Feature
+Boundaries holds the same information face by face.</li>
+<li>Merge Twins handles cubic m-3m crystals only.</li>
+<li>Texture directions are Cartesian crystal directions. For cubic crystals they are the Miller
+indices. For hexagonal and trigonal crystals, <code>001</code> is the c axis and <code>100</code> the a1 axis.
+Four-index Miller-Bravais notation is not read.</li>
+<li>The texture filters assume no sample symmetry and count every point equally.</li>
+<li>Voronoi and Laguerre grains are tessellations of random seeds, and columnar grains are
+power diagrams slice by slice; use Pack Grains to match given size and shape statistics.</li>
+<li>Pack Grains matches the mean size and mean aspect ratios. The spread of sizes and the
+neighbour counts follow from the packing rather than from a goal. Grains cut by the box
+faces of a periodic volume are measured as pieces.</li>
+<li>Match Crystallography matches the boundary misorientation angles, not their axes.
+Precipitates are spheres.</li>
+<li>Quick Surface Mesh works on volumes; for 2-D maps use Feature Boundaries. Smoothing keeps
+the volumes to within about 0.5 % but does not stop a triangle from folding when it runs
+for many passes on very thin features.</li>
+<li>The GBCD is shown one misorientation at a time; the full five-parameter distribution is
+not stored as an array.</li>
+<li>The Taylor factor takes at most 30 slip systems (all of FCC, of {110} and {112} BCC, and of
+the four HCP families together). Twinning is not counted. The yield estimate is the
+texture and dislocation scaling above, not a crystal-plasticity calculation.</li>
+<li>The feature filters copy the volume they work on: a volume of 80 million cells needs several
+gigabytes of memory. Segmentation of such a volume takes about 10 seconds.</li>
+<li>The orientation mathematics is checked against independent references: rotations from
+SciPy, disorientation angles by brute force over every crystal class, and the color key by
+a separate implementation. On a window of a real volume, the inverse pole figure colors
+agree with those stored in the file within one level of 255. The verification notes (<code>docs/reference/verification.md</code> in the
+source tree) list the comparisons.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="client-server.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="geometry.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="client-server.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="geometry.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

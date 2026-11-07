@@ -1519,7 +1519,15 @@ impl eframe::App for AuraApp {
         };
         for (name, outs) in to_open {
             st.toast(format!("{name} finished: opening {} result file(s)", outs.len().min(8)), false);
-            for o in outs.into_iter().take(8) {
+            // Numbered outputs open together as one series: skip the ones a series covers.
+            let mut covered: std::collections::HashSet<PathBuf> = Default::default();
+            let mut opened = 0;
+            for o in outs {
+                let canon = std::fs::canonicalize(&o).unwrap_or(o.clone());
+                if covered.contains(&canon) || opened >= 8 {
+                    continue;
+                }
+                opened += 1;
                 let file = o.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
                 let before = st.session.lock().active;
                 st.open_file(o);
@@ -1527,6 +1535,15 @@ impl eframe::App for AuraApp {
                 let mut s = st.session.lock();
                 if let Some(id) = s.active.filter(|a| Some(*a) != before) {
                     s.rename(id, format!("{name}: {file}"));
+                    if let Some(aurafx_pipeline::session::NodeKind::Reader { loaded: aurafx_io::Loaded::Series(series), .. }) =
+                        s.nodes.get(&id).map(|n| &n.kind)
+                    {
+                        for step in &series.steps {
+                            if let aurafx_data::TimeStepRef::File(p) = step {
+                                covered.insert(std::fs::canonicalize(p).unwrap_or(p.clone()));
+                            }
+                        }
+                    }
                 }
             }
         }

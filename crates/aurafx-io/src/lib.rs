@@ -7,27 +7,27 @@ pub(crate) mod adf;
 pub mod amrex;
 pub mod cam;
 pub mod cellgrid;
-pub mod chombo;
-pub mod ebsd;
-pub mod ebsd_h5;
 pub mod cgns;
 pub mod cgns_writer;
-pub mod dream3d_writer;
+pub mod chombo;
 pub mod csv;
+pub mod dream3d_writer;
+pub mod ebsd;
+pub mod ebsd_h5;
 pub mod ensight;
-pub mod enzo;
 pub mod ensight_writer;
+pub mod enzo;
 pub mod exodus;
-pub mod flash;
 pub mod exodus_writer;
-pub mod mesh_writers;
+pub mod flash;
 pub mod hdf5w;
 pub mod images;
 pub mod lammps;
 pub mod legacy_vtk;
+pub mod mesh_writers;
 pub mod molecular;
-pub mod netcdf3;
 pub mod mpas;
+pub mod netcdf3;
 pub mod netcdf_cf;
 pub mod openfoam;
 pub mod plot3d;
@@ -95,7 +95,10 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["tif", "tiff", "asc", "img"], "GIS rasters (GeoTIFF, Esri ASCII grid, ERDAS Imagine)"),
         (&["ang", "ctf", "h5ebsd", "dream3d"], "EBSD maps and microstructures (TSL/EDAX .ang, Oxford .ctf, .h5ebsd, EDAX and Bruker .h5, .dream3d)"),
         (&["spparks", "sites"], "SPPARKS site files"),
-        (&["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml", "tab", "mif"], "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML, MapInfo; file geodatabases: open the .gdb folder or a file in it)"),
+        (
+            &["shp", "geojson", "json", "kml", "kmz", "gpkg", "fgb", "gml", "tab", "mif"],
+            "GIS vectors (Shapefile, GeoJSON, KML, KMZ, GeoPackage, FlatGeobuf, GML, MapInfo; file geodatabases: open the .gdb folder or a file in it)",
+        ),
     ]
 }
 
@@ -148,8 +151,33 @@ fn ext_of(path: &Path) -> String {
     name.rsplit('.').next().unwrap_or("").to_string()
 }
 
-/// Open a file by extension.
+/// Single-step formats whose numbered files (`run_0001.vtu`, `run_0002.vtu`, ...) open as a
+/// time series when the file's name ends in digits and has such siblings.
+const NUMBERED_SERIES_EXTS: &[&str] = &["vtk", "vtu", "vtp", "vti", "vtr", "vts", "vtm", "vtkhdf", "stl", "ply", "obj", "csv", "xyz", "plt", "dat"];
+
+/// Open a file by extension. A single-step file whose name ends in digits opens with its
+/// numbered siblings as a time series (the numbers are the time values).
 pub fn read_file(path: impl AsRef<Path>) -> Result<Loaded> {
+    let path = path.as_ref();
+    let loaded = read_file_single(path)?;
+    if let Loaded::Static(_) = &loaded {
+        let ext = ext_of(path);
+        if NUMBERED_SERIES_EXTS.contains(&ext.as_str()) {
+            if let Some(files) = series::detect_numbered_series(path) {
+                let mut s = TimeSeries::default();
+                for (t, p) in files {
+                    s.times.push(t);
+                    s.steps.push(TimeStepRef::File(p));
+                }
+                return Ok(Loaded::Series(s));
+            }
+        }
+    }
+    Ok(loaded)
+}
+
+/// Open a file by extension, without looking for numbered siblings.
+pub fn read_file_single(path: impl AsRef<Path>) -> Result<Loaded> {
     let path = path.as_ref();
     let ext = ext_of(path);
     if let Some(r) = plugin_readers().into_iter().rev().find(|r| r.extensions.iter().any(|e| *e == ext)) {
@@ -277,8 +305,14 @@ pub struct ReaderOption {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ReaderOptionKind {
-    Int { min: i64, max: i64 },
-    Float { min: f64, max: f64 },
+    Int {
+        min: i64,
+        max: i64,
+    },
+    Float {
+        min: f64,
+        max: f64,
+    },
     Bool,
     Choice(Vec<String>),
     /// Free text (a file name, for example).
@@ -392,7 +426,7 @@ pub fn load_step_piece(step: &TimeStepRef, piece: Option<(usize, usize)>) -> Res
 pub fn load_step(step: &TimeStepRef) -> Result<Arc<DataSet>> {
     match step {
         TimeStepRef::Loaded(ds) => Ok(ds.clone()),
-        TimeStepRef::File(p) => match read_file(p)? {
+        TimeStepRef::File(p) => match read_file_single(p)? {
             Loaded::Static(ds) => Ok(ds),
             Loaded::Series(s) => {
                 let first = s.steps.first().ok_or_else(|| anyhow!("empty series {}", p.display()))?;

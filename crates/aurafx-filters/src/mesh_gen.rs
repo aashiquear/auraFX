@@ -75,7 +75,15 @@ pub fn inclusion_mesh(p: &InclusionParams) -> Result<DataSet> {
     let h = p.length.iter().cloned().fold(f64::INFINITY, f64::min) / p.cells.max(1) as f64;
     let div: [usize; 3] = std::array::from_fn(|a| (p.length[a] / h).round().max(1.0) as usize);
     let grid = inc::Grid { div, origin: [0.0; 3], h };
-    let spec = inc::PackingSpec { count: p.count, radius_mean: p.radius_mean, radius_std: p.radius_std, box_ratio: p.box_ratio, gap_cells: p.gap_cells, wall_cells: p.wall_cells, ..Default::default() };
+    let spec = inc::PackingSpec {
+        count: p.count,
+        radius_mean: p.radius_mean,
+        radius_std: p.radius_std,
+        box_ratio: p.box_ratio,
+        gap_cells: p.gap_cells,
+        wall_cells: p.wall_cells,
+        ..Default::default()
+    };
     let mut rng = inc::Rng::new(p.seed);
     let shape = p.shape.clone();
     let (aspect, ex, rough, rot) = (p.aspect, p.exponents, p.roughness, p.random_orientation);
@@ -146,7 +154,9 @@ fn hex_corners(ds: &DataSet) -> Result<Vec<Option<[[f64; 3]; 8]>>> {
         .iter()
         .map(|(t, ids)| {
             let order: Option<[usize; 8]> = match t {
-                CellType::Hexahedron | CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron | CellType::BiquadraticQuadraticHexahedron => Some([0, 1, 2, 3, 4, 5, 6, 7]),
+                CellType::Hexahedron | CellType::QuadraticHexahedron | CellType::TriquadraticHexahedron | CellType::BiquadraticQuadraticHexahedron => {
+                    Some([0, 1, 2, 3, 4, 5, 6, 7])
+                }
                 CellType::Voxel => Some([0, 1, 3, 2, 4, 5, 7, 6]),
                 _ => None,
             };
@@ -163,7 +173,11 @@ pub fn hex_metrics() -> Vec<HexMetric> {
 
 fn tet_corners(ds: &DataSet) -> Result<Vec<Option<[[f64; 3]; 4]>>> {
     let ug = ds.to_unstructured().ok_or_else(|| anyhow!("mesh quality needs a mesh"))?;
-    Ok(ug.cells.iter().map(|(t, ids)| matches!(t, CellType::Tetra | CellType::QuadraticTetra).then(|| std::array::from_fn(|k| ug.points.get(ids[k] as usize)))).collect())
+    Ok(ug
+        .cells
+        .iter()
+        .map(|(t, ids)| matches!(t, CellType::Tetra | CellType::QuadraticTetra).then(|| std::array::from_fn(|k| ug.points.get(ids[k] as usize))))
+        .collect())
 }
 
 /// The tetrahedron metrics computed by Mesh Quality (the generic edge ratio is kept instead).
@@ -187,8 +201,10 @@ pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
     let tm = tet_metrics();
     let has_hex = hexes.iter().any(|h| h.is_some());
     let has_tet = tets.iter().any(|t| t.is_some());
-    let hex_values: Vec<Vec<f64>> = hm.iter().map(|m| hexes.iter().map(|h| h.as_ref().map(|p| hex_metric(*m, p, hex_avg)).unwrap_or(f64::NAN)).collect()).collect();
-    let tet_values: Vec<Vec<f64>> = tm.iter().map(|m| tets.iter().map(|t| t.as_ref().map(|p| tet_metric(*m, p, tet_avg)).unwrap_or(f64::NAN)).collect()).collect();
+    let hex_values: Vec<Vec<f64>> =
+        hm.iter().map(|m| hexes.iter().map(|h| h.as_ref().map(|p| hex_metric(*m, p, hex_avg)).unwrap_or(f64::NAN)).collect()).collect();
+    let tet_values: Vec<Vec<f64>> =
+        tm.iter().map(|m| tets.iter().map(|t| t.as_ref().map(|p| tet_metric(*m, p, tet_avg)).unwrap_or(f64::NAN)).collect()).collect();
     if summary {
         let mut t = Table::default();
         let mut rows: Vec<(String, f64, f64, f64, f64, f64, f64, f64)> = Vec::new();
@@ -202,11 +218,16 @@ pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
             let mean = v.iter().sum::<f64>() / v.len() as f64;
             let (lo, hi) = range.unwrap_or((f64::NAN, f64::NAN));
             // A little slack for rounding (a perfect cube scores 1 plus or minus an ulp).
-            let out = if range.is_some() { v.iter().filter(|x| **x < lo - 1e-9 * lo.abs().max(1.0) || **x > hi + 1e-9 * hi.abs().max(1.0)).count() as f64 } else { f64::NAN };
+            let out = if range.is_some() {
+                v.iter().filter(|x| **x < lo - 1e-9 * lo.abs().max(1.0) || **x > hi + 1e-9 * hi.abs().max(1.0)).count() as f64
+            } else {
+                f64::NAN
+            };
             rows.push((name.to_string(), mn, mx, mean, lo, hi, out, out / v.len() as f64));
         };
         if has_hex {
-            let er_vals: Vec<f64> = er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&hexes).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
+            let er_vals: Vec<f64> =
+                er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&hexes).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
             add("EdgeRatio", &er_vals, None);
             for (m, v) in hm.iter().zip(&hex_values) {
                 add(m.name(), v, m.acceptable());
@@ -214,7 +235,8 @@ pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
         }
         if has_tet {
             let suffix = if has_hex { " (tetrahedra)" } else { "" };
-            let er_vals: Vec<f64> = er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&tets).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
+            let er_vals: Vec<f64> =
+                er.map(|a| (0..a.len()).map(|i| a.get(i, 0)).zip(&tets).filter(|(_, h)| h.is_some()).map(|(v, _)| v).collect()).unwrap_or_default();
             add(&format!("EdgeRatio{suffix}"), &er_vals, Some((1.0, 3.0)));
             for (m, v) in tm.iter().zip(&tet_values) {
                 add(&format!("{}{suffix}", m.name()), v, m.acceptable());
@@ -255,9 +277,8 @@ pub fn mesh_quality(ds: &DataSet, summary: bool) -> Result<DataSet> {
 /// variables as cell data), or a node set's nodes as points. `name` is the set's name.
 pub fn extract_set(ds: &DataSet, name: &str) -> Result<DataSet> {
     let fd = ds.field_data();
-    let list = || -> String {
-        fd.iter().filter_map(|a| a.name.strip_prefix("SideSet ").or_else(|| a.name.strip_prefix("NodeSet "))).collect::<Vec<_>>().join(", ")
-    };
+    let list =
+        || -> String { fd.iter().filter_map(|a| a.name.strip_prefix("SideSet ").or_else(|| a.name.strip_prefix("NodeSet "))).collect::<Vec<_>>().join(", ") };
     let m = HexMesh::from_dataset(ds).map_err(|e| anyhow!(e))?;
     if let Some(faces) = m.side_set(name) {
         let mut polys = Cells::new();
@@ -379,7 +400,16 @@ pub struct OverlayParams {
 pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
     use aurafx_mesh::overlay::*;
     let smooth = p.mode != OVERLAY_STAIR;
-    let mut o = OverlayOptions { pillow: smooth, project: smooth, mesh_void: p.void, periodic: p.periodic, min_cells: p.min_cells, smoothing: p.smoothing, curves: p.sharp, ..Default::default() };
+    let mut o = OverlayOptions {
+        pillow: smooth,
+        project: smooth,
+        mesh_void: p.void,
+        periodic: p.periodic,
+        min_cells: p.min_cells,
+        smoothing: p.smoothing,
+        curves: p.sharp,
+        ..Default::default()
+    };
     let r = match ds {
         DataSet::ImageData(img) => {
             let v = crate::features::Vox::of(img);
@@ -415,7 +445,8 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
             o.names.insert(1, "solid".into());
             o.periodic = false;
             // One side set per patch of the surface between sharp edges.
-            o.face_names = std::iter::once(String::new()).chain((1..=np).map(|k| if np == 1 { "surface".to_string() } else { format!("surface {k}") })).collect();
+            o.face_names =
+                std::iter::once(String::new()).chain((1..=np).map(|k| if np == 1 { "surface".to_string() } else { format!("surface {k}") })).collect();
             let src = ShapeSource { shapes: vec![(1, &shape)] };
             overlay(&src, &o).map_err(|e| anyhow!(e))?
         }
@@ -437,7 +468,8 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
     let grain_of: Vec<i32> = m.block.iter().map(|b| if m.block_names.get(b).is_some_and(|n| n == "void") { 0 } else { *b }).collect();
     let mut out = m.to_dataset();
     if let Some(gq) = grain_q {
-        let eul: Vec<f64> = grain_of.iter().flat_map(|g| gq.get(*g as usize).copied().flatten().map(aurafx_crystal::quat_to_euler).unwrap_or([f64::NAN; 3])).collect();
+        let eul: Vec<f64> =
+            grain_of.iter().flat_map(|g| gq.get(*g as usize).copied().flatten().map(aurafx_crystal::quat_to_euler).unwrap_or([f64::NAN; 3])).collect();
         let rows: Vec<f64> = gq.iter().flat_map(|q| q.map(aurafx_crystal::quat_to_euler).unwrap_or([f64::NAN; 3])).collect();
         if let Some(cd) = out.cell_data_mut() {
             cd.insert(Array::new("grain_id", 1, ArrayData::I32(grain_of.clone())));
@@ -460,7 +492,9 @@ enum AnyMesh {
 fn any_mesh(ds: &DataSet) -> Result<AnyMesh> {
     match HexMesh::from_dataset(ds) {
         Ok(m) => Ok(AnyMesh::Hex(m)),
-        Err(e1) => aurafx_mesh::tet::TetMesh::from_dataset(ds).map(AnyMesh::Tet).map_err(|e2| anyhow!("the mesh must be all hexahedra ({e1}) or all tetrahedra ({e2})")),
+        Err(e1) => aurafx_mesh::tet::TetMesh::from_dataset(ds)
+            .map(AnyMesh::Tet)
+            .map_err(|e2| anyhow!("the mesh must be all hexahedra ({e1}) or all tetrahedra ({e2})")),
     }
 }
 
@@ -495,31 +529,50 @@ pub fn convert_elements(ds: &DataSet, to: &str) -> Result<DataSet> {
 /// Smooth Mesh: the inner nodes of a hexahedral or tetrahedral mesh moved by one of the
 /// schemes, the boundary and the nodes of `fixed_set` held.
 pub fn smooth_mesh(ds: &DataSet, scheme: &str, iterations: usize, fixed_set: &str) -> Result<DataSet> {
-    let (mut points, cells, fixed, rebuild): (Vec<[f64; 3]>, Vec<Vec<u32>>, std::collections::HashSet<u32>, Box<dyn Fn(Vec<[f64; 3]>) -> DataSet>) = match any_mesh(ds)? {
-        AnyMesh::Hex(h) => {
-            if h.npe != 8 {
-                bail!("smooth a HEX8 mesh (elevate afterwards)");
+    let (mut points, cells, fixed, rebuild): (Vec<[f64; 3]>, Vec<Vec<u32>>, std::collections::HashSet<u32>, Box<dyn Fn(Vec<[f64; 3]>) -> DataSet>) =
+        match any_mesh(ds)? {
+            AnyMesh::Hex(h) => {
+                if h.npe != 8 {
+                    bail!("smooth a HEX8 mesh (elevate afterwards)");
+                }
+                let fixed = if fixed_set.is_empty() {
+                    Default::default()
+                } else {
+                    h.node_set(fixed_set).ok_or_else(|| anyhow!("no node set {fixed_set}"))?.iter().copied().collect()
+                };
+                let cells = (0..h.n_elements()).map(|e| h.cell(e).to_vec()).collect();
+                let pts = h.points.clone();
+                (
+                    pts,
+                    cells,
+                    fixed,
+                    Box::new(move |p| {
+                        let mut m = h.clone();
+                        m.points = p;
+                        m.to_dataset()
+                    }),
+                )
             }
-            let fixed = if fixed_set.is_empty() { Default::default() } else { h.node_set(fixed_set).ok_or_else(|| anyhow!("no node set {fixed_set}"))?.iter().copied().collect() };
-            let cells = (0..h.n_elements()).map(|e| h.cell(e).to_vec()).collect();
-            let pts = h.points.clone();
-            (pts, cells, fixed, Box::new(move |p| {
-                let mut m = h.clone();
-                m.points = p;
-                m.to_dataset()
-            }))
-        }
-        AnyMesh::Tet(t) => {
-            let fixed = if fixed_set.is_empty() { Default::default() } else { t.node_set(fixed_set).ok_or_else(|| anyhow!("no node set {fixed_set}"))?.iter().copied().collect() };
-            let cells = t.tets.iter().map(|c| c.to_vec()).collect();
-            let pts = t.points.clone();
-            (pts, cells, fixed, Box::new(move |p| {
-                let mut m = t.clone();
-                m.points = p;
-                m.to_dataset()
-            }))
-        }
-    };
+            AnyMesh::Tet(t) => {
+                let fixed = if fixed_set.is_empty() {
+                    Default::default()
+                } else {
+                    t.node_set(fixed_set).ok_or_else(|| anyhow!("no node set {fixed_set}"))?.iter().copied().collect()
+                };
+                let cells = t.tets.iter().map(|c| c.to_vec()).collect();
+                let pts = t.points.clone();
+                (
+                    pts,
+                    cells,
+                    fixed,
+                    Box::new(move |p| {
+                        let mut m = t.clone();
+                        m.points = p;
+                        m.to_dataset()
+                    }),
+                )
+            }
+        };
     let c3 = aurafx_mesh::improve::Cells3 { cells };
     let min_sj = aurafx_mesh::improve::smooth(&mut points, &c3, scheme, iterations, &fixed);
     let mut out = rebuild(points);
@@ -562,10 +615,13 @@ pub fn tet_mesh(ds: &DataSet, cell: f64) -> Result<DataSet> {
 pub fn refine_region(ds: &DataSet, lo: [f64; 3], hi: [f64; 3], array: &str, value: f64) -> Result<DataSet> {
     let m = aurafx_mesh::tet::TetMesh::from_dataset(ds).map_err(|e| anyhow!("{e} (Refine Region works on tetrahedral meshes; Convert Elements first)"))?;
     let marked: Vec<bool> = if array.is_empty() {
-        m.tets.iter().map(|t| {
-            let c: [f64; 3] = std::array::from_fn(|a| t.iter().map(|k| m.points[*k as usize][a]).sum::<f64>() / 4.0);
-            (0..3).all(|a| c[a] >= lo[a] && c[a] <= hi[a])
-        }).collect()
+        m.tets
+            .iter()
+            .map(|t| {
+                let c: [f64; 3] = std::array::from_fn(|a| t.iter().map(|k| m.points[*k as usize][a]).sum::<f64>() / 4.0);
+                (0..3).all(|a| c[a] >= lo[a] && c[a] <= hi[a])
+            })
+            .collect()
     } else {
         let a = ds.cell_data().and_then(|c| c.get(array)).ok_or_else(|| anyhow!("no cell array {array}"))?;
         (0..m.tets.len()).map(|i| a.get(i, 0) >= value).collect()
@@ -668,7 +724,8 @@ impl Nearest {
             }
             // Beyond this ring every point is at least `ring` bucket widths away (the query
             // point may lie outside the buckets: measure from its clamped bucket).
-            let outside: f64 = (0..3).map(|a| ((self.lo[a] - x[a]).max(0.0).max(x[a] - (self.lo[a] + self.nb[a] as f64 * self.bw[a]))).powi(2)).sum::<f64>().sqrt();
+            let outside: f64 =
+                (0..3).map(|a| ((self.lo[a] - x[a]).max(0.0).max(x[a] - (self.lo[a] + self.nb[a] as f64 * self.bw[a]))).powi(2)).sum::<f64>().sqrt();
             let reach = (ring as f64 * bmin + outside).max(0.0);
             let all = (0..3).all(|a| ring as usize >= self.nb[a]);
             if all || (best.1 != usize::MAX && reach * reach - self.wmax > best.0 + 1e-12) {
@@ -751,7 +808,8 @@ pub fn assign_grains(mesh: &DataSet, source: Option<&DataSet>, p: &AssignParams)
             let gid: Vec<i32> = cen
                 .iter()
                 .map(|c| {
-                    let ix: [usize; 3] = std::array::from_fn(|a| if v.n[a] <= 1 { 0 } else { (((c[a] - v.corner[a]) / v.sp[a]).floor().max(0.0) as usize).min(v.n[a] - 1) });
+                    let ix: [usize; 3] =
+                        std::array::from_fn(|a| if v.n[a] <= 1 { 0 } else { (((c[a] - v.corner[a]) / v.sp[a]).floor().max(0.0) as usize).min(v.n[a] - 1) });
                     ids.get(ix[0] + v.n[0] * (ix[1] + v.n[1] * ix[2]), 0) as i32
                 })
                 .collect();
@@ -782,7 +840,9 @@ pub fn assign_grains(mesh: &DataSet, source: Option<&DataSet>, p: &AssignParams)
             let seeds: Vec<[f64; 3]> = (0..n).map(|_| std::array::from_fn(|a| r.uniform(lo[a], hi[a]))).collect();
             let vol: f64 = (0..3).map(|a| (hi[a] - lo[a]).max(1e-12)).product();
             let spacing = (vol / n as f64).cbrt();
-            let w: Vec<f64> = (0..n).map(|_| if p.size_sigma > 0.0 { (0.5 * spacing * (p.size_sigma * r.std_normal().clamp(-3.0, 3.0)).exp()).powi(2) } else { 0.0 }).collect();
+            let w: Vec<f64> = (0..n)
+                .map(|_| if p.size_sigma > 0.0 { (0.5 * spacing * (p.size_sigma * r.std_normal().clamp(-3.0, 3.0)).exp()).powi(2) } else { 0.0 })
+                .collect();
             seeds_out = Some(seeds.clone());
             let near = Nearest::new(seeds, w);
             let gid: Vec<i32> = cen.iter().map(|c| near.query(*c) as i32 + 1).collect();
@@ -814,7 +874,11 @@ pub fn assign_grains(mesh: &DataSet, source: Option<&DataSet>, p: &AssignParams)
                             faces.entry(k).or_default().push((e as u32, s));
                         }
                     }
-                    let mut set: Vec<(u32, u8)> = faces.values().filter(|f| f.len() == 2 && gid[f[0].0 as usize] != gid[f[1].0 as usize]).map(|f| if gid[f[0].0 as usize] < gid[f[1].0 as usize] { f[0] } else { f[1] }).collect();
+                    let mut set: Vec<(u32, u8)> = faces
+                        .values()
+                        .filter(|f| f.len() == 2 && gid[f[0].0 as usize] != gid[f[1].0 as usize])
+                        .map(|f| if gid[f[0].0 as usize] < gid[f[1].0 as usize] { f[0] } else { f[1] })
+                        .collect();
                     set.sort_unstable();
                     let nodes: Vec<u32> = set.iter().flat_map(|(e, s)| h.side_corners(*e as usize, *s)).collect();
                     h.add_side_set("grain boundaries", set);
@@ -836,7 +900,11 @@ pub fn assign_grains(mesh: &DataSet, source: Option<&DataSet>, p: &AssignParams)
                             faces.entry(k).or_default().push((e as u32, s));
                         }
                     }
-                    let mut set: Vec<(u32, u8)> = faces.values().filter(|f| f.len() == 2 && gid[f[0].0 as usize] != gid[f[1].0 as usize]).map(|f| if gid[f[0].0 as usize] < gid[f[1].0 as usize] { f[0] } else { f[1] }).collect();
+                    let mut set: Vec<(u32, u8)> = faces
+                        .values()
+                        .filter(|f| f.len() == 2 && gid[f[0].0 as usize] != gid[f[1].0 as usize])
+                        .map(|f| if gid[f[0].0 as usize] < gid[f[1].0 as usize] { f[0] } else { f[1] })
+                        .collect();
                     set.sort_unstable();
                     let mut nodes: Vec<u32> = set.iter().flat_map(|(e, s)| t.side_corners(*e as usize, *s)).collect();
                     nodes.sort_unstable();
@@ -847,6 +915,17 @@ pub fn assign_grains(mesh: &DataSet, source: Option<&DataSet>, p: &AssignParams)
                 t.to_dataset()
             }
         };
+    }
+    // The mesh types rebuild the dataset from the elements; the input's point arrays
+    // (displacements, results) come along since the points keep their order.
+    if p.blocks || p.boundaries {
+        if let (Some(src), Some(dst)) = (mesh.point_data(), out.point_data_mut()) {
+            if dst.iter().next().is_none() {
+                for a in src.iter() {
+                    dst.insert(a.clone());
+                }
+            }
+        }
     }
     let cd = out.cell_data_mut().ok_or_else(|| anyhow!("the mesh cannot hold cell arrays"))?;
     cd.insert(Array::new("grain_id", 1, ArrayData::I32(gid.clone())));

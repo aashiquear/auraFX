@@ -34,6 +34,9 @@ fn benchmark_grain_rule() {
     let pts = load("benchmark/grain_points_gn2.csv");
     let out = run_multi("assign_grains", &[&mesh, &pts], &[("method", "Nearest point".into())]);
     let g = out.cell_data().unwrap().get("grain_id").unwrap();
+    // Point arrays of the input survive the rebuild with blocks and boundaries.
+    let with_sets = run_multi("assign_grains", &[&mesh, &pts], &[("method", "Nearest point".into()), ("blocks", true.into()), ("boundaries", true.into())]);
+    assert_eq!(with_sets.point_data().map(|d| d.iter().count()), mesh.point_data().map(|d| d.iter().count()));
     // The reference lists the grain of every element in the benchmark's element order.
     let reference = std::fs::read_to_string(root().join("benchmark/plate_h40_hole5_elem_grain.csv")).unwrap();
     let want: Vec<i32> = reference.lines().skip(1).map(|l| l.split(',').nth(1).unwrap().trim().parse().unwrap()).collect();
@@ -59,10 +62,12 @@ fn voronoi_volume_blocks_and_files() {
     let ug = v.to_unstructured().unwrap();
     for (e, (_, ids)) in ug.cells.iter().enumerate() {
         let c: [f64; 3] = std::array::from_fn(|a| ids.iter().map(|k| ug.points.get(*k as usize)[a]).sum::<f64>() / ids.len() as f64);
-        let best = (1..seeds.len()).min_by(|x, y| {
-            let d = |s: usize| (0..3).map(|a| (seeds.get(s, a) - c[a]).powi(2)).sum::<f64>();
-            d(*x).total_cmp(&d(*y))
-        }).unwrap();
+        let best = (1..seeds.len())
+            .min_by(|x, y| {
+                let d = |s: usize| (0..3).map(|a| (seeds.get(s, a) - c[a]).powi(2)).sum::<f64>();
+                d(*x).total_cmp(&d(*y))
+            })
+            .unwrap();
         assert_eq!(best as f64, g.get(e, 0), "element {e}");
     }
     // Orientation file: one line per grain.
@@ -79,13 +84,15 @@ fn voronoi_volume_blocks_and_files() {
     let DataSet::ImageData(img) = &vol else { panic!() };
     let lo: [f64; 3] = std::array::from_fn(|a| img.origin[a] + img.extent[2 * a] as f64 * img.spacing[a]);
     let size: [f64; 3] = std::array::from_fn(|a| (img.extent[2 * a + 1] - img.extent[2 * a]) as f64 * img.spacing[a]);
-    let bm = def.run(None, &{
-        let mut p = def.default_params();
-        p.set_json("size", &serde_json::json!(size));
-        p.set_json("origin", &serde_json::json!(lo));
-        p.set_json("cells", &serde_json::json!([24, 20, 3]));
-        p
-    }).unwrap();
+    let bm = def
+        .run(None, &{
+            let mut p = def.default_params();
+            p.set_json("size", &serde_json::json!(size));
+            p.set_json("origin", &serde_json::json!(lo));
+            p.set_json("cells", &serde_json::json!([24, 20, 3]));
+            p
+        })
+        .unwrap();
     let fv = run_multi("assign_grains", &[&bm, &vol], &[("method", "From a volume".into())]);
     let fg = fv.cell_data().unwrap().get("grain_id").unwrap();
     let distinct: std::collections::BTreeSet<i64> = (0..fg.len()).map(|i| fg.get(i, 0) as i64).collect();

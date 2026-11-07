@@ -507,6 +507,21 @@ so its deck is checked against the solid mechanics module's source and tests, no
 P8 and P9 are complete. Guide chapters: Running simulations, Grains and crystals, File
 formats, Geometry and meshing. Next: the user's choice among the remaining phases.
 
+Done in iteration 71 (release 0.1.0): the workspace formatted with rustfmt (CI checks it), the
+mdBook HTML committed and the book's site URL set for GitHub Pages, the crushed-can sample
+committed so every guide picture regenerates from the repository, examples and tutorials
+(`examples/`: heat diffusion, Cahn-Hilliard spinodal decomposition and Potts grain growth as
+Python pipelines, geometry-to-polycrystal and EBSD-analysis scripts) with the guide chapter
+Tutorials and examples, the install table for every platform and the server in Getting
+started, and the project page `index.html` at the repository root (application videos
+rendered by `scripts/site/media.sh`, install links, documentation links, licenses and the
+notice on AI-built software). Tag v0.1.0 builds the Linux, macOS, Windows, Android and iOS
+packages through the Package workflow. The Linux package script was run here to check it.
+Two fixes found while making the page: numbered files (`run_0001.vtk`, ...) now open as a
+time series as the guide said (the detection existed but was never called; result files of
+a run that form one series open once), and Assign Grains keeps the mesh's point arrays when it
+rebuilds the mesh with blocks or boundary sets.
+
 ## Status (2026-11-05)
 
 Done in iteration 2 (on top of iteration 1 below): light/dark/system themes; Windows menu with

@@ -93,10 +93,18 @@ through the system `ssh`/`scp` so user configuration just works. Logs stream int
 buffer; finished jobs can fetch result files into `~/.cache/aurafx` and ask the app to open
 them.
 
-## Planned crates
+## Grains and meshes
 
-`aurafx-crystal` (orientation mathematics, crystal symmetries, slip systems; no dependency
-on the rest of auraFX) and `aurafx-mesh` (implicit geometry, structured and overlay-grid hex
-meshing, quality metrics) are the two libraries behind the grain workbench and the mesh
-generator; their filters and sources register in `aurafx-filters` like every other one. See
-`docs/design/grains-and-meshing.md`.
+`aurafx-crystal` (orientation mathematics, crystal symmetries, slip systems, elastic
+constants; no dependency on the rest of auraFX) and `aurafx-mesh` (implicit geometry and its
+command language, structured and overlay-grid hex meshing, tetrahedra, quality metrics) are
+the two libraries behind the grain workbench and the mesh generator; their filters and
+sources register in `aurafx-filters` like every other one (`crystal.rs`, `features.rs`,
+`crystal_texture.rs`, `synthetic.rs`, `grain_surface.rs`, `mechanics.rs`, `am.rs`,
+`mesh_gen.rs`, `geometry_model.rs`). Two pieces live in `aurafx-pipeline` because they need
+the session: `pipeline_json.rs` writes the chain of steps that made a node as JSON (recorded in
+`.dream3d` files by `aurafx-io/dream3d_writer.rs`) and rebuilds pipelines from such files,
+mapping other programs' numbered steps to auraFX filters; `cases.rs` writes solver cases
+(MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity) from a node's data,
+which the job templates in `aurafx-jobs/templates.rs` stage into the working directory,
+uploading them to remote hosts. See `docs/design/grains-and-meshing.md`.

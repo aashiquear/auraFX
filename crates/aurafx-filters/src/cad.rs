@@ -73,12 +73,43 @@ pub fn evaluate(doc: &Document, resolution: usize, project: bool) -> Result<Eval
     k.evaluate(doc).map_err(|e| anyhow!("{e}"))
 }
 
+/// Evaluate with the chosen kernel (`Auto`: the exact B-rep kernel when it builds the part,
+/// else the implicit one, with the reason in the result's notes).
+pub fn evaluate_with(kernel: aurafx_cad::KernelChoice, doc: &Document, resolution: usize, project: bool) -> Result<Evaluated> {
+    aurafx_cad::kernel::evaluate_with(kernel, doc, resolution, project).map_err(|e| anyhow!("{e}"))
+}
+
+/// Read a CAD file as the surface of its part (faces named: `FaceId`, `FaceNames`).
+pub fn read_cad_file(path: &std::path::Path) -> Result<DataSet> {
+    let doc = aurafx_cad::io::import_file(path).map_err(|e| anyhow!("{e}"))?;
+    Ok(evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 64, true)?.surface)
+}
+
+/// Add the CAD file extensions to aurafx-io's readers (a static read; File > Open makes a CAD Model).
+pub fn register_readers() {
+    aurafx_io::register_reader(aurafx_io::PluginReader {
+        extensions: ["step", "stp", "igs", "iges", "3mf", "sc", "afxcad"].iter().map(|s| s.to_string()).collect(),
+        label: "CAD".into(),
+        plugin: "built-in (aurafx-cad)".into(),
+        read: std::sync::Arc::new(|p| read_cad_file(p)),
+    });
+}
+
 /// CAD Model: the surface of the part, or its signed distance on a grid.
-pub fn cad_model(document: &str, overrides: &str, configuration: &str, resolution: usize, output: &str, project: bool) -> Result<DataSet> {
+pub fn cad_model(document: &str, overrides: &str, configuration: &str, resolution: usize, output: &str, project: bool, kernel: &str) -> Result<DataSet> {
     let doc = effective_document(document, overrides, configuration)?;
-    let ev = evaluate(&doc, resolution, project)?;
+    let choice = aurafx_cad::KernelChoice::parse(kernel).ok_or_else(|| anyhow!("kernel is Auto, Implicit or B-rep, not '{kernel}'"))?;
+    let ev = evaluate_with(choice, &doc, resolution, project)?;
     if output != OUT_DISTANCE {
-        return Ok(ev.surface);
+        let mut surface = ev.surface;
+        if let DataSet::PolyData(pd) = &mut surface {
+            // Which kernel built it, and what it could not build exactly.
+            pd.field_data.insert(Array::new("Kernel", 1, ArrayData::String(vec![ev.kernel.to_string()])));
+            if !ev.approximate.is_empty() {
+                pd.field_data.insert(Array::new("KernelNotes", 1, ArrayData::String(ev.approximate.clone())));
+            }
+        }
+        return Ok(surface);
     }
     let dist = ev.distance.clone().ok_or_else(|| anyhow!("this kernel has no distance field"))?;
     let (lo, hi) = (ev.bodies.iter().fold([f64::INFINITY; 3], |a, b| std::array::from_fn(|k| a[k].min(b.bounds.0[k]))), ev.bodies.iter().fold([f64::NEG_INFINITY; 3], |a, b| std::array::from_fn(|k| a[k].max(b.bounds.1[k]))));
@@ -116,7 +147,7 @@ mod tests {
 
     #[test]
     fn the_default_part_is_a_plate_with_named_faces() {
-        let ds = cad_model("", "", "", 48, OUT_SURFACE, true).unwrap();
+        let ds = cad_model("", "", "", 48, OUT_SURFACE, true, "Auto").unwrap();
         let pd = surface(&ds);
         let names = pd.field_data.get("FaceNames").unwrap();
         assert_eq!(names.len(), 6);
@@ -127,24 +158,36 @@ mod tests {
     #[test]
     fn overrides_and_configurations_change_the_part_and_mistakes_say_why() {
         let v = |o: &str, c: &str| {
-            let ds = cad_model("", o, c, 48, OUT_SURFACE, true).unwrap();
+            let ds = cad_model("", o, c, 48, OUT_SURFACE, true, "Auto").unwrap();
             surface(&ds).field_data.get("Volume").unwrap().get(0, 0)
         };
         assert!((v(r#"{"width": "60 mm"}"#, "") - 60.0 * 30.0 * 8.0).abs() / 14400.0 < 0.01);
         let mut d = default_document();
         aurafx_cad::edit::apply_op(&mut d, "configuration", &serde_json::json!({"name": "thin", "overrides": {"thickness": 2}})).unwrap();
         let text = CadFile::new(d).to_json();
-        let ds = cad_model(&text, "", "thin", 48, OUT_SURFACE, true).unwrap();
+        let ds = cad_model(&text, "", "thin", 48, OUT_SURFACE, true, "Auto").unwrap();
         let vol = surface(&ds).field_data.get("Volume").unwrap().get(0, 0);
         assert!((vol - 40.0 * 30.0 * 2.0).abs() / 2400.0 < 0.02, "{vol}");
-        let e = cad_model("", r#"{"nope": 1}"#, "", 48, OUT_SURFACE, true).unwrap_err().to_string();
+        let e = cad_model("", r#"{"nope": 1}"#, "", 48, OUT_SURFACE, true, "Auto").unwrap_err().to_string();
         assert!(e.contains("no parameter 'nope'") && e.contains("width"), "{e}");
-        assert!(cad_model("{not json", "", "", 48, OUT_SURFACE, true).is_err());
+        assert!(cad_model("{not json", "", "", 48, OUT_SURFACE, true, "Auto").is_err());
+    }
+
+    #[test]
+    fn the_kernel_is_chosen_and_the_result_says_which_built_it() {
+        let kernel = |k: &str| match cad_model("", "", "", 40, OUT_SURFACE, true, k).unwrap() {
+            DataSet::PolyData(p) => p.field_data.get("Kernel").map(|a| match &a.data { ArrayData::String(v) => v[0].clone(), _ => String::new() }).unwrap(),
+            _ => panic!(),
+        };
+        assert_eq!(kernel("Auto"), "brep");
+        assert_eq!(kernel("Implicit"), "implicit");
+        assert_eq!(kernel("B-rep"), "brep");
+        assert!(cad_model("", "", "", 40, OUT_SURFACE, true, "nope").unwrap_err().to_string().contains("Auto, Implicit or B-rep"));
     }
 
     #[test]
     fn distance_field_is_negative_inside_the_part() {
-        let ds = cad_model("", "", "", 32, OUT_DISTANCE, true).unwrap();
+        let ds = cad_model("", "", "", 32, OUT_DISTANCE, true, "Auto").unwrap();
         let DataSet::ImageData(img) = &ds else { panic!() };
         let d = img.point_data.get("Distance").unwrap();
         let (neg, pos) = (0..d.len()).fold((0, 0), |(n, p), i| if d.get(i, 0) < 0.0 { (n + 1, p) } else { (n, p + 1) });
@@ -156,7 +199,7 @@ mod tests {
         use crate::mesh_gen::{mesh_quality, overlay_mesh, OverlayParams, OVERLAY_SMOOTH};
         let doc = aurafx_cad::templates::flange();
         let text = CadFile::new(doc).to_json();
-        let surf = cad_model(&text, "", "", 64, OUT_SURFACE, true).unwrap();
+        let surf = cad_model(&text, "", "", 64, OUT_SURFACE, true, "Auto").unwrap();
         let mesh = overlay_mesh(
             &surf,
             &OverlayParams { array: String::new(), cell: 0.0, mode: OVERLAY_SMOOTH.into(), void: false, periodic: false, min_cells: 8, smoothing: 8, element: "HEX8".into(), sharp: true },
@@ -170,5 +213,62 @@ mod tests {
         let min = (0..sj.len()).map(|i| sj.get(i, 0)).filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min);
         assert!(min > 0.0, "an inverted or degenerate element: min scaled Jacobian {min}");
         assert!(sj.len() > 500, "{} elements", sj.len());
+    }
+}
+
+#[cfg(test)]
+mod import_tests {
+    use super::*;
+
+    #[test]
+    fn a_step_file_is_imported_into_geometry_commands_and_meshed_with_its_faces_as_side_sets() {
+        let step = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cad/plate_with_hole.step");
+        if !step.exists() {
+            return;
+        }
+        let g = crate::registry::find("geometry").unwrap();
+        let mut p = g.default_params();
+        p.set_json("commands", &format!("import '{}'\nmesh body 1 size 3 scheme overlay", step.display()).into());
+        p.set_json("output", &"Hex mesh".into());
+        let mesh = g.run(None, &p).unwrap();
+        let m = aurafx_mesh::hex::HexMesh::from_dataset(&mesh).unwrap();
+        assert!(m.n_elements() > 100, "{}", m.n_elements());
+        assert!(m.side_sets.iter().any(|(n, v)| n.contains("face") && !v.is_empty()), "{:?}", m.side_sets.iter().map(|s| s.0.clone()).collect::<Vec<_>>());
+        // The surface output keeps the CAD file's faces too.
+        p.set_json("output", &"Surface".into());
+        let DataSet::PolyData(pd) = g.run(None, &p).unwrap() else { panic!() };
+        let names = match &pd.field_data.get("FaceNames").unwrap().data {
+            ArrayData::String(v) => v.clone(),
+            _ => panic!(),
+        };
+        assert!(names.len() >= 8 && names[1].contains("plate_with_hole"), "{names:?}");
+    }
+}
+
+#[cfg(test)]
+mod mesh_tests {
+    use super::*;
+    use crate::mesh_gen::{overlay_mesh, OverlayParams, OVERLAY_SMOOTH};
+
+    #[test]
+    fn the_faces_of_a_cad_part_become_side_sets_of_its_mesh() {
+        let mut d = aurafx_cad::Document::new("plate");
+        aurafx_cad::edit::apply_op(&mut d, "sketch_extrude", &serde_json::json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 30}}]}})).unwrap();
+        aurafx_cad::edit::apply_op(&mut d, "add", &serde_json::json!({"kind": "hole", "name": "Bore", "diameter": 10, "depth": 10, "at": [0, 0, 10]})).unwrap();
+        let text = CadFile::new(d).to_json();
+        let surf = cad_model(&text, "", "", 64, OUT_SURFACE, true, "Auto").unwrap();
+        let mesh = overlay_mesh(
+            &surf,
+            &OverlayParams { array: String::new(), cell: 2.0, mode: OVERLAY_SMOOTH.into(), void: false, periodic: false, min_cells: 8, smoothing: 8, element: "HEX8".into(), sharp: true },
+        )
+        .unwrap();
+        let m = aurafx_mesh::hex::HexMesh::from_dataset(&mesh).unwrap();
+        let names: Vec<&str> = m.side_sets.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"Bore side") && names.contains(&"Plate top") && names.contains(&"Plate bottom"), "{names:?}");
+        let bore = m.side_set("Bore side").unwrap();
+        assert!(bore.len() > 20, "the bore's wall has elements: {}", bore.len());
+        // Extract Set shows it as a surface.
+        let wall = crate::mesh_gen::extract_set(&mesh, "Bore side").unwrap();
+        assert!(wall.n_cells() > 20, "{}", wall.n_cells());
     }
 }

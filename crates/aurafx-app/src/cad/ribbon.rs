@@ -189,7 +189,17 @@ fn modify_tab(state: &mut State, ui: &mut egui::Ui) {
     let add = |state: &mut State, m: Value| {
         op(state, "modifier", json!({"feature": t, "modifier": m}));
     };
-    if button(ui, "Fillet", "Round the edges by 1 mm") {
+    if button(ui, "Fillet edges…", "Choose edges from a list of the part's edges and round them (exact kernel)") {
+        super::pick::open(state, super::PickKind::Fillet);
+    }
+    if button(ui, "Chamfer edges…", "Choose edges and chamfer them (exact kernel)") {
+        super::pick::open(state, super::PickKind::Chamfer);
+    }
+    if button(ui, "Shell, open faces…", "Hollow the part, choosing the faces to open (exact kernel)") {
+        super::pick::open(state, super::PickKind::Shell);
+    }
+    ui.separator();
+    if button(ui, "Fillet", "Round all edges by 1 mm") {
         add(state, json!({"kind": "Fillet", "radius": 1}));
     }
     if button(ui, "Shell", "Hollow the solid with a 2 mm wall") {

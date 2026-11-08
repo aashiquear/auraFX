@@ -53,6 +53,8 @@ enum Classifier {
 }
 
 struct FeatureFaces {
+    /// An imported solid: its faces keep their own numbers.
+    import: bool,
     id: Id,
     op: BooleanOp,
     rot: DMat3,
@@ -87,9 +89,10 @@ impl FeatureFaces {
                 let (rot, origin) = sketch.plane.frame(sketch.offset);
                 revolve(sketch.entity_paths(), rot, origin, false)
             }
-            Shape::Sweep { .. } | Shape::Loft { .. } | Shape::Thread { .. } | Shape::Body { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Freeform)]),
+            Shape::Sweep { .. } | Shape::Loft { .. } | Shape::Thread { .. } | Shape::Body { .. } | Shape::Brep { .. } | Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Freeform)]),
         };
         FeatureFaces {
+            import: matches!(f.shape, Shape::Brep { .. }),
             id: f.id,
             op: f.op,
             rot: placement_rotation(f.placement.rotate_deg),
@@ -248,6 +251,62 @@ fn unique_names(doc: &Document) -> Vec<String> {
         .collect()
 }
 
+/// Names the faces of any surface of this document the way the implicit kernel does: the owner
+/// of a point on the surface is the feature whose own field is nearest, the face is the one its
+/// normal points along. The B-rep kernel labels its exact faces with it, so both kernels agree
+/// on names and ids.
+pub struct Labeller {
+    ffs: Vec<FeatureFaces>,
+    names: Vec<String>,
+    ids: Vec<Id>,
+    sdf: Sdf,
+    h: f64,
+}
+
+impl Labeller {
+    /// For a resolved document.
+    pub fn new(doc: &Document) -> Self {
+        let ffs: Vec<FeatureFaces> = doc.features.iter().filter(|f| !f.suppressed).map(FeatureFaces::new).collect();
+        let all = unique_names(doc);
+        let (names, ids): (Vec<String>, Vec<Id>) = doc.features.iter().enumerate().filter(|(_, f)| !f.suppressed).map(|(i, f)| (all[i].clone(), f.id)).unzip();
+        let sdf = doc.raw_sdf().unwrap_or(Sdf::Empty);
+        let (lo, hi) = grid_bounds(&sdf);
+        Self { ffs, names, ids, h: ((hi - lo).max_element() / 64.0).max(1e-6), sdf }
+    }
+    /// `(feature index, local face)` of the surface point `p` whose outward normal is `n`.
+    pub fn label(&self, p: DVec3, n: DVec3) -> (usize, usize) {
+        let owner = self
+            .ffs
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (i, f.sdf.eval(p).abs()))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let _ = self.h;
+        let _ = &self.sdf;
+        (owner, self.ffs.get(owner).map(|f| f.face_at(p, n)).unwrap_or(0))
+    }
+    /// Like [`Labeller::label`] for a triangle of the exact face number `face`: the faces of an
+    /// imported solid are told apart by it (`part face 3`).
+    pub fn label_in(&self, p: DVec3, n: DVec3, face: u32) -> (usize, usize) {
+        let (owner, local) = self.label(p, n);
+        if self.ffs.get(owner).is_some_and(|f| f.import) {
+            (owner, face as usize)
+        } else {
+            (owner, local)
+        }
+    }
+    /// Name, kind and owning feature id of a label.
+    pub fn describe(&self, feature: usize, local: usize) -> (String, FaceKind, Id) {
+        if self.ffs[feature].import {
+            return (format!("{} face {}", self.names[feature], local + 1), FaceKind::Freeform, self.ids[feature]);
+        }
+        let (label, kind) = self.ffs[feature].labels.get(local).cloned().unwrap_or(("surface".into(), FaceKind::Freeform));
+        (format!("{} {}", self.names[feature], label), kind, self.ids[feature])
+    }
+}
+
 impl Kernel for ImplicitKernel {
     fn name(&self) -> &'static str {
         "implicit"
@@ -387,7 +446,16 @@ impl Kernel for ImplicitKernel {
             surface,
             distance: Some(std::sync::Arc::new(move |p| sdf.eval(DVec3::from_array(p)))),
             kernel: "implicit",
-            approximate: Vec::new(),
+            approximate: doc
+                .features
+                .iter()
+                .filter(|f| !f.suppressed)
+                .filter_map(|f| match &f.shape {
+                    Shape::EdgeBlend { .. } => Some(format!("'{}' is not built by the implicit kernel: the picked edges stay sharp (choose the B-rep kernel)", f.name)),
+                    Shape::ShellFaces { .. } => Some(format!("'{}' hollows the part with an approximate open face on the implicit kernel", f.name)),
+                    _ => None,
+                })
+                .collect(),
         })
     }
 }

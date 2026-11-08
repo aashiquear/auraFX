@@ -7,6 +7,7 @@
 
 mod conflicts;
 mod feature_manager;
+mod pick;
 mod property_manager;
 mod ribbon;
 mod sketch;
@@ -22,6 +23,7 @@ pub use conflicts::hold_banner;
 pub use feature_manager::feature_manager_ui;
 pub use property_manager::property_manager_ui;
 pub use ribbon::ribbon_ui;
+pub use pick::{open as open_picker, PickKind};
 pub use sketch::{begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, canvas_ui as sketch_canvas_ui, sketching};
 pub use timeline::timeline_ui;
 
@@ -74,6 +76,8 @@ pub struct CadUi {
     pub rerun_now: bool,
     /// The sketch open on the canvas.
     pub sketch: Option<sketch::SketchEdit>,
+    /// The edge or face picker of the Modify tab.
+    pub pick: Option<pick::Pick>,
 }
 
 impl Default for CadUi {
@@ -94,6 +98,7 @@ impl Default for CadUi {
             apply_dialog: None,
             rerun_now: true,
             sketch: None,
+            pick: None,
         }
     }
 }
@@ -166,6 +171,7 @@ pub fn apply_now(state: &mut State, keep: bool, fix: aurafx_pipeline::FixMode, r
 /// Leave without applying.
 pub fn discard(state: &mut State) {
     state.cad.sketch = None;
+    state.cad.pick = None;
     let r = state.session.lock().cad_discard();
     match r {
         Ok(()) => state.status = "CAD: changes discarded".into(),
@@ -208,6 +214,30 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
     }
     if state.cad.running {
         ctx.request_repaint_after(std::time::Duration::from_millis(60));
+    }
+    // Keyboard: Alt+1..5 ribbon tabs, Ctrl+Enter apply, Delete removes the selected feature, F2 renames it.
+    if !ctx.text_edit_focused() && !state.cad.dialog_open() && !state.cad.leave_dialog {
+        let keys = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5];
+        for (k, tab) in keys.iter().zip(RibbonTab::ALL) {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::ALT, *k)) {
+                state.cad.tab = tab;
+            }
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)) {
+            apply(state, false);
+            return;
+        }
+        if state.cad.sketch.is_none() {
+            let sel = state.session.lock().cad_edit.as_ref().and_then(|e| e.selected.and_then(|id| e.document.feature(id).map(|f| (id, f.name.clone()))));
+            if let Some((id, name)) = sel {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
+                    op(state, "remove", json!({"feature": name}));
+                    state.session.lock().cad_env_select(None);
+                } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F2)) {
+                    state.cad.rename = Some((id, name));
+                }
+            }
+        }
     }
     if !ctx.text_edit_focused() && !state.cad.leave_dialog && !state.cad.dialog_open() && state.cad.sketch.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         state.cad.leave_dialog = true;

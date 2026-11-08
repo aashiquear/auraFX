@@ -434,7 +434,11 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
             overlay(&src, &o).map_err(|e| anyhow!(e))?
         }
         DataSet::PolyData(_) => {
-            let tm = aurafx_mesh::model::surface_mesh(ds)?;
+            // A CAD Model's (or Geometry's) surface keeps its faces: one side set per face, by name.
+            let (tm, cad_names) = match aurafx_mesh::model::surface_mesh_with_faces(ds) {
+                Some((m, names)) => (m, Some(names)),
+                None => (aurafx_mesh::model::surface_mesh(ds)?, None),
+            };
             let np = tm.n_patches;
             let shape = aurafx_mesh::shape::Shape::Surface { mesh: std::sync::Arc::new(tm), face: 1 };
             let (lo, hi) = shape.bounds();
@@ -445,8 +449,11 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
             o.names.insert(1, "solid".into());
             o.periodic = false;
             // One side set per patch of the surface between sharp edges.
-            o.face_names =
-                std::iter::once(String::new()).chain((1..=np).map(|k| if np == 1 { "surface".to_string() } else { format!("surface {k}") })).collect();
+            o.face_names = match &cad_names {
+                // Face f of the surface is numbered 1 + f here: the first name is the empty one.
+                Some(names) => std::iter::once(String::new()).chain((0..np as usize).map(|k| names.get(k).cloned().unwrap_or_else(|| format!("face {k}")))).collect(),
+                None => std::iter::once(String::new()).chain((1..=np).map(|k| if np == 1 { "surface".to_string() } else { format!("surface {k}") })).collect(),
+            };
             let src = ShapeSource { shapes: vec![(1, &shape)] };
             overlay(&src, &o).map_err(|e| anyhow!(e))?
         }

@@ -123,6 +123,78 @@ pub fn interference_sdf(a: &Sdf, b: &Sdf, resolution: f64) -> f64 {
     count as f64 * h * h * h
 }
 
+/// The overlap volume of two *built* parts (either kernel) each at its own placement, by sampling
+/// both distance fields on a grid of cell `resolution` mm over the overlap of their bounds.
+pub fn interference_built(a: &crate::kernel::Evaluated, pa: &crate::document::Placement, b: &crate::kernel::Evaluated, pb: &crate::document::Placement, resolution: f64) -> f64 {
+    use glam::DMat3;
+    let (Some(da), Some(db)) = (a.distance.as_ref(), b.distance.as_ref()) else { return 0.0 };
+    let place = |pl: &crate::document::Placement| {
+        let r = DMat3::from_quat(glam::DQuat::from_euler(glam::EulerRot::XYZ, pl.rotate_deg[0].to_radians(), pl.rotate_deg[1].to_radians(), pl.rotate_deg[2].to_radians()));
+        (r, DVec3::from_array(pl.translate))
+    };
+    let corners = |e: &crate::kernel::Evaluated, pl: &crate::document::Placement| {
+        let (r, t) = place(pl);
+        let (mut lo, mut hi) = (DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY));
+        for bd in &e.bodies {
+            let (l, h) = (DVec3::from_array(bd.bounds.0), DVec3::from_array(bd.bounds.1));
+            for i in 0..8 {
+                let c = DVec3::new(if i & 1 == 0 { l.x } else { h.x }, if i & 2 == 0 { l.y } else { h.y }, if i & 4 == 0 { l.z } else { h.z });
+                let w = t + r * c;
+                lo = lo.min(w);
+                hi = hi.max(w);
+            }
+        }
+        (lo, hi)
+    };
+    let ((a0, a1), (b0, b1)) = (corners(a, pa), corners(b, pb));
+    let (lo, hi) = (a0.max(b0), a1.min(b1));
+    if lo.x >= hi.x || lo.y >= hi.y || lo.z >= hi.z {
+        return 0.0;
+    }
+    let h = resolution.max(1e-3);
+    let n = ((hi - lo) / h).ceil().as_uvec3().min(glam::UVec3::splat(600));
+    let ((ra, ta), (rb, tb)) = (place(pa), place(pb));
+    let (ia, ib) = (ra.transpose(), rb.transpose());
+    let count: usize = (0..n.z)
+        .into_par_iter()
+        .map(|k| {
+            let mut c = 0;
+            for j in 0..n.y {
+                for i in 0..n.x {
+                    let w = lo + (DVec3::new(i as f64, j as f64, k as f64) + 0.5) * h;
+                    if da((ia * (w - ta)).to_array()) < 0.0 && db((ib * (w - tb)).to_array()) < 0.0 {
+                        c += 1;
+                    }
+                }
+            }
+            c
+        })
+        .sum();
+    count as f64 * h * h * h
+}
+
+/// What lies between two flat faces of a built part: the distance between their planes when they are
+/// parallel, the angle between them, and the distance between their centers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FaceMeasure {
+    pub parallel: bool,
+    pub angle_deg: f64,
+    /// Along the faces' common normal when parallel, else the distance between the centers.
+    pub distance: f64,
+    pub center_distance: f64,
+}
+
+pub fn measure_faces(ev: &crate::kernel::Evaluated, a: &str, b: &str) -> Option<FaceMeasure> {
+    let (fa, fb) = (ev.face_by_name(a)?, ev.face_by_name(b)?);
+    let (na, nb) = (DVec3::from_array(fa.direction), DVec3::from_array(fb.direction));
+    let (ca, cb) = (DVec3::from_array(fa.centroid), DVec3::from_array(fb.centroid));
+    let cos = na.dot(nb).clamp(-1.0, 1.0);
+    let angle = cos.acos().to_degrees();
+    let parallel = fa.kind == crate::FaceKind::Plane && fb.kind == crate::FaceKind::Plane && (cos.abs() - 1.0).abs() < 1e-3;
+    let cd = ca.distance(cb);
+    Some(FaceMeasure { parallel, angle_deg: angle, distance: if parallel { (cb - ca).dot(na).abs() } else { cd }, center_distance: cd })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

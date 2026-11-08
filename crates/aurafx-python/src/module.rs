@@ -1534,8 +1534,8 @@ fn _cad_info(node: PyRef<PyNode>) -> PyResult<String> {
 
 /// Evaluate the part (with the node's overrides) now: volume, bounds and the faces.
 #[pyfunction]
-#[pyo3(signature = (node, resolution=64))]
-fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize) -> PyResult<String> {
+#[pyo3(signature = (node, resolution=64, kernel="Auto".to_string()))]
+fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize, kernel: String) -> PyResult<String> {
     // Inside the environment the build is shown too (it becomes the node's output).
     if session().lock().cad_editing() == Some(node.id) {
         let sum = session().lock().cad_env_evaluate(resolution).map_err(cad_err)?;
@@ -1543,7 +1543,8 @@ fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize) -> PyResult<String> {
         return Ok(serde_json::json!({ "kernel": sum.kernel, "volume": sum.volume, "area": sum.area, "centroid": sum.centroid, "bounds": [sum.bounds.0, sum.bounds.1], "faces": faces }).to_string());
     }
     let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
-    let ev = aurafx_filters::cad::evaluate(&doc, resolution, true).map_err(cad_err)?;
+    let choice = aurafx_cad::KernelChoice::parse(&kernel).ok_or_else(|| PyValueError::new_err("kernel is Auto, Implicit or B-rep"))?;
+    let ev = aurafx_filters::cad::evaluate_with(choice, &doc, resolution, true).map_err(cad_err)?;
     let faces: Vec<serde_json::Value> = ev
         .faces()
         .map(|(_, f)| {
@@ -1551,7 +1552,7 @@ fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize) -> PyResult<String> {
         })
         .collect();
     let b = &ev.bodies[0];
-    Ok(serde_json::json!({ "kernel": ev.kernel, "volume": ev.volume(), "area": b.area, "centroid": b.centroid, "bounds": [b.bounds.0, b.bounds.1], "faces": faces }).to_string())
+    Ok(serde_json::json!({ "kernel": ev.kernel, "volume": ev.volume(), "area": b.area, "centroid": b.centroid, "bounds": [b.bounds.0, b.bounds.1], "faces": faces, "notes": ev.approximate }).to_string())
 }
 
 /// Open the CAD environment on a CAD Model node (the pipeline pauses).
@@ -1609,6 +1610,77 @@ fn _cad_apply(keep: bool, fix: String, run: String) -> PyResult<String> {
     };
     let a = session().lock().cad_apply_with(keep, mode, run).map_err(cad_err)?;
     Ok(serde_json::json!({ "features": a.features, "kept_editing": a.kept_editing, "fixes": a.fixes, "held": a.held }).to_string())
+}
+
+/// Write the node's part as a CAD file by the path's extension (.afxcad, .step, .3mf, .stl, .obj, .sc):
+/// returns {bytes, exact, note}. `kernel`: Auto, Implicit or B-rep.
+#[pyfunction]
+#[pyo3(signature = (node, path, kernel="Auto".to_string()))]
+fn _cad_export(node: PyRef<PyNode>, path: String, kernel: String) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let choice = aurafx_cad::KernelChoice::parse(&kernel).ok_or_else(|| PyValueError::new_err("kernel is Auto, Implicit or B-rep"))?;
+    let r = aurafx_cad::io::export_file(&doc, std::path::Path::new(&path), choice).map_err(cad_err)?;
+    Ok(serde_json::json!({ "bytes": r.bytes, "exact": r.exact, "note": r.note }).to_string())
+}
+
+/// Read a CAD file as `.afxcad` text (a solid file becomes a base feature).
+#[pyfunction]
+fn _cad_import(path: String) -> PyResult<String> {
+    let doc = aurafx_cad::io::import_file(std::path::Path::new(&path)).map_err(cad_err)?;
+    Ok(aurafx_cad::CadFile::new(doc).to_json())
+}
+
+/// The edges of the part as the exact kernel builds it: index, a point on the edge, length, the
+/// faces on either side.
+#[pyfunction]
+fn _cad_edges(node: PyRef<PyNode>) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let e = aurafx_cad::kernel::brep::list_edges(&doc).map_err(cad_err)?;
+    Ok(serde_json::json!(e.iter().map(|e| serde_json::json!({ "index": e.index, "point": e.mid, "length": e.length, "faces": e.faces, "straight": e.straight })).collect::<Vec<_>>()).to_string())
+}
+
+/// A point on each named face of the built part (for picking faces by name).
+#[pyfunction]
+fn _cad_face_points(node: PyRef<PyNode>, names: Vec<String>) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let ev = aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 64, true).map_err(cad_err)?;
+    let mut out = Vec::new();
+    for n in &names {
+        out.push(ev.face_pick(n).ok_or_else(|| PyValueError::new_err(format!("no face named '{n}' (cad.faces() lists them)")))?);
+    }
+    Ok(serde_json::json!(out).to_string())
+}
+
+/// Mass properties, or the measure between two faces.
+#[pyfunction]
+#[pyo3(signature = (node, what, a=None, b=None, density=7.85))]
+fn _cad_measure(node: PyRef<PyNode>, what: String, a: Option<String>, b: Option<String>, density: f64) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let ev = aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 64, true).map_err(cad_err)?;
+    match what.as_str() {
+        "mass" => serde_json::to_string(&ev.mass_properties(density)).map_err(cad_err),
+        "faces" => {
+            let (a, b) = (a.unwrap_or_default(), b.unwrap_or_default());
+            let m = aurafx_cad::measure_faces(&ev, &a, &b).ok_or_else(|| PyValueError::new_err(format!("no faces named '{a}' and '{b}' (cad.faces() lists them)")))?;
+            serde_json::to_string(&m).map_err(cad_err)
+        }
+        w => Err(PyValueError::new_err(format!("unknown measure '{w}'"))),
+    }
+}
+
+/// The overlap volume of two CAD Model nodes, the second placed at `at` / `rotate`.
+#[pyfunction]
+#[pyo3(signature = (node, other, at=(0.0, 0.0, 0.0), rotate=(0.0, 0.0, 0.0), resolution=0.5))]
+fn _cad_interference(node: PyRef<PyNode>, other: PyRef<PyNode>, at: (f64, f64, f64), rotate: (f64, f64, f64), resolution: f64) -> PyResult<f64> {
+    let (da, db) = {
+        let s = session().lock();
+        (s.cad_effective_document(node.id).map_err(cad_err)?, s.cad_effective_document(other.id).map_err(cad_err)?)
+    };
+    let k = aurafx_cad::KernelChoice::Auto;
+    let (ea, eb) = (aurafx_filters::cad::evaluate_with(k, &da, 64, true).map_err(cad_err)?, aurafx_filters::cad::evaluate_with(k, &db, 64, true).map_err(cad_err)?);
+    let id = aurafx_cad::Placement::default();
+    let pb = aurafx_cad::Placement { translate: [at.0, at.1, at.2], rotate_deg: [rotate.0, rotate.1, rotate.2] };
+    Ok(aurafx_cad::interference_built(&ea, &id, &eb, &pb, resolution))
 }
 
 /// Send a command to the app's window (the Apply button's dialog).
@@ -1822,6 +1894,50 @@ class _CadApi:
         return self.modifier("Split", feature, plane=plane, offset=offset, keep_positive=keep_positive)
     def scale(self, factor, feature=None):
         return self.modifier("Scale", feature, factor=factor)
+    # edges, faces and measures of the exact part
+    def edges(self):
+        """The edges of the part as the exact (B-rep) kernel builds it: index, a point on the edge, length,
+        straight, and the names of the faces on either side. Raises when the exact kernel cannot build it."""
+        return _json.loads(_cad_edges(self._node))
+    def _edge_points(self, edges):
+        if isinstance(edges, tuple) and len(edges) == 2 and all(isinstance(e, str) for e in edges):
+            edges = [e for e in self.edges() if edges[0] in e["faces"] and edges[1] in e["faces"]]
+            if not edges: raise ValueError("no edge between those two faces")
+            return [e["point"] for e in edges]
+        all_edges = None
+        pts = []
+        for e in edges:
+            if isinstance(e, int):
+                if all_edges is None: all_edges = self.edges()
+                pts.append(all_edges[e]["point"])
+            elif isinstance(e, dict): pts.append(e["point"])
+            else: pts.append(list(e))
+        return pts
+    def fillet_edges(self, edges, size=1, name=None):
+        """Round picked edges (exact kernel): edges are indices from edges(), points on the edges, or
+        a pair of face names ('Base z+', 'Bore side') for the edge between them."""
+        return self.edit("edge_blend", edges=self._edge_points(edges), size=size, chamfer=False, **({"name": name} if name else {}))
+    def chamfer_edges(self, edges, size=1, name=None):
+        """Chamfer picked edges (see fillet_edges)."""
+        return self.edit("edge_blend", edges=self._edge_points(edges), size=size, chamfer=True, **({"name": name} if name else {}))
+    def shell_faces(self, faces=(), thickness=2, name=None):
+        """Hollow the part so far with this wall, removing the picked faces (names from faces(), or points);
+        no faces: a closed hollow body."""
+        pts = [list(f) if not isinstance(f, str) else None for f in faces]
+        names = [f for f in faces if isinstance(f, str)]
+        if names:
+            got = iter(_json.loads(_cad_face_points(self._node, names)))
+            pts = [next(got) if p is None else p for p in pts]
+        return self.edit("shell_faces", faces=pts, thickness=thickness, **({"name": name} if name else {}))
+    def mass(self, density=7.85):
+        """Volume, surface, center, bounds and mass (density in g/cm3) of the built part."""
+        return _json.loads(_cad_measure(self._node, "mass", None, None, density))
+    def measure_faces(self, a, b):
+        """The distance between two parallel flat faces (or their centers), and the angle between them."""
+        return _json.loads(_cad_measure(self._node, "faces", a, b))
+    def interference(self, other, at=(0, 0, 0), rotate=(0, 0, 0), resolution=0.5):
+        """The overlap volume with another CAD Model node placed at `at` (and rotated by `rotate` degrees)."""
+        return _cad_interference(self._node, other._node if hasattr(other, "_node") else other, tuple(at), tuple(rotate), resolution)
     # the timeline
     def suppress(self, feature, suppressed=True):
         return self.edit("suppress", feature=feature, suppressed=suppressed)
@@ -1846,9 +1962,10 @@ class _CadApi:
         return _json.loads(_cad_info(self._node))
     def features(self):
         return self.info()["features"]
-    def evaluate(self, resolution=64):
-        """Build the part now: volume, area, centroid, bounds and the faces (name, kind, area, centroid, direction)."""
-        return _json.loads(_cad_evaluate(self._node, resolution))
+    def evaluate(self, resolution=64, kernel="Auto"):
+        """Build the part now: volume, area, centroid, bounds, the faces (name, kind, area, centroid, direction),
+        the kernel that built it and notes on what it could not build exactly."""
+        return _json.loads(_cad_evaluate(self._node, resolution, kernel))
     def faces(self, resolution=64):
         return self.evaluate(resolution)["faces"]
     def volume(self, resolution=64):
@@ -1867,6 +1984,12 @@ class _CadApi:
                 fix = _json.dumps(fix)
             return _json.loads(_cad_apply(keep_editing, fix, run))
         return self._node.update()
+    def show_tab(self, name):
+        """Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window."""
+        _cad_app_command("cad_tab " + name)
+    def open_picker(self, kind="fillet"):
+        """Open the edge or face picker (fillet, chamfer or shell) in the window."""
+        _cad_app_command("cad_pick " + kind)
     def sketch_new(self, plane="XY", offset=0, items=None):
         """Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready
         shapes (the items of cad.sketch()). Only useful from a script running in the app."""
@@ -1909,12 +2032,15 @@ class _CadApi:
     # files
     def document(self):
         return _cad_document(self._node)
-    def save(self, path):
-        """Write the document as an .afxcad file."""
-        open(path, "w").write(_cad_document(self._node)); return path
+    def save(self, path, kernel="Auto"):
+        """Write the part by the file's extension: .afxcad (the document), .step/.stp, .3mf, .stl, .obj
+        or .sc (SolidCraft). Exact faces and edges when the B-rep kernel builds the part; otherwise a
+        faceted tessellation (the result says which). Returns {"bytes", "exact", "note"}."""
+        return _json.loads(_cad_export(self._node, str(path), kernel))
     def load(self, path):
-        """Replace the document by an .afxcad file."""
-        _cad_set_document(self._node, open(path).read()); return self._node
+        """Replace the document by a file: .afxcad, or a solid (.step/.stp, .igs, .3mf, .sc, .stl, .obj)
+        as the base feature of a new document."""
+        _cad_set_document(self._node, _cad_import(str(path))); return self._node
     def __repr__(self):
         i = self.info()
         return "<cad %r: %d features, %d parameters>" % (i["name"], len(i["features"]), len(i["parameters"]))
@@ -2363,6 +2489,12 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_cad_parse_fixes, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_run_held, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_app_command, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_export, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_face_points, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_measure, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_interference, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_import, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_discard, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_state, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_env, m)?)?;

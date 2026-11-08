@@ -186,3 +186,15 @@ and send a pull request.
 auraFX is dual-licensed under either the [MIT License](LICENSE-MIT) or the
 [Apache License, Version 2.0](LICENSE-APACHE), at your option. The bundled Phosphor icon font
 is MIT-licensed (see `assets/fonts/`).
+
+### Credits
+
+The CAD environment builds on two open-source libraries whose code is carried in this
+repository under `vendor/` (how, and how upstream work is taken, is in
+[vendor/README.md](vendor/README.md)): **SolidCraft** (the B-rep kernel's command engine and the
+STEP, IGES, 3MF and design-file formats; MIT OR Apache-2.0,
+<https://github.com/tangency-labs/solidcraft>) and **solidcore** (the geometry kernel under it;
+Apache-2.0, <https://github.com/tangency-labs/solidcore>). The parametric part model, the
+sketch solver and the expression evaluator were ported from the author's own EZ-YX-craft
+project (MIT OR Apache-2.0). The licence of every crate the CAD environment uses is in
+[docs/reference/third-party.md](docs/reference/third-party.md).

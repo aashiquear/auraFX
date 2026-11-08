@@ -116,6 +116,60 @@ c.cad.run_held()
 "#,
     );
     assert_eq!(o, "1 renamed to 'Pin hole side' Pin hole side\nTrue True\n1 Pin hole side\n0 1 Pin hole side", "{o}");
+    // Kernels and files from Python: a STEP file opens as a CAD Model, can be cut into and written back.
+    let o = run(
+        &rt,
+        r#"
+import os, tempfile
+d = tempfile.mkdtemp()
+src = afx.cad_model(name="Source")
+src.cad.hole(diameter=8, depth=20, name="Bore", at=(0, 0, 12))
+r = src.cad.save(os.path.join(d, "src.step"))
+print(r["exact"], r["bytes"] > 1000)
+m = afx.load(os.path.join(d, "src.step"))
+print(m.params["kernel"], len(m.cad.features()))
+m.cad.hole(diameter=4, depth=20, name="Pin", at=(12, 0, 12))
+print(round(m.cad.volume()))
+print(m.update() != "")
+m.set(kernel="Implicit")
+print(round(m.cad.volume() / 100) == round(m.cad.volume() / 100))
+r2 = m.cad.save(os.path.join(d, "out.3mf"))
+print(r2["exact"])
+"#,
+    );
+    let l: Vec<&str> = o.lines().collect();
+    assert_eq!(l[0], "True True", "{o}");
+    assert_eq!(l[1], "Auto 1", "{o}");
+    let expect = 40.0 * 30.0 * 8.0 - std::f64::consts::PI * 16.0 * 8.0 - std::f64::consts::PI * 4.0 * 8.0;
+    assert!((l[2].parse::<f64>().unwrap() - expect).abs() / expect < 0.02, "{o}");
+    assert_eq!(l[5], "True", "{o}");
+    // Edges, faces and measures of the exact part (stage C7).
+    let o = run(
+        &rt,
+        r#"
+b = afx.cad_model(name="Block")
+b.cad.clear("Block")
+b.cad.box(size=(20, 20, 20), name="Block")
+print(len(b.cad.edges()))
+v0 = b.cad.volume()
+m = b.cad.measure_faces("Block x-", "Block x+")
+print(m["parallel"], round(m["distance"], 3))
+b.cad.fillet_edges(("Block z+", "Block x+"), size=2)
+print(round(v0 - b.cad.volume()))
+b.cad.shell_faces(["Block z+"], thickness=2)
+print(b.cad.mass(7.85)["mass_g"] > 0, b.cad.evaluate()["kernel"])
+c = afx.cad_model(name="Cube")
+c.cad.clear("Cube"); c.cad.box(size=(20, 20, 20), name="C")
+print(round(c.cad.interference(c, at=(12, 6, 0), resolution=0.4) / 100))
+"#,
+    );
+    let l: Vec<&str> = o.lines().collect();
+    assert_eq!(l[0], "12", "{o}");
+    assert_eq!(l[1], "True 20.0", "{o}");
+    let lost: i64 = l[2].parse().unwrap();
+    assert!((lost - 17).abs() <= 2, "one filleted edge of 20 mm and r=2 loses about 17: {o}");
+    assert_eq!(l[3], "True brep", "{o}");
+    assert_eq!(l[4], "22", "overlap 8 x 14 x 20 = 2240: {o}");
     let trace = session.lock().trace.join("\n");
     assert!(trace.contains(".cad.edit('add'"), "{trace}");
     std::fs::remove_file("/tmp/afx_cad_py_test.afxcad").ok();

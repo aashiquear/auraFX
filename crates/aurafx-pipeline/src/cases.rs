@@ -122,7 +122,9 @@ fn set_names(ug: &UnstructuredGrid, kind: &str) -> Vec<String> {
 /// The set named `want`, or the one whose name ends with the axis face (`x-`, `x+`).
 fn pick_set(names: &[String], want: &str, face: &str) -> Option<String> {
     if !want.is_empty() {
-        return names.iter().find(|n| n.as_str() == want || n.replace('_', " ") == want).cloned();
+        // Set names lose their spaces on the way to the solver's files: compare without them.
+        let plain = |s: &str| s.replace('_', " ");
+        return names.iter().find(|n| n.as_str() == want || plain(n) == plain(want)).cloned();
     }
     names.iter().find(|n| n.as_str() == face).or_else(|| names.iter().find(|n| n.ends_with(&format!("_{face}")))).cloned()
 }

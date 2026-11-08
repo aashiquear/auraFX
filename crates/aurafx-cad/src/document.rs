@@ -113,7 +113,33 @@ pub enum Shape {
         #[serde(default)]
         depth: f64,
     },
-    /// Another part used as a body (SolidWorks "Combine": add / subtract / intersect bodies).
+    /// An imported solid (STEP, IGES, 3MF, a SolidCraft `.sc` design, STL or OBJ) as the base of the
+    /// part: the file's bytes are kept in the document (base64), so it is self-contained.
+    Brep {
+        /// "step", "igs", "3mf", "sc", "stl" or "obj": what the data is.
+        format: String,
+        /// The file's name it came from.
+        #[serde(default)]
+        source: String,
+        data: String,
+    },
+    /// Rounds (`chamfer: false`) or chamfers picked edges of the part built so far. Each edge is
+    /// named by a point on it (the nearest edge is meant; `cad.edges()` lists them). The B-rep kernel
+    /// builds it exactly; the implicit kernel leaves the edges sharp and says so.
+    EdgeBlend {
+        #[serde(default)]
+        chamfer: bool,
+        size: f64,
+        edges: Vec<[f64; 3]>,
+    },
+    /// Hollows the part built so far with this wall thickness, removing the faces picked by a point
+    /// on each (no pick: a closed hollow body). The implicit kernel approximates it and says so.
+    ShellFaces {
+        thickness: f64,
+        #[serde(default)]
+        faces: Vec<[f64; 3]>,
+    },
+    /// Another part used as a body (a combine: add / subtract / intersect bodies).
     Body {
         part: Box<Document>,
     },

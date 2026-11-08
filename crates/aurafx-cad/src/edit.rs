@@ -448,6 +448,31 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             doc.resolved()?;
             Ok(json!({}))
         }
+        "edge_blend" | "shell_faces" => {
+            // Round or chamfer picked edges, or hollow with picked open faces: the part so far.
+            let picks = |k: &str| -> Result<Vec<[f64; 3]>, CadError> {
+                args.get(k)
+                    .and_then(|a| a.as_array())
+                    .map(|a| a.iter().map(|p| Ok(vec3(Some(p), [f64::NAN; 3])).and_then(|v: [f64; 3]| if v[0].is_nan() { bad("a pick is a point [x, y, z] on the edge or face") } else { Ok(v) })).collect::<Result<Vec<_>, CadError>>())
+                    .unwrap_or_else(|| Ok(Vec::new()))
+            };
+            let (shape, default_name) = if op == "edge_blend" {
+                let chamfer = args.get("chamfer").and_then(|c| c.as_bool()).unwrap_or(false);
+                let edges = picks("edges")?;
+                if edges.is_empty() {
+                    return bad("pick at least one edge (a point on each; cad.edges() lists them)");
+                }
+                (Shape::EdgeBlend { chamfer, size: num(doc, args.get("size").unwrap_or(&json!(1)))?.0, edges }, if chamfer { "Chamfer" } else { "Fillet" })
+            } else {
+                (Shape::ShellFaces { thickness: num(doc, args.get("thickness").unwrap_or(&json!(2)))?.0, faces: picks("faces")? }, "Shell")
+            };
+            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or(default_name), BooleanOp::Add, shape);
+            if let Some(e) = args.get("size").or(args.get("thickness")).and_then(|v| v.as_str()) {
+                f.bindings.push(Binding { path: if op == "edge_blend" { "/shape/size".into() } else { "/shape/thickness".into() }, expr: e.into() });
+            }
+            let id = doc.push(f);
+            Ok(feature_summary(doc.feature(id).unwrap()))
+        }
         "set_op" => {
             let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
             doc.features[i].op = op_of(&json!({ "op": args.get("to").cloned().unwrap_or(Value::Null), "kind": "" }))?;
@@ -514,7 +539,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(json!({}))
         }
         other => bad(format!(
-            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, set, set_op, set_dim, set_json, set_sketch, remove_modifier, remove_finish, set_finish, configuration, activate)"
+            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, activate)"
         )),
     }
 }

@@ -15,8 +15,21 @@ pub const EMPTY_D: f64 = 1e9;
 /// Half-depth of a `ThroughAll` extrusion (mm).
 pub const THROUGH_ALL: f64 = 5000.0;
 
+/// A signed distance field read from a closed triangle surface (an imported solid, tessellated).
+pub struct MeshField {
+    pub mesh: aurafx_mesh::TriMesh,
+}
+
+impl std::fmt::Debug for MeshField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MeshField({} triangles)", self.mesh.tris.len())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Sdf {
+    /// The distance to an imported solid's surface.
+    Mesh(std::sync::Arc<MeshField>),
     Box {
         half: DVec3,
         r: f64,
@@ -300,6 +313,11 @@ pub fn shape(s: &Shape) -> Sdf {
             };
             Sdf::Thread { r: major_diameter * 0.5, pitch: p, depth: d.min(major_diameter * 0.45), len: *length }
         }
+        Shape::Brep { .. } => match crate::kernel::brep::tessellate_shape(s) {
+            Some(m) => Sdf::Mesh(std::sync::Arc::new(MeshField { mesh: m })),
+            None => Sdf::Empty,
+        },
+        Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } => Sdf::Empty,
         Shape::Body { part } => part.sdf().unwrap_or(Sdf::Empty),
     }
 }
@@ -582,6 +600,7 @@ impl Sdf {
                 let r = p.truncate().length();
                 inner.eval(DVec3::new(r * a.cos(), r * a.sin(), p.z))
             }
+            Sdf::Mesh(m) => m.mesh.distance(p.to_array()),
             Sdf::Empty => EMPTY_D,
             Sdf::Prism { profile, z0, z1, draft, top, bottom } => {
                 let zc = p.z.clamp(*z0, *z1).abs();
@@ -749,6 +768,7 @@ impl Sdf {
                 let r = l.truncate().length().max(h.truncate().length());
                 (DVec3::new(-r, -r, l.z), DVec3::new(r, r, h.z))
             }
+            Sdf::Mesh(m) => (DVec3::from_array(m.mesh.lo), DVec3::from_array(m.mesh.hi)),
             Sdf::Empty => (DVec3::ZERO, DVec3::ZERO),
             Sdf::Prism { profile, z0, z1, draft, .. } => {
                 let b = profile.bounds;
@@ -875,6 +895,19 @@ impl Document {
     pub fn raw_sdf(&self) -> Option<Sdf> {
         let mut body: Option<Sdf> = None;
         for f in self.features.iter().filter(|f| !f.suppressed) {
+            // Edge and shell features act on the part so far: approximated here (see the shapes).
+            match &f.shape {
+                // Not built by this kernel (the kernel says so): the edges stay sharp.
+                crate::document::Shape::EdgeBlend { .. } => continue,
+                crate::document::Shape::ShellFaces { thickness, faces } => {
+                    body = body.take().map(|b| {
+                        let open = !faces.is_empty();
+                        modify(b, &Modifier::ShellOpen { thickness: *thickness, open_top: open })
+                    });
+                    continue;
+                }
+                _ => {}
+            }
             let s = feature_sdf(f);
             let chamfer = f.blend_kind == BlendKind::Chamfer && f.blend > 0.0;
             body = match (body.take(), f.op) {

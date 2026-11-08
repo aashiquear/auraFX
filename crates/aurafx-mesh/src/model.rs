@@ -395,7 +395,7 @@ impl Model {
                         path = b.join(path);
                     }
                 }
-                let mesh = read_surface(&path)?;
+                let (mesh, face_names) = read_surface_named(&path)?;
                 let s = a.num("scale")?.unwrap_or(1.0);
                 let stem = path.file_name().and_then(|f| f.to_str()).unwrap_or("surface").to_string();
                 let patches = mesh.n_patches;
@@ -403,9 +403,15 @@ impl Model {
                 let id = self.add_body(
                     "surface",
                     |m, id| {
-                        let f = m.face(format!("surface {id} {stem}"));
+                        // A CAD file's faces keep their names; other surfaces are numbered patches.
+                        let label = |k: u32| match &face_names {
+                            Some(n) => format!("{id} {}", n.get(k as usize).cloned().unwrap_or_else(|| format!("face {}", k + 1))),
+                            None if k == 0 => format!("surface {id} {stem}"),
+                            None => format!("surface {id} {stem} {}", k + 1),
+                        };
+                        let f = m.face(label(0));
                         for k in 1..patches {
-                            m.face(format!("surface {id} {stem} {}", k + 1));
+                            m.face(label(k));
                         }
                         let inner = match inner {
                             Shape::Surface { mesh, .. } => Shape::Surface { mesh, face: f },
@@ -736,6 +742,21 @@ fn positive(v: &[f64]) -> Result<()> {
 }
 
 /// A closed surface from a file (STL, PLY, OBJ, VTK polygonal data ...).
+/// A surface file as a triangle mesh and, when its triangles carry named faces (a CAD file), their names.
+pub fn read_surface_named(path: &std::path::Path) -> Result<(TriMesh, Option<Vec<String>>)> {
+    let ds = match aurafx_io::read_file(path)? {
+        aurafx_io::Loaded::Static(d) => d,
+        aurafx_io::Loaded::Series(s) => match s.steps.first() {
+            Some(st) => aurafx_io::load_step(st)?.into(),
+            None => bail!("{}: no data", path.display()),
+        },
+    };
+    match surface_mesh_with_faces(&ds) {
+        Some((m, names)) => Ok((m, Some(names))),
+        None => Ok((surface_mesh(&ds)?, None)),
+    }
+}
+
 pub fn read_surface(path: &std::path::Path) -> Result<TriMesh> {
     let ds = match aurafx_io::read_file(path)? {
         aurafx_io::Loaded::Static(d) => d,
@@ -748,6 +769,26 @@ pub fn read_surface(path: &std::path::Path) -> Result<TriMesh> {
 }
 
 /// The triangles of a surface dataset (polygons split into fans).
+/// A surface whose triangles carry face numbers (the cell array `FaceId` of a CAD Model or Geometry
+/// surface): the mesh's patches are those faces, and their names are the field array `FaceNames`.
+pub fn surface_mesh_with_faces(ds: &aurafx_data::DataSet) -> Option<(TriMesh, Vec<String>)> {
+    let aurafx_data::DataSet::PolyData(pd) = ds else { return None };
+    let ids = pd.cell_data.get("FaceId")?;
+    let names = match &pd.field_data.get("FaceNames")?.data {
+        aurafx_data::ArrayData::String(v) => v.clone(),
+        _ => return None,
+    };
+    let pts: Vec<V3> = (0..pd.points.len()).map(|i| pd.points.get(i)).collect();
+    let (mut tris, mut labels) = (Vec::new(), Vec::new());
+    for (ci, (_, c)) in pd.polys.iter().enumerate() {
+        for k in 1..c.len().saturating_sub(1) {
+            tris.push([c[0], c[k], c[k + 1]]);
+            labels.push(ids.get(ci, 0).max(0.0) as u32);
+        }
+    }
+    TriMesh::new_labeled(&pts, &tris, Some(&labels)).ok().map(|m| (m, names))
+}
+
 pub fn surface_mesh(ds: &aurafx_data::DataSet) -> Result<TriMesh> {
     let aurafx_data::DataSet::PolyData(pd) = ds else { bail!("not a surface (polygonal data)") };
     let pts: Vec<V3> = (0..pd.points.len()).map(|i| pd.points.get(i)).collect();

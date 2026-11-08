@@ -188,6 +188,101 @@ From Python, `e.sketch_new(plane="XY", items=[...])` and `e.sketch_edit("Bracket
 canvas in the window, and `e.sketch(...)` with `e.extrude(...)` builds the same features
 without it.
 
+## Kernels, STEP and other files
+
+A part is built by one of two kernels, chosen in the CAD Model's Properties (**Kernel**):
+
+- **B-rep** builds *exact* solids with true faces and edges (a cylinder is a cylinder, a hole's
+  wall is a real cylindrical face). It maps primitives, extruded and revolved sketches, holes,
+  patterns (as copies), rounding and hollowing of a feature or of the whole part, and cap
+  chamfers. This is what **STEP** is written from, and it reads imported solids.
+- **Implicit** describes the part as a distance field. It builds every feature, including
+  threads, lofts and sweeps and the rounded junction a feature's *blend* makes, and never fails;
+  edges are not exact.
+- **Auto** (the default) uses B-rep when it can build the part and Implicit otherwise. The
+  result carries a field `Kernel` (which one built it) and `KernelNotes` (why B-rep could not).
+
+Both kernels name faces the same way (`Base z+`, `Bore side`), so everything built on the names
+works on either. The CAD environment shows the part with the Implicit kernel while you edit (it
+is quick), and the node builds it with the kernel you chose when you apply.
+
+**Files.** *File › Open* (and `afx.load`) opens a **`.step` / `.stp`** (AP203, AP214, AP242),
+**`.igs` / `.iges`**, **`.3mf`**, a SolidCraft **`.sc`** design, or an **`.afxcad`** document as
+a **CAD Model**: the file's solid becomes the base feature of a part, with its bytes kept inside
+the document, so you can add features to it (cut a hole through an imported bracket) and the
+part still opens on another computer. STL and OBJ keep their ordinary readers; to edit one, add
+it as a CAD Model from Python.
+
+```python
+m = afx.cad_model("bracket.step")                 # a solid from a STEP file as a CAD Model
+m.cad.hole(diameter=6, depth=20, at=(10, 5, 8))   # cut into it
+m.cad.save("bracket2.step")                       # exact STEP (faces and edges)
+m.cad.save("bracket2.3mf"); m.cad.save("part.sc") # 3MF, a SolidCraft design (also .stl, .obj)
+r = m.cad.save("lofted.step")                     # {"exact": False, "note": "faceted: ..."} when
+                                                  # only the Implicit kernel builds the part
+```
+
+A part that only the Implicit kernel builds is written as STEP or STL from its tessellation: a
+valid solid of triangles whose header says *faceted B-rep* and why. IGES can be read but not yet
+written.
+
+## Edges, faces and measures
+
+With the exact kernel the part has real edges, and you can work on them. In the **Modify** tab:
+
+- **Fillet edges…** and **Chamfer edges…** open a picker in the PropertyManager that **lists the
+  part's edges**, each with the two faces it lies between (`Base z+ × Bore side`), its length and
+  whether it is curved. Tick the edges, set the size (a number or an expression of the
+  dimensions) and press **Apply**: a *Fillet* or *Chamfer* feature is added after the features it
+  modifies, so it follows them when you roll back or change a dimension.
+- **Shell, open faces…** lists the faces; tick the ones to remove (none: a closed hollow body)
+  and give the wall.
+
+![The edge picker: the edges of a plate with a bored hole, each with the faces on either side](images/cad_pick.png)
+
+These features need the **B-rep** kernel. On the Implicit kernel a picked fillet or chamfer
+leaves the edges sharp, and the result says so (`KernelNotes`); a picked-face shell is approximated.
+**Fillet** and **Chamfer** without a picker round every edge of the selected feature or of the
+whole part.
+
+The **Inspect** tab and Python read the part: mass (volume, surface, center, bounds, mass for a
+density), the distance between two parallel flat faces and the angle between two faces, and the
+volume two parts overlap when one is placed against the other:
+
+```python
+b = afx.cad_model()                                  # the default plate
+b.cad.edges()                                        # [{'index': 0, 'point': [...], 'length': 30.0,
+                                                     #   'faces': ['Base bottom', 'Base side 1'], ...}, ...]
+b.cad.fillet_edges(("Base z+", "Base side 2"), size=2)   # the edge between two named faces
+b.cad.chamfer_edges([0, 3, 5], size=1)               # edges by index (or a point on each)
+b.cad.shell_faces(["Base z+"], thickness=2)          # an open box
+b.cad.mass(7.85)                                     # steel
+b.cad.measure_faces("Base x-", "Base x+")            # {'parallel': True, 'distance': 40.0, ...}
+b.cad.interference(other, at=(12, 6, 0))             # overlap volume with another CAD Model placed there
+```
+
+## From a CAD part to a mesh and a solver case
+
+A CAD Model feeds the meshing tools directly, and **its faces come along as named side sets**:
+
+- **Overlay Mesh** of a CAD Model fills it with hexahedra; the mesh has one side set per CAD face
+  (`Bore side`, `Base z+`, or `plate_with_hole face 3` for a solid read from a STEP file), so a
+  boundary condition can name the wall of a hole. **Extract Set** shows one.
+- In geometry commands, **`import 'part.step'`** (also `.stp`, `.igs`, `.3mf`, `.sc`, `.afxcad`)
+  brings the part in as a body whose faces keep their names, and `mesh body 1 size 0.5 scheme
+  overlay` meshes it; the Hex mesh output carries the same side sets.
+- Assign Grains and the solver cases follow as for any mesh: give the set to hold and the set to
+  pull by name (`fixed='plate_with_hole face 1'`, `loaded='plate_with_hole face 2'`).
+
+![A STEP file's plate with its hole, meshed with hexahedra; the highlighted faces are the side set of one of the file's faces](images/cad_mesh.png)
+
+```python
+part = afx.load("bracket.step")                # a CAD Model
+mesh = part.overlay_mesh(cell=1.0)             # hexahedra; side sets named after the faces
+grains = mesh.assign_grains(grains=40, blocks=True, boundaries=True)
+afx.simulation_case(grains, "moose", "case", fixed="bracket face 1", loaded="bracket face 2")
+```
+
 ## Python
 
 ```python

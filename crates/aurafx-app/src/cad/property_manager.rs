@@ -46,9 +46,41 @@ struct Ctx<'a> {
     acts: Vec<(&'static str, Value)>,
 }
 
+/// What a field means, for its tooltip (by the last part of its name).
+fn help_for(path: &str) -> &'static str {
+    let key = path.rsplit('/').find(|p| p.parse::<usize>().is_err()).unwrap_or("");
+    match key {
+        "size" => "The size along x, y and z (mm). A number, or an expression of the dimensions such as width / 2.",
+        "radius" | "r_bottom" | "r_top" => "A radius (mm).",
+        "diameter" => "A diameter (mm). A hole's diameter is its drilled size.",
+        "height" | "depth" => "A length (mm). A hole's depth is measured down from the point it is placed at; an extrusion's from its sketch plane.",
+        "corner_radius" => "Rounds the box's edges by this radius.",
+        "major" | "minor" => "The torus's ring radius and tube radius (mm).",
+        "draft_deg" => "Taper of an extrusion's walls in degrees: positive widens it away from the sketch plane.",
+        "angle_deg" => "A revolve's angle in degrees (360: all the way round).",
+        "reverse" => "Extrude against the sketch plane's normal.",
+        "end" => "Blind: a given depth. MidPlane: half each way. ThroughAll: through the whole part (for cuts).",
+        "blend" => "Radius of a rounded junction where this feature meets the part (0: a sharp edge). The exact kernel does not build blends.",
+        "thickness" => "A wall thickness (mm).",
+        "count" => "The number of copies, including the original.",
+        "step" => "The offset between copies (mm).",
+        "total_deg" => "The angle the copies cover: 360 is a full circle.",
+        "translate" => "Where the feature is placed (mm).",
+        "rotate_deg" => "How the feature is turned about x, y and z (degrees).",
+        "pitch" => "The distance between thread crests (mm).",
+        "factor" => "Scale factor about the origin.",
+        "offset" => "A plane's offset from the origin (mm).",
+        _ => "",
+    }
+}
+
 impl Ctx<'_> {
     fn number(&mut self, ui: &mut egui::Ui, label: &str, path: &str, value: f64) {
-        ui.label(label);
+        let l = ui.label(label);
+        let h = help_for(path);
+        if !h.is_empty() {
+            l.on_hover_text(h);
+        }
         let shown = self.bindings.get(path).cloned().unwrap_or_else(|| num_text(value));
         let bound = self.bindings.contains_key(path);
         ui.horizontal(|ui| {
@@ -145,6 +177,10 @@ pub fn property_manager_ui(state: &mut State, ui: &mut egui::Ui) {
     };
     if let Some(e) = &error {
         ui.label(RichText::new(e).color(crate::theme::ERROR).small());
+    }
+    if state.cad.pick.is_some() {
+        super::pick::ui(state, ui);
+        return;
     }
     if super::sketching(state) {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| super::sketch::props_ui(state, ui));

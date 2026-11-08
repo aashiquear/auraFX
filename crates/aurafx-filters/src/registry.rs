@@ -3690,9 +3690,11 @@ fn build() -> Vec<FilterDef> {
                 i("resolution", "Resolution", 64, 8, 1024).help("Cells along the longest side of the part when drawing its surface."),
                 choice("output", "Output", &[crate::cad::OUT_SURFACE, crate::cad::OUT_DISTANCE], crate::cad::OUT_SURFACE)
                     .help("Surface: the part's surface with BodyId and FaceId and the face names. Distance field: the signed distance to the part on a grid."),
-                b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface.").advanced(),
+                choice("kernel", "Kernel", &["Auto", "Implicit", "B-rep"], "Auto")
+                    .help("B-rep: exact faces and edges (what STEP export writes); Implicit: signed distance fields, builds every feature. Auto: B-rep when it can build the part, else Implicit."),
+                b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface (Implicit kernel).").advanced(),
             ],
-            apply: |_, p| crate::cad::cad_model(&p.str("document"), &p.str("parameters"), &p.str("configuration"), p.i64("resolution", 64).max(8) as usize, &p.str("output"), p.bool("project", true)),
+            apply: |_, p| crate::cad::cad_model(&p.str("document"), &p.str("parameters"), &p.str("configuration"), p.i64("resolution", 64).max(8) as usize, &p.str("output"), p.bool("project", true), &p.str("kernel")),
         },
         FilterDef {
             id: "signed_distance",
@@ -4102,7 +4104,12 @@ fn openfoam_patches(input: &DataSet, names: &str) -> Result<DataSet> {
 static REGISTRY: OnceLock<RwLock<Arc<Vec<Arc<FilterDef>>>>> = OnceLock::new();
 
 fn table() -> &'static RwLock<Arc<Vec<Arc<FilterDef>>>> {
-    REGISTRY.get_or_init(|| RwLock::new(Arc::new(build().into_iter().map(Arc::new).collect())))
+    REGISTRY.get_or_init(|| {
+        // The CAD readers (STEP, IGES, 3MF, .sc, .afxcad) join aurafx-io's reader table, so
+        // `import 'part.step'` in geometry commands and every other reader caller reads them.
+        crate::cad::register_readers();
+        RwLock::new(Arc::new(build().into_iter().map(Arc::new).collect()))
+    })
 }
 
 /// Every filter and source: the built-in ones, then those added by plugins.

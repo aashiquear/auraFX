@@ -565,6 +565,11 @@ impl Session {
 
     pub fn open_file(&mut self, path: impl AsRef<Path>) -> Result<NodeId> {
         let path = path.as_ref().to_path_buf();
+        // A CAD file (STEP, IGES, 3MF, a SolidCraft design, an .afxcad document) opens as a CAD
+        // Model: its geometry with named faces, ready to edit.
+        if Self::opens_as_cad(&path) {
+            return self.open_cad_file(&path);
+        }
         self.checkpoint(format!("Open {}", path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
         let loaded = aurafx_io::read_file_piece(&path, self.piece).map_err(|e| {
             self.log(LogLevel::Error, format!("Failed to open {}: {e:#}", path.display()));
@@ -934,6 +939,25 @@ impl Session {
     }
 
     // ------------------------------------------------------------------ CAD models
+
+    /// Files that open as a CAD Model node (meshes such as STL and OBJ keep their readers).
+    pub fn opens_as_cad(path: &Path) -> bool {
+        path.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_lowercase().as_str(), "afxcad" | "step" | "stp" | "igs" | "iges" | "3mf" | "sc"))
+    }
+
+    /// Open a CAD file as a CAD Model node (the document is the file's solid as a base feature, or
+    /// the `.afxcad` document itself).
+    pub fn open_cad_file(&mut self, path: &Path) -> Result<NodeId> {
+        let doc = aurafx_cad::io::import_file(path).map_err(|e| {
+            self.log(LogLevel::Error, format!("Failed to open {}: {e}", path.display()));
+            anyhow!("{e}")
+        })?;
+        let id = self.add_source("cad_model")?;
+        self.cad_set_document(id, &doc);
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "CAD Model".into());
+        self.rename(id, stem);
+        Ok(id)
+    }
 
     /// Whether the node is a CAD Model source.
     pub fn is_cad_model(&self, id: NodeId) -> bool {

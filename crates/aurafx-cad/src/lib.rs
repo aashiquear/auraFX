@@ -24,6 +24,7 @@ pub mod document;
 pub mod edit;
 pub mod expr;
 pub mod file;
+pub mod io;
 pub mod kernel;
 pub mod mesh;
 mod params;
@@ -31,7 +32,7 @@ pub mod path;
 pub mod sketch;
 pub mod templates;
 
-pub use analysis::{interference_volume, MassProperties};
+pub use analysis::{interference_built, interference_volume, measure_faces, FaceMeasure, MassProperties};
 pub use assembly::{Assembly, Component};
 pub use document::{
     Axis, BlendKind, Binding, BooleanOp, Configuration, Document, EdgeTreatment, EndCondition, Feature, HoleKind, LoftSection, MirrorPlane,
@@ -39,7 +40,7 @@ pub use document::{
 };
 pub use file::{CadFile, FileError, FORMAT_VERSION};
 pub use expr::{eval, eval_const, eval_map, identifiers, unit_factor, ExprError};
-pub use kernel::{Evaluated, EvaluatedBody, EvaluatedFace, FaceKind, Kernel};
+pub use kernel::{Evaluated, EvaluatedBody, EvaluatedFace, FaceKind, Kernel, KernelChoice};
 pub use sketch::{Constraint, Dim, Entity, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
 pub use templates::templates;
 

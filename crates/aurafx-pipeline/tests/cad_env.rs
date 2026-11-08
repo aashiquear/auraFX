@@ -101,3 +101,40 @@ fn only_one_part_is_edited_at_a_time_and_other_nodes_are_refused() {
     s.cad_discard().unwrap();
     assert!(s.cad_enter(sphere).unwrap_err().to_string().contains("not a CAD Model"));
 }
+
+/// The worked example from a CAD file: STEP -> CAD Model -> overlay hex mesh (the faces are side
+/// sets) -> grains -> a MOOSE case, end to end.
+#[test]
+fn step_to_mesh_to_grains_to_solver_case() {
+    let step = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cad/plate_with_hole.step");
+    if !step.exists() {
+        return; // tests that need a missing file skip themselves
+    }
+    let mut s = Session::new();
+    let cad = s.open_file(&step).unwrap();
+    assert!(s.is_cad_model(cad));
+    let mesh = s.add_filter("overlay_mesh", cad).unwrap();
+    s.set_param(mesh, "cell", aurafx_filters::ParamValue::Float(2.5));
+    let grains = s.add_filter("assign_grains", mesh).unwrap();
+    s.set_param(grains, "grains", aurafx_filters::ParamValue::Int(12));
+    s.set_param(grains, "blocks", aurafx_filters::ParamValue::Bool(true));
+    s.set_param(grains, "boundaries", aurafx_filters::ParamValue::Bool(true));
+    s.update_blocking();
+    for id in [cad, mesh, grains] {
+        assert!(s.nodes[&id].error.is_none(), "{}: {:?}", s.nodes[&id].name, s.nodes[&id].error);
+    }
+    let out = s.nodes[&grains].output.clone().unwrap();
+    let m = aurafx_mesh::hex::HexMesh::from_dataset(&out).unwrap();
+    assert!(m.block_names.len() >= 8, "one block per grain: {}", m.block_names.len());
+    assert!(m.side_set("grain boundaries").is_some());
+    // The imported solid's faces survive as sets (the STEP file's own face numbers).
+    assert!(m.side_sets.iter().any(|(n, _)| n.contains("face")), "{:?}", m.side_sets.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>());
+    let dir = std::env::temp_dir().join(format!("afx_cad_case_{}", std::process::id()));
+    // Fix one face of the part and load another, by the names the STEP file's faces got.
+    let faces: Vec<String> = m.side_sets.iter().filter(|(n, v)| n.contains("face") && !v.is_empty()).map(|(n, _)| n.clone()).collect();
+    assert!(faces.len() >= 2, "{faces:?}");
+    let opts = aurafx_pipeline::cases::CaseOptions { fixed: faces[0].clone(), loaded: faces[1].clone(), ..Default::default() };
+    let case = aurafx_pipeline::cases::write_case(&out, "moose", &dir, &opts).unwrap();
+    assert!(!case.files.is_empty() && dir.join("mesh.e").exists() && dir.join("grains.tex").exists());
+    std::fs::remove_dir_all(&dir).ok();
+}

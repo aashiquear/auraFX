@@ -1382,6 +1382,12 @@ impl State {
                         ("Double click", "Reset camera"),
                         ("Ctrl+Enter", "Run code in Python console"),
                         ("Ctrl+,", "Settings"),
+                        ("CAD: Ctrl+Enter", "Apply the part (in the CAD environment)"),
+                        ("CAD: Esc", "Leave the CAD environment (asks), or end a sketch chain"),
+                        ("CAD: Ctrl+Z / Ctrl+Y", "Undo / redo one CAD edit"),
+                        ("CAD: Delete", "Delete the selected feature (or the selected sketch shapes)"),
+                        ("CAD: Alt+1 … Alt+5", "Ribbon tab: Sketch, Features, Modify, Inspect, Files"),
+                        ("CAD: F2", "Rename the selected feature"),
                     ] {
                         ui.label(RichText::new(k).monospace());
                         ui.label(v);
@@ -1716,6 +1722,22 @@ impl eframe::App for AuraApp {
                 "cad_apply" => {
                     if crate::cad::editing(&self.state) {
                         crate::cad::apply(&mut self.state, arg == "keep");
+                    }
+                }
+                // "cad_pick fillet|chamfer|shell": open the edge or face picker; "cad_tab <name>": a ribbon tab.
+                "cad_pick" => {
+                    if crate::cad::editing(&self.state) {
+                        let kind = match arg.trim() {
+                            "chamfer" => crate::cad::PickKind::Chamfer,
+                            "shell" => crate::cad::PickKind::Shell,
+                            _ => crate::cad::PickKind::Fillet,
+                        };
+                        crate::cad::open_picker(&mut self.state, kind);
+                    }
+                }
+                "cad_tab" => {
+                    if let Some(t) = crate::cad::RibbonTab::ALL.iter().find(|t| t.label().eq_ignore_ascii_case(arg.trim())) {
+                        self.state.cad.tab = *t;
                     }
                 }
                 // "cad_sketch_new <json>": open the sketch canvas on a new sketch (plane, offset, items).

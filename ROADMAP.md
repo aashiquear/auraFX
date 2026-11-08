@@ -330,10 +330,10 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 - [x] C3 Environment shell (iteration 75): `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
 - [x] C5 Downstream check (iteration 76; before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
 - [x] C4 Sketching (iteration 77): the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
-- [ ] C6 B-rep kernel and CAD files, shipped in the repository: `vendor/solidcraft` and `vendor/solidcore` added with `git subtree` at a recorded tag (decided: the subtree route; one squashed commit for the whole upstream tree, then a prune commit that deletes directories only, so later pulls merge) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`; `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP written here measures the same through the vendored engine and, where installed, an independent STEP reader; the Linux package builds offline from a clean clone.
-- [ ] C7 Edge operations and assemblies: picking faces and edges on the B-rep tessellation; fillet and chamfer on picked edges, draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties, a measure tool. Tests: fillet volume against SolidCraft's measure; interference of two boxes analytic.
-- [ ] C8 Meshing from CAD: `mesh body` on CAD bodies, face names to side sets, `import 'part.step'` and `import 'part.afxcad'` in journals, STEP → mesh → grains → solver case end to end as a test and in the guide's worked example.
-- [ ] C9 Polish: templates gallery, shortcuts, PropertyManager help, the assistant modelling in the environment through `afx.cad`, the project page's CAD video, the README's credits for SolidCraft and solidcore.
+- [~] C6 B-rep kernel and CAD files, shipped in the repository (iteration 78; done except the `aurafx-io` readers, IGES writing, an independent STEP reader check, the 1 % template tolerance (2 % met, one template builds exactly) and the offline package build, see Status): `vendor/solidcraft` and `vendor/solidcore` added with `git subtree` at a recorded tag (decided: the subtree route; one squashed commit for the whole upstream tree, then a prune commit that deletes directories only, so later pulls merge) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`; `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP written here measures the same through the vendored engine and, where installed, an independent STEP reader; the Linux package builds offline from a clean clone.
+- [~] C7 Edge operations and assemblies (iteration 78; picking from lists, assemblies as measures only: see Status): picking faces and edges on the B-rep tessellation; fillet and chamfer on picked edges, draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties, a measure tool. Tests: fillet volume against SolidCraft's measure; interference of two boxes analytic.
+- [~] C8 Meshing from CAD (iteration 79; tetrahedral meshes of a CAD surface keep numbered patches, not face names): `mesh body` on CAD bodies, face names to side sets, `import 'part.step'` and `import 'part.afxcad'` in journals, STEP → mesh → grains → solver case end to end as a test and in the guide's worked example.
+- [~] C9 Polish (iteration 79; see Status): templates gallery, shortcuts, PropertyManager help, the assistant modelling in the environment through `afx.cad`, the project page's CAD video, the README's credits for SolidCraft and solidcore.
 
 ## 14. Gaps against the reference programs (P11)
 
@@ -407,7 +407,7 @@ and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parall
 | P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
 | P8 Grains | done (section 11) | Crystal core, EBSD readers, features, texture, synthetic builder, surface meshing, mechanics, `.dream3d`, solver templates |
 | P9 Mesh | done (section 12) | Geometry kernel and command language, structured hex (hexaform), overlay-grid mesher, refinement and tets, grains on meshes |
-| P10 CAD | designed (section 13), branch `feat/CAD-modeling-environment` | auraFX's own parametric CAD modeler: the document and two kernels (implicit; B-rep from SolidCraft's code carried in `vendor/`, free to diverge, upstream pulled by subtree), the environment with its ribbon, commit with the downstream check and fixers, STEP/IGES/3MF, meshing from CAD |
+| P10 CAD | built except the listed gaps (section 13), branch `feat/CAD-modeling-environment` | auraFX's own parametric CAD modeler: the document and two kernels (implicit; B-rep from SolidCraft's code carried in `vendor/`, free to diverge, upstream pulled by subtree), the environment with its ribbon, commit with the downstream check and fixers, STEP/IGES/3MF, meshing from CAD |
 | P11 Gaps | planned (section 14) | The prioritized items missing against the reference programs' catalogs: filters and readers, microstructure cleanup and metrics, solver inputs, webcut/imprint/merge, paving and sizing |
 
 P8 and P9 are developed interleaved (G1, M1, G2, M2, G3, M3, G4, G5, M4, G6, M5, G7) so that
@@ -728,7 +728,77 @@ canvas from a script. Tests: the solver's (ported with it: fully constrained rec
 over-constraint reported, tangent arcs), deleting and renumbering, the finished sketch as
 operations the document accepts (extrusion with an expression depth, edited sketch, revolve
 volumes), faces to planes, curve flattening, and the canvas driven by a script
-(`cad_sketch` picture). Guide: CAD modeling › Sketching (`cad_sketch`). Next: C6.
+(`cad_sketch` picture). Guide: CAD modeling › Sketching (`cad_sketch`).
+
+Done in iteration 78 (C6, the B-rep kernel and CAD files; first part of C7): SolidCraft v0.40.0-rc.3
+and solidcore (the revision it pins) are carried in `vendor/` by `git subtree add --squash`
+and pruned by deleting directories only (`vendor/prune.txt`; `vendor/README.md` says what is
+carried, how it was pruned and where auraFX patches go: none yet); the root workspace
+excludes `vendor/`, `aurafx-cad` depends on `solidcraft-engine` by path, a `[patch]` points
+SolidCraft's git reference to solidcore at the vendored copy, the workspace `rust-version` is
+1.95, and `scripts/cad/upstream-pull.sh <tag>`, `upstream-diff.sh` and `third-party.sh` pull,
+diff and document (`docs/reference/third-party.md`, SPDX of every crate; README credits). The
+B-rep kernel (`kernel/brep.rs`) maps the document onto SolidCraft commands run in process on a
+headless session (`solid.box|sphere|cylinder|cone|torus|extrude|revolve|fillet|chamfer|shell|
+combine`, `sketch.*`, `file.export`, `doc.open`): primitives, extruded and revolved sketches
+(planes and rotations through custom sketch frames), holes of five kinds by cutter solids,
+patterns by copies, rounding and hollowing of a feature (built as its own body, then
+combined) or of the whole part, cap fillets and chamfers, picked-edge fillets and chamfers and
+shells with picked open faces; what it cannot map (threads, lofts, sweeps, junction blends,
+rotated tori, nested bodies) is refused with the feature and the reason, and `Auto` (the node's
+default `kernel` parameter) falls back to the implicit kernel noting why. Every exact face is
+labelled with the implicit kernel's names (`Base z+`, `Bore side`; `part face N` for imported
+solids), so names, ids, the diff and the downstream check agree across kernels; volumes are
+the engine's exact measure. Files (`io.rs`): STEP AP242/AP214/AP203, IGES, 3MF, SolidCraft
+`.sc`, STL and OBJ are read as the base feature of a document (the bytes kept inside it, so it
+is self-contained; `File › Open` and `afx.load` open them as CAD Model nodes that later
+features cut into); STEP, 3MF, STL, OBJ and `.sc` are written by the engine's exact writers,
+and a faceted B-rep STEP (one planar `ADVANCED_FACE` per triangle) for parts only the
+implicit kernel builds, labelled faceted in its header; IGES is read, not written. The
+implicit kernel reads imported solids through their tessellation. Edge work (C7): the part's
+exact edges with their two faces, a point and a length (`cad.edges()`); the features
+`EdgeBlend` and `ShellFaces`, picked by points, by face names or from the picker (the Modify
+tab lists the edges or faces to tick); `Evaluated::face_pick`, `mass_properties`,
+`measure_faces` (distance between parallel faces, angle) and `interference_built` (overlap of
+two built parts at placements) with Python `cad.mass`, `measure_faces`, `interference`.
+Tests: primitives exact to 1e-3, the plate with a hole equal on both kernels in volume and face
+names, patterns, revolves, rounding of the whole part, refusals and the `Auto` fallback, the
+L-bracket template on both kernels within 2 %, STEP/3MF/`.sc`/STL round trips with the same
+volume and cutting into an imported STEP, the faceted STEP read back by the exact kernel,
+picked fillets and chamfers against hand formulas, a picked-face shell, the analytic overlap
+of two cubes and face measures, and the Python flow; `testdata/cad/` holds the committed
+files (the README says how they were written). Not done in C6 and C7: `aurafx-io` readers for
+the CAD extensions (the Session opens them instead), a check against an independent STEP
+reader (none is installed here), picking in the 3D view (lists are used), draft, patterns on
+faces, mirror about faces, components with placements in the environment (the assembly module
+and `interference` exist; there is no Assemble tab), combine as a feature, and a CI and
+packaging pass over the new dependency on the Android and iOS targets. Guide: CAD modeling ›
+Kernels, STEP and other files; Edges, faces and measures (`cad_import`, `cad_pick`).
+
+Done in iteration 79 (C8, meshing from CAD, and a first pass of C9): the faces of a CAD
+surface (`FaceId`, `FaceNames`) now drive the Overlay Mesh: the surface mesh's patches are the
+CAD faces (`TriMesh::new_labeled`, `surface_mesh_with_faces`), so the hexahedral mesh has one
+side set per face, named `Bore side`, `Base z+` or `plate_with_hole face 3` for a STEP file;
+Extract Set shows one; the CAD readers (`step stp igs iges 3mf sc afxcad`) are registered in
+aurafx-io's reader table, so `import 'part.step'` in geometry commands brings a CAD part in as a
+body whose faces keep their names and `mesh body 1 size 0.5 scheme overlay` meshes it (the
+Hex mesh output carries the same sets); solver case set names match with or without their
+spaces. The worked example as a test: a committed STEP file → CAD Model → Overlay Mesh →
+Assign Grains → a MOOSE case that fixes and pulls two faces by their names; guide: CAD modeling
+› From a CAD part to a mesh and a solver case (`cad_mesh`). Not done in C8: tetrahedral meshes
+of a CAD surface (Tet Mesh) keep numbered patches instead of face names. C9: keyboard (Ctrl+Enter
+applies, Delete removes the selected feature, F2 renames it, Alt+1 to Alt+5 the ribbon tabs; in
+the shortcuts window), hover help on the PropertyManager's fields, the Files tab's template
+menu as the gallery, the assistant's modelling workflow and keyboard help, README credits.
+Not done in C9: a gallery with pictures, the CAD video for the project page
+(`scripts/site/media/cad.py`), a picture per ribbon tab (the Modify, Features, Sketch and
+Inspect tabs appear in the chapter's pictures; Files has none).
+
+Not started: section 14 (the prioritized gaps against the reference programs: filters such as
+Delaunay, Decimate, Subdivide, Curvature and Extrusion; readers such as DICOM, NRRD and LAS;
+microstructure clean-up and metrics; DAMASK and LAMMPS inputs; webcut, imprint, merge, paving
+and sizing; Nastran and Fluent writers), and the older open items of sections 0 to 10. This
+branch's work was the CAD environment, C0 to C9. Next: section 14, one row at a time.
 
 ## Status (2026-11-05)
 

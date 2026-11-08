@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0df3306b.js";
+            window.path_to_searchindex_js = "searchindex-27226d6c.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -3480,6 +3480,84 @@ edited the sketch of an existing feature. The sketch then becomes a feature with
 <p>From Python, <code>e.sketch_new(plane="XY", items=[...])</code> and <code>e.sketch_edit("Bracket")</code> open the
 canvas in the window, and <code>e.sketch(...)</code> with <code>e.extrude(...)</code> builds the same features
 without it.</p>
+<h2 id="kernels-step-and-other-files"><a class="header" href="#kernels-step-and-other-files">Kernels, STEP and other files</a></h2>
+<p>A part is built by one of two kernels, chosen in the CAD Model’s Properties (<strong>Kernel</strong>):</p>
+<ul>
+<li><strong>B-rep</strong> builds <em>exact</em> solids with true faces and edges (a cylinder is a cylinder, a hole’s
+wall is a real cylindrical face). It maps primitives, extruded and revolved sketches, holes,
+patterns (as copies), rounding and hollowing of a feature or of the whole part, and cap
+chamfers. This is what <strong>STEP</strong> is written from, and it reads imported solids.</li>
+<li><strong>Implicit</strong> describes the part as a distance field. It builds every feature, including
+threads, lofts and sweeps and the rounded junction a feature’s <em>blend</em> makes, and never fails;
+edges are not exact.</li>
+<li><strong>Auto</strong> (the default) uses B-rep when it can build the part and Implicit otherwise. The
+result carries a field <code>Kernel</code> (which one built it) and <code>KernelNotes</code> (why B-rep could not).</li>
+</ul>
+<p>Both kernels name faces the same way (<code>Base z+</code>, <code>Bore side</code>), so everything built on the names
+works on either. The CAD environment shows the part with the Implicit kernel while you edit (it
+is quick), and the node builds it with the kernel you chose when you apply.</p>
+<p><strong>Files.</strong> <em>File › Open</em> (and <code>afx.load</code>) opens a <strong><code>.step</code> / <code>.stp</code></strong> (AP203, AP214, AP242),
+<strong><code>.igs</code> / <code>.iges</code></strong>, <strong><code>.3mf</code></strong>, a SolidCraft <strong><code>.sc</code></strong> design, or an <strong><code>.afxcad</code></strong> document as
+a <strong>CAD Model</strong>: the file’s solid becomes the base feature of a part, with its bytes kept inside
+the document, so you can add features to it (cut a hole through an imported bracket) and the
+part still opens on another computer. STL and OBJ keep their ordinary readers; to edit one, add
+it as a CAD Model from Python.</p>
+<pre><code class="language-python">m = afx.cad_model("bracket.step")                 # a solid from a STEP file as a CAD Model
+m.cad.hole(diameter=6, depth=20, at=(10, 5, 8))   # cut into it
+m.cad.save("bracket2.step")                       # exact STEP (faces and edges)
+m.cad.save("bracket2.3mf"); m.cad.save("part.sc") # 3MF, a SolidCraft design (also .stl, .obj)
+r = m.cad.save("lofted.step")                     # {"exact": False, "note": "faceted: ..."} when
+                                                  # only the Implicit kernel builds the part
+</code></pre>
+<p>A part that only the Implicit kernel builds is written as STEP or STL from its tessellation: a
+valid solid of triangles whose header says <em>faceted B-rep</em> and why. IGES can be read but not yet
+written.</p>
+<h2 id="edges-faces-and-measures"><a class="header" href="#edges-faces-and-measures">Edges, faces and measures</a></h2>
+<p>With the exact kernel the part has real edges, and you can work on them. In the <strong>Modify</strong> tab:</p>
+<ul>
+<li><strong>Fillet edges…</strong> and <strong>Chamfer edges…</strong> open a picker in the PropertyManager that <strong>lists the
+part’s edges</strong>, each with the two faces it lies between (<code>Base z+ × Bore side</code>), its length and
+whether it is curved. Tick the edges, set the size (a number or an expression of the
+dimensions) and press <strong>Apply</strong>: a <em>Fillet</em> or <em>Chamfer</em> feature is added after the features it
+modifies, so it follows them when you roll back or change a dimension.</li>
+<li><strong>Shell, open faces…</strong> lists the faces; tick the ones to remove (none: a closed hollow body)
+and give the wall.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_pick.png" alt="The edge picker: the edges of a plate with a bored hole, each with the faces on either side"><span class="img-wrapper"><img src="images/cad_pick.png" alt="The edge picker: the edges of a plate with a bored hole, each with the faces on either side"></span></label></p>
+<p>These features need the <strong>B-rep</strong> kernel. On the Implicit kernel a picked fillet or chamfer
+leaves the edges sharp, and the result says so (<code>KernelNotes</code>); a picked-face shell is approximated.
+<strong>Fillet</strong> and <strong>Chamfer</strong> without a picker round every edge of the selected feature or of the
+whole part.</p>
+<p>The <strong>Inspect</strong> tab and Python read the part: mass (volume, surface, center, bounds, mass for a
+density), the distance between two parallel flat faces and the angle between two faces, and the
+volume two parts overlap when one is placed against the other:</p>
+<pre><code class="language-python">b = afx.cad_model()                                  # the default plate
+b.cad.edges()                                        # [{'index': 0, 'point': [...], 'length': 30.0,
+                                                     #   'faces': ['Base bottom', 'Base side 1'], ...}, ...]
+b.cad.fillet_edges(("Base z+", "Base side 2"), size=2)   # the edge between two named faces
+b.cad.chamfer_edges([0, 3, 5], size=1)               # edges by index (or a point on each)
+b.cad.shell_faces(["Base z+"], thickness=2)          # an open box
+b.cad.mass(7.85)                                     # steel
+b.cad.measure_faces("Base x-", "Base x+")            # {'parallel': True, 'distance': 40.0, ...}
+b.cad.interference(other, at=(12, 6, 0))             # overlap volume with another CAD Model placed there
+</code></pre>
+<h2 id="from-a-cad-part-to-a-mesh-and-a-solver-case"><a class="header" href="#from-a-cad-part-to-a-mesh-and-a-solver-case">From a CAD part to a mesh and a solver case</a></h2>
+<p>A CAD Model feeds the meshing tools directly, and <strong>its faces come along as named side sets</strong>:</p>
+<ul>
+<li><strong>Overlay Mesh</strong> of a CAD Model fills it with hexahedra; the mesh has one side set per CAD face
+(<code>Bore side</code>, <code>Base z+</code>, or <code>plate_with_hole face 3</code> for a solid read from a STEP file), so a
+boundary condition can name the wall of a hole. <strong>Extract Set</strong> shows one.</li>
+<li>In geometry commands, <strong><code>import 'part.step'</code></strong> (also <code>.stp</code>, <code>.igs</code>, <code>.3mf</code>, <code>.sc</code>, <code>.afxcad</code>)
+brings the part in as a body whose faces keep their names, and <code>mesh body 1 size 0.5 scheme overlay</code> meshes it; the Hex mesh output carries the same side sets.</li>
+<li>Assign Grains and the solver cases follow as for any mesh: give the set to hold and the set to
+pull by name (<code>fixed='plate_with_hole face 1'</code>, <code>loaded='plate_with_hole face 2'</code>).</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_mesh.png" alt="A STEP file’s plate with its hole, meshed with hexahedra; the highlighted faces are the side set of one of the file’s faces"><span class="img-wrapper"><img src="images/cad_mesh.png" alt="A STEP file’s plate with its hole, meshed with hexahedra; the highlighted faces are the side set of one of the file’s faces"></span></label></p>
+<pre><code class="language-python">part = afx.load("bracket.step")                # a CAD Model
+mesh = part.overlay_mesh(cell=1.0)             # hexahedra; side sets named after the faces
+grains = mesh.assign_grains(grains=40, blocks=True, boundaries=True)
+afx.simulation_case(grains, "moose", "case", fixed="bracket face 1", loaded="bracket face 2")
+</code></pre>
 <h2 id="python-2"><a class="header" href="#python-2">Python</a></h2>
 <pre><code class="language-python">m = afx.cad_model()                                   # a plate; or afx.cad_model("part.afxcad"),
                                                       # afx.cad_model(template="flange")

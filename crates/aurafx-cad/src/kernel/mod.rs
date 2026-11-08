@@ -3,6 +3,7 @@
 //! carried in `vendor/`, arrives with stage C6). Both fill the same [`Evaluated`] contract, so
 //! the meshers, the grain tools and the solver cases consume either.
 
+pub mod brep;
 pub mod implicit;
 pub mod sdf;
 
@@ -52,6 +53,46 @@ impl Evaluated {
     }
     pub fn volume(&self) -> f64 {
         self.bodies.iter().map(|b| b.volume).sum()
+    }
+
+    /// A point on the named face: the centroid of its largest triangle (the face's own centroid may
+    /// lie in a hole). What a pick by face name uses.
+    pub fn face_pick(&self, name: &str) -> Option<[f64; 3]> {
+        let id = self.faces().find(|(_, f)| f.name == name)?.1.face_id as i32;
+        let DataSet::PolyData(pd) = &self.surface else { return None };
+        let ids = pd.cell_data.get("FaceId")?;
+        let mut best: Option<(f64, [f64; 3])> = None;
+        for (ci, (_, c)) in pd.polys.iter().enumerate() {
+            if c.len() != 3 || ids.get(ci, 0) as i32 != id {
+                continue;
+            }
+            let p: Vec<[f64; 3]> = c.iter().map(|i| pd.points.get(*i as usize)).collect();
+            let (u, v) = ([p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]], [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]]);
+            let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+            let a = 0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if best.is_none_or(|(b, _)| a > b) {
+                best = Some((a, [(p[0][0] + p[1][0] + p[2][0]) / 3.0, (p[0][1] + p[1][1] + p[2][1]) / 3.0, (p[0][2] + p[1][2] + p[2][2]) / 3.0]));
+            }
+        }
+        best.map(|(_, c)| c)
+    }
+
+    /// Mass properties of the built part at a density in g/cm³.
+    pub fn mass_properties(&self, density_g_cm3: f64) -> crate::MassProperties {
+        let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+        let (mut c, mut v) = ([0.0; 3], 0.0);
+        for b in &self.bodies {
+            for k in 0..3 {
+                lo[k] = lo[k].min(b.bounds.0[k]);
+                hi[k] = hi[k].max(b.bounds.1[k]);
+                c[k] += b.centroid[k] * b.volume;
+            }
+            v += b.volume;
+        }
+        if v.abs() > 1e-12 {
+            c = c.map(|x| x / v);
+        }
+        crate::MassProperties { volume_mm3: v, area_mm2: self.bodies.iter().map(|b| b.area).sum(), centroid: c, bbox_min: lo, bbox_max: hi, mass_g: v / 1000.0 * density_g_cm3, density_g_cm3 }
     }
 }
 
@@ -144,4 +185,52 @@ pub fn surface_dataset(meshes: &[BodyMesh], face_names: &[String], volumes: &[f6
     pd.cell_data.insert(Array::new("BodyId", 1, ArrayData::I32(body_ids)));
     pd.cell_data.insert(Array::new("FaceId", 1, ArrayData::I32(face_ids)));
     DataSet::PolyData(pd)
+}
+
+/// Which kernel builds a part.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum KernelChoice {
+    /// The B-rep kernel when it can build the part exactly, else the implicit kernel (noted in
+    /// [`Evaluated::approximate`]).
+    #[default]
+    Auto,
+    Implicit,
+    Brep,
+}
+
+impl KernelChoice {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "auto" | "" => Some(Self::Auto),
+            "implicit" => Some(Self::Implicit),
+            "b-rep" | "brep" => Some(Self::Brep),
+            _ => None,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Implicit => "Implicit",
+            Self::Brep => "B-rep",
+        }
+    }
+}
+
+/// Build a part with the chosen kernel. `Auto` tries the B-rep kernel and falls back to the
+/// implicit one with the reason noted in `approximate`.
+pub fn evaluate_with(choice: KernelChoice, doc: &Document, resolution: usize, project: bool) -> Result<Evaluated, CadError> {
+    let implicit = || implicit::ImplicitKernel { resolution, project }.evaluate(doc);
+    match choice {
+        KernelChoice::Implicit => implicit(),
+        KernelChoice::Brep => brep::BrepKernel.evaluate(doc),
+        KernelChoice::Auto => match brep::BrepKernel.evaluate(doc) {
+            Ok(e) => Ok(e),
+            Err(CadError::Kernel { reason, .. } | CadError::KernelRefused(_, reason)) => {
+                let mut e = implicit()?;
+                e.approximate.push(format!("built on the implicit kernel: {reason}"));
+                Ok(e)
+            }
+            Err(e) => Err(e),
+        },
+    }
 }

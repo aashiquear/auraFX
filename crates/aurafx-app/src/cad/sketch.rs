@@ -211,7 +211,9 @@ fn entity_pts(sk: &Sketch, e: &Entity) -> (Vec<DVec2>, bool) {
     let p = |i: usize| sk.points.get(i).map(|q| q.pos()).unwrap_or_default();
     match e {
         Entity::Line { a, b, .. } => (vec![p(*a), p(*b)], false),
-        Entity::Circle { center, radius, .. } => ((0..64).map(|k| p(*center) + DVec2::from_angle(k as f64 / 64.0 * std::f64::consts::TAU) * *radius).collect(), true),
+        Entity::Circle { center, radius, .. } => {
+            ((0..64).map(|k| p(*center) + DVec2::from_angle(k as f64 / 64.0 * std::f64::consts::TAU) * *radius).collect(), true)
+        }
         Entity::Arc { center, start, end, .. } => (arc_pts(p(*center), p(*start), p(*end)), false),
         Entity::Spline { ctrl, closed, .. } => (spline_pts(&ctrl.iter().map(|i| p(*i)).collect::<Vec<_>>(), *closed), *closed),
         Entity::Polyline { pts, closed, .. } => (pts.iter().map(|q| DVec2::new(q[0], q[1])).collect(), *closed),
@@ -368,7 +370,13 @@ pub fn finish(state: &mut State, revolve: bool) {
     let name = e.feature.and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.document.feature(id).map(|f| f.name.clone()))).unwrap_or_default();
     let (opname, mut args) = finish_op(&e, &name, revolve);
     if e.feature.is_none() {
-        let base = if revolve { "Revolve" } else if e.op == BooleanOp::Cut { "Pocket" } else { "Extrude" };
+        let base = if revolve {
+            "Revolve"
+        } else if e.op == BooleanOp::Cut {
+            "Pocket"
+        } else {
+            "Extrude"
+        };
         args["name"] = json!(unique_name(state, base));
     }
     if op(state, opname, args).is_none() {
@@ -491,7 +499,9 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
         }
     };
     let gcolr = Color32::from_rgb(30, 150, 90);
-    let dim_text = |d: &Dim, prefix: &str, suffix: &str| format!("{prefix}{}{suffix}{}", num_text(d.value), d.expr.as_ref().map(|x| format!(" = {x}")).unwrap_or_default());
+    let dim_text = |d: &Dim, prefix: &str, suffix: &str| {
+        format!("{prefix}{}{suffix}{}", num_text(d.value), d.expr.as_ref().map(|x| format!(" = {x}")).unwrap_or_default())
+    };
     let mut used: Vec<(Pos2, u32)> = Vec::new();
     for c in &sk.constraints {
         let (at, txt) = match c {
@@ -507,7 +517,9 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
             Constraint::Radius(e, d) => (mid(*e), dim_text(d, "R", "")),
             Constraint::Diameter(e, d) => (mid(*e), dim_text(d, "⌀", "")),
             Constraint::Angle(a, _, d) => (mid(*a), dim_text(d, "∠", "°")),
-            Constraint::Distance(p, q, d) | Constraint::HorizontalDistance(p, q, d) | Constraint::VerticalDistance(p, q, d) => ((sk.point(*p) + sk.point(*q)) * 0.5, dim_text(d, "", "")),
+            Constraint::Distance(p, q, d) | Constraint::HorizontalDistance(p, q, d) | Constraint::VerticalDistance(p, q, d) => {
+                ((sk.point(*p) + sk.point(*q)) * 0.5, dim_text(d, "", ""))
+            }
             _ => continue,
         };
         let s = to_s(at);
@@ -546,7 +558,13 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
     // ---- interaction
     let hover = resp.hover_pos();
     let pick_point = |sk: &Sketch, s: Pos2| -> Option<usize> {
-        sk.points.iter().enumerate().map(|(i, p)| (i, (to_s(p.pos()) - s).length())).filter(|(_, d)| *d < 9.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+        sk.points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i, (to_s(p.pos()) - s).length()))
+            .filter(|(_, d)| *d < 9.0)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
     };
     let pick_entity = |sk: &Sketch, s: Pos2| -> Option<usize> {
         let mut best: Option<(usize, f32)> = None;
@@ -612,7 +630,13 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                     painter.line_segment([to_s(pa), to_s(ph)], st);
                 }
             }
-            painter.text(h + egui::vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, num_text((ph - pa).length()), egui::FontId::monospace(12.0), crate::theme::ACCENT);
+            painter.text(
+                h + egui::vec2(12.0, -12.0),
+                egui::Align2::LEFT_BOTTOM,
+                num_text((ph - pa).length()),
+                egui::FontId::monospace(12.0),
+                crate::theme::ACCENT,
+            );
         }
     }
     match tool {
@@ -678,7 +702,8 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                     }
                     changed = true;
                 }
-                let closes = e.chain.is_some() && e.sketch.entities.iter().filter(|en| matches!(en, Entity::Line { a, b, .. } if *a == p || *b == p)).count() >= 2;
+                let closes =
+                    e.chain.is_some() && e.sketch.entities.iter().filter(|en| matches!(en, Entity::Line { a, b, .. } if *a == p || *b == p)).count() >= 2;
                 e.chain = if closes { None } else { Some(p) };
             }
         }
@@ -794,7 +819,9 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
     b(ui, lines.len() == 2 && ents.len() == 2, "Parallel", "Two lines parallel", &|| vec![Constraint::Parallel(lines[0], lines[1])]);
     b(ui, lines.len() == 2 && ents.len() == 2, "Perpendicular", "Two lines at right angles", &|| vec![Constraint::Perpendicular(lines[0], lines[1])]);
     b(ui, ents.len() == 2 && (lines.len() == 2 || rounds.len() == 2), "Equal", "Equal lengths or radii", &|| vec![Constraint::Equal(ents[0], ents[1])]);
-    b(ui, (lines.len() == 1 && rounds.len() == 1) || rounds.len() == 2, "Tangent", "A line tangent to a circle or arc, or two touching", &|| vec![Constraint::Tangent(ents[0], ents[1])]);
+    b(ui, (lines.len() == 1 && rounds.len() == 1) || rounds.len() == 2, "Tangent", "A line tangent to a circle or arc, or two touching", &|| {
+        vec![Constraint::Tangent(ents[0], ents[1])]
+    });
     b(ui, rounds.len() == 2, "Concentric", "Same center", &|| vec![Constraint::Concentric(rounds[0], rounds[1])]);
     b(ui, pts.len() == 2 && ents.is_empty(), "Coincident", "Two points are one", &|| vec![Constraint::Coincident(pts[0], pts[1])]);
     b(ui, pts.len() == 1 && lines.len() == 1, "Midpoint", "A point at the middle of a line", &|| vec![Constraint::Midpoint(pts[0], lines[0])]);
@@ -804,10 +831,16 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
     b(ui, !pts.is_empty() && ents.is_empty(), "Fix", "Hold a point in place", &|| pts.iter().map(|p| Constraint::Fix(*p)).collect());
     ui.separator();
     ui.label(RichText::new("Dimension:").weak().small());
-    b(ui, lines.len() == 1 && ents.len() == 1, "Length", "Fix a line's length (edit the value or an expression in the list)", &|| vec![Constraint::Length(lines[0], Dim::new(line_len(sk, lines[0])))]);
+    b(ui, lines.len() == 1 && ents.len() == 1, "Length", "Fix a line's length (edit the value or an expression in the list)", &|| {
+        vec![Constraint::Length(lines[0], Dim::new(line_len(sk, lines[0])))]
+    });
     b(ui, rounds.len() == 1 && ents.len() == 1, "Radius", "Fix a radius", &|| vec![Constraint::Radius(rounds[0], Dim::new(radius_of(sk, rounds[0])))]);
-    b(ui, rounds.len() == 1 && ents.len() == 1, "Diameter", "Fix a diameter", &|| vec![Constraint::Diameter(rounds[0], Dim::new(2.0 * radius_of(sk, rounds[0])))]);
-    b(ui, pts.len() == 2 && ents.is_empty(), "Distance", "The distance between two points", &|| vec![Constraint::Distance(pts[0], pts[1], Dim::new((sk.point(pts[0]) - sk.point(pts[1])).length()))]);
+    b(ui, rounds.len() == 1 && ents.len() == 1, "Diameter", "Fix a diameter", &|| {
+        vec![Constraint::Diameter(rounds[0], Dim::new(2.0 * radius_of(sk, rounds[0])))]
+    });
+    b(ui, pts.len() == 2 && ents.is_empty(), "Distance", "The distance between two points", &|| {
+        vec![Constraint::Distance(pts[0], pts[1], Dim::new((sk.point(pts[0]) - sk.point(pts[1])).length()))]
+    });
     b(ui, pts.len() == 2 && ents.is_empty(), "Horizontal distance", "The horizontal distance between two points", &|| {
         vec![Constraint::HorizontalDistance(pts[0], pts[1], Dim::new((sk.point(pts[0]).x - sk.point(pts[1]).x).abs()))]
     });
@@ -827,7 +860,11 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
         changed = true;
     }
     ui.separator();
-    if ui.add_enabled(!e.sel_ents.is_empty(), egui::Button::new("Construction")).on_hover_text("Toggle construction geometry (not part of the outline)").clicked() {
+    if ui
+        .add_enabled(!e.sel_ents.is_empty(), egui::Button::new("Construction"))
+        .on_hover_text("Toggle construction geometry (not part of the outline)")
+        .clicked()
+    {
         for i in e.sel_ents.clone() {
             if let Some(en) = e.sketch.entities.get_mut(i) {
                 let v = !en.construction();
@@ -850,7 +887,12 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
 /// The sketch's properties in the PropertyManager: plane, the list of constraints with their
 /// dimensions (values or expressions), the outline count, and how to finish.
 pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
-    let feature_name = state.cad.sketch.as_ref().and_then(|e| e.feature).and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.document.feature(id).map(|f| f.name.clone())));
+    let feature_name = state
+        .cad
+        .sketch
+        .as_ref()
+        .and_then(|e| e.feature)
+        .and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.document.feature(id).map(|f| f.name.clone())));
     let Some(e) = state.cad.sketch.as_mut() else { return };
     ui.label(RichText::new(if feature_name.is_some() { format!("Sketch of {}", feature_name.clone().unwrap()) } else { "New sketch".to_string() }).strong());
     let mut changed = false;
@@ -945,7 +987,11 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
             if ui.add_enabled(outlines > 0, egui::Button::new(RichText::new(if e.op == BooleanOp::Cut { "Cut" } else { "Extrude" }).strong())).clicked() {
                 extrude = true;
             }
-            if ui.add_enabled(outlines > 0, egui::Button::new("Revolve")).on_hover_text("About the sketch's vertical axis; x is the radius (draw on the Front plane with x ≥ 0)").clicked() {
+            if ui
+                .add_enabled(outlines > 0, egui::Button::new("Revolve"))
+                .on_hover_text("About the sketch's vertical axis; x is the radius (draw on the Front plane with x ≥ 0)")
+                .clicked()
+            {
                 revolve = true;
             }
         }

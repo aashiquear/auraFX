@@ -194,7 +194,11 @@ pub fn property_manager_ui(state: &mut State, ui: &mut egui::Ui) {
 
 fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
     ui.label(RichText::new("Part").strong());
-    ui.label(RichText::new("Select a feature in the FeatureManager to edit it. Dimensions are listed there; a number anywhere may be an expression of them.").weak().small());
+    ui.label(
+        RichText::new("Select a feature in the FeatureManager to edit it. Dimensions are listed there; a number anywhere may be an expression of them.")
+            .weak()
+            .small(),
+    );
     ui.horizontal(|ui| {
         ui.label("Name");
         if let Some(t) = expr_field(ui, "part name", &doc.name, 160.0) {
@@ -202,7 +206,11 @@ fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new(format!("{} feature(s), {} dimension(s), {} configuration(s)", doc.features.len(), doc.parameters.len(), doc.configurations.len())).weak().small());
+    ui.label(
+        RichText::new(format!("{} feature(s), {} dimension(s), {} configuration(s)", doc.features.len(), doc.parameters.len(), doc.configurations.len()))
+            .weak()
+            .small(),
+    );
     let mut sketch_on: Option<aurafx_pipeline::CadFace> = None;
     let summary = state.session.lock().cad_edit.as_ref().and_then(|e| e.summary.clone());
     if let Some(s) = &summary {
@@ -211,7 +219,10 @@ fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
             for (i, f) in s.faces.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{i}  {}  ({}, {} mm²)", f.name, f.kind, num_text(f.area))).small());
-                    if f.kind == "plane" && super::sketch::plane_for_face(f.centroid, f.direction).is_some() && ui.small_button("Sketch here").on_hover_text("Start a sketch on this flat face").clicked() {
+                    if f.kind == "plane"
+                        && super::sketch::plane_for_face(f.centroid, f.direction).is_some()
+                        && ui.small_button("Sketch here").on_hover_text("Start a sketch on this flat face").clicked()
+                    {
                         sketch_on = Some(f.clone());
                     }
                 });
@@ -233,7 +244,9 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
     let mut edit_sketch = false;
     ui.horizontal(|ui| {
         ui.label(RichText::new(&f.name).strong());
-        if matches!(f.shape, aurafx_cad::Shape::SketchExtrude { .. } | aurafx_cad::Shape::SketchRevolve { .. }) && ui.small_button("Edit sketch…").on_hover_text("Open the sketch canvas on this feature's sketch").clicked() {
+        if matches!(f.shape, aurafx_cad::Shape::SketchExtrude { .. } | aurafx_cad::Shape::SketchRevolve { .. })
+            && ui.small_button("Edit sketch…").on_hover_text("Open the sketch canvas on this feature's sketch").clicked()
+        {
             edit_sketch = true;
         }
         if ui.small_button("Delete").clicked() {
@@ -331,20 +344,23 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
         });
     });
     // Modifiers.
-    egui::CollapsingHeader::new(RichText::new(format!("Modifiers ({})", f.modifiers.len())).strong()).id_salt(("pm mods", f.id)).default_open(!f.modifiers.is_empty()).show(ui, |ui| {
-        for (i, m) in f.modifiers.iter().enumerate() {
-            let mv = serde_json::to_value(m).unwrap_or(Value::Null);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(mv.get("kind").and_then(|k| k.as_str()).unwrap_or("?")).strong());
-                if ui.small_button("Remove").clicked() {
-                    cx.acts.push(("remove_modifier", json!({"feature": f.name, "index": i})));
-                }
-            });
-            egui::Grid::new(("pm mod grid", f.id, i)).num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
-                cx.walk(ui, &mv, &format!("/modifiers/{i}"));
-            });
-        }
-    });
+    egui::CollapsingHeader::new(RichText::new(format!("Modifiers ({})", f.modifiers.len())).strong())
+        .id_salt(("pm mods", f.id))
+        .default_open(!f.modifiers.is_empty())
+        .show(ui, |ui| {
+            for (i, m) in f.modifiers.iter().enumerate() {
+                let mv = serde_json::to_value(m).unwrap_or(Value::Null);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(mv.get("kind").and_then(|k| k.as_str()).unwrap_or("?")).strong());
+                    if ui.small_button("Remove").clicked() {
+                        cx.acts.push(("remove_modifier", json!({"feature": f.name, "index": i})));
+                    }
+                });
+                egui::Grid::new(("pm mod grid", f.id, i)).num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
+                    cx.walk(ui, &mv, &format!("/modifiers/{i}"));
+                });
+            }
+        });
     // Bindings.
     if !f.bindings.is_empty() {
         egui::CollapsingHeader::new(RichText::new(format!("Driven by dimensions ({})", f.bindings.len())).strong()).id_salt(("pm bind", f.id)).show(ui, |ui| {

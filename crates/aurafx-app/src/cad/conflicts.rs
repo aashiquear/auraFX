@@ -84,99 +84,109 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     }
     let mut done: Option<Done> = None;
     let mut open = true;
-    egui::Window::new(if n_conf > 0 { format!("Applying the CAD changes affects {n_below} downstream object(s)") } else { format!("Re-run {n_below} downstream filter(s)?") })
-        .collapsible(false)
-        .resizable(true)
-        .default_width(720.0)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .open(&mut open)
-        .show(ctx, |ui| {
-            egui::CollapsingHeader::new("What changed in the part").id_salt("cad diff").default_open(n_conf == 0 || d.show_diff).show(ui, |ui| {
-                let text = d.report.diff.describe();
-                for line in text.lines() {
-                    ui.label(RichText::new(line).small().monospace());
-                }
-            });
-            if n_conf > 0 {
-                ui.add_space(4.0);
-                egui::Grid::new("cad conflicts").striped(true).num_columns(6).spacing([10.0, 4.0]).show(ui, |ui| {
-                    for h in ["Object", "Parameter", "What changed", "Default fix", "Assistant's fix", "Use"] {
-                        ui.label(RichText::new(h).strong());
-                    }
-                    ui.end_row();
-                    for (i, c) in d.report.conflicts.iter().enumerate() {
-                        ui.label(&c.node_name);
-                        ui.label(&c.param_label).on_hover_text(&c.value);
-                        let what = format!("'{}' {}{}", c.reference, c.kind.label(), if c.may_reference { " (in code)" } else { "" });
-                        ui.label(what);
-                        match &c.fix {
-                            Some(f) => ui.label(RichText::new(format!("{}{}", fix_text(&f.value), if f.check { "  (check)" } else { "" })).small()).on_hover_text(&f.reason),
-                            None => ui.label(RichText::new("none").weak()),
-                        };
-                        match ai_fix_for(&d.ai, c.node, &c.param) {
-                            Some(f) => ui.label(RichText::new(fix_text(&f.value)).small()).on_hover_text(&f.reason),
-                            None => ui.label(RichText::new(if d.ai_waiting.is_some() { "…" } else { "–" }).weak()),
-                        };
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(&mut d.choices[i], Choice::Default, "default").on_hover_text("Apply the default fix");
-                            if ai_fix_for(&d.ai, c.node, &c.param).is_some() {
-                                ui.selectable_value(&mut d.choices[i], Choice::Assistant, "assistant");
-                            }
-                            ui.selectable_value(&mut d.choices[i], Choice::Leave, "leave");
-                        });
-                        ui.end_row();
-                    }
-                });
-                if let Some(e) = &d.ai_error {
-                    ui.label(RichText::new(format!("Assistant: {e}")).color(crate::theme::ERROR).small());
-                }
-                ui.horizontal(|ui| {
-                    let asking = d.ai_waiting.is_some();
-                    if ui.add_enabled(!asking, egui::Button::new(if asking { "Asking the assistant…" } else { "Ask the assistant" })).on_hover_text("Send the changes and the conflicts to the assistant and read its suggested fixes (it answers in the chat too)").clicked() {
-                        done = Some(Done::Ask);
-                    }
-                    ui.checkbox(&mut state.cad.rerun_now, format!("re-run the {n_below} nodes below now"));
-                });
-            } else {
-                ui.label(format!("{n_below} node(s) below the part depend on it. They run again with the new part."));
+    egui::Window::new(if n_conf > 0 {
+        format!("Applying the CAD changes affects {n_below} downstream object(s)")
+    } else {
+        format!("Re-run {n_below} downstream filter(s)?")
+    })
+    .collapsible(false)
+    .resizable(true)
+    .default_width(720.0)
+    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    .open(&mut open)
+    .show(ctx, |ui| {
+        egui::CollapsingHeader::new("What changed in the part").id_salt("cad diff").default_open(n_conf == 0 || d.show_diff).show(ui, |ui| {
+            let text = d.report.diff.describe();
+            for line in text.lines() {
+                ui.label(RichText::new(line).small().monospace());
             }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let run = if state.cad.rerun_now { RunMode::Now } else { RunMode::Later };
-                if n_conf > 0 {
-                    if ui.button(RichText::new("Apply fixes and re-run").strong()).clicked() {
-                        let fixes: Vec<Fix> = d
-                            .report
-                            .conflicts
-                            .iter()
-                            .zip(&d.choices)
-                            .filter_map(|(c, ch)| match ch {
-                                Choice::Default => c.fix.clone(),
-                                Choice::Assistant => ai_fix_for(&d.ai, c.node, &c.param).cloned(),
-                                Choice::Leave => None,
-                            })
-                            .collect();
-                        done = Some(Done::Apply(FixMode::Fixes(fixes), run));
-                    }
-                    if ui.button("Apply without fixing").on_hover_text("The nodes that refer to changed things will show their own errors").clicked() {
-                        done = Some(Done::Apply(FixMode::None, run));
-                    }
-                } else {
-                    if ui.button(RichText::new("Run now").strong()).clicked() {
-                        done = Some(Done::Apply(FixMode::Default, RunMode::Now));
-                    }
-                    if ui.button("Later").on_hover_text("Apply the part; the nodes below keep their results until you run them").clicked() {
-                        done = Some(Done::Apply(FixMode::Default, RunMode::Later));
-                    }
+        });
+        if n_conf > 0 {
+            ui.add_space(4.0);
+            egui::Grid::new("cad conflicts").striped(true).num_columns(6).spacing([10.0, 4.0]).show(ui, |ui| {
+                for h in ["Object", "Parameter", "What changed", "Default fix", "Assistant's fix", "Use"] {
+                    ui.label(RichText::new(h).strong());
                 }
-                if ui.button("Back to CAD").clicked() {
-                    done = Some(Done::Back);
-                }
-                if ui.button("Discard CAD changes").clicked() {
-                    done = Some(Done::Discard);
+                ui.end_row();
+                for (i, c) in d.report.conflicts.iter().enumerate() {
+                    ui.label(&c.node_name);
+                    ui.label(&c.param_label).on_hover_text(&c.value);
+                    let what = format!("'{}' {}{}", c.reference, c.kind.label(), if c.may_reference { " (in code)" } else { "" });
+                    ui.label(what);
+                    match &c.fix {
+                        Some(f) => ui
+                            .label(RichText::new(format!("{}{}", fix_text(&f.value), if f.check { "  (check)" } else { "" })).small())
+                            .on_hover_text(&f.reason),
+                        None => ui.label(RichText::new("none").weak()),
+                    };
+                    match ai_fix_for(&d.ai, c.node, &c.param) {
+                        Some(f) => ui.label(RichText::new(fix_text(&f.value)).small()).on_hover_text(&f.reason),
+                        None => ui.label(RichText::new(if d.ai_waiting.is_some() { "…" } else { "–" }).weak()),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut d.choices[i], Choice::Default, "default").on_hover_text("Apply the default fix");
+                        if ai_fix_for(&d.ai, c.node, &c.param).is_some() {
+                            ui.selectable_value(&mut d.choices[i], Choice::Assistant, "assistant");
+                        }
+                        ui.selectable_value(&mut d.choices[i], Choice::Leave, "leave");
+                    });
+                    ui.end_row();
                 }
             });
+            if let Some(e) = &d.ai_error {
+                ui.label(RichText::new(format!("Assistant: {e}")).color(crate::theme::ERROR).small());
+            }
+            ui.horizontal(|ui| {
+                let asking = d.ai_waiting.is_some();
+                if ui
+                    .add_enabled(!asking, egui::Button::new(if asking { "Asking the assistant…" } else { "Ask the assistant" }))
+                    .on_hover_text("Send the changes and the conflicts to the assistant and read its suggested fixes (it answers in the chat too)")
+                    .clicked()
+                {
+                    done = Some(Done::Ask);
+                }
+                ui.checkbox(&mut state.cad.rerun_now, format!("re-run the {n_below} nodes below now"));
+            });
+        } else {
+            ui.label(format!("{n_below} node(s) below the part depend on it. They run again with the new part."));
+        }
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let run = if state.cad.rerun_now { RunMode::Now } else { RunMode::Later };
+            if n_conf > 0 {
+                if ui.button(RichText::new("Apply fixes and re-run").strong()).clicked() {
+                    let fixes: Vec<Fix> = d
+                        .report
+                        .conflicts
+                        .iter()
+                        .zip(&d.choices)
+                        .filter_map(|(c, ch)| match ch {
+                            Choice::Default => c.fix.clone(),
+                            Choice::Assistant => ai_fix_for(&d.ai, c.node, &c.param).cloned(),
+                            Choice::Leave => None,
+                        })
+                        .collect();
+                    done = Some(Done::Apply(FixMode::Fixes(fixes), run));
+                }
+                if ui.button("Apply without fixing").on_hover_text("The nodes that refer to changed things will show their own errors").clicked() {
+                    done = Some(Done::Apply(FixMode::None, run));
+                }
+            } else {
+                if ui.button(RichText::new("Run now").strong()).clicked() {
+                    done = Some(Done::Apply(FixMode::Default, RunMode::Now));
+                }
+                if ui.button("Later").on_hover_text("Apply the part; the nodes below keep their results until you run them").clicked() {
+                    done = Some(Done::Apply(FixMode::Default, RunMode::Later));
+                }
+            }
+            if ui.button("Back to CAD").clicked() {
+                done = Some(Done::Back);
+            }
+            if ui.button("Discard CAD changes").clicked() {
+                done = Some(Done::Discard);
+            }
         });
+    });
     if !open {
         done = Some(Done::Back);
     }

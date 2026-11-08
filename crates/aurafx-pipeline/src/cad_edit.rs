@@ -5,9 +5,9 @@
 //! node as one undo step and lets the pipeline run, **Discard** puts everything back as it was.
 //! Edits inside the environment have their own undo (one step per operation).
 
+use crate::cad_check::{self, CheckReport, FixMode, RunMode};
 use crate::session::{LogLevel, NodeId, Session};
 use anyhow::{anyhow, bail, Result};
-use crate::cad_check::{self, CheckReport, FixMode, RunMode};
 use aurafx_cad::diff::GeometrySnapshot;
 use aurafx_cad::{CadFile, Document, Id};
 use aurafx_data::{DataSet, DataSetInfo};
@@ -101,14 +101,15 @@ impl Session {
             if e.node == id {
                 return Ok(());
             }
-            bail!("the CAD environment is already open on '{}': apply or discard it first", self.nodes.get(&e.node).map(|n| n.name.as_str()).unwrap_or("another part"));
+            bail!(
+                "the CAD environment is already open on '{}': apply or discard it first",
+                self.nodes.get(&e.node).map(|n| n.name.as_str()).unwrap_or("another part")
+            );
         }
         let document = self.cad_document(id)?;
         // What the nodes below were built against, for the check at Apply.
-        let baseline = self
-            .cad_effective_document(id)
-            .ok()
-            .and_then(|d| aurafx_filters::cad::evaluate(&d, 40, true).ok().map(|ev| GeometrySnapshot::of(&ev, &d)));
+        let baseline =
+            self.cad_effective_document(id).ok().and_then(|d| aurafx_filters::cad::evaluate(&d, 40, true).ok().map(|ev| GeometrySnapshot::of(&ev, &d)));
         self.checkpoint("Edit CAD");
         let n = self.nodes.get_mut(&id).ok_or_else(|| anyhow!("no such node"))?;
         let edit = CadEdit {
@@ -403,7 +404,14 @@ pub fn evaluate_document(mut doc: Document, overrides: &[(String, String)], reso
         bounds: body.bounds,
         faces: ev
             .faces()
-            .map(|(_, f)| CadFace { name: f.name.clone(), kind: f.kind.label().to_string(), area: f.area, feature: f.id.0, centroid: f.centroid, direction: f.direction })
+            .map(|(_, f)| CadFace {
+                name: f.name.clone(),
+                kind: f.kind.label().to_string(),
+                area: f.area,
+                feature: f.id.0,
+                centroid: f.centroid,
+                direction: f.direction,
+            })
             .collect(),
         ms: t0.elapsed().as_secs_f64() * 1000.0,
     };

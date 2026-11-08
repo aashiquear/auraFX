@@ -21,9 +21,9 @@ use serde_json::{json, Value};
 
 pub use conflicts::hold_banner;
 pub use feature_manager::feature_manager_ui;
+pub use pick::{open as open_picker, PickKind};
 pub use property_manager::property_manager_ui;
 pub use ribbon::ribbon_ui;
-pub use pick::{open as open_picker, PickKind};
 pub use sketch::{begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, canvas_ui as sketch_canvas_ui, sketching};
 pub use timeline::timeline_ui;
 
@@ -239,7 +239,12 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
             }
         }
     }
-    if !ctx.text_edit_focused() && !state.cad.leave_dialog && !state.cad.dialog_open() && state.cad.sketch.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+    if !ctx.text_edit_focused()
+        && !state.cad.leave_dialog
+        && !state.cad.dialog_open()
+        && state.cad.sketch.is_none()
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
         state.cad.leave_dialog = true;
     }
 }
@@ -334,7 +339,13 @@ pub fn expr_field(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debu
 
 /// A number as short text.
 pub fn num_text(v: f64) -> String {
-    let s = if v.abs() >= 1000.0 { format!("{v:.1}") } else if v.abs() >= 10.0 { format!("{v:.2}") } else { format!("{v:.4}") };
+    let s = if v.abs() >= 1000.0 {
+        format!("{v:.1}")
+    } else if v.abs() >= 10.0 {
+        format!("{v:.2}")
+    } else {
+        format!("{v:.4}")
+    };
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
@@ -361,7 +372,11 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
         }
     };
     let values = effective.as_ref().ok().and_then(|d| d.parameter_values().ok());
-    if ui.button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)).on_hover_text("Open the CAD environment on this part: ribbon, feature tree, timeline").clicked() {
+    if ui
+        .button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE))
+        .on_hover_text("Open the CAD environment on this part: ribbon, feature tree, timeline")
+        .clicked()
+    {
         enter(state, id);
     }
     egui::CollapsingHeader::new(RichText::new("Dimensions").strong()).id_salt(("cad dims", id)).default_open(true).show(ui, |ui| {
@@ -410,43 +425,54 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
         ui.horizontal(|ui| {
             ui.label("Configuration");
             let mut sel = current.clone();
-            egui::ComboBox::from_id_salt(("cad cfg", id)).selected_text(if sel.is_empty() { "(document)".to_string() } else { sel.clone() }).show_ui(ui, |ui| {
-                ui.selectable_value(&mut sel, String::new(), "(document)");
-                for c in &doc.configurations {
-                    ui.selectable_value(&mut sel, c.name.clone(), &c.name);
-                }
-            });
+            egui::ComboBox::from_id_salt(("cad cfg", id)).selected_text(if sel.is_empty() { "(document)".to_string() } else { sel.clone() }).show_ui(
+                ui,
+                |ui| {
+                    ui.selectable_value(&mut sel, String::new(), "(document)");
+                    for c in &doc.configurations {
+                        ui.selectable_value(&mut sel, c.name.clone(), &c.name);
+                    }
+                },
+            );
             if sel != current {
                 state.session.lock().set_param(id, "configuration", aurafx_filters::ParamValue::Str(sel));
             }
         });
     }
-    egui::CollapsingHeader::new(RichText::new(format!("Features ({})", doc.features.len())).strong()).id_salt(("cad feats", id)).default_open(true).show(ui, |ui| {
-        let mut toggle: Option<(String, bool)> = None;
-        for f in &doc.features {
-            ui.horizontal(|ui| {
-                let mut on = !f.suppressed;
-                if ui.checkbox(&mut on, "").on_hover_text("Include this feature (off: suppressed)").changed() {
-                    toggle = Some((f.name.clone(), !on));
-                }
-                let kind = serde_json::to_value(&f.shape).ok().and_then(|v| v.get("kind").and_then(|k| k.as_str().map(str::to_string))).unwrap_or_default();
-                let kind = match kind.as_str() {
-                    "SketchExtrude" | "Extrude" => "extruded sketch".to_string(),
-                    "SketchRevolve" | "Revolve" => "revolved sketch".to_string(),
-                    k => k.to_lowercase(),
-                };
-                let text = format!("{}  ·  {} {}", f.name, match f.op {
-                    aurafx_cad::BooleanOp::Add => "adds",
-                    aurafx_cad::BooleanOp::Cut => "cuts",
-                    aurafx_cad::BooleanOp::Intersect => "intersects",
-                }, kind);
-                ui.label(if f.suppressed { RichText::new(text).weak().strikethrough() } else { RichText::new(text) });
-            });
-        }
-        if let Some((name, sup)) = toggle {
-            let _ = state.session.lock().cad_edit(id, "suppress", &serde_json::json!({"feature": name, "suppressed": sup}));
-        }
-    });
+    egui::CollapsingHeader::new(RichText::new(format!("Features ({})", doc.features.len())).strong()).id_salt(("cad feats", id)).default_open(true).show(
+        ui,
+        |ui| {
+            let mut toggle: Option<(String, bool)> = None;
+            for f in &doc.features {
+                ui.horizontal(|ui| {
+                    let mut on = !f.suppressed;
+                    if ui.checkbox(&mut on, "").on_hover_text("Include this feature (off: suppressed)").changed() {
+                        toggle = Some((f.name.clone(), !on));
+                    }
+                    let kind = serde_json::to_value(&f.shape).ok().and_then(|v| v.get("kind").and_then(|k| k.as_str().map(str::to_string))).unwrap_or_default();
+                    let kind = match kind.as_str() {
+                        "SketchExtrude" | "Extrude" => "extruded sketch".to_string(),
+                        "SketchRevolve" | "Revolve" => "revolved sketch".to_string(),
+                        k => k.to_lowercase(),
+                    };
+                    let text = format!(
+                        "{}  ·  {} {}",
+                        f.name,
+                        match f.op {
+                            aurafx_cad::BooleanOp::Add => "adds",
+                            aurafx_cad::BooleanOp::Cut => "cuts",
+                            aurafx_cad::BooleanOp::Intersect => "intersects",
+                        },
+                        kind
+                    );
+                    ui.label(if f.suppressed { RichText::new(text).weak().strikethrough() } else { RichText::new(text) });
+                });
+            }
+            if let Some((name, sup)) = toggle {
+                let _ = state.session.lock().cad_edit(id, "suppress", &serde_json::json!({"feature": name, "suppressed": sup}));
+            }
+        },
+    );
     let faces = {
         let s = state.session.lock();
         s.nodes.get(&id).and_then(|n| n.output.clone()).and_then(|o| match &*o {

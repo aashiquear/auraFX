@@ -36,7 +36,11 @@ pub fn import_file(path: &Path) -> Result<Document, CadError> {
     };
     let bytes = std::fs::read(path).map_err(|e| ioerr(path, e))?;
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Import").to_string();
-    let shape = Shape::Brep { format: format.to_string(), source: path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string(), data: base64::engine::general_purpose::STANDARD.encode(bytes) };
+    let shape = Shape::Brep {
+        format: format.to_string(),
+        source: path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string(),
+        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+    };
     let doc = Document::new(&stem).add(Feature::new(&stem, crate::BooleanOp::Add, shape));
     // The file must build, or the document would only show an error.
     crate::kernel::Kernel::evaluate(&brep::BrepKernel, &doc).map_err(|e| CadError::Edit(format!("{}: {e}", path.display())))?;
@@ -69,10 +73,16 @@ pub fn export_file_with(doc: &Document, path: &Path, choice: KernelChoice, facet
     if matches!(ext.as_str(), "igs" | "iges") {
         return Err(CadError::KernelRefused("brep", "IGES files can be read, not written yet (write STEP)".into()));
     }
-    let exact = if choice == KernelChoice::Implicit { Err(CadError::KernelRefused("brep", "the implicit kernel was chosen".into())) } else { brep::export_exact(doc, path) };
+    let exact = if choice == KernelChoice::Implicit {
+        Err(CadError::KernelRefused("brep", "the implicit kernel was chosen".into()))
+    } else {
+        brep::export_exact(doc, path)
+    };
     match exact {
         Ok(bytes) => Ok(ExportReport { bytes, exact: true, note: "exact faces and edges".into() }),
-        Err(e @ (CadError::KernelRefused(..) | CadError::Kernel { .. })) if matches!(ext.as_str(), "step" | "stp" | "stl" | "obj") && choice != KernelChoice::Brep => {
+        Err(e @ (CadError::KernelRefused(..) | CadError::Kernel { .. }))
+            if matches!(ext.as_str(), "step" | "stp" | "stl" | "obj") && choice != KernelChoice::Brep =>
+        {
             let ev = crate::kernel::implicit::ImplicitKernel { resolution: faceted_resolution, project: true }.evaluate_doc(doc)?;
             let DataSet::PolyData(pd) = &ev.surface else { return Err(e) };
             let pts: Vec<[f64; 3]> = (0..pd.points.len()).map(|i| pd.points.get(i)).collect();
@@ -229,7 +239,12 @@ mod tests {
     }
     fn part() -> Document {
         let mut d = Document::new("plate");
-        apply_op(&mut d, "sketch_extrude", &json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 30}}]}})).unwrap();
+        apply_op(
+            &mut d,
+            "sketch_extrude",
+            &json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 30}}]}}),
+        )
+        .unwrap();
         apply_op(&mut d, "add", &json!({"kind": "hole", "name": "Bore", "diameter": 8, "depth": 10, "at": [5, 3, 10]})).unwrap();
         d
     }

@@ -451,7 +451,9 @@ pub fn overlay_mesh(ds: &DataSet, p: &OverlayParams) -> Result<DataSet> {
             // One side set per patch of the surface between sharp edges.
             o.face_names = match &cad_names {
                 // Face f of the surface is numbered 1 + f here: the first name is the empty one.
-                Some(names) => std::iter::once(String::new()).chain((0..np as usize).map(|k| names.get(k).cloned().unwrap_or_else(|| format!("face {k}")))).collect(),
+                Some(names) => {
+                    std::iter::once(String::new()).chain((0..np as usize).map(|k| names.get(k).cloned().unwrap_or_else(|| format!("face {k}")))).collect()
+                }
                 None => std::iter::once(String::new()).chain((1..=np).map(|k| if np == 1 { "surface".to_string() } else { format!("surface {k}") })).collect(),
             };
             let src = ShapeSource { shapes: vec![(1, &shape)] };

@@ -163,11 +163,19 @@ fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool
     }
     if button(ui, "Hexagon", "A regular hexagon of radius 12 extruded 10 mm") {
         let name = unique(state, "Extrude");
-        op(state, "sketch_extrude", json!({"name": name, "depth": 10, "sketch": sk(json!({"regular": {"center": [at[0], at[1]], "r": 12, "sides": 6}}), "XY")}));
+        op(
+            state,
+            "sketch_extrude",
+            json!({"name": name, "depth": 10, "sketch": sk(json!({"regular": {"center": [at[0], at[1]], "r": 12, "sides": 6}}), "XY")}),
+        );
     }
     if button(ui, "Rectangle cut", "A 10 × 10 pocket cut through the top 5 mm") {
         let name = unique(state, "Pocket");
-        op(state, "sketch_extrude", json!({"name": name, "op": "cut", "depth": 5, "reverse": true, "sketch": sk(json!({"rectangle": {"center": [at[0], at[1]], "w": 10, "h": 10}}), "XY")}));
+        op(
+            state,
+            "sketch_extrude",
+            json!({"name": name, "op": "cut", "depth": 5, "reverse": true, "sketch": sk(json!({"rectangle": {"center": [at[0], at[1]], "w": 10, "h": 10}}), "XY")}),
+        );
     }
     ui.separator();
     if button(ui, "Revolve profile", "A profile of straight lines turned about the vertical axis (a knob)") {
@@ -179,12 +187,14 @@ fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool
 
 fn modify_tab(state: &mut State, ui: &mut egui::Ui) {
     let target = selected_name(state);
-    ui.label(RichText::new(match &target {
-        Some(n) => format!("on {n}:"),
-        None => "on the whole part (select a feature to modify only it):".to_string(),
-    })
-    .weak()
-    .small());
+    ui.label(
+        RichText::new(match &target {
+            Some(n) => format!("on {n}:"),
+            None => "on the whole part (select a feature to modify only it):".to_string(),
+        })
+        .weak()
+        .small(),
+    );
     let t = target.map(Value::String).unwrap_or(Value::Null);
     let add = |state: &mut State, m: Value| {
         op(state, "modifier", json!({"feature": t, "modifier": m}));
@@ -253,7 +263,8 @@ fn inspect_tab(state: &mut State, ui: &mut egui::Ui) {
     ui.add(egui::DragValue::new(&mut state.cad.section_z).speed(0.1).suffix(" mm"));
     if ui.button("Measure").on_hover_text("The area of the part's cross-section at that height").clicked() {
         let doc = state.session.lock().cad_edit.as_ref().map(|e| e.document_to_build());
-        state.cad.section_area = doc.and_then(|d| d.resolved().ok()).map(|d| d.section_area_at_z(state.cad.section_z, (s.bounds.1[0] - s.bounds.0[0]).max(1.0) / 200.0));
+        state.cad.section_area =
+            doc.and_then(|d| d.resolved().ok()).map(|d| d.section_area_at_z(state.cad.section_z, (s.bounds.1[0] - s.bounds.0[0]).max(1.0) / 200.0));
     }
     if let Some(a) = state.cad.section_area {
         ui.label(format!("= {} mm²", super::num_text(a)));

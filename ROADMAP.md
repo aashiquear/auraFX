@@ -794,8 +794,16 @@ Not done in C9: a gallery with pictures, the CAD video for the project page
 (`scripts/site/media/cad.py`), a picture per ribbon tab (the Modify, Features, Sketch and
 Inspect tabs appear in the chapter's pictures; Files has none).
 
-Not started: section 14 (the prioritized gaps against the reference programs: filters such as
-Delaunay, Decimate, Subdivide, Curvature and Extrusion; readers such as DICOM, NRRD and LAS;
+Done in iteration 80 (the first rows of section 14.1): Reverse Sense, Linear Extrusion,
+Rotational Extrusion, Ribbon, Subdivide (Linear, Loop), Decimate (quadric edge collapse),
+Curvature (Gaussian, mean) and Delaunay 2D (`aurafx-filters/src/surface_ops.rs`), checked against closed forms (a swept line's area, the
+cone of revolution's pi r l, the prism's surface and volume, linear subdivision keeping area and
+volume, Loop rounding an octahedron, a sphere's 1/r² and 1/r to 4 %, a grid's triangle count and
+hull, a sphere at half its triangles within 2 % of its volume); guide: Filters › Surface operations
+(`surface_ops`).
+
+Not started: the rest of section 14 (the prioritized gaps against the reference programs: Delaunay 3D, Iso Volume and the other row-2 items; the point-interpolation, table, tensor and
+temporal rows; readers such as DICOM, NRRD and LAS;
 microstructure clean-up and metrics; DAMASK and LAMMPS inputs; webcut, imprint, merge, paving
 and sizing; Nastran and Fluent writers), and the older open items of sections 0 to 10. This
 branch's work was the CAD environment, C0 to C9. Next: section 14, one row at a time.

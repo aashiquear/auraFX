@@ -42,7 +42,9 @@ impl Build {
 /// Open an imported file's bytes as the design of the session.
 fn open_import(b: &mut Build, format: &str, data: &str) -> Result<(), CadError> {
     use base64::Engine as _;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| CadError::Kernel { kernel: "brep", reason: format!("the imported data is not valid: {e}") })?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| CadError::Kernel { kernel: "brep", reason: format!("the imported data is not valid: {e}") })?;
     let ext = match format {
         "step" | "stp" => "step",
         "igs" | "iges" => "igs",
@@ -106,16 +108,25 @@ fn placements(f: &Feature) -> Result<(Vec<Pl>, Vec<Modifier>), CadError> {
             Modifier::GridPattern { counts, step } => {
                 patterned = true;
                 local
-                .iter()
-                .flat_map(|(o, q)| {
-                    (0..counts[0].max(1)).flat_map(move |i| (0..counts[1].max(1)).map(move |j| (*o + DVec3::new(step[0] * i as f64, step[1] * j as f64, 0.0), *q)))
-                })
-                .collect()
+                    .iter()
+                    .flat_map(|(o, q)| {
+                        (0..counts[0].max(1))
+                            .flat_map(move |i| (0..counts[1].max(1)).map(move |j| (*o + DVec3::new(step[0] * i as f64, step[1] * j as f64, 0.0), *q)))
+                    })
+                    .collect()
             }
             Modifier::CircularPattern { count, axis_z: true } => {
                 patterned = true;
                 let n = (*count).max(1);
-                local.iter().flat_map(|(o, q)| (0..n).map(move |k| { let w = DMat3::from_rotation_z(std::f64::consts::TAU * k as f64 / n as f64); (w * *o, w * *q) })).collect()
+                local
+                    .iter()
+                    .flat_map(|(o, q)| {
+                        (0..n).map(move |k| {
+                            let w = DMat3::from_rotation_z(std::f64::consts::TAU * k as f64 / n as f64);
+                            (w * *o, w * *q)
+                        })
+                    })
+                    .collect()
             }
             // A mirror of a shape centered on its own origin is the shape itself: nothing to add.
             Modifier::Mirror { .. } => local,
@@ -135,7 +146,15 @@ fn placements(f: &Feature) -> Result<(Vec<Pl>, Vec<Modifier>), CadError> {
         if let Modifier::CircularPatternAngle { count, total_deg, axis } = m {
             let n = (*count).max(1);
             let step = if (*total_deg - 360.0).abs() < 1e-9 { *total_deg / n as f64 } else { *total_deg / (n.max(2) - 1) as f64 };
-            out = out.iter().flat_map(|p| (0..n).map(move |k| { let w = rot_about(*axis, step * k as f64); Pl { t: w * p.t, r: w * p.r } })).collect();
+            out = out
+                .iter()
+                .flat_map(|p| {
+                    (0..n).map(move |k| {
+                        let w = rot_about(*axis, step * k as f64);
+                        Pl { t: w * p.t, r: w * p.r }
+                    })
+                })
+                .collect();
         }
     }
     Ok((out, body_mods))
@@ -245,7 +264,8 @@ impl Build {
                     }
                 }
                 for (i, path) in sk.entity_paths().iter().enumerate() {
-                    let free = sk.entities.iter().filter(|e| !e.construction()).nth(i).is_some_and(|e| matches!(e, Entity::Spline { .. } | Entity::Polyline { .. }));
+                    let free =
+                        sk.entities.iter().filter(|e| !e.construction()).nth(i).is_some_and(|e| matches!(e, Entity::Spline { .. } | Entity::Polyline { .. }));
                     if free {
                         self.polyline(path)?;
                     }
@@ -286,7 +306,9 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
     // Edge and shell features act on the part so far.
     match &f.shape {
         Shape::EdgeBlend { chamfer, size, edges } => {
-            let Some(main) = b.main_body().filter(|_| b.any) else { return refuse(format!("'{}' rounds edges of nothing yet: put it after the feature it modifies", f.name)) };
+            let Some(main) = b.main_body().filter(|_| b.any) else {
+                return refuse(format!("'{}' rounds edges of nothing yet: put it after the feature it modifies", f.name));
+            };
             let picks: Vec<Value> = edges.iter().map(|p| json!(p)).collect();
             if picks.is_empty() {
                 return refuse(format!("'{}' has no edges picked", f.name));
@@ -296,8 +318,13 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             return Ok(());
         }
         Shape::ShellFaces { thickness, faces } => {
-            let Some(main) = b.main_body().filter(|_| b.any) else { return refuse(format!("'{}' hollows nothing yet: put it after the feature it modifies", f.name)) };
-            b.run("solid.shell", json!({"faces": faces.iter().map(|p| json!(p)).collect::<Vec<_>>(), "thickness": thickness.abs(), "direction": "inside", "body": main}))?;
+            let Some(main) = b.main_body().filter(|_| b.any) else {
+                return refuse(format!("'{}' hollows nothing yet: put it after the feature it modifies", f.name));
+            };
+            b.run(
+                "solid.shell",
+                json!({"faces": faces.iter().map(|p| json!(p)).collect::<Vec<_>>(), "thickness": thickness.abs(), "direction": "inside", "body": main}),
+            )?;
             return Ok(());
         }
         _ => {}
@@ -326,7 +353,10 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             b.solid("solid.cylinder", json!({"base": v3(pl.t), "axis": v3(pl.axis()), "radius": radius, "height": height, "operation": op, "name": name}))?;
         }
         Shape::Cone { r_bottom, r_top, height } => {
-            b.solid("solid.cone", json!({"base": v3(pl.t), "axis": v3(pl.axis()), "radius": r_bottom, "top_radius": r_top, "height": height, "operation": op, "name": name}))?;
+            b.solid(
+                "solid.cone",
+                json!({"base": v3(pl.t), "axis": v3(pl.axis()), "radius": r_bottom, "top_radius": r_top, "height": height, "operation": op, "name": name}),
+            )?;
         }
         Shape::Torus { major, minor } => {
             if !pl.is_upright() {
@@ -354,7 +384,10 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             let (basis, org) = sketch.plane.frame(sketch.offset);
             let frame = Frame { o: pl.at(org), x: pl.r * basis.x_axis, y: pl.r * basis.y_axis };
             let s = b.draw_sketch(&frame, &SketchShape::Sketch(sketch))?;
-            b.solid("solid.revolve", json!({"sketch": s, "axis": "y", "angle": format!("{} deg", angle_deg.clamp(0.1, 360.0)), "operation": op, "name": name}))?;
+            b.solid(
+                "solid.revolve",
+                json!({"sketch": s, "axis": "y", "angle": format!("{} deg", angle_deg.clamp(0.1, 360.0)), "operation": op, "name": name}),
+            )?;
         }
         Shape::Extrude { sketch, height, draft_deg } => {
             let frame = Frame { o: pl.t, x: pl.r * DVec3::X, y: pl.r * DVec3::Y };
@@ -508,7 +541,9 @@ fn emit_feature(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_mods: &[Mod
             }
             match edge {
                 EdgeTreatment::Fillet { radius } => b.run("solid.fillet", json!({"edges": picks, "radius": radius, "tangent_chain": false, "body": TMP}))?,
-                EdgeTreatment::Chamfer { distance } => b.run("solid.chamfer", json!({"edges": picks, "distance": distance, "tangent_chain": false, "body": TMP}))?,
+                EdgeTreatment::Chamfer { distance } => {
+                    b.run("solid.chamfer", json!({"edges": picks, "distance": distance, "tangent_chain": false, "body": TMP}))?
+                }
                 EdgeTreatment::None => Value::Null,
             };
         }
@@ -524,7 +559,10 @@ fn emit_feature(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_mods: &[Mod
             }
             Modifier::ShellOpen { thickness, open_top } => {
                 let pick = if *open_top { top_point(b, Some(TMP))? } else { None };
-                b.run("solid.shell", json!({"faces": pick.map(|p| vec![v3(p)]).unwrap_or_default(), "thickness": thickness.abs(), "direction": "inside", "body": TMP}))?;
+                b.run(
+                    "solid.shell",
+                    json!({"faces": pick.map(|p| vec![v3(p)]).unwrap_or_default(), "thickness": thickness.abs(), "direction": "inside", "body": TMP}),
+                )?;
             }
             _ => {}
         }
@@ -608,7 +646,11 @@ fn unique_names(doc: &Document) -> Vec<String> {
         .map(|f| {
             let n = seen.entry(f.name.clone()).or_insert(0);
             *n += 1;
-            if *n == 1 { f.name.clone() } else { format!("{} {}", f.name, n) }
+            if *n == 1 {
+                f.name.clone()
+            } else {
+                format!("{} {}", f.name, n)
+            }
         })
         .collect()
 }
@@ -767,7 +809,8 @@ fn extract(b: &mut Build, doc: &Document) -> Result<Evaluated, CadError> {
         }
         let winner: BTreeMap<u32, (usize, usize)> =
             votes.iter().map(|(f, v)| (*f, v.iter().max_by(|a, b| a.1.total_cmp(b.1)).map(|(k, _)| *k).unwrap_or((0, 0)))).collect();
-        let labels: Vec<(usize, usize)> = (0..tris.len()).map(|ti| winner.get(&m.tri_face.get(ti).copied().unwrap_or(0)).copied().unwrap_or(tri_label[ti])).collect();
+        let labels: Vec<(usize, usize)> =
+            (0..tris.len()).map(|ti| winner.get(&m.tri_face.get(ti).copied().unwrap_or(0)).copied().unwrap_or(tri_label[ti])).collect();
         // Global face numbers in (feature, local face) order, across bodies.
         let mut keys: Vec<(usize, usize)> = labels.clone();
         keys.sort_unstable();
@@ -886,7 +929,12 @@ mod tests {
     #[test]
     fn a_plate_with_a_hole_has_the_same_named_faces_and_exact_volume() {
         let mut d = Document::new("plate");
-        apply_op(&mut d, "sketch_extrude", &json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 30}}]}})).unwrap();
+        apply_op(
+            &mut d,
+            "sketch_extrude",
+            &json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 30}}]}}),
+        )
+        .unwrap();
         apply_op(&mut d, "add", &json!({"kind": "hole", "name": "Bore", "diameter": 8, "depth": 10, "at": [5, 3, 10]})).unwrap();
         let b = eval(&d);
         let expect = 40.0 * 30.0 * 10.0 - PI * 16.0 * 10.0;
@@ -910,14 +958,20 @@ mod tests {
     fn revolves_arcs_patterns_and_rounding_agree_with_the_implicit_kernel() {
         // A revolved profile with an arc.
         let mut d = Document::new("knob");
-        apply_op(&mut d, "sketch_revolve", &json!({"name": "Turned", "angle": 360, "sketch": {"plane": "XZ", "items": [{"polygon": [[0, 0], [12, 0], [12, 4], [7, 16], [0, 18]]}]}})).unwrap();
+        apply_op(
+            &mut d,
+            "sketch_revolve",
+            &json!({"name": "Turned", "angle": 360, "sketch": {"plane": "XZ", "items": [{"polygon": [[0, 0], [12, 0], [12, 4], [7, 16], [0, 18]]}]}}),
+        )
+        .unwrap();
         let (b, i) = (eval(&d), ImplicitKernel::new(96).evaluate(&d).unwrap());
         assert!(close(b.volume(), i.volume(), 0.015), "revolve {} vs {}", b.volume(), i.volume());
         // A bolt circle of holes (copies), a through-all cut.
         let mut p = Document::new("flange");
         apply_op(&mut p, "add", &json!({"kind": "cylinder", "name": "Disc", "radius": 40, "height": 8})).unwrap();
         apply_op(&mut p, "add", &json!({"kind": "hole", "name": "Bolt", "diameter": 6, "depth": 8, "at": [30, 0, 8]})).unwrap();
-        apply_op(&mut p, "modifier", &json!({"feature": "Bolt", "modifier": {"kind": "CircularPatternAngle", "count": 6, "total_deg": 360, "axis": "Z"}})).unwrap();
+        apply_op(&mut p, "modifier", &json!({"feature": "Bolt", "modifier": {"kind": "CircularPatternAngle", "count": 6, "total_deg": 360, "axis": "Z"}}))
+            .unwrap();
         let (b, i) = (eval(&p), ImplicitKernel::new(128).evaluate(&p).unwrap());
         let expect = PI * 1600.0 * 8.0 - 6.0 * PI * 9.0 * 8.0;
         assert!(close(b.volume(), expect, 1e-3), "{} vs {expect}", b.volume());

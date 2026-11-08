@@ -35,11 +35,11 @@ pub mod templates;
 pub use analysis::{interference_built, interference_volume, measure_faces, FaceMeasure, MassProperties};
 pub use assembly::{Assembly, Component};
 pub use document::{
-    Axis, BlendKind, Binding, BooleanOp, Configuration, Document, EdgeTreatment, EndCondition, Feature, HoleKind, LoftSection, MirrorPlane,
-    Modifier, Parameter, Placement, Shape,
+    Axis, Binding, BlendKind, BooleanOp, Configuration, Document, EdgeTreatment, EndCondition, Feature, HoleKind, LoftSection, MirrorPlane, Modifier,
+    Parameter, Placement, Shape,
 };
-pub use file::{CadFile, FileError, FORMAT_VERSION};
 pub use expr::{eval, eval_const, eval_map, identifiers, unit_factor, ExprError};
+pub use file::{CadFile, FileError, FORMAT_VERSION};
 pub use kernel::{Evaluated, EvaluatedBody, EvaluatedFace, FaceKind, Kernel, KernelChoice};
 pub use sketch::{Constraint, Dim, Entity, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
 pub use templates::templates;

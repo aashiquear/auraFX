@@ -37,7 +37,10 @@ fn dim(doc: &Document, v: &Value) -> Result<Dim, CadError> {
 }
 
 fn vec3(v: Option<&Value>, default: [f64; 3]) -> [f64; 3] {
-    v.and_then(|v| v.as_array()).filter(|a| a.len() == 3).map(|a| [a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0), a[2].as_f64().unwrap_or(0.0)]).unwrap_or(default)
+    v.and_then(|v| v.as_array())
+        .filter(|a| a.len() == 3)
+        .map(|a| [a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0), a[2].as_f64().unwrap_or(0.0)])
+        .unwrap_or(default)
 }
 
 fn find<'a>(doc: &'a Document, name: &Value) -> Result<usize, CadError> {
@@ -174,7 +177,9 @@ pub fn sketch_from_spec(doc: &Document, spec: &Value) -> Result<Sketch, CadError
     s.offset = spec.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0);
     let items = spec.get("items").and_then(|i| i.as_array()).ok_or_else(|| CadError::Edit("a sketch needs \"items\": [...]".into()))?;
     for item in items {
-        let Some((kind, a)) = item.as_object().and_then(|o| o.iter().next()) else { return bad("each sketch item is {\"rectangle\": {...}}, {\"circle\": {...}} or {\"polygon\": [...]}") };
+        let Some((kind, a)) = item.as_object().and_then(|o| o.iter().next()) else {
+            return bad("each sketch item is {\"rectangle\": {...}}, {\"circle\": {...}} or {\"polygon\": [...]}");
+        };
         match kind.as_str() {
             "rectangle" => {
                 let c = a.get("corner").and_then(|c| c.as_array()).filter(|c| c.len() == 2);
@@ -667,7 +672,13 @@ mod env_tests {
         assert_eq!(sketch.constraints[c].dim().unwrap().value, before + 5.0);
         apply_op(&mut d, "parameter", &json!({"name": "k", "expr": 3})).unwrap();
         apply_op(&mut d, "set_dim", &json!({"feature": f, "constraint": c, "value": "k * 4"})).unwrap();
-        assert_eq!(d.resolved().unwrap().features.iter().find(|x| x.name == f).and_then(|x| match &x.shape { Shape::SketchExtrude { sketch, .. } => sketch.constraints[c].dim().map(|d| d.value), _ => None }), Some(12.0));
+        assert_eq!(
+            d.resolved().unwrap().features.iter().find(|x| x.name == f).and_then(|x| match &x.shape {
+                Shape::SketchExtrude { sketch, .. } => sketch.constraints[c].dim().map(|d| d.value),
+                _ => None,
+            }),
+            Some(12.0)
+        );
         assert!(apply_op(&mut d, "set_dim", &json!({"feature": f, "constraint": 9999, "value": 1})).is_err());
         // Operation, modifiers, finish.
         let mut d = Document::new("x");

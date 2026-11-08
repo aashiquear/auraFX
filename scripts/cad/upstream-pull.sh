@@ -16,6 +16,9 @@ core_url=https://github.com/tangency-labs/solidcore
 
 prune() {
   grep -v '^#' vendor/prune.txt | grep -v '^$' | while read -r p; do git rm -rq --ignore-unmatch "$p" || true; done
+  # Directories that must still exist, empty: SolidCraft's workspace lists apps/* as members, and
+  # cargo reads a glob over a missing directory as a literal path (cargo metadata, cargo fmt).
+  grep -v '^#' vendor/keep.txt | grep -v '^$' | while read -r p; do mkdir -p "$p"; touch "$p/.gitkeep"; git add -f "$p/.gitkeep"; done
 }
 settle() {  # after a subtree pull that stopped on modify/delete conflicts in pruned directories
   prune

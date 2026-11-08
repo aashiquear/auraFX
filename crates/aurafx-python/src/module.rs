@@ -1636,7 +1636,11 @@ fn _cad_import(path: String) -> PyResult<String> {
 fn _cad_edges(node: PyRef<PyNode>) -> PyResult<String> {
     let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
     let e = aurafx_cad::kernel::brep::list_edges(&doc).map_err(cad_err)?;
-    Ok(serde_json::json!(e.iter().map(|e| serde_json::json!({ "index": e.index, "point": e.mid, "length": e.length, "faces": e.faces, "straight": e.straight })).collect::<Vec<_>>()).to_string())
+    Ok(serde_json::json!(e
+        .iter()
+        .map(|e| serde_json::json!({ "index": e.index, "point": e.mid, "length": e.length, "faces": e.faces, "straight": e.straight }))
+        .collect::<Vec<_>>())
+    .to_string())
 }
 
 /// A point on each named face of the built part (for picking faces by name).
@@ -1661,7 +1665,8 @@ fn _cad_measure(node: PyRef<PyNode>, what: String, a: Option<String>, b: Option<
         "mass" => serde_json::to_string(&ev.mass_properties(density)).map_err(cad_err),
         "faces" => {
             let (a, b) = (a.unwrap_or_default(), b.unwrap_or_default());
-            let m = aurafx_cad::measure_faces(&ev, &a, &b).ok_or_else(|| PyValueError::new_err(format!("no faces named '{a}' and '{b}' (cad.faces() lists them)")))?;
+            let m = aurafx_cad::measure_faces(&ev, &a, &b)
+                .ok_or_else(|| PyValueError::new_err(format!("no faces named '{a}' and '{b}' (cad.faces() lists them)")))?;
             serde_json::to_string(&m).map_err(cad_err)
         }
         w => Err(PyValueError::new_err(format!("unknown measure '{w}'"))),
@@ -1677,7 +1682,8 @@ fn _cad_interference(node: PyRef<PyNode>, other: PyRef<PyNode>, at: (f64, f64, f
         (s.cad_effective_document(node.id).map_err(cad_err)?, s.cad_effective_document(other.id).map_err(cad_err)?)
     };
     let k = aurafx_cad::KernelChoice::Auto;
-    let (ea, eb) = (aurafx_filters::cad::evaluate_with(k, &da, 64, true).map_err(cad_err)?, aurafx_filters::cad::evaluate_with(k, &db, 64, true).map_err(cad_err)?);
+    let (ea, eb) =
+        (aurafx_filters::cad::evaluate_with(k, &da, 64, true).map_err(cad_err)?, aurafx_filters::cad::evaluate_with(k, &db, 64, true).map_err(cad_err)?);
     let id = aurafx_cad::Placement::default();
     let pb = aurafx_cad::Placement { translate: [at.0, at.1, at.2], rotate_deg: [rotate.0, rotate.1, rotate.2] };
     Ok(aurafx_cad::interference_built(&ea, &id, &eb, &pb, resolution))
@@ -1720,7 +1726,12 @@ fn _cad_env(what: String, arg: Option<String>) -> PyResult<bool> {
         "undo" => s.cad_env_undo().is_some(),
         "redo" => s.cad_env_redo().is_some(),
         "rollback" => {
-            let n = arg.as_deref().filter(|a| !a.is_empty()).map(|a| a.parse::<usize>()).transpose().map_err(|_| PyValueError::new_err("rollback takes a number of features or None"))?;
+            let n = arg
+                .as_deref()
+                .filter(|a| !a.is_empty())
+                .map(|a| a.parse::<usize>())
+                .transpose()
+                .map_err(|_| PyValueError::new_err("rollback takes a number of features or None"))?;
             s.cad_env_rollback(n);
             true
         }
@@ -1791,7 +1802,6 @@ class _MeshModule:
 
 mesh = _MeshModule()
 "#;
-
 
 /// `afx.cad_model()` and the `cad` object of a CAD Model node.
 const CAD_API: &str = r#"

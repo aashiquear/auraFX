@@ -151,7 +151,9 @@ pub fn collect(session: &Session, cad: NodeId, old: &GeometrySnapshot, new: &Geo
                 FaceFate::Same => None,
                 FaceFate::Renamed { to } => Some((ConflictKind::Renamed { to: to.name.clone() }, Some(to.name.clone()), false)),
                 FaceFate::Replaced { by } => Some((ConflictKind::Removed, Some(by.name.clone()), true)),
-                FaceFate::Ambiguous { candidates } => Some((ConflictKind::Ambiguous { candidates: candidates.iter().map(|c| c.name.clone()).collect() }, None, true)),
+                FaceFate::Ambiguous { candidates } => {
+                    Some((ConflictKind::Ambiguous { candidates: candidates.iter().map(|c| c.name.clone()).collect() }, None, true))
+                }
                 FaceFate::Removed => Some((ConflictKind::Removed, None, false)),
             };
         }
@@ -241,14 +243,18 @@ pub fn collect(session: &Session, cad: NodeId, old: &GeometrySnapshot, new: &Geo
                 (ParamKind::Int { .. }, ParamValue::Int(v)) if matches!(spec.key.as_str(), "face" | "face_id" | "faceid") => {
                     if let Some(c) = d.faces.iter().find(|c| i64::from(c.old.face_id) == *v) {
                         let (kind, to, guess) = match &c.fate {
-                            FaceFate::Same if c.old.face_id == new.faces.iter().find(|f| f.name == c.old.name).map(|f| f.face_id).unwrap_or(c.old.face_id) => continue,
+                            FaceFate::Same if c.old.face_id == new.faces.iter().find(|f| f.name == c.old.name).map(|f| f.face_id).unwrap_or(c.old.face_id) => {
+                                continue
+                            }
                             FaceFate::Same => {
                                 let f = new.faces.iter().find(|f| f.name == c.old.name).unwrap();
                                 (ConflictKind::Renamed { to: f.name.clone() }, Some(f.face_id), false)
                             }
                             FaceFate::Renamed { to } => (ConflictKind::Renamed { to: to.name.clone() }, Some(to.face_id), false),
                             FaceFate::Replaced { by } => (ConflictKind::Removed, Some(by.face_id), true),
-                            FaceFate::Ambiguous { candidates } => (ConflictKind::Ambiguous { candidates: candidates.iter().map(|c| c.name.clone()).collect() }, None, true),
+                            FaceFate::Ambiguous { candidates } => {
+                                (ConflictKind::Ambiguous { candidates: candidates.iter().map(|c| c.name.clone()).collect() }, None, true)
+                            }
                             FaceFate::Removed => (ConflictKind::Removed, None, false),
                         };
                         conflicts.push(Conflict {
@@ -298,7 +304,13 @@ pub fn collect(session: &Session, cad: NodeId, old: &GeometrySnapshot, new: &Geo
                     value: n.params.str("parameters"),
                     reference: name.clone(),
                     kind: ConflictKind::Removed,
-                    fix: Some(Fix { node: cad, param: "parameters".into(), value: json!(Value::Object(rest).to_string()), reason: format!("dimension '{name}' no longer exists: drop its override"), check: false }),
+                    fix: Some(Fix {
+                        node: cad,
+                        param: "parameters".into(),
+                        value: json!(Value::Object(rest).to_string()),
+                        reason: format!("dimension '{name}' no longer exists: drop its override"),
+                        check: false,
+                    }),
                     may_reference: false,
                 });
             }
@@ -310,14 +322,22 @@ pub fn collect(session: &Session, cad: NodeId, old: &GeometrySnapshot, new: &Geo
 /// The prompt that asks the assistant for fixes: the diff in words, the conflicts, each
 /// affected node's filter and parameters.
 pub fn ai_prompt(session: &Session, report: &CheckReport) -> String {
-    let mut p = String::from(
-        "I edited a CAD part and the nodes below it in the pipeline refer to things that changed. Suggest fixes.\n\nWhat changed in the part:\n",
-    );
+    let mut p =
+        String::from("I edited a CAD part and the nodes below it in the pipeline refer to things that changed. Suggest fixes.\n\nWhat changed in the part:\n");
     p += &report.diff.describe();
     p += "\nConflicts (node id, filter, parameter, current value, what it refers to, what happened):\n";
     for c in &report.conflicts {
         let filter = session.nodes.get(&c.node).and_then(|n| n.def().map(|d| d.id)).unwrap_or("?");
-        p += &format!("- node {} ({}, filter {filter}), parameter '{}' = {:?}: refers to '{}', {}{}\n", c.node, c.node_name, c.param, c.value, c.reference, c.kind.label(), if c.may_reference { " (found in code: may not be a reference)" } else { "" });
+        p += &format!(
+            "- node {} ({}, filter {filter}), parameter '{}' = {:?}: refers to '{}', {}{}\n",
+            c.node,
+            c.node_name,
+            c.param,
+            c.value,
+            c.reference,
+            c.kind.label(),
+            if c.may_reference { " (found in code: may not be a reference)" } else { "" }
+        );
     }
     p += "\nAnswer with a JSON array only, one object per parameter to change: [{\"node\": <node id>, \"param\": \"<parameter key>\", \"value\": <new value>, \"reason\": \"<short reason>\"}]. Use [] when nothing should change. Keep values of the same type as the current ones.";
     p
@@ -374,7 +394,13 @@ pub fn parse_ai_fixes(session: &Session, answer: &str) -> Result<Vec<Fix>> {
             bail!("node {node} ({}) has no parameter '{param}'", n.name);
         }
         let value = item.get("value").cloned().ok_or_else(|| anyhow!("a fix needs a \"value\""))?;
-        out.push(Fix { node, param, value, reason: item.get("reason").and_then(|r| r.as_str()).unwrap_or("suggested by the assistant").to_string(), check: true });
+        out.push(Fix {
+            node,
+            param,
+            value,
+            reason: item.get("reason").and_then(|r| r.as_str()).unwrap_or("suggested by the assistant").to_string(),
+            check: true,
+        });
     }
     Ok(out)
 }

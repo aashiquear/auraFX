@@ -137,7 +137,11 @@ impl GeometryDiff {
                 FaceFate::Renamed { to } => out += &format!("face '{}' (number {}) is now '{}' (number {})\n", f.old.name, f.old.face_id, to.name, to.face_id),
                 FaceFate::Replaced { by } => out += &format!("face '{}' is gone; '{}' is the nearest successor\n", f.old.name, by.name),
                 FaceFate::Ambiguous { candidates } => {
-                    out += &format!("face '{}' is gone; it may now be: {}\n", f.old.name, candidates.iter().map(|c| format!("'{}'", c.name)).collect::<Vec<_>>().join(", "))
+                    out += &format!(
+                        "face '{}' is gone; it may now be: {}\n",
+                        f.old.name,
+                        candidates.iter().map(|c| format!("'{}'", c.name)).collect::<Vec<_>>().join(", ")
+                    )
                 }
                 FaceFate::Removed => out += &format!("face '{}' is gone\n", f.old.name),
             }
@@ -236,7 +240,8 @@ pub fn diff(old: &GeometrySnapshot, new: &GeometrySnapshot) -> GeometryDiff {
             }
             None => {
                 // 3. by place among the faces nobody has taken.
-                let mut cands: Vec<(usize, f64)> = new.faces.iter().enumerate().filter(|(j, _)| !taken[*j]).filter_map(|(j, n)| place_cost(o, n, reach).map(|c| (j, c))).collect();
+                let mut cands: Vec<(usize, f64)> =
+                    new.faces.iter().enumerate().filter(|(j, _)| !taken[*j]).filter_map(|(j, n)| place_cost(o, n, reach).map(|c| (j, c))).collect();
                 cands.sort_by(|a, b| a.1.total_cmp(&b.1));
                 match cands.as_slice() {
                     [] => FaceFate::Removed,
@@ -253,7 +258,14 @@ pub fn diff(old: &GeometrySnapshot, new: &GeometrySnapshot) -> GeometryDiff {
         };
         out.faces.push(FaceChange { old: o.clone(), fate, moved });
     }
-    out.faces_added = new.faces.iter().enumerate().filter(|(j, _)| !taken[*j]).map(|(_, f)| f.clone()).filter(|f| !out.faces.iter().any(|c| matches!(&c.fate, FaceFate::Replaced { by } if by == f))).collect();
+    out.faces_added = new
+        .faces
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| !taken[*j])
+        .map(|(_, f)| f.clone())
+        .filter(|f| !out.faces.iter().any(|c| matches!(&c.fate, FaceFate::Replaced { by } if by == f)))
+        .collect();
     out.bodies_removed = old.bodies.iter().filter(|b| !new.bodies.iter().any(|n| n.id == b.id || n.name == b.name)).cloned().collect();
     out.bodies_added = new.bodies.iter().filter(|n| !old.bodies.iter().any(|b| n.id == b.id || n.name == b.name)).cloned().collect();
     out
@@ -269,7 +281,12 @@ mod tests {
 
     fn plate() -> Document {
         let mut d = Document::new("plate");
-        apply_op(&mut d, "sketch_extrude", &json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 40}}]}})).unwrap();
+        apply_op(
+            &mut d,
+            "sketch_extrude",
+            &json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 40}}]}}),
+        )
+        .unwrap();
         apply_op(&mut d, "add", &json!({"kind": "hole", "name": "Bore", "diameter": 8, "depth": 20, "at": [0, 0, 12]})).unwrap();
         d
     }

@@ -3,9 +3,9 @@
 //! Starter parts for the Solid Modeler's "New part" gallery. Each shows off a few features and
 //! is parameter-driven where that makes sense (edit the parameters, the part follows).
 
-use crate::sketch::{Constraint, Dim, Sketch, SketchPlane};
 use crate::document::*;
 use crate::path::shapes;
+use crate::sketch::{Constraint, Dim, Sketch, SketchPlane};
 use glam::DVec2;
 
 /// `(title, part)` pairs.

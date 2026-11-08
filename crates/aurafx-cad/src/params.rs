@@ -2,8 +2,8 @@
 //!
 //! Parameters, configurations and bindings: turning a parametric [`Document`] into concrete values.
 
-use crate::expr::{self, ExprError};
 use crate::document::{Document, Parameter, Shape};
+use crate::expr::{self, ExprError};
 use crate::CadError;
 use std::collections::BTreeMap;
 

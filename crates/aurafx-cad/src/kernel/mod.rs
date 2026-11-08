@@ -92,7 +92,15 @@ impl Evaluated {
         if v.abs() > 1e-12 {
             c = c.map(|x| x / v);
         }
-        crate::MassProperties { volume_mm3: v, area_mm2: self.bodies.iter().map(|b| b.area).sum(), centroid: c, bbox_min: lo, bbox_max: hi, mass_g: v / 1000.0 * density_g_cm3, density_g_cm3 }
+        crate::MassProperties {
+            volume_mm3: v,
+            area_mm2: self.bodies.iter().map(|b| b.area).sum(),
+            centroid: c,
+            bbox_min: lo,
+            bbox_max: hi,
+            mass_g: v / 1000.0 * density_g_cm3,
+            density_g_cm3,
+        }
     }
 }
 

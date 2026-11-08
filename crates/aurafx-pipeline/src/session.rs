@@ -2,8 +2,8 @@
 
 use crate::display::{ColorBy, DisplayProps};
 use anyhow::{anyhow, Result};
-use aurafx_data::{DataSet, DataSetInfo, TimeSeries};
 use aurafx_cad::CadFile;
+use aurafx_data::{DataSet, DataSetInfo, TimeSeries};
 use aurafx_filters::{FilterDef, Params};
 use aurafx_io::Loaded;
 use indexmap::IndexMap;
@@ -942,7 +942,9 @@ impl Session {
 
     /// Files that open as a CAD Model node (meshes such as STL and OBJ keep their readers).
     pub fn opens_as_cad(path: &Path) -> bool {
-        path.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_lowercase().as_str(), "afxcad" | "step" | "stp" | "igs" | "iges" | "3mf" | "sc"))
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| matches!(e.to_lowercase().as_str(), "afxcad" | "step" | "stp" | "igs" | "iges" | "3mf" | "sc"))
     }
 
     /// Open a CAD file as a CAD Model node (the document is the file's solid as a base feature, or

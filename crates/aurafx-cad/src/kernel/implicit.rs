@@ -47,9 +47,18 @@ enum Classifier {
     Single,
     /// An extruded outline: bottom, top, then one side per loop. `rot`/`origin` take the
     /// feature frame to the sketch frame (extrusion along its z).
-    Prism { paths: Vec<Polyline>, rot: DMat3, origin: DVec3 },
+    Prism {
+        paths: Vec<Polyline>,
+        rot: DMat3,
+        origin: DVec3,
+    },
     /// A revolved profile: one face per outline path (radius = x, axial = y).
-    Revolve { paths: Vec<Polyline>, rot: DMat3, origin: DVec3, about_z: bool },
+    Revolve {
+        paths: Vec<Polyline>,
+        rot: DMat3,
+        origin: DVec3,
+        about_z: bool,
+    },
 }
 
 struct FeatureFaces {
@@ -71,14 +80,13 @@ fn round_labels() -> Vec<(String, FaceKind)> {
 impl FeatureFaces {
     fn new(f: &Feature) -> Self {
         let (class, labels): (Classifier, Vec<(String, FaceKind)>) = match &f.shape {
-            Shape::Box { .. } => (
-                Classifier::Axes6,
-                ["x-", "x+", "y-", "y+", "z-", "z+"].iter().map(|s| (s.to_string(), FaceKind::Plane)).collect(),
-            ),
+            Shape::Box { .. } => (Classifier::Axes6, ["x-", "x+", "y-", "y+", "z-", "z+"].iter().map(|s| (s.to_string(), FaceKind::Plane)).collect()),
             Shape::Sphere { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Sphere)]),
             Shape::Torus { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Torus)]),
             Shape::Cylinder { .. } | Shape::Hole { .. } => (Classifier::Round3, round_labels()),
-            Shape::Cone { .. } => (Classifier::Round3, vec![("side".into(), FaceKind::Cone), ("bottom".into(), FaceKind::Plane), ("top".into(), FaceKind::Plane)]),
+            Shape::Cone { .. } => {
+                (Classifier::Round3, vec![("side".into(), FaceKind::Cone), ("bottom".into(), FaceKind::Plane), ("top".into(), FaceKind::Plane)])
+            }
             Shape::Extrude { sketch, .. } => prism(sketch.clone(), DMat3::IDENTITY, DVec3::ZERO),
             Shape::SketchExtrude { sketch, .. } => {
                 let (rot, origin) = sketch.plane.frame(sketch.offset);
@@ -89,7 +97,13 @@ impl FeatureFaces {
                 let (rot, origin) = sketch.plane.frame(sketch.offset);
                 revolve(sketch.entity_paths(), rot, origin, false)
             }
-            Shape::Sweep { .. } | Shape::Loft { .. } | Shape::Thread { .. } | Shape::Body { .. } | Shape::Brep { .. } | Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Freeform)]),
+            Shape::Sweep { .. }
+            | Shape::Loft { .. }
+            | Shape::Thread { .. }
+            | Shape::Body { .. }
+            | Shape::Brep { .. }
+            | Shape::EdgeBlend { .. }
+            | Shape::ShellFaces { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Freeform)]),
         };
         FeatureFaces {
             import: matches!(f.shape, Shape::Brep { .. }),
@@ -275,14 +289,7 @@ impl Labeller {
     }
     /// `(feature index, local face)` of the surface point `p` whose outward normal is `n`.
     pub fn label(&self, p: DVec3, n: DVec3) -> (usize, usize) {
-        let owner = self
-            .ffs
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (i, f.sdf.eval(p).abs()))
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i)
-            .unwrap_or(0);
+        let owner = self.ffs.iter().enumerate().map(|(i, f)| (i, f.sdf.eval(p).abs())).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i).unwrap_or(0);
         let _ = self.h;
         let _ = &self.sdf;
         (owner, self.ffs.get(owner).map(|f| f.face_at(p, n)).unwrap_or(0))
@@ -355,13 +362,7 @@ impl Kernel for ImplicitKernel {
             .par_iter()
             .map(|t| {
                 let c = (pts[t[0] as usize] + pts[t[1] as usize] + pts[t[2] as usize]) / 3.0;
-                let owner = ffs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| (i, f.sdf.eval(c).abs()))
-                    .min_by(|a, b| a.1.total_cmp(&b.1))
-                    .map(|(i, _)| i)
-                    .unwrap_or(0);
+                let owner = ffs.iter().enumerate().map(|(i, f)| (i, f.sdf.eval(c).abs())).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i).unwrap_or(0);
                 let n = gradient(&sdf, c, h * 0.1);
                 let n = if n.length() > 0.0 { n.normalize() } else { DVec3::Z };
                 (owner, ffs.get(owner).map(|f| f.face_at(c, n)).unwrap_or(0))
@@ -451,7 +452,9 @@ impl Kernel for ImplicitKernel {
                 .iter()
                 .filter(|f| !f.suppressed)
                 .filter_map(|f| match &f.shape {
-                    Shape::EdgeBlend { .. } => Some(format!("'{}' is not built by the implicit kernel: the picked edges stay sharp (choose the B-rep kernel)", f.name)),
+                    Shape::EdgeBlend { .. } => {
+                        Some(format!("'{}' is not built by the implicit kernel: the picked edges stay sharp (choose the B-rep kernel)", f.name))
+                    }
                     Shape::ShellFaces { .. } => Some(format!("'{}' hollows the part with an approximate open face on the implicit kernel", f.name)),
                     _ => None,
                 })
@@ -538,9 +541,9 @@ mod tests {
 
     #[test]
     fn faces_keep_their_identity_when_a_parameter_changes() {
-        let mut doc = Document::new("p").param("w", "40").add(
-            Feature::new("Base", BooleanOp::Add, Shape::Box { size: [1.0, 20.0, 10.0], corner_radius: 0.0 }).bind("/shape/size/0", "w"),
-        );
+        let mut doc = Document::new("p")
+            .param("w", "40")
+            .add(Feature::new("Base", BooleanOp::Add, Shape::Box { size: [1.0, 20.0, 10.0], corner_radius: 0.0 }).bind("/shape/size/0", "w"));
         let a = eval(&doc);
         doc.set_parameter("w", "60");
         let b = eval(&doc);

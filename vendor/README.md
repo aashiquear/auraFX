@@ -30,6 +30,10 @@ list is `vendor/prune.txt`):
 - solidcore keeps `crates/` except `goldens`. Removed: `fixtures`, `reports`, `harness`,
   `site`, `docs`, `plan`, `scripts`, `assets`.
 
+`vendor/solidcraft/apps/` is kept as an empty directory (`vendor/keep.txt`): SolidCraft's workspace
+lists `apps/*` as members, and cargo reads a glob over a missing directory literally, which breaks
+`cargo metadata` and `cargo fmt`.
+
 The root `Cargo.toml` excludes `vendor/` from auraFX's workspace and depends on the crates by
 path (`crates/aurafx-cad/Cargo.toml`: `solidcraft-engine`); SolidCraft names solidcore by git
 revision, so a `[patch]` in the root `Cargo.toml` points both solidcore crates at

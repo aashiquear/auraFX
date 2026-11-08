@@ -407,5 +407,4 @@ pub mod mt {
             assert!((v - exact).abs() / exact < 0.03, "{v} vs {exact}");
         }
     }
-
 }

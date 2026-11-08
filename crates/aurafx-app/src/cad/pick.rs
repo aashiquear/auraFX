@@ -29,7 +29,17 @@ pub fn open(state: &mut State, kind: PickKind) {
     let Some(doc) = doc else { return };
     let items: Result<Vec<(String, [f64; 3], String)>, String> = match kind {
         PickKind::Fillet | PickKind::Chamfer => aurafx_cad::kernel::brep::list_edges(&doc)
-            .map(|v| v.into_iter().map(|e| (format!("{}", if e.faces.is_empty() { "edge".to_string() } else { e.faces.join(" × ") }), e.mid, format!("{} mm{}", super::num_text(e.length), if e.straight { "" } else { ", curved" }))).collect())
+            .map(|v| {
+                v.into_iter()
+                    .map(|e| {
+                        (
+                            format!("{}", if e.faces.is_empty() { "edge".to_string() } else { e.faces.join(" × ") }),
+                            e.mid,
+                            format!("{} mm{}", super::num_text(e.length), if e.straight { "" } else { ", curved" }),
+                        )
+                    })
+                    .collect()
+            })
             .map_err(|e| format!("{e}")),
         PickKind::Shell => aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 48, true)
             .map(|ev| ev.faces().filter_map(|(_, f)| ev.face_pick(&f.name).map(|p| (f.name.clone(), p, format!("{} mm²", super::num_text(f.area))))).collect())

@@ -149,6 +149,39 @@ Variables run on every core and give exactly the same result on any number of th
 slice of 4 million cells takes about 80 ms. The thread count can be limited in **Settings ›
 Filter threads** (0 = all cores) or with `AURAFX_THREADS`.
 
+## Surface operations
+
+Eight filters work on surfaces and lines (**Filters › Geometry**, **Data Analysis**):
+
+- **Reverse Sense** turns a surface inside out: every polygon's vertex order is reversed, and by
+  default the sign of its normals arrays too.
+- **Linear Extrusion** sweeps lines into strips of quads along a *Vector* (times a *Scale
+  factor*), and polygons into closed prisms (with their ends capped, optionally).
+- **Rotational Extrusion** sweeps lines (and the boundary of polygons) round an *Axis* through a
+  point by an *Angle*, in *Steps*: a surface of revolution, with *Translation* along the axis for a
+  screw and *Change of radius per turn* for a spiral.
+- **Ribbon** makes a strip of a given *Width* along every polyline, facing a chosen direction.
+- **Subdivide** splits every triangle into four, *Levels* times. **Linear** keeps the shape;
+  **Loop** rounds a coarse mesh toward a smooth surface (the corners pull in).
+- **Decimate** removes a *Reduction* fraction of a surface's triangles by collapsing the edges that
+  change its shape least (quadric error), refusing collapses that fold a triangle over; the open
+  edges stay by default. A sphere at half its triangles keeps its volume within 2 %.
+- **Curvature** gives the *Gaussian* (1/length²) or *Mean* (1/length, positive where the surface is
+  convex) curvature of a triangle surface at its points, as the point array `Gauss_Curvature` or
+  `Mean_Curvature`. On a sphere of radius r they are 1/r² and 1/r.
+- **Delaunay 2D** triangulates points seen from above so that no point lies inside another
+  triangle's circle; an *Alpha* radius drops long thin triangles and leaves holes and concavities.
+
+![A line swept three quarters of a turn round an axis, a coarse sphere made smooth by Loop subdivision and colored by its Gaussian curvature, and a line swept into a sheet](images/surface_ops.png)
+
+```python
+vase = afx.line(point1=(0.6, 0, 0), point2=(0.25, 0, 1.2)).rotational_extrusion(angle=270)
+ball = afx.sphere(theta=6, phi=5).subdivide(scheme="Loop", levels=3).curvature(kind="Gaussian")
+sheet = line.linear_extrusion(vector=(1, 0, 0))
+tin = points.delaunay_2d(alpha=0.5)
+light = sphere_surface.decimate(reduction=0.5)
+```
+
 ## From Python
 
 ```python

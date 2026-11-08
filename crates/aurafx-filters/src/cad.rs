@@ -112,7 +112,10 @@ pub fn cad_model(document: &str, overrides: &str, configuration: &str, resolutio
         return Ok(surface);
     }
     let dist = ev.distance.clone().ok_or_else(|| anyhow!("this kernel has no distance field"))?;
-    let (lo, hi) = (ev.bodies.iter().fold([f64::INFINITY; 3], |a, b| std::array::from_fn(|k| a[k].min(b.bounds.0[k]))), ev.bodies.iter().fold([f64::NEG_INFINITY; 3], |a, b| std::array::from_fn(|k| a[k].max(b.bounds.1[k]))));
+    let (lo, hi) = (
+        ev.bodies.iter().fold([f64::INFINITY; 3], |a, b| std::array::from_fn(|k| a[k].min(b.bounds.0[k]))),
+        ev.bodies.iter().fold([f64::NEG_INFINITY; 3], |a, b| std::array::from_fn(|k| a[k].max(b.bounds.1[k]))),
+    );
     let size = (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max).max(1e-12);
     let h = size / resolution.max(2) as f64;
     let n: [i64; 3] = std::array::from_fn(|k| ((hi[k] - lo[k]) / h).ceil() as i64 + 4);
@@ -176,7 +179,14 @@ mod tests {
     #[test]
     fn the_kernel_is_chosen_and_the_result_says_which_built_it() {
         let kernel = |k: &str| match cad_model("", "", "", 40, OUT_SURFACE, true, k).unwrap() {
-            DataSet::PolyData(p) => p.field_data.get("Kernel").map(|a| match &a.data { ArrayData::String(v) => v[0].clone(), _ => String::new() }).unwrap(),
+            DataSet::PolyData(p) => p
+                .field_data
+                .get("Kernel")
+                .map(|a| match &a.data {
+                    ArrayData::String(v) => v[0].clone(),
+                    _ => String::new(),
+                })
+                .unwrap(),
             _ => panic!(),
         };
         assert_eq!(kernel("Auto"), "brep");
@@ -202,7 +212,17 @@ mod tests {
         let surf = cad_model(&text, "", "", 64, OUT_SURFACE, true, "Auto").unwrap();
         let mesh = overlay_mesh(
             &surf,
-            &OverlayParams { array: String::new(), cell: 0.0, mode: OVERLAY_SMOOTH.into(), void: false, periodic: false, min_cells: 8, smoothing: 8, element: "HEX8".into(), sharp: true },
+            &OverlayParams {
+                array: String::new(),
+                cell: 0.0,
+                mode: OVERLAY_SMOOTH.into(),
+                void: false,
+                periodic: false,
+                min_cells: 8,
+                smoothing: 8,
+                element: "HEX8".into(),
+                sharp: true,
+            },
         )
         .unwrap();
         let q = mesh_quality(&mesh, true).unwrap();
@@ -253,13 +273,28 @@ mod mesh_tests {
     #[test]
     fn the_faces_of_a_cad_part_become_side_sets_of_its_mesh() {
         let mut d = aurafx_cad::Document::new("plate");
-        aurafx_cad::edit::apply_op(&mut d, "sketch_extrude", &serde_json::json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 30}}]}})).unwrap();
+        aurafx_cad::edit::apply_op(
+            &mut d,
+            "sketch_extrude",
+            &serde_json::json!({"name": "Plate", "depth": 10, "sketch": {"plane": "XY", "items": [{"rectangle": {"center": [0, 0], "w": 40, "h": 30}}]}}),
+        )
+        .unwrap();
         aurafx_cad::edit::apply_op(&mut d, "add", &serde_json::json!({"kind": "hole", "name": "Bore", "diameter": 10, "depth": 10, "at": [0, 0, 10]})).unwrap();
         let text = CadFile::new(d).to_json();
         let surf = cad_model(&text, "", "", 64, OUT_SURFACE, true, "Auto").unwrap();
         let mesh = overlay_mesh(
             &surf,
-            &OverlayParams { array: String::new(), cell: 2.0, mode: OVERLAY_SMOOTH.into(), void: false, periodic: false, min_cells: 8, smoothing: 8, element: "HEX8".into(), sharp: true },
+            &OverlayParams {
+                array: String::new(),
+                cell: 2.0,
+                mode: OVERLAY_SMOOTH.into(),
+                void: false,
+                periodic: false,
+                min_cells: 8,
+                smoothing: 8,
+                element: "HEX8".into(),
+                sharp: true,
+            },
         )
         .unwrap();
         let m = aurafx_mesh::hex::HexMesh::from_dataset(&mesh).unwrap();

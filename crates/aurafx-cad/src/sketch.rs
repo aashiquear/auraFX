@@ -13,8 +13,8 @@
 //! splines are chained by shared point indices (or `Coincident` constraints) into closed loops;
 //! circles, closed splines and closed polylines are loops on their own.
 
-use crate::expr::{self, ExprError};
 use crate::document::Placement;
+use crate::expr::{self, ExprError};
 use crate::path::{arc_segments, shapes, Polyline, DEFAULT_TOLERANCE};
 use glam::{DMat3, DQuat, DVec2, DVec3, EulerRot};
 use serde::{Deserialize, Serialize};

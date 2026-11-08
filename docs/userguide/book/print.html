@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-27226d6c.js";
+            window.path_to_searchindex_js = "searchindex-55b62fa8.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -445,6 +445,35 @@ pieces of a parallel server.</p>
 Variables run on every core and give exactly the same result on any number of threads. A
 slice of 4 million cells takes about 80 ms. The thread count can be limited in <strong>Settings ›
 Filter threads</strong> (0 = all cores) or with <code>AURAFX_THREADS</code>.</p>
+<h2 id="surface-operations"><a class="header" href="#surface-operations">Surface operations</a></h2>
+<p>Eight filters work on surfaces and lines (<strong>Filters › Geometry</strong>, <strong>Data Analysis</strong>):</p>
+<ul>
+<li><strong>Reverse Sense</strong> turns a surface inside out: every polygon’s vertex order is reversed, and by
+default the sign of its normals arrays too.</li>
+<li><strong>Linear Extrusion</strong> sweeps lines into strips of quads along a <em>Vector</em> (times a <em>Scale
+factor</em>), and polygons into closed prisms (with their ends capped, optionally).</li>
+<li><strong>Rotational Extrusion</strong> sweeps lines (and the boundary of polygons) round an <em>Axis</em> through a
+point by an <em>Angle</em>, in <em>Steps</em>: a surface of revolution, with <em>Translation</em> along the axis for a
+screw and <em>Change of radius per turn</em> for a spiral.</li>
+<li><strong>Ribbon</strong> makes a strip of a given <em>Width</em> along every polyline, facing a chosen direction.</li>
+<li><strong>Subdivide</strong> splits every triangle into four, <em>Levels</em> times. <strong>Linear</strong> keeps the shape;
+<strong>Loop</strong> rounds a coarse mesh toward a smooth surface (the corners pull in).</li>
+<li><strong>Decimate</strong> removes a <em>Reduction</em> fraction of a surface’s triangles by collapsing the edges that
+change its shape least (quadric error), refusing collapses that fold a triangle over; the open
+edges stay by default. A sphere at half its triangles keeps its volume within 2 %.</li>
+<li><strong>Curvature</strong> gives the <em>Gaussian</em> (1/length²) or <em>Mean</em> (1/length, positive where the surface is
+convex) curvature of a triangle surface at its points, as the point array <code>Gauss_Curvature</code> or
+<code>Mean_Curvature</code>. On a sphere of radius r they are 1/r² and 1/r.</li>
+<li><strong>Delaunay 2D</strong> triangulates points seen from above so that no point lies inside another
+triangle’s circle; an <em>Alpha</em> radius drops long thin triangles and leaves holes and concavities.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/surface_ops.png" alt="A line swept three quarters of a turn round an axis, a coarse sphere made smooth by Loop subdivision and colored by its Gaussian curvature, and a line swept into a sheet"><span class="img-wrapper"><img src="images/surface_ops.png" alt="A line swept three quarters of a turn round an axis, a coarse sphere made smooth by Loop subdivision and colored by its Gaussian curvature, and a line swept into a sheet"></span></label></p>
+<pre><code class="language-python">vase = afx.line(point1=(0.6, 0, 0), point2=(0.25, 0, 1.2)).rotational_extrusion(angle=270)
+ball = afx.sphere(theta=6, phi=5).subdivide(scheme="Loop", levels=3).curvature(kind="Gaussian")
+sheet = line.linear_extrusion(vector=(1, 0, 0))
+tin = points.delaunay_2d(alpha=0.5)
+light = sphere_surface.decimate(reduction=0.5)
+</code></pre>
 <h2 id="from-python"><a class="header" href="#from-python">From Python</a></h2>
 <pre><code class="language-python">afx.filters()                 # every filter with its parameters
 afx.help_filter("clip")       # one filter explained

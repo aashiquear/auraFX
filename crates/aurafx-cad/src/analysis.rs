@@ -125,11 +125,22 @@ pub fn interference_sdf(a: &Sdf, b: &Sdf, resolution: f64) -> f64 {
 
 /// The overlap volume of two *built* parts (either kernel) each at its own placement, by sampling
 /// both distance fields on a grid of cell `resolution` mm over the overlap of their bounds.
-pub fn interference_built(a: &crate::kernel::Evaluated, pa: &crate::document::Placement, b: &crate::kernel::Evaluated, pb: &crate::document::Placement, resolution: f64) -> f64 {
+pub fn interference_built(
+    a: &crate::kernel::Evaluated,
+    pa: &crate::document::Placement,
+    b: &crate::kernel::Evaluated,
+    pb: &crate::document::Placement,
+    resolution: f64,
+) -> f64 {
     use glam::DMat3;
     let (Some(da), Some(db)) = (a.distance.as_ref(), b.distance.as_ref()) else { return 0.0 };
     let place = |pl: &crate::document::Placement| {
-        let r = DMat3::from_quat(glam::DQuat::from_euler(glam::EulerRot::XYZ, pl.rotate_deg[0].to_radians(), pl.rotate_deg[1].to_radians(), pl.rotate_deg[2].to_radians()));
+        let r = DMat3::from_quat(glam::DQuat::from_euler(
+            glam::EulerRot::XYZ,
+            pl.rotate_deg[0].to_radians(),
+            pl.rotate_deg[1].to_radians(),
+            pl.rotate_deg[2].to_radians(),
+        ));
         (r, DVec3::from_array(pl.translate))
     };
     let corners = |e: &crate::kernel::Evaluated, pl: &crate::document::Placement| {

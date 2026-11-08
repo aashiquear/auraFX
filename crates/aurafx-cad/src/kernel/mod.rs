@@ -3,6 +3,7 @@
 //! carried in `vendor/`, arrives with stage C6). Both fill the same [`Evaluated`] contract, so
 //! the meshers, the grain tools and the solver cases consume either.
 
+pub mod assemble;
 pub mod brep;
 pub mod implicit;
 pub mod sdf;
@@ -227,6 +228,9 @@ impl KernelChoice {
 /// Build a part with the chosen kernel. `Auto` tries the B-rep kernel and falls back to the
 /// implicit one with the reason noted in `approximate`.
 pub fn evaluate_with(choice: KernelChoice, doc: &Document, resolution: usize, project: bool) -> Result<Evaluated, CadError> {
+    if !doc.components.is_empty() {
+        return assemble::evaluate_assembly(choice, doc, resolution, project);
+    }
     let implicit = || implicit::ImplicitKernel { resolution, project }.evaluate(doc);
     match choice {
         KernelChoice::Implicit => implicit(),

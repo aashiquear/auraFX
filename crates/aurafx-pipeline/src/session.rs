@@ -402,6 +402,25 @@ impl WorkItem {
     }
 }
 
+/// The assistant panel's state, published by the app every frame so that scripts (and the
+/// checks in `scripts/cad/assistant_check.py`) can wait for an answer and read it.
+#[derive(Debug, Clone, Default)]
+pub struct AssistantStatus {
+    /// An answer is still arriving.
+    pub busy: bool,
+    /// Agent mode is running code and iterating.
+    pub agent: bool,
+    /// How many messages the conversation has.
+    pub messages: usize,
+    /// The last message of the assistant.
+    pub last: String,
+    pub error: Option<String>,
+    /// The last messages of the conversation as (role, text), each cut to 2000 characters.
+    pub history: Vec<(String, String)>,
+    /// The app's frame counter when this was published (it stops moving when the window stops drawing).
+    pub frame: u64,
+}
+
 #[derive(Default)]
 pub struct Session {
     pub nodes: IndexMap<NodeId, Node>,
@@ -441,6 +460,11 @@ pub struct Session {
     pub active_view: u32,
     /// Counts the app's frames (published with `view_ids`).
     pub app_frame: u64,
+    /// The assistant panel's state, published with `view_ids`.
+    pub assistant: AssistantStatus,
+    /// Wakes the window so that it draws a frame (the app sets it): a script's commands to the window
+    /// (app_commands) are carried out in a frame, and an idle window draws none by itself.
+    pub wake_ui: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     pub(crate) undo_stack: Vec<(String, crate::state::Snapshot)>,
     pub(crate) redo_stack: Vec<(String, crate::state::Snapshot)>,
     pub(crate) last_checkpoint: Option<(String, f64)>,

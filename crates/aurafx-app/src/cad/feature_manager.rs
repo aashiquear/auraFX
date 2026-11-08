@@ -165,6 +165,53 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
             },
         );
+        // ---------------------------------------------------------------- components
+        if !doc.components.is_empty() {
+            egui::CollapsingHeader::new(RichText::new(format!("Components ({})", doc.components.len())).strong())
+                .id_salt("fm components")
+                .default_open(true)
+                .show(ui, |ui| {
+                    for c in &doc.components {
+                        let on_it = state.cad.component.as_deref() == Some(c.name.as_str());
+                        ui.horizontal(|ui| {
+                            let mut vis = c.visible;
+                            if ui.checkbox(&mut vis, "").on_hover_text("Show this part (off: left out of the assembly)").changed() {
+                                acts.push(Act::Op("component_visible", json!({"component": c.name, "visible": vis})));
+                            }
+                            let mut text = RichText::new(&c.name);
+                            if !c.visible {
+                                text = text.weak().strikethrough();
+                            }
+                            if ui.selectable_label(on_it, text).on_hover_text(format!("{} ({} features)", c.document.name, c.document.features.len())).clicked()
+                            {
+                                state.cad.component = if on_it { None } else { Some(c.name.clone()) };
+                            }
+                            if ui.small_button("×").on_hover_text("Remove this part from the assembly").clicked() {
+                                acts.push(Act::Op("component_remove", json!({"component": c.name})));
+                            }
+                        });
+                        if on_it {
+                            egui::Grid::new(("fm component", c.id.0)).num_columns(6).spacing([6.0, 2.0]).show(ui, |ui| {
+                                let mut at = c.placement.translate;
+                                let mut rot = c.placement.rotate_deg;
+                                let mut moved = false;
+                                for (label, v) in ["x", "y", "z"].into_iter().zip(at.iter_mut()) {
+                                    ui.label(RichText::new(label).weak().small());
+                                    moved |= ui.add(egui::DragValue::new(v).speed(0.5).suffix(" mm")).changed();
+                                }
+                                ui.end_row();
+                                for (label, v) in ["rx", "ry", "rz"].into_iter().zip(rot.iter_mut()) {
+                                    ui.label(RichText::new(label).weak().small());
+                                    moved |= ui.add(egui::DragValue::new(v).speed(1.0).suffix("°")).changed();
+                                }
+                                if moved {
+                                    acts.push(Act::Op("component_move", json!({"component": c.name, "at": at, "rotate": rot})));
+                                }
+                            });
+                        }
+                    }
+                });
+        }
         // ---------------------------------------------------------------- finish
         if !doc.finish.is_empty() {
             egui::CollapsingHeader::new(RichText::new(format!("Finish ({})", doc.finish.len())).strong()).id_salt("fm finish").default_open(true).show(

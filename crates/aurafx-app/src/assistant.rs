@@ -129,6 +129,7 @@ impl Assistant {
 
     pub fn send(&mut self, text: String, pipeline: String) {
         if text.trim().is_empty() || self.stream.is_some() {
+            tracing::warn!("AI: request dropped ({})", if text.trim().is_empty() { "empty" } else { "an answer is still arriving" });
             return;
         }
         self.error = None;

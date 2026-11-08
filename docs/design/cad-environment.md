@@ -273,6 +273,19 @@ Parameter { name, expr, comment }   Binding { path, expr }   Configuration { nam
 Every feature and sketch entity has a stable `Id` (u64, never reused) so the diff of 4.2 and
 the B-rep mirror can follow them across edits.
 
+Added in the implementation (iteration 81): `Shape::MirrorPlane{origin, normal}` (the part so far
+joined to its reflection about a plane, usually a flat face), `Shape::Draft{angle, faces,
+neutral plane}`, `Modifier::Offset{by}` (moves the copies made so far, the first step of a bolt
+circle on a face), and `Document.components: Vec<ComponentRef{id, name, document, placement,
+visible}>`. A document with components is an *assembly*: `kernel/assemble.rs` builds the
+document's own features (when it has any) and every visible component with the chosen kernel,
+places them, and merges them into one `Evaluated` (a body per part, faces named `Part/Face`,
+ids offset by `component id * 1 000 000`, the union of the distance fields). Components nest
+(a component may itself have components) but `component_op` edits only the component's own part.
+The B-rep kernel builds the rest from SolidCraft commands (`solid.mirror`, `solid.draft`,
+`solid.fillet` for a feature's junction with the part), and the junction blend is left sharp,
+with a note, where the engine's own check refuses it.
+
 ### 5.2 Files
 
 - `.afxcad`: the document as JSON (serde), with a `format` version; pretty-printed; the file the

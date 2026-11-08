@@ -139,6 +139,21 @@ pub enum Shape {
         #[serde(default)]
         faces: Vec<[f64; 3]>,
     },
+    /// Mirrors the part so far about a plane (a flat face is the usual choice: its centroid and
+    /// normal) and joins the reflection to it.
+    MirrorPlane {
+        origin: [f64; 3],
+        normal: [f64; 3],
+    },
+    /// Tapers the picked side faces by an angle about a neutral plane (the plane they stay fixed on),
+    /// pulled along its normal. The B-rep kernel builds it exactly; the implicit kernel leaves the
+    /// faces vertical and says so.
+    Draft {
+        angle_deg: f64,
+        faces: Vec<[f64; 3]>,
+        neutral_origin: [f64; 3],
+        neutral_normal: [f64; 3],
+    },
     /// Another part used as a body (a combine: add / subtract / intersect bodies).
     Body {
         part: Box<Document>,
@@ -280,6 +295,11 @@ pub enum Modifier {
     Scale {
         factor: f64,
     },
+    /// Moves the copies made so far by `by` in the feature's own frame: the first step of a bolt
+    /// circle on a face (offset by the radius, then a circular pattern about the face's normal).
+    Offset {
+        by: [f64; 3],
+    },
 }
 
 impl Modifier {
@@ -316,6 +336,22 @@ pub struct Feature {
     /// Expressions written into numeric fields of this feature (see [`Binding`]).
     #[serde(default)]
     pub bindings: Vec<Binding>,
+}
+
+/// A part placed in an assembly: its own document, kept inside, and where it sits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComponentRef {
+    pub id: Id,
+    pub name: String,
+    pub document: Box<Document>,
+    #[serde(default)]
+    pub placement: Placement,
+    #[serde(default = "yes")]
+    pub visible: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// A named, expression-valued part parameter (e.g. `width = 80mm`).
@@ -408,6 +444,9 @@ pub struct Document {
     /// The next id to hand out (never decreases).
     #[serde(default)]
     pub next_id: u64,
+    /// Parts placed beside this one (an assembly): each keeps its own document.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub components: Vec<ComponentRef>,
 }
 
 impl Document {

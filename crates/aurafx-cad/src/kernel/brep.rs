@@ -35,7 +35,7 @@ fn v3(v: DVec3) -> Value {
 
 impl Build {
     fn new() -> Self {
-        Build { s: Session::default(), sketches: 0, any: false, main: None, tmp: None }
+        Build { s: Session::default(), sketches: 0, any: false, main: None, labeller: None, notes: Vec::new(), owner: 0, tmp: None }
     }
 }
 
@@ -128,6 +128,10 @@ fn placements(f: &Feature) -> Result<(Vec<Pl>, Vec<Modifier>), CadError> {
                     })
                     .collect()
             }
+            Modifier::Offset { by } => {
+                let d = DVec3::from_array(*by);
+                local.into_iter().map(|(o, q)| (o + d, q)).collect()
+            }
             // A mirror of a shape centered on its own origin is the shape itself: nothing to add.
             Modifier::Mirror { .. } => local,
             // Rounding and hollowing act on the feature's own body, before it joins the part.
@@ -171,6 +175,7 @@ fn modifier_name(m: &Modifier) -> &'static str {
         Modifier::GridPattern { .. } => "grid pattern",
         Modifier::CircularPattern { .. } | Modifier::CircularPatternAngle { .. } => "circular pattern",
         Modifier::Mirror { .. } => "mirror",
+        Modifier::Offset { .. } => "offset",
     }
 }
 
@@ -195,6 +200,12 @@ struct Build {
     /// The name of the part's main body, once there is one (imported solids live in a component of
     /// their own, so features that join or cut say which body they mean).
     main: Option<String>,
+    /// Names the faces of the document's features: the junction blend finds its edges with it.
+    labeller: Option<std::sync::Arc<Labeller>>,
+    /// What the exact kernel could not do and left out (reported as `Evaluated::approximate`).
+    notes: Vec<String>,
+    /// The index (among the features that are not suppressed) of the feature being built.
+    owner: usize,
     /// While a feature is built on its own (to round or hollow it before it joins the part): the
     /// name of its temporary body.
     tmp: Option<String>,
@@ -203,6 +214,42 @@ struct Build {
 impl Build {
     fn run(&mut self, id: &str, p: Value) -> Result<Value, CadError> {
         self.s.execute(id, &p).map_err(|e| CadError::Kernel { kernel: "brep", reason: format!("{id}: {e}") })
+    }
+
+    /// Round every edge of a list of edges, leaving out the ones the engine says are smooth (their
+    /// faces meet tangentially, as on a revolved knob, so there is nothing to round). `body` names
+    /// the body to round (None: the one being built).
+    fn round_all(&mut self, id: &str, key: &str, size: f64, mut picks: Vec<Value>, body: Option<&str>) -> Result<(), CadError> {
+        loop {
+            if picks.is_empty() {
+                return Ok(());
+            }
+            let mut p = json!({"edges": picks, key: size, "tangent_chain": false});
+            if let Some(b) = body {
+                p["body"] = json!(b);
+            }
+            match self.run(id, p) {
+                Ok(_) => return Ok(()),
+                Err(CadError::Kernel { reason, .. }) if reason.contains("is smooth") => {
+                    // "the edge at (0.000, 22.000, 8.000) is smooth": drop that edge and go on.
+                    let at: Vec<f64> = reason
+                        .split("the edge at (")
+                        .nth(1)
+                        .and_then(|t| t.split(')').next())
+                        .map(|t| t.split(',').filter_map(|x| x.trim().parse().ok()).collect())
+                        .unwrap_or_default();
+                    let near = |v: &Value| -> f64 {
+                        v.as_array().map(|a| a.iter().zip(&at).map(|(x, y)| (x.as_f64().unwrap_or(0.0) - y).powi(2)).sum()).unwrap_or(f64::INFINITY)
+                    };
+                    let (i, d) = picks.iter().enumerate().map(|(i, v)| (i, near(v))).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+                    if at.len() != 3 || d > 0.05 {
+                        return Err(CadError::Kernel { kernel: "brep", reason });
+                    }
+                    picks.remove(i);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     /// A command that makes a solid: into the temporary body while one is being built alone.
@@ -317,6 +364,22 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             b.run(id, json!({"edges": picks, key: size.abs(), "tangent_chain": false, "body": main}))?;
             return Ok(());
         }
+        Shape::MirrorPlane { origin, normal } => {
+            let Some(main) = b.main_body().filter(|_| b.any) else { return refuse(format!("'{}' mirrors nothing yet", f.name)) };
+            b.run("solid.mirror", json!({"bodies": [main], "plane": {"origin": origin, "normal": normal}, "combine": true}))?;
+            return Ok(());
+        }
+        Shape::Draft { angle_deg, faces, neutral_origin, neutral_normal } => {
+            let Some(main) = b.main_body().filter(|_| b.any) else { return refuse(format!("'{}' drafts nothing yet", f.name)) };
+            if faces.is_empty() {
+                return refuse(format!("'{}' has no faces picked", f.name));
+            }
+            b.run(
+                "solid.draft",
+                json!({"faces": faces, "angle": format!("{angle_deg} deg"), "neutral": {"origin": neutral_origin, "normal": neutral_normal}, "body": main}),
+            )?;
+            return Ok(());
+        }
         Shape::ShellFaces { thickness, faces } => {
             let Some(main) = b.main_body().filter(|_| b.any) else {
                 return refuse(format!("'{}' hollows nothing yet: put it after the feature it modifies", f.name));
@@ -396,7 +459,29 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             a["name"] = json!(name);
             b.solid("solid.extrude", a)?;
         }
-        Shape::Revolve { .. } => return refuse(format!("'{}' is a legacy revolved outline (draw it as a sketch)", f.name)),
+        Shape::Revolve { profile, angle_deg } => {
+            // The outline lies in the XZ half-plane (x is the radius) and turns about the feature's z axis.
+            let frame = Frame { o: pl.t, x: pl.r * DVec3::X, y: pl.r * DVec3::Z };
+            let s = b.draw_sketch(&frame, &SketchShape::Loops(profile))?;
+            b.solid(
+                "solid.revolve",
+                json!({"sketch": s, "axis": "y", "angle": format!("{} deg", angle_deg.clamp(0.1, 360.0)), "operation": op, "name": name}),
+            )?;
+        }
+        Shape::Loft { sections } => {
+            let mut secs: Vec<&crate::document::LoftSection> = sections.iter().filter(|x| !x.profile.is_empty()).collect();
+            secs.sort_by(|a, c| a.z.total_cmp(&c.z));
+            if secs.len() < 2 {
+                return refuse(format!("'{}' is a loft with fewer than two sections", f.name));
+            }
+            let mut names = Vec::new();
+            for sec in secs {
+                let frame = Frame { o: pl.at(DVec3::new(0.0, 0.0, sec.z)), x: pl.r * DVec3::X, y: pl.r * DVec3::Y };
+                let sk = b.draw_sketch(&frame, &SketchShape::Loops(&sec.profile))?;
+                names.push(json!({"sketch": sk}));
+            }
+            b.solid("solid.loft", json!({"sections": names, "operation": op, "name": name}))?;
+        }
         Shape::Brep { format, data, .. } => {
             if b.any {
                 return refuse(format!("'{}' is an imported solid; it must be the first feature", f.name));
@@ -408,9 +493,28 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             b.main = None;
         }
         Shape::Thread { .. } => return refuse(format!("'{}' is a modelled thread", f.name)),
-        Shape::Sweep { .. } | Shape::Loft { .. } => return refuse(format!("'{}' is a sweep or loft, which the B-rep kernel does not map yet", f.name)),
-        Shape::Body { .. } => return refuse(format!("'{}' combines another part", f.name)),
-        Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } => unreachable!("handled before the match"),
+        Shape::Sweep { .. } => return refuse(format!("'{}' is a sweep, which the B-rep kernel does not map yet", f.name)),
+        Shape::Body { part } => {
+            // A part of added solids is the same as its features added (or cut, or intersected) one
+            // by one; one that cuts or rounds inside itself needs a body of its own.
+            let nested = part.resolved()?;
+            let simple = nested.finish.is_empty() && nested.features.iter().filter(|g| !g.suppressed).all(|g| g.op == BooleanOp::Add && g.blend == 0.0);
+            let n = nested.features.iter().filter(|g| !g.suppressed).count();
+            if !simple || (f.op == BooleanOp::Intersect && n > 1) {
+                return refuse(format!("'{}' combines a part that cuts or rounds inside itself", f.name));
+            }
+            for g in nested.features.iter().filter(|g| !g.suppressed) {
+                let mut inner = g.clone();
+                inner.op = f.op;
+                let (pls, mods) = placements(&inner)?;
+                for (k, gp) in pls.into_iter().enumerate() {
+                    let composed = Pl { t: pl.at(gp.t), r: pl.r * gp.r };
+                    emit_feature(b, &inner, composed, &format!("{name} {}{}", g.name, if k == 0 { String::new() } else { format!(" copy {k}") }), &mods)?;
+                }
+            }
+            return Ok(());
+        }
+        Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } | Shape::MirrorPlane { .. } | Shape::Draft { .. } => unreachable!("handled before the match"),
     }
     b.any = true;
     Ok(())
@@ -502,6 +606,66 @@ fn needs_own_body(f: &Feature, body_mods: &[Modifier]) -> bool {
 /// One feature at one placement: built straight into the part, or, when it is rounded or hollowed
 /// first, as a body of its own that is then joined, cut or intersected.
 fn emit_feature(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_mods: &[Modifier]) -> Result<(), CadError> {
+    emit_feature_unblended(b, f, pl, name, body_mods)?;
+    if f.blend > 0.0 && f.op != BooleanOp::Intersect && b.any {
+        blend_junction(b, f)?;
+    }
+    Ok(())
+}
+
+/// Round (or chamfer) the junction a feature made with the part: the edges between its faces and
+/// the faces of other features.
+fn blend_junction(b: &mut Build, f: &Feature) -> Result<(), CadError> {
+    let (Some(labeller), Some(main)) = (b.labeller.clone(), b.main_body()) else { return Ok(()) };
+    let st = b.s.world_state().map_err(|e| CadError::Kernel { kernel: "brep", reason: e.to_string() })?;
+    let mut picks: Vec<Value> = Vec::new();
+    for body in st.bodies.iter().filter(|x| x.name == main) {
+        let m = body.mesh();
+        let owners = face_owners(&m, &labeller);
+        for (i, e) in m.edges.iter().enumerate().filter(|(_, e)| e.len() >= 2) {
+            let faces: Vec<u32> = m.edge_faces.get(i).cloned().unwrap_or_default();
+            let os: Vec<usize> = faces.iter().filter_map(|x| owners.get(x).map(|l| l.0)).collect();
+            if os.len() == 2 && os[0] != os[1] && os.contains(&b.owner) {
+                let poly: Vec<DVec3> = e.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect();
+                picks.push(v3(edge_mid(&poly)));
+            }
+        }
+    }
+    if picks.is_empty() {
+        return Ok(());
+    }
+    let (id, key) = if f.blend_kind == crate::document::BlendKind::Chamfer { ("solid.chamfer", "distance") } else { ("solid.fillet", "radius") };
+    // The engine's own check can refuse a rounding where several faces meet (a standoff inside a shell):
+    // the junction stays sharp and the part says so, instead of the whole part falling back.
+    match b.round_all(id, key, f.blend, picks, Some(&main)) {
+        Ok(()) => Ok(()),
+        Err(CadError::Kernel { reason, .. }) => {
+            let short = reason.lines().next().unwrap_or("").chars().take(120).collect::<String>();
+            b.notes.push(format!("'{}': the junction with the part stays sharp, the exact kernel could not round it ({short})", f.name));
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// The label (feature, face) of every B-rep face of a mesh, by the vote of its triangles' areas.
+fn face_owners(m: &solidcraft_engine::geom::Mesh, labeller: &Labeller) -> BTreeMap<u32, (usize, usize)> {
+    let pts: Vec<DVec3> = m.positions.iter().map(|p| DVec3::new(p.x, p.y, p.z)).collect();
+    let mut votes: BTreeMap<u32, BTreeMap<(usize, usize), f64>> = BTreeMap::new();
+    for (ti, t) in m.triangles.iter().enumerate() {
+        let (a, c, d) = (pts[t[0] as usize], pts[t[1] as usize], pts[t[2] as usize]);
+        let n = (c - a).cross(d - a);
+        let area = 0.5 * n.length();
+        if area <= 0.0 {
+            continue;
+        }
+        let face = m.tri_face.get(ti).copied().unwrap_or(0);
+        *votes.entry(face).or_default().entry(labeller.label_in((a + c + d) / 3.0, n.normalize(), face)).or_insert(0.0) += area;
+    }
+    votes.into_iter().filter_map(|(f, v)| v.into_iter().max_by(|a, b| a.1.total_cmp(&b.1)).map(|(k, _)| (f, k))).collect()
+}
+
+fn emit_feature_unblended(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_mods: &[Modifier]) -> Result<(), CadError> {
     if !needs_own_body(f, body_mods) {
         return emit(b, f, pl, name);
     }
@@ -518,7 +682,7 @@ fn emit_feature(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_mods: &[Mod
     if let Shape::Box { corner_radius, .. } = &f.shape {
         if *corner_radius > 0.0 {
             let picks = edge_picks(b, TMP, &|_| true)?;
-            b.run("solid.fillet", json!({"edges": picks, "radius": corner_radius, "tangent_chain": false, "body": TMP}))?;
+            b.round_all("solid.fillet", "radius", *corner_radius, picks, Some(TMP))?;
         }
     }
     if let Shape::SketchExtrude { sketch, depth, end, reverse, top_edge, bottom_edge, .. } = &f.shape {
@@ -540,7 +704,10 @@ fn emit_feature(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_mods: &[Mod
                 continue;
             }
             match edge {
-                EdgeTreatment::Fillet { radius } => b.run("solid.fillet", json!({"edges": picks, "radius": radius, "tangent_chain": false, "body": TMP}))?,
+                EdgeTreatment::Fillet { radius } => {
+                    b.round_all("solid.fillet", "radius", *radius, picks, Some(TMP))?;
+                    Value::Null
+                }
                 EdgeTreatment::Chamfer { distance } => {
                     b.run("solid.chamfer", json!({"edges": picks, "distance": distance, "tangent_chain": false, "body": TMP}))?
                 }
@@ -552,7 +719,7 @@ fn emit_feature(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_mods: &[Mod
         match m {
             Modifier::Fillet { radius } => {
                 let picks = edge_picks(b, TMP, &|_| true)?;
-                b.run("solid.fillet", json!({"edges": picks, "radius": radius, "tangent_chain": false, "body": TMP}))?;
+                b.round_all("solid.fillet", "radius", *radius, picks, Some(TMP))?;
             }
             Modifier::Shell { thickness } => {
                 b.run("solid.shell", json!({"faces": [], "thickness": thickness.abs(), "direction": "inside", "body": TMP}))?;
@@ -599,7 +766,7 @@ fn finish(b: &mut Build, doc: &Document) -> Result<(), CadError> {
                 if picks.is_empty() {
                     return refuse("the part has no edges to round");
                 }
-                b.run("solid.fillet", json!({"edges": picks, "radius": radius, "tangent_chain": false}))?;
+                b.round_all("solid.fillet", "radius", *radius, picks, None)?;
             }
             Modifier::Shell { thickness } => {
                 b.run("solid.shell", json!({"faces": [], "thickness": thickness.abs(), "direction": "inside"}))?;
@@ -670,11 +837,13 @@ impl Kernel for BrepKernel {
 fn build_part(document: &Document) -> Result<(Build, Document), CadError> {
     let doc = document.resolved()?;
     let mut b = Build::new();
+    b.labeller = Some(std::sync::Arc::new(Labeller::new(&doc)));
     let names = unique_names(&doc);
-    for (idx, f) in doc.features.iter().enumerate().filter(|(_, f)| !f.suppressed) {
-        if f.blend > 0.0 {
-            return refuse(format!("'{}' blends with the body (round the junction with a fillet on the part)", f.name));
+    for (owner, (idx, f)) in doc.features.iter().enumerate().filter(|(_, f)| !f.suppressed).enumerate() {
+        if f.blend > 0.0 && f.op == BooleanOp::Intersect {
+            return refuse(format!("'{}' blends an intersection with the body (round its edges with a picked fillet)", f.name));
         }
+        b.owner = owner;
         let (pls, body_mods) = placements(f)?;
         for (k, pl) in pls.into_iter().enumerate() {
             emit_feature(&mut b, f, pl, &format!("{}{}", names[idx], if k == 0 { String::new() } else { format!(" copy {k}") }), &body_mods)?;
@@ -696,6 +865,9 @@ pub struct EdgeInfo {
     pub length: f64,
     pub faces: Vec<String>,
     pub straight: bool,
+    /// The edge as a polyline (two points for a straight one), for drawing it and for picking it
+    /// by the click nearest to it.
+    pub polyline: Vec<[f64; 3]>,
 }
 
 /// The edges of the part the B-rep kernel builds, with the names of their faces.
@@ -730,7 +902,14 @@ pub fn list_edges(document: &Document) -> Result<Vec<EdgeInfo>, CadError> {
             faces.sort();
             faces.dedup();
             let straight = poly.len() == 2 || (edge_mid(&poly) - (poly[0] + poly[poly.len() - 1]) * 0.5).length() < 1e-6 * length.max(1.0);
-            out.push(EdgeInfo { index: out.len(), mid: edge_mid(&poly).to_array(), length, faces, straight });
+            out.push(EdgeInfo {
+                index: out.len(),
+                mid: edge_mid(&poly).to_array(),
+                length,
+                faces,
+                straight,
+                polyline: poly.iter().map(|p| p.to_array()).collect(),
+            });
         }
     }
     Ok(out)
@@ -761,6 +940,7 @@ pub fn export_exact(document: &Document, path: &std::path::Path) -> Result<u64, 
     let r = match ext.as_str() {
         "sc" => b.run("file.save_as", json!({"path": path.to_string_lossy()}))?,
         "step" | "stp" => b.run("file.export", json!({"path": path.to_string_lossy(), "format": "step"}))?,
+        "igs" | "iges" => b.run("file.export", json!({"path": path.to_string_lossy(), "format": "iges"}))?,
         "3mf" => b.run("file.export", json!({"path": path.to_string_lossy(), "format": "3mf"}))?,
         "stl" | "obj" => b.run("file.export", json!({"path": path.to_string_lossy(), "format": ext}))?,
         other => return refuse(format!("writing '.{other}' files")),
@@ -886,7 +1066,7 @@ fn extract(b: &mut Build, doc: &Document) -> Result<Evaluated, CadError> {
         let f: DistanceFn = std::sync::Arc::new(move |p| m.distance(p));
         f
     });
-    Ok(Evaluated { bodies, surface, distance, kernel: "brep", approximate: Vec::new() })
+    Ok(Evaluated { bodies, surface, distance, kernel: "brep", approximate: std::mem::take(&mut b.notes) })
 }
 
 #[cfg(test)]
@@ -1003,18 +1183,19 @@ mod tests {
     fn the_templates_give_the_same_volumes_on_both_kernels_where_the_exact_one_builds_them() {
         let mut built = 0;
         for (name, doc) in crate::templates::templates() {
-            let imp = ImplicitKernel::new(96).evaluate(&doc).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let imp = ImplicitKernel::new(128).evaluate(&doc).unwrap_or_else(|e| panic!("{name}: {e}"));
             match BrepKernel.evaluate(&doc) {
                 Ok(b) => {
                     built += 1;
-                    let tol = 0.02;
+                    // Within 1 %, or 3 % where the implicit kernel says it approximates (the enclosure's open rim).
+                    let tol = if imp.approximate.is_empty() { 0.01 } else { 0.03 };
                     assert!(close(b.volume(), imp.volume(), tol), "{name}: brep {} vs implicit {}", b.volume(), imp.volume());
                     eprintln!("template {name}: both kernels, volume {:.1}", b.volume());
                 }
                 Err(e) => eprintln!("template {name}: refused ({e})"),
             }
         }
-        assert!(built >= 1, "at least one template builds exactly");
+        assert!(built >= 4, "the flange, the knob, the bracket and the enclosure build exactly");
     }
 
     #[test]
@@ -1045,6 +1226,146 @@ mod tests {
         let imp = ImplicitKernel::new(64).evaluate(&d).unwrap();
         assert!(imp.approximate.iter().any(|a| a.contains("stay sharp")), "{:?}", imp.approximate);
         assert!((imp.volume() - before).abs() / before < 0.01, "the edges stay sharp: {}", imp.volume());
+    }
+
+    #[test]
+    fn a_mirror_about_a_face_doubles_the_part_on_both_kernels() {
+        let mut d = Document::new("half");
+        apply_op(&mut d, "add", &json!({"kind": "box", "name": "Half", "size": [20, 20, 10], "at": [10, 0, 0]})).unwrap();
+        let ev = eval(&d);
+        let face = ev.face_pick("Half x-").unwrap();
+        assert!(face[0].abs() < 1e-6, "{face:?}");
+        let half = ev.volume();
+        apply_op(&mut d, "mirror_plane", &json!({"origin": face, "normal": [1, 0, 0]})).unwrap();
+        let whole = eval(&d);
+        assert_eq!(whole.kernel, "brep");
+        assert!((whole.volume() - 2.0 * half).abs() < 1e-3 * half, "{} vs {}", whole.volume(), 2.0 * half);
+        let imp = ImplicitKernel::new(96).evaluate(&d).unwrap();
+        assert!((imp.volume() - 2.0 * half).abs() / half < 0.02, "implicit {} vs {}", imp.volume(), 2.0 * half);
+        // The mirrored part reaches x = -20.
+        let far = whole.face_pick("Half x+").unwrap();
+        assert!((far[0] - 20.0).abs() < 1e-3, "{far:?}");
+        assert!((whole.surface.bounds().min[0] + 20.0).abs() < 0.05, "the mirrored part reaches x = -20: {:?}", whole.surface.bounds());
+    }
+
+    #[test]
+    fn a_draft_tapers_a_side_face_by_the_angle_and_the_implicit_kernel_says_it_does_not() {
+        let mut d = Document::new("block");
+        apply_op(&mut d, "add", &json!({"kind": "box", "name": "Block", "size": [20, 20, 20], "at": [0, 0, 10]})).unwrap();
+        let ev = eval(&d);
+        let before = ev.volume();
+        let side = ev.face_pick("Block x+").unwrap();
+        apply_op(&mut d, "draft", &json!({"angle": 5, "faces": [side], "neutral_origin": [0, 0, 0], "neutral_normal": [0, 0, 1]})).unwrap();
+        let after = eval(&d);
+        assert_eq!(after.kernel, "brep");
+        // One face leans by 5 degrees over 20 mm: a wedge of 0.5 * 20 * 20 * tan(5 deg) * 20 mm.
+        let wedge = 0.5 * 20.0 * 20.0 * 5.0_f64.to_radians().tan() * 20.0;
+        assert!(((before - after.volume()).abs() - wedge).abs() < 0.02 * wedge, "{before} -> {} (a wedge of {wedge})", after.volume());
+        let imp = ImplicitKernel::new(48).evaluate(&d).unwrap();
+        assert!(imp.approximate.iter().any(|a| a.contains("stay vertical")), "{:?}", imp.approximate);
+    }
+
+    #[test]
+    fn a_blend_on_an_added_feature_rounds_its_junction_with_the_part() {
+        let mut d = Document::new("boss");
+        apply_op(&mut d, "add", &json!({"kind": "box", "name": "Base", "size": [30, 30, 6], "at": [0, 0, 3]})).unwrap();
+        apply_op(&mut d, "add", &json!({"kind": "cylinder", "name": "Boss", "radius": 6, "height": 14, "at": [0, 0, 6]})).unwrap();
+        let sharp = eval(&d).volume();
+        let mut r = d.clone();
+        let i = r.features.iter().position(|f| f.name == "Boss").unwrap();
+        r.features[i].blend = 2.0;
+        let rounded = eval(&r);
+        assert_eq!(rounded.kernel, "brep");
+        // A concave round of radius 2 adds (4 - pi) mm2 of section at a mean radius of about 6.45 mm.
+        let added = (4.0 - PI) * 2.0 * PI * 6.447;
+        assert!(((rounded.volume() - sharp) - added).abs() < 4.0, "{sharp} -> {} (expected +{added})", rounded.volume());
+        // An added feature that touches nothing blends nothing, and a blended cut is refused with a reason.
+        let mut c = d.clone();
+        apply_op(&mut c, "add", &json!({"kind": "hole", "name": "Bore", "radius": 2, "depth": 30, "at": [0, 0, 20]})).unwrap();
+        let j = c.features.iter().position(|f| f.name == "Bore").unwrap();
+        c.features[j].blend = 1.0;
+        assert!(BrepKernel.evaluate(&c).is_ok() || BrepKernel.evaluate(&c).unwrap_err().to_string().contains("Bore"));
+    }
+
+    #[test]
+    fn patterns_on_a_face_follow_the_face_on_both_kernels() {
+        let plate = || {
+            let mut d = Document::new("plate");
+            apply_op(&mut d, "add", &json!({"kind": "box", "name": "Slab", "size": [60, 60, 10], "at": [0, 0, 5]})).unwrap();
+            d
+        };
+        let whole = 60.0 * 60.0 * 10.0;
+        // A bolt circle on the top face: four holes of 6 mm through 10 mm.
+        let mut d = plate();
+        apply_op(&mut d, "face_pattern", &json!({"face": "Slab z+", "layout": "circular", "count": 4, "radius": 15, "diameter": 6, "depth": 10})).unwrap();
+        let cut = 4.0 * PI * 9.0 * 10.0;
+        let ex = eval(&d);
+        assert_eq!(ex.kernel, "brep");
+        assert!(((whole - ex.volume()) - cut).abs() < 0.01 * cut, "exact: {} (lost {})", ex.volume(), whole - ex.volume());
+        let im = ImplicitKernel::new(128).evaluate(&d).unwrap();
+        assert!(((whole - im.volume()) - cut).abs() < 0.08 * cut, "implicit: {} (lost {})", im.volume(), whole - im.volume());
+        // The copies of a hole share its face names: the wall of all four is one face of 4 x pi x d x depth.
+        let wall = ex.face_by_name("Hole side").expect("the holes' wall");
+        assert!((wall.area - 4.0 * PI * 6.0 * 10.0).abs() < 0.02 * wall.area, "{}", wall.area);
+        // They sit on a circle: the point nearest to (15, 0, 10) lies in a hole (outside the solid there).
+        let dist = ex.distance.as_ref().unwrap();
+        assert!(dist([15.0, 0.0, 5.0]) > 2.5 && dist([0.0, 15.0, 5.0]) > 2.5 && dist([0.0, 0.0, 5.0]) < -4.0, "bolt circle of radius 15");
+        // Three holes on a side face go into the part, along its normal: a grid of one by three
+        // lies along the face's own y axis, which is the world y axis for the +x face.
+        let mut r = plate();
+        apply_op(
+            &mut r,
+            "face_pattern",
+            &json!({"face": "Slab x+", "layout": "grid", "counts": [1, 3], "spacing": [15, 15], "offset": [0, -15], "diameter": 4, "depth": 8}),
+        )
+        .unwrap();
+        let ex = eval(&r);
+        let cut = 3.0 * PI * 4.0 * 8.0;
+        assert!(((whole - ex.volume()) - cut).abs() < 0.02 * cut, "{} (lost {})", ex.volume(), whole - ex.volume());
+        let dist = ex.distance.as_ref().unwrap();
+        assert!(dist([28.0, -15.0, 5.0]) > 1.0 && dist([28.0, 15.0, 5.0]) > 1.0 && dist([28.0, 7.0, 5.0]) < -1.0, "holes at y = -15, 0, 15 on the +x face");
+        // A row on the top face runs along x.
+        let mut l = plate();
+        apply_op(
+            &mut l,
+            "face_pattern",
+            &json!({"face": "Slab z+", "layout": "linear", "count": 3, "spacing": 15, "offset": [-15, 0], "diameter": 4, "depth": 6}),
+        )
+        .unwrap();
+        assert!(((whole - eval(&l).volume()) - 3.0 * PI * 4.0 * 6.0).abs() < 4.0, "{}", eval(&l).volume());
+        // A grid, and a face that is not flat is refused.
+        let mut g = plate();
+        apply_op(
+            &mut g,
+            "face_pattern",
+            &json!({"face": "Slab z+", "layout": "grid", "counts": [3, 2], "spacing": [15, 20], "offset": [-15, -10], "diameter": 4, "depth": 5}),
+        )
+        .unwrap();
+        assert!(((whole - eval(&g).volume()) - 6.0 * PI * 4.0 * 5.0).abs() < 4.0, "{}", eval(&g).volume());
+        let mut c = Document::new("round");
+        apply_op(&mut c, "add", &json!({"kind": "cylinder", "name": "Pin", "radius": 10, "height": 20})).unwrap();
+        assert!(apply_op(&mut c, "face_pattern", &json!({"face": "Pin side"})).unwrap_err().to_string().contains("flat"));
+    }
+
+    #[test]
+    fn combining_another_part_adds_cuts_or_intersects_on_both_kernels() {
+        let slab = |x: f64| {
+            let mut d = Document::new("Slab");
+            apply_op(&mut d, "add", &json!({"kind": "box", "name": "S", "size": [20, 20, 20], "at": [x, 0, 0]})).unwrap();
+            d
+        };
+        let tool = serde_json::to_value(slab(0.0)).unwrap();
+        let whole = 8000.0;
+        for (op, at, want) in [("add", 10.0, 2.0 * whole - 10.0 * 400.0), ("subtract", 10.0, whole - 10.0 * 400.0), ("intersect", 10.0, 10.0 * 400.0)] {
+            let mut d = slab(0.0);
+            apply_op(&mut d, "combine", &json!({"document": tool, "op": op, "at": [at, 0, 0]})).unwrap();
+            let ex = eval(&d);
+            assert_eq!(ex.kernel, "brep", "{op}");
+            assert!((ex.volume() - want).abs() < 0.005 * want, "{op}: {} vs {want}", ex.volume());
+            let im = ImplicitKernel::new(96).evaluate(&d).unwrap();
+            assert!((im.volume() - want).abs() < 0.04 * want, "{op}: implicit {} vs {want}", im.volume());
+        }
+        assert!(apply_op(&mut slab(0.0), "combine", &json!({"op": "add"})).unwrap_err().to_string().contains("no solid"));
     }
 
     #[test]

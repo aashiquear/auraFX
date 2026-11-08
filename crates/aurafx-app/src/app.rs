@@ -382,6 +382,10 @@ impl AuraApp {
         };
         // Scripts see that an app with a 3D view is running before the first frame.
         state.session.lock().view_ids = vec![0];
+        {
+            let ctx = cc.egui_ctx.clone();
+            state.session.lock().wake_ui = Some(std::sync::Arc::new(move || ctx.request_repaint()));
+        }
         // Plugins first, so startup scripts and restored sessions can use their filters.
         state.sync_plugins(false);
         if let Some(p) = script {
@@ -1386,7 +1390,7 @@ impl State {
                         ("CAD: Esc", "Leave the CAD environment (asks), or end a sketch chain"),
                         ("CAD: Ctrl+Z / Ctrl+Y", "Undo / redo one CAD edit"),
                         ("CAD: Delete", "Delete the selected feature (or the selected sketch shapes)"),
-                        ("CAD: Alt+1 … Alt+5", "Ribbon tab: Sketch, Features, Modify, Inspect, Files"),
+                        ("CAD: Alt+1 … Alt+6", "Ribbon tab: Sketch, Features, Modify, Inspect, Assemble, Files"),
                         ("CAD: F2", "Rename the selected feature"),
                     ] {
                         ui.label(RichText::new(k).monospace());
@@ -1724,15 +1728,29 @@ impl eframe::App for AuraApp {
                         crate::cad::apply(&mut self.state, arg == "keep");
                     }
                 }
-                // "cad_pick fillet|chamfer|shell": open the edge or face picker; "cad_tab <name>": a ribbon tab.
+                // "cad_pick fillet|chamfer|shell|draft|mirror|pattern": open the edge or face picker; "cad_tab <name>": a ribbon tab.
                 "cad_pick" => {
                     if crate::cad::editing(&self.state) {
                         let kind = match arg.trim() {
                             "chamfer" => crate::cad::PickKind::Chamfer,
                             "shell" => crate::cad::PickKind::Shell,
+                            "draft" => crate::cad::PickKind::Draft,
+                            "mirror" => crate::cad::PickKind::MirrorFace,
+                            "pattern" => crate::cad::PickKind::PatternFace,
                             _ => crate::cad::PickKind::Fillet,
                         };
                         crate::cad::open_picker(&mut self.state, kind);
+                    }
+                }
+                // "cad_component <name>": select a component in the feature tree; "cad_fit": run Check fit.
+                "cad_component" => {
+                    if crate::cad::editing(&self.state) {
+                        self.state.cad.component = Some(arg.trim().to_string());
+                    }
+                }
+                "cad_fit" => {
+                    if crate::cad::editing(&self.state) {
+                        crate::cad::check_fit(&mut self.state);
                     }
                 }
                 "cad_tab" => {
@@ -1772,6 +1790,7 @@ impl eframe::App for AuraApp {
                     }
                 }
                 "ask" | "ask-agent" => {
+                    tracing::info!("AI: {verb} from a script: {:.60}", arg);
                     let desc = self.state.session.lock().describe();
                     if verb == "ask-agent" {
                         self.state.settings.ai_agent_mode = true;
@@ -1841,6 +1860,23 @@ impl eframe::App for AuraApp {
             s.view_ids = ids;
             s.active_view = self.state.active_view;
             s.app_frame += 1;
+            let a = &self.state.assistant;
+            s.assistant = aurafx_pipeline::AssistantStatus {
+                busy: a.busy(),
+                agent: a.agent_active,
+                messages: a.messages.len(),
+                last: a.messages.iter().rev().find(|m| m.role == aurafx_ai::Role::Assistant).map(|m| m.content.clone()).unwrap_or_default(),
+                error: a.error.clone(),
+                frame: s.app_frame,
+                history: a
+                    .messages
+                    .iter()
+                    .rev()
+                    .take(12)
+                    .rev()
+                    .map(|m| (format!("{:?}", m.role).to_lowercase(), m.content.chars().take(2000).collect::<String>()))
+                    .collect(),
+            };
         }
         let st = &mut self.state;
         st.animation_tick(ctx);

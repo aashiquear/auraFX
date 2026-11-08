@@ -19,6 +19,11 @@ cfg="$HOME/.config/aurafx/settings.toml"; ron="$HOME/.local/share/aurafx/app.ron
 [ -f "$cfg" ] && cp "$cfg" "$tmp/bak/settings.toml"; [ -f "$ron" ] && cp "$ron" "$tmp/bak/app.ron"
 restore() { [ -f "$tmp/bak/settings.toml" ] && cp "$tmp/bak/settings.toml" "$cfg"; [ -f "$tmp/bak/app.ron" ] && cp "$tmp/bak/app.ron" "$ron"; return 0; }
 trap 'pkill -x aurafx 2>/dev/null; restore; rm -rf "$tmp"' EXIT
+# The guide's pictures use the light theme whatever the user's own setting is (restored on exit).
+# AFX_SHOT_THEME=dark takes the dark ones.
+if [ -f "$cfg" ] && [ "${AFX_SHOT_THEME:-light}" = light ]; then
+  sed -i 's/^theme = .*/theme = "Light"/; s/^dark_theme = .*/dark_theme = false/' "$cfg"
+fi
 names=("$@")
 [ ${#names[@]} -eq 0 ] && names=($(ls "$root/scripts/userguide/shots/"*.py | xargs -n1 basename | sed 's/\.py$//'))
 for name in "${names[@]}"; do

@@ -1008,9 +1008,16 @@ fn over_time(py: Python<'_>, node: PyRef<PyNode>, array: String, stat: &str, plo
 }
 
 fn app_command(cmd: String) {
-    let mut s = session().lock();
-    s.app_commands.push(cmd);
-    s.revision += 1;
+    let wake = {
+        let mut s = session().lock();
+        s.app_commands.push(cmd);
+        s.revision += 1;
+        s.wake_ui.clone()
+    };
+    // An idle window draws no frames: wake it so that it carries the command out.
+    if let Some(w) = wake {
+        w();
+    }
 }
 
 /// Mean/min/max/stddev of every array over all time steps, as a new node.
@@ -1112,6 +1119,23 @@ fn simulation_template(name: String) {
 #[pyo3(signature = (text, agent=false))]
 fn ask(text: String, agent: bool) {
     app_command(format!("ask{} {text}", if agent { "-agent" } else { "" }));
+}
+
+/// The assistant panel's state: busy (an answer is arriving), agent (agent mode is iterating), the
+/// number of messages, the last answer, the last error and the last messages as (role, text). Empty
+/// values without the app.
+#[pyfunction]
+fn assistant_status(py: Python<'_>) -> PyResult<Py<PyDict>> {
+    let a = session().lock().assistant.clone();
+    let d = PyDict::new(py);
+    d.set_item("busy", a.busy)?;
+    d.set_item("agent", a.agent)?;
+    d.set_item("messages", a.messages)?;
+    d.set_item("last", a.last)?;
+    d.set_item("error", a.error)?;
+    d.set_item("history", a.history)?;
+    d.set_item("frame", a.frame)?;
+    Ok(d.into())
 }
 
 /// Add a 3D view next to the active one: "right" (side by side) or "down" (above/below).
@@ -1525,6 +1549,7 @@ fn _cad_info(node: PyRef<PyNode>) -> PyResult<String> {
         "parameters": params,
         "features": doc.feature_list(),
         "finish": doc.finish.len(),
+        "components": doc.components.iter().map(|c| serde_json::json!({ "name": c.name, "id": c.id.0, "at": c.placement.translate, "rotate": c.placement.rotate_deg, "visible": c.visible, "part": c.document.name, "features": c.document.features.len() })).collect::<Vec<_>>(),
         "configurations": doc.configurations.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
         "active_configuration": doc.active_configuration,
         "overrides": s.cad_overrides(node.id),
@@ -1687,6 +1712,15 @@ fn _cad_interference(node: PyRef<PyNode>, other: PyRef<PyNode>, at: (f64, f64, f
     let id = aurafx_cad::Placement::default();
     let pb = aurafx_cad::Placement { translate: [at.0, at.1, at.2], rotate_deg: [rotate.0, rotate.1, rotate.2] };
     Ok(aurafx_cad::interference_built(&ea, &id, &eb, &pb, resolution))
+}
+
+/// The pairs of parts of an assembly that overlap, with the overlap volume in mm3.
+#[pyfunction]
+#[pyo3(signature = (node, resolution=0.5))]
+fn _cad_component_interference(node: PyRef<PyNode>, resolution: f64) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let r = aurafx_cad::kernel::assemble::component_interference(aurafx_cad::KernelChoice::Auto, &doc, resolution).map_err(cad_err)?;
+    Ok(serde_json::json!(r.iter().map(|(a, b, v)| serde_json::json!({ "a": a, "b": b, "volume": v })).collect::<Vec<_>>()).to_string())
 }
 
 /// Send a command to the app's window (the Apply button's dialog).
@@ -1948,6 +1982,52 @@ class _CadApi:
     def interference(self, other, at=(0, 0, 0), rotate=(0, 0, 0), resolution=0.5):
         """The overlap volume with another CAD Model node placed at `at` (and rotated by `rotate` degrees)."""
         return _cad_interference(self._node, other._node if hasattr(other, "_node") else other, tuple(at), tuple(rotate), resolution)
+    # more edge, face and body operations
+    def mirror_about(self, origin, normal, name=None):
+        """Mirror the part so far about a plane, e.g. a flat face: origin is a point on it (or a face name
+        from faces()), normal its direction. The reflection is joined to the part."""
+        if isinstance(origin, str): origin = _json.loads(_cad_face_points(self._node, [origin]))[0]
+        return self.edit("mirror_plane", origin=list(origin), normal=list(normal), **({"name": name} if name else {}))
+    def draft(self, faces, angle=3, neutral_origin=(0, 0, 0), neutral_normal=(0, 0, 1), name=None):
+        """Taper side faces (names from faces(), or points) by `angle` degrees about a neutral plane they
+        stay fixed on. The exact kernel builds it; the implicit one leaves the faces vertical and says so."""
+        names = [f for f in faces if isinstance(f, str)]
+        got = iter(_json.loads(_cad_face_points(self._node, names))) if names else iter(())
+        pts = [next(got) if isinstance(f, str) else list(f) for f in faces]
+        return self.edit("draft", faces=pts, angle=angle, neutral_origin=list(neutral_origin), neutral_normal=list(neutral_normal), **({"name": name} if name else {}))
+    # assemblies: parts placed beside the part
+    def component_add(self, name=None, template=None, file=None, document=None, at=(0, 0, 0), rotate=(0, 0, 0)):
+        """Place another part: a template ('flange'), a CAD file (.afxcad, .step, .igs, .3mf, .sc), a document
+        (a dict) or a blank part to model in with component_op(). at / rotate (degrees) place it."""
+        a = {"at": list(at), "rotate": list(rotate)}
+        if name: a["name"] = name
+        if template: a["template"] = template
+        if file: a["path"] = str(file)
+        if document: a["document"] = document
+        return self.edit("component_add", **a)
+    def component_move(self, component, at=None, rotate=None, by=None):
+        """Place a component at a position (and rotation in degrees), or move it by an offset."""
+        a = {"component": component}
+        if at is not None: a["at"] = list(at)
+        if rotate is not None: a["rotate"] = list(rotate)
+        if by is not None: a["by"] = list(by)
+        return self.edit("component_move", **a)
+    def component_remove(self, component):
+        return self.edit("component_remove", component=component)
+    def component_visible(self, component, visible=True):
+        return self.edit("component_visible", component=component, visible=visible)
+    def component_rename(self, component, to):
+        return self.edit("component_rename", component=component, to=to)
+    def component_op(self, component, op, **args):
+        """Edit a component's own part with any operation of this API, e.g.
+        component_op('Plate', 'add', kind='box', size=[40, 40, 5])."""
+        return self.edit("component_op", {"component": component, "inner_op": op, "args": args})
+    def components(self):
+        """The placed parts: name, position, rotation, visibility."""
+        return self.info().get("components", [])
+    def component_interference(self, resolution=0.5):
+        """The pairs of parts that overlap, with the overlap volume in mm3."""
+        return _json.loads(_cad_component_interference(self._node, resolution))
     # the timeline
     def suppress(self, feature, suppressed=True):
         return self.edit("suppress", feature=feature, suppressed=suppressed)
@@ -1998,8 +2078,14 @@ class _CadApi:
         """Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window."""
         _cad_app_command("cad_tab " + name)
     def open_picker(self, kind="fillet"):
-        """Open the edge or face picker (fillet, chamfer or shell) in the window."""
+        """Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror or pattern."""
         _cad_app_command("cad_pick " + kind)
+    def select_component(self, name):
+        """Select a component in the feature tree (it shows its position and turn). In the window only."""
+        _cad_app_command("cad_component " + name)
+    def check_fit(self):
+        """Run the Assemble tab's Check fit and show the overlaps. In the window only."""
+        _cad_app_command("cad_fit")
     def sketch_new(self, plane="XY", offset=0, items=None):
         """Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready
         shapes (the items of cad.sketch()). Only useful from a script running in the app."""
@@ -2503,7 +2589,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_cad_edges, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_face_points, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_measure, m)?)?;
+    m.add_function(wrap_pyfunction!(assistant_status, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_interference, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_component_interference, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_import, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_discard, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_state, m)?)?;

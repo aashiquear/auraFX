@@ -395,13 +395,26 @@ pub fn evaluate_document(mut doc: Document, overrides: &[(String, String)], reso
         }
     }
     let ev = aurafx_filters::cad::evaluate(&doc, resolution, true).map_err(|e| format!("{e:#}"))?;
-    let body = ev.bodies.first().ok_or_else(|| "the part has no body".to_string())?;
+    if ev.bodies.is_empty() {
+        return Err("the part has no body".to_string());
+    }
+    // Over all the bodies (an assembly has one per part): total area, the centroid weighted by volume, the box around them.
+    let area: f64 = ev.bodies.iter().map(|b| b.area).sum();
+    let vol: f64 = ev.bodies.iter().map(|b| b.volume).sum();
+    let centroid: [f64; 3] =
+        std::array::from_fn(
+            |k| if vol.abs() > 1e-12 { ev.bodies.iter().map(|b| b.centroid[k] * b.volume).sum::<f64>() / vol } else { ev.bodies[0].centroid[k] },
+        );
+    let bounds = (
+        std::array::from_fn(|k| ev.bodies.iter().map(|b| b.bounds.0[k]).fold(f64::INFINITY, f64::min)),
+        std::array::from_fn(|k| ev.bodies.iter().map(|b| b.bounds.1[k]).fold(f64::NEG_INFINITY, f64::max)),
+    );
     let summary = CadSummary {
         kernel: ev.kernel.to_string(),
         volume: ev.volume(),
-        area: body.area,
-        centroid: body.centroid,
-        bounds: body.bounds,
+        area,
+        centroid,
+        bounds,
         faces: ev
             .faces()
             .map(|(_, f)| CadFace {

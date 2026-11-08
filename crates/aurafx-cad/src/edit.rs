@@ -43,6 +43,33 @@ fn vec3(v: Option<&Value>, default: [f64; 3]) -> [f64; 3] {
         .unwrap_or(default)
 }
 
+/// A part given in an operation's arguments: a template, a document as JSON, a CAD file or a blank part.
+fn part_from_args(args: &Value) -> Result<Document, CadError> {
+    Ok(if let Some(t) = args.get("template").and_then(|t| t.as_str()) {
+        let mut tmp = Document::new("Part");
+        apply_op(&mut tmp, "template", &json!({ "name": t }))?;
+        tmp
+    } else if let Some(j) = args.get("document").filter(|j| j.is_object()) {
+        serde_json::from_value(j.clone()).map_err(|e| CadError::Edit(format!("document: {e}")))?
+    } else if let Some(p) = args.get("path").and_then(|p| p.as_str()) {
+        crate::io::import_file(std::path::Path::new(p))?
+    } else {
+        Document::new(args.get("name").and_then(|n| n.as_str()).unwrap_or("Part"))
+    })
+}
+
+/// The name of a new feature: the one asked for (refused when a feature already has it: faces are
+/// named after features, so two with one name would make their faces ambiguous), or the default
+/// made unique ("Box", "Box 2", ...).
+fn new_name(doc: &Document, args: &Value, default: &str) -> Result<String, CadError> {
+    let taken = |n: &str| doc.features.iter().any(|f| f.name == n);
+    match args.get("name").and_then(|n| n.as_str()).filter(|n| !n.is_empty()) {
+        Some(n) if taken(n) => bad(format!("a feature named '{n}' already exists: use another name, rename it, or start from nothing with clear()")),
+        Some(n) => Ok(n.to_string()),
+        None => Ok((1..).map(|k| if k == 1 { default.to_string() } else { format!("{default} {k}") }).find(|n| !taken(n)).unwrap()),
+    }
+}
+
 fn find<'a>(doc: &'a Document, name: &Value) -> Result<usize, CadError> {
     match name {
         Value::Number(n) => {
@@ -311,7 +338,8 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
         }
         "add" => {
             let kind = args.get("kind").and_then(|k| k.as_str()).ok_or_else(|| CadError::Edit("add needs a kind".into()))?;
-            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or(&capitalise(kind)), op_of(args)?, default_shape(kind)?);
+            let name = new_name(doc, args, &capitalise(kind))?;
+            let mut f = Feature::new(name, op_of(args)?, default_shape(kind)?);
             let mut bindings = Vec::new();
             f.shape = fill_shape(doc, &f.shape, args, &mut bindings)?;
             f.bindings = bindings;
@@ -355,7 +383,8 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
                 (Shape::SketchRevolve { sketch: sk, angle_deg: angle }, ae.map(|e| ("/shape/angle_deg", e)))
             };
             let default_name = if op == "sketch_extrude" { "Extrude" } else { "Revolve" };
-            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or(default_name), op_of(args)?, shape.0);
+            let name = new_name(doc, args, default_name)?;
+            let mut f = Feature::new(name, op_of(args)?, shape.0);
             if let Some((p, e)) = shape.1 {
                 f.bindings.push(Binding { path: p.into(), expr: e });
             }
@@ -478,6 +507,164 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             let id = doc.push(f);
             Ok(feature_summary(doc.feature(id).unwrap()))
         }
+        "component_add" => {
+            // A part placed beside the others: from a template, a document given as JSON, a CAD file
+            // or a blank part to model in (`component_op` edits it afterwards).
+            let part = part_from_args(args)?;
+            let base = args.get("name").and_then(|n| n.as_str()).map(str::to_string).unwrap_or_else(|| if part.name.is_empty() { "Part".into() } else { part.name.clone() });
+            let name = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base} {k}") }).find(|n| !doc.components.iter().any(|c| &c.name == n)).unwrap();
+            let id = Id(doc.components.iter().map(|c| c.id.0).max().unwrap_or(0) + 1);
+            let placement = Placement { translate: vec3(args.get("at"), [0.0; 3]), rotate_deg: vec3(args.get("rotate"), [0.0; 3]) };
+            doc.components.push(crate::document::ComponentRef { id, name: name.clone(), document: Box::new(part), placement, visible: true });
+            Ok(json!({ "component": name, "id": id.0 }))
+        }
+        "component_move" | "component_remove" | "component_visible" | "component_rename" | "component_op" => {
+            let want = args.get("component").cloned().unwrap_or(Value::Null);
+            let i = match &want {
+                Value::String(n) => doc.components.iter().position(|c| &c.name == n),
+                Value::Number(k) => k.as_u64().and_then(|k| doc.components.iter().position(|c| c.id.0 == k)),
+                _ => None,
+            }
+            .ok_or_else(|| CadError::Edit(format!("no component {want}; the parts are: {}", doc.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "))))?;
+            match op {
+                "component_move" => {
+                    let c = &mut doc.components[i];
+                    if args.get("at").is_some() {
+                        c.placement.translate = vec3(args.get("at"), c.placement.translate);
+                    }
+                    if args.get("rotate").is_some() {
+                        c.placement.rotate_deg = vec3(args.get("rotate"), c.placement.rotate_deg);
+                    }
+                    if let Some(by) = args.get("by") {
+                        let d = vec3(Some(by), [0.0; 3]);
+                        for k in 0..3 {
+                            c.placement.translate[k] += d[k];
+                        }
+                    }
+                    Ok(json!({ "at": c.placement.translate, "rotate": c.placement.rotate_deg }))
+                }
+                "component_remove" => {
+                    doc.components.remove(i);
+                    Ok(json!({}))
+                }
+                "component_visible" => {
+                    doc.components[i].visible = args.get("visible").and_then(|v| v.as_bool()).unwrap_or(true);
+                    Ok(json!({}))
+                }
+                "component_rename" => {
+                    let n = args.get("to").and_then(|n| n.as_str()).ok_or_else(|| CadError::Edit("component_rename needs \"to\"".into()))?;
+                    if doc.components.iter().enumerate().any(|(k, c)| k != i && c.name == n) {
+                        return bad(format!("a component is already called '{n}'"));
+                    }
+                    doc.components[i].name = n.to_string();
+                    Ok(json!({}))
+                }
+                _ => {
+                    // Any operation of the part API, applied to the component's own part.
+                    let inner = args.get("inner_op").and_then(|o| o.as_str()).ok_or_else(|| CadError::Edit("component_op needs \"inner_op\" (an operation such as add or parameter)".into()))?;
+                    if inner.starts_with("component_") {
+                        return bad("a component's own components are edited by opening it (component_op does not nest)");
+                    }
+                    let rest = args.get("args").cloned().unwrap_or_else(|| json!({}));
+                    apply_op(&mut doc.components[i].document, inner, &rest)
+                }
+            }
+        }
+        "face_pattern" => {
+            // Holes (or bosses) laid out on a flat face: in a row, a grid or a circle about its center.
+            let (center, normal) = if let Some(face) = args.get("face").and_then(|f| f.as_str()) {
+                let ev = crate::kernel::evaluate_with(crate::kernel::KernelChoice::Auto, doc, 48, false)?;
+                let f = ev.face_by_name(face).ok_or_else(|| CadError::Edit(format!("no face named '{face}' (cad.faces() lists them)")))?;
+                if f.kind != crate::kernel::FaceKind::Plane {
+                    return bad(format!("'{face}' is a {} face; a pattern on a face needs a flat one", f.kind.label()));
+                }
+                (f.centroid, f.direction)
+            } else {
+                (vec3(args.get("point"), [f64::NAN; 3]), vec3(args.get("normal"), [0.0, 0.0, 1.0]))
+            };
+            if center[0].is_nan() {
+                return bad("face_pattern needs a face name (\"face\") or a point and normal on it");
+            }
+            let n = glam::DVec3::from_array(normal).normalize_or_zero();
+            if n == glam::DVec3::ZERO {
+                return bad("the face has no direction");
+            }
+            let q = glam::DQuat::from_rotation_arc(glam::DVec3::Z, n);
+            let (rx, ry, rz) = q.to_euler(glam::EulerRot::XYZ);
+            // The first copy's offset from the face's center along the face's own x and y (two numbers).
+            let off: Vec<f64> = args.get("offset").and_then(|o| o.as_array()).map(|a| a.iter().filter_map(|v| v.as_f64()).collect()).unwrap_or_default();
+            if off.len() > 3 {
+                return bad("offset is [along x, along y] on the face");
+            }
+            let at = [off.first().copied().unwrap_or(0.0), off.get(1).copied().unwrap_or(0.0)];
+            let origin = glam::DVec3::from_array(center) + q * glam::DVec3::new(at[0], at[1], 0.0);
+            let boss = args.get("kind").and_then(|k| k.as_str()) == Some("boss");
+            let size = |k: &str, d: f64| -> Result<f64, CadError> { Ok(num(doc, args.get(k).unwrap_or(&json!(d)))?.0) };
+            let (shape, op_kind, default_name) = if boss {
+                (Shape::Cylinder { radius: size("diameter", 6.0)? / 2.0, height: size("height", 8.0)? }, BooleanOp::Add, "Boss")
+            } else {
+                (Shape::Hole { kind: HoleKind::Simple, diameter: size("diameter", 6.0)?, depth: size("depth", 10.0)? }, BooleanOp::Cut, "Hole")
+            };
+            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or(default_name), op_kind, shape);
+            f.placement = Placement { translate: origin.to_array(), rotate_deg: [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()] };
+            let count = args.get("count").and_then(|c| c.as_u64()).unwrap_or(4).max(1) as usize;
+            match args.get("layout").and_then(|l| l.as_str()).unwrap_or("linear") {
+                "linear" => f.modifiers.push(Modifier::LinearPattern { count, step: [size("spacing", 12.0)?, 0.0, 0.0] }),
+                "grid" => {
+                    let counts = args.get("counts").and_then(|c| c.as_array()).map(|a| [a.first().and_then(|v| v.as_u64()).unwrap_or(2) as usize, a.get(1).and_then(|v| v.as_u64()).unwrap_or(2) as usize]).unwrap_or([2, 2]);
+                    let sp = args.get("spacing").and_then(|s| s.as_array()).map(|a| [a.first().and_then(|v| v.as_f64()).unwrap_or(12.0), a.get(1).and_then(|v| v.as_f64()).unwrap_or(12.0)]).unwrap_or([12.0, 12.0]);
+                    f.modifiers.push(Modifier::GridPattern { counts, step: sp });
+                }
+                "circular" => {
+                    f.modifiers.push(Modifier::Offset { by: [size("radius", 15.0)?, 0.0, 0.0] });
+                    f.modifiers.push(Modifier::CircularPattern { count, axis_z: true });
+                }
+                other => return bad(format!("unknown layout '{other}' (linear, grid, circular)")),
+            }
+            let id = doc.push(f);
+            Ok(feature_summary(doc.feature(id).unwrap()))
+        }
+        "combine" => {
+            // Another part (a template, a document, a CAD file) added to, cut from or intersected with the
+            // part so far, placed by `at` / `rotate`.
+            let part = part_from_args(args)?;
+            if part.features.iter().all(|f| f.suppressed) && part.components.is_empty() {
+                return bad("the part to combine has no solid: give a template, a document or a file");
+            }
+            let op_kind = op_of(&json!({ "op": args.get("op").cloned().unwrap_or(json!("add")), "kind": "" }))?;
+            let name = args.get("name").and_then(|n| n.as_str()).map(str::to_string).unwrap_or_else(|| format!("Combine {}", part.name));
+            let mut f = Feature::new(name, op_kind, Shape::Body { part: Box::new(part) });
+            f.placement = Placement { translate: vec3(args.get("at"), [0.0; 3]), rotate_deg: vec3(args.get("rotate"), [0.0; 3]) };
+            let id = doc.push(f);
+            Ok(feature_summary(doc.feature(id).unwrap()))
+        }
+        "mirror_plane" => {
+            // Reflect the part so far about a plane (origin and normal; a flat face gives both).
+            let origin = vec3(args.get("origin"), [0.0; 3]);
+            let normal = vec3(args.get("normal"), [f64::NAN; 3]);
+            if normal[0].is_nan() || normal.iter().all(|c| *c == 0.0) {
+                return bad("mirror_plane needs a normal [x, y, z] (and an origin on the plane)");
+            }
+            let f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or("Mirror"), BooleanOp::Add, Shape::MirrorPlane { origin, normal });
+            let id = doc.push(f);
+            Ok(feature_summary(doc.feature(id).unwrap()))
+        }
+        "draft" => {
+            // Taper picked side faces by an angle about a neutral plane (the B-rep kernel builds it).
+            let faces: Vec<[f64; 3]> = args.get("faces").and_then(|a| a.as_array()).map(|a| a.iter().map(|p| vec3(Some(p), [0.0; 3])).collect()).unwrap_or_default();
+            if faces.is_empty() {
+                return bad("pick at least one face to draft (a point on each; cad.faces() lists them)");
+            }
+            let (angle, _) = num(doc, args.get("angle").unwrap_or(&json!(3)))?;
+            let neutral_origin = vec3(args.get("neutral_origin"), [0.0; 3]);
+            let neutral_normal = vec3(args.get("neutral_normal"), [0.0, 0.0, 1.0]);
+            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or("Draft"), BooleanOp::Add, Shape::Draft { angle_deg: angle, faces, neutral_origin, neutral_normal });
+            if let Some(e) = args.get("angle").and_then(|v| v.as_str()) {
+                f.bindings.push(Binding { path: "/shape/angle_deg".into(), expr: e.into() });
+            }
+            let id = doc.push(f);
+            Ok(feature_summary(doc.feature(id).unwrap()))
+        }
         "set_op" => {
             let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
             doc.features[i].op = op_of(&json!({ "op": args.get("to").cloned().unwrap_or(Value::Null), "kind": "" }))?;
@@ -544,7 +731,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(json!({}))
         }
         other => bad(format!(
-            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, activate)"
+            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, mirror_plane, draft, face_pattern, combine, component_add, component_move, component_remove, component_visible, component_rename, component_op, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, activate)"
         )),
     }
 }

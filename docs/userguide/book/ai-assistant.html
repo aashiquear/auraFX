@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-55b62fa8.js";
+            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -196,6 +196,18 @@ at the result (values, errors, the pipeline) and keeps going until the task is d
 <pre><code class="language-python">afx.ask("make an isosurface at the mean temperature")
 afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 </code></pre>
+<p>A script can wait for the assistant and read what it said: <code>afx.assistant_status()</code> returns
+<code>{"busy", "agent", "messages", "last", "error"}</code> (an answer is arriving, agent mode is iterating,
+the number of messages, the last answer, the last error).</p>
+<h2 id="modelling-parts"><a class="header" href="#modelling-parts">Modelling parts</a></h2>
+<p>The assistant knows the CAD modeler (see <a href="cad.html">CAD modeling</a>). Ask it to <strong>start</strong> a part
+(“a base plate 60 by 40 by 8 mm; name the dimensions width, depth and thickness”), to <strong>build</strong>
+it (“add a wall along the back edge, two 6 mm holes, round the corner”), and to <strong>change</strong> it
+(“make the plate 80 mm wide and the holes 8 mm”). It names dimensions, uses the part’s faces by
+name, checks the volume against numbers it worked out, and can open the part in the CAD
+environment, edit the working copy, and apply it; when applying would break a node below the
+part, it is asked for the fixes. It also places parts side by side (assemblies) and uses the
+face operations (patterns on a face, draft, mirror).</p>
 <h2 id="providers"><a class="header" href="#providers">Providers</a></h2>
 <p>Choose the provider and model in the panel’s drop-downs or in <strong>Settings</strong>:</p>
 <div class="table-wrapper">

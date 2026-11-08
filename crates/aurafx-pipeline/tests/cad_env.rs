@@ -138,3 +138,38 @@ fn step_to_mesh_to_grains_to_solver_case() {
     assert!(!case.files.is_empty() && dir.join("mesh.e").exists() && dir.join("grains.tex").exists());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A tetrahedral mesh of a CAD part keeps the faces' names as side sets, like the hexahedral one.
+#[test]
+fn a_tet_mesh_of_a_cad_part_has_its_faces_as_named_side_sets() {
+    let mut s = Session::new();
+    let cad = s.add_source("cad_model").unwrap();
+    let tet = s.add_filter("tet_mesh", cad).unwrap();
+    s.set_param(tet, "cell", aurafx_filters::ParamValue::Float(4.0));
+    s.update_blocking();
+    for id in [cad, tet] {
+        assert!(s.nodes[&id].error.is_none(), "{}: {:?}", s.nodes[&id].name, s.nodes[&id].error);
+    }
+    let out = s.nodes[&tet].output.clone().unwrap();
+    let m = aurafx_mesh::tet::TetMesh::from_dataset(&out).unwrap();
+    let names: Vec<String> = m.side_sets.iter().filter(|(_, v)| !v.is_empty()).map(|(n, _)| n.clone()).collect();
+    // The default plate has a top, a bottom and four sides, named after its feature.
+    assert!(names.contains(&"Base top".to_string()) && names.contains(&"Base bottom".to_string()), "{names:?}");
+    assert!(names.iter().filter(|n| n.starts_with("Base side")).count() == 4, "{names:?}");
+    assert!(!names.iter().any(|n| n.starts_with("surface")), "no numbered patches left: {names:?}");
+}
+
+/// The environment's live preview shows every part of an assembly, not only the document's own features.
+#[test]
+fn the_environments_preview_shows_every_part_of_an_assembly() {
+    let mut s = Session::new();
+    let cad = s.add_source("cad_model").unwrap();
+    s.cad_enter(cad).unwrap();
+    let alone = s.cad_env_evaluate(48).unwrap();
+    s.cad_env_edit("component_add", &serde_json::json!({"name": "Far", "template": "bracket", "at": [300, 0, 0]})).unwrap();
+    let both = s.cad_env_evaluate(48).unwrap();
+    assert!(both.volume > alone.volume + 5000.0, "{} then {}", alone.volume, both.volume);
+    assert!(both.bounds.1[0] > 300.0 && both.bounds.0[0] < alone.bounds.1[0], "the box covers both: {:?}", both.bounds);
+    assert!(both.faces.iter().any(|f| f.name.starts_with("Far/")), "faces of a part are named Part/Face");
+    s.cad_discard().unwrap();
+}

@@ -1,9 +1,9 @@
 //! CAD files in and out (stage C6). Documents are `.afxcad`; solids are read as STEP AP242 /
 //! AP214 / AP203, IGES, 3MF, SolidCraft `.sc` designs, STL and OBJ (the file becomes the *base
 //! feature* of a document, its bytes kept inside so the document is self-contained) and written
-//! as STEP, 3MF, STL, OBJ and `.sc` by the vendored engine's exact writers. A part that only the
+//! as STEP, IGES, 3MF, STL, OBJ and `.sc` by the vendored engine's exact writers. A part that only the
 //! implicit kernel can build is written as STEP or STL from its tessellation: a faceted B-rep of
-//! triangles, labelled as such in its header (IGES is read, not written).
+//! triangles, labelled as such in its header (IGES is written only for a part the exact kernel builds).
 
 use crate::kernel::{brep, Evaluated, KernelChoice};
 use crate::{CadError, Document, Feature, Shape};
@@ -56,7 +56,7 @@ pub struct ExportReport {
     pub note: String,
 }
 
-/// Write the document as `.afxcad`, `.step`/`.stp`, `.3mf`, `.stl`, `.obj` or `.sc`, by the
+/// Write the document as `.afxcad`, `.step`/`.stp`, `.igs`/`.iges`, `.3mf`, `.stl`, `.obj` or `.sc`, by the
 /// path's extension.
 pub fn export_file(doc: &Document, path: &Path, choice: KernelChoice) -> Result<ExportReport, CadError> {
     export_file_with(doc, path, choice, 48)
@@ -69,9 +69,6 @@ pub fn export_file_with(doc: &Document, path: &Path, choice: KernelChoice, facet
     if ext == "afxcad" {
         doc.save(path).map_err(|e| CadError::Edit(e.to_string()))?;
         return Ok(ExportReport { bytes: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0), exact: true, note: "the document".into() });
-    }
-    if matches!(ext.as_str(), "igs" | "iges") {
-        return Err(CadError::KernelRefused("brep", "IGES files can be read, not written yet (write STEP)".into()));
     }
     let exact = if choice == KernelChoice::Implicit {
         Err(CadError::KernelRefused("brep", "the implicit kernel was chosen".into()))
@@ -95,6 +92,10 @@ pub fn export_file_with(doc: &Document, path: &Path, choice: KernelChoice, facet
             std::fs::write(path, &text).map_err(|x| ioerr(path, x))?;
             Ok(ExportReport { bytes: text.len() as u64, exact: false, note: format!("faceted: {e}") })
         }
+        Err(e @ (CadError::KernelRefused(..) | CadError::Kernel { .. })) if matches!(ext.as_str(), "igs" | "iges") => Err(CadError::KernelRefused(
+            "brep",
+            format!("an IGES file needs the exact kernel to build the part ({e}); write STEP instead, which can hold a faceted part"),
+        )),
         Err(e) => Err(e),
     }
 }
@@ -289,7 +290,8 @@ mod tests {
         let p = tmp("plate.afxcad");
         export_file(&d, &p, KernelChoice::Auto).unwrap();
         assert_eq!(import_file(&p).unwrap(), d);
-        assert!(export_file(&d, &tmp("plate.igs"), KernelChoice::Auto).unwrap_err().to_string().contains("IGES"));
+        // IGES is written too (see an_exact_part_is_written_as_iges_and_reads_back_the_same).
+        assert!(export_file(&d, &tmp("plate.igs"), KernelChoice::Auto).unwrap().exact);
         assert!(import_file(&tmp("plate.xyz")).unwrap_err().to_string().contains("not a CAD file"));
     }
 
@@ -297,8 +299,9 @@ mod tests {
     fn a_part_only_the_implicit_kernel_builds_is_written_as_a_faceted_step_that_reads_back() {
         let mut d = Document::new("rod");
         apply_op(&mut d, "add", &json!({"kind": "box", "name": "Base", "size": [30, 30, 6], "at": [0, 0, 3]})).unwrap();
-        // A boss blended into the base: a rounded junction the exact kernel does not build.
-        apply_op(&mut d, "add", &json!({"kind": "cylinder", "name": "Boss", "radius": 6, "height": 14, "at": [0, 0, 6], "blend": 2})).unwrap();
+        // A threaded stub on the base: a modelled thread the exact kernel does not build.
+        apply_op(&mut d, "add", &json!({"kind": "thread", "name": "Stub", "major_diameter": 8, "pitch": 2.5, "length": 10, "at": [0, 0, 6]})).unwrap();
+        apply_op(&mut d, "add", &json!({"kind": "cylinder", "name": "Core", "radius": 3.0, "height": 10, "at": [0, 0, 6]})).unwrap();
         let p = tmp("rod.step");
         let r = export_file_with(&d, &p, KernelChoice::Auto, 14).unwrap();
         assert!(!r.exact && r.note.contains("faceted"), "{r:?}");
@@ -347,5 +350,73 @@ mod tests {
         if p.exists() {
             assert_eq!(import_file(&p).unwrap(), part());
         }
+    }
+
+    /// A Python with OCP (OpenCASCADE), if the environment names one: an independent STEP reader.
+    fn ocp_python() -> Option<String> {
+        let py = std::env::var("AURAFX_OCP_PYTHON").ok()?;
+        std::process::Command::new(&py).args(["-c", "import OCP"]).output().ok().filter(|o| o.status.success()).map(|_| py)
+    }
+
+    /// The JSON line of the checker's output (the IGES reader also prints its own log lines).
+    fn checker_json(out: &std::process::Output) -> serde_json::Value {
+        let text = String::from_utf8_lossy(&out.stdout);
+        let line = text.lines().rev().find(|l| l.trim_start().starts_with('{')).unwrap_or_else(|| panic!("{text} {}", String::from_utf8_lossy(&out.stderr)));
+        serde_json::from_str(line).unwrap()
+    }
+
+    #[test]
+    fn an_independent_step_reader_measures_the_same_part() {
+        let Some(py) = ocp_python() else { return }; // skipped where no OCP is installed
+        let script = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/cad/step_check.py");
+        let d = part();
+        let v = volume(&d);
+        let p = tmp("independent.step");
+        export_file(&d, &p, KernelChoice::Auto).unwrap();
+        let out = std::process::Command::new(&py).arg(&script).arg(&p).output().unwrap();
+        let j = checker_json(&out);
+        assert_eq!(j["solids"], 1, "{j}");
+        assert_eq!(j["faces"], 7, "a plate with a hole has seven faces: {j}");
+        let vo = j["volume"].as_f64().unwrap();
+        assert!((vo - v).abs() / v < 1e-3, "OpenCASCADE measures {vo}, the exact kernel {v}");
+        // The IGES file of the same part reads back through the independent reader too.
+        let pi = tmp("independent.igs");
+        export_file(&d, &pi, KernelChoice::Auto).unwrap();
+        let out = std::process::Command::new(&py).arg(&script).arg(&pi).output().unwrap();
+        let j = checker_json(&out);
+        assert_eq!(j["faces"], 7, "{j}");
+        assert!((j["volume"].as_f64().unwrap() - v).abs() / v < 1e-3, "OpenCASCADE reads {j}, the exact kernel {v}");
+        // The faceted file of a part only the implicit kernel builds is a valid solid for it too.
+        let mut rod = Document::new("rod");
+        apply_op(&mut rod, "add", &json!({"kind": "thread", "name": "T", "major_diameter": 8, "pitch": 2.5, "length": 10})).unwrap();
+        apply_op(&mut rod, "add", &json!({"kind": "cylinder", "name": "Core", "radius": 3.0, "height": 10})).unwrap();
+        let pf = tmp("independent_faceted.step");
+        let r = export_file_with(&rod, &pf, KernelChoice::Auto, 14).unwrap();
+        assert!(!r.exact);
+        let out = std::process::Command::new(&py).arg(&script).arg(&pf).output().unwrap();
+        let j = checker_json(&out);
+        assert_eq!(j["solids"], 1, "{j}");
+        assert!(j["volume"].as_f64().unwrap() > 100.0, "{j}");
+    }
+
+    #[test]
+    fn an_exact_part_is_written_as_iges_and_reads_back_the_same() {
+        let d = part();
+        let v = volume(&d);
+        let p = tmp("plate.igs");
+        let r = export_file(&d, &p, KernelChoice::Auto).unwrap();
+        assert!(r.exact, "{r:?}");
+        let text = std::fs::read_to_string(&p).unwrap();
+        // An IGES file is 80-column records ending in the section letters S, G, D, P and T.
+        assert!(text.lines().all(|l| l.len() == 80), "IGES records are 80 columns wide");
+        assert!(text.lines().last().unwrap().contains('T') && text.lines().any(|l| l.as_bytes()[72] == b'G'));
+        let back = import_file(&p).unwrap();
+        let ev = crate::kernel::evaluate_with(KernelChoice::Brep, &back, 64, true).unwrap();
+        assert!((ev.volume() - v).abs() / v < 1e-3, "{} vs {v}", ev.volume());
+        // A part only the implicit kernel builds cannot be written as IGES: the message says to write STEP.
+        let mut rod = Document::new("rod");
+        apply_op(&mut rod, "add", &json!({"kind": "thread", "name": "T", "major_diameter": 8, "pitch": 2.5, "length": 10})).unwrap();
+        let e = export_file(&rod, &tmp("rod.igs"), KernelChoice::Auto).unwrap_err().to_string();
+        assert!(e.contains("write STEP"), "{e}");
     }
 }

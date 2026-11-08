@@ -597,9 +597,13 @@ pub fn boundary_layers(ds: &DataSet, side_set: &str, layers: usize, first: f64, 
 }
 
 /// Tet Mesh: tetrahedra filling a closed surface (isosurface stuffing at `cell`, 0: a
-/// thirtieth of its largest size), a side set per patch of the surface between creases.
+/// thirtieth of its largest size), a side set per patch of the surface between creases (a CAD
+/// part's surface keeps its faces: one side set per face, with the face's name).
 pub fn tet_mesh(ds: &DataSet, cell: f64) -> Result<DataSet> {
-    let tm = aurafx_mesh::model::surface_mesh(ds)?;
+    let (tm, cad_names) = match aurafx_mesh::model::surface_mesh_with_faces(ds) {
+        Some((m, names)) => (m, Some(names)),
+        None => (aurafx_mesh::model::surface_mesh(ds)?, None),
+    };
     let np = tm.n_patches;
     let shape = aurafx_mesh::shape::Shape::Surface { mesh: std::sync::Arc::new(tm), face: 1 };
     let (lo, hi) = shape.bounds();
@@ -614,7 +618,13 @@ pub fn tet_mesh(ds: &DataSet, cell: f64) -> Result<DataSet> {
         sets.entry(shape.eval(cen).1).or_default().push((e, s));
     }
     for (f, faces) in sets {
-        m.side_sets.push((if np == 1 { "surface".to_string() } else { format!("surface {f}") }, faces));
+        // Patch f of the surface is numbered 1 + k for the k-th face name.
+        let name = match &cad_names {
+            Some(names) => names.get((f as usize).saturating_sub(1)).cloned().unwrap_or_else(|| format!("face {f}")),
+            None if np == 1 => "surface".to_string(),
+            None => format!("surface {f}"),
+        };
+        m.side_sets.push((name, faces));
     }
     Ok(m.to_dataset())
 }

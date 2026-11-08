@@ -30,6 +30,12 @@ impl std::fmt::Debug for MeshField {
 pub enum Sdf {
     /// The distance to an imported solid's surface.
     Mesh(std::sync::Arc<MeshField>),
+    /// The inner field seen in a mirror: reflected about the plane through `origin` with this unit `normal`.
+    Reflect {
+        inner: Box<Sdf>,
+        origin: DVec3,
+        normal: DVec3,
+    },
     Box {
         half: DVec3,
         r: f64,
@@ -317,7 +323,7 @@ pub fn shape(s: &Shape) -> Sdf {
             Some(m) => Sdf::Mesh(std::sync::Arc::new(MeshField { mesh: m })),
             None => Sdf::Empty,
         },
-        Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } => Sdf::Empty,
+        Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } | Shape::MirrorPlane { .. } | Shape::Draft { .. } => Sdf::Empty,
         Shape::Body { part } => part.sdf().unwrap_or(Sdf::Empty),
     }
 }
@@ -406,6 +412,7 @@ pub fn modify(s: Sdf, m: &Modifier) -> Sdf {
     match m {
         // Fillet all edges: shrink then grow (rounds convex edges by r).
         Modifier::Fillet { radius } => Sdf::Offset(Box::new(Sdf::Offset(Box::new(s), -*radius)), *radius),
+        Modifier::Offset { by } => Sdf::Frame { inner: Box::new(s), rot: DMat3::IDENTITY, origin: DVec3::from_array(*by) },
         Modifier::Shell { thickness } => Sdf::Shell(Box::new(s), *thickness),
         Modifier::LinearPattern { count, step } => Sdf::Repeat { inner: Box::new(s), count: *count, step: DVec3::from_array(*step) },
         Modifier::CircularPattern { count, .. } => Sdf::Polar { inner: Box::new(s), count: *count },
@@ -601,6 +608,7 @@ impl Sdf {
                 inner.eval(DVec3::new(r * a.cos(), r * a.sin(), p.z))
             }
             Sdf::Mesh(m) => m.mesh.distance(p.to_array()),
+            Sdf::Reflect { inner, origin, normal } => inner.eval(p - *normal * (2.0 * (p - *origin).dot(*normal))),
             Sdf::Empty => EMPTY_D,
             Sdf::Prism { profile, z0, z1, draft, top, bottom } => {
                 let zc = p.z.clamp(*z0, *z1).abs();
@@ -769,6 +777,17 @@ impl Sdf {
                 (DVec3::new(-r, -r, l.z), DVec3::new(r, r, h.z))
             }
             Sdf::Mesh(m) => (DVec3::from_array(m.mesh.lo), DVec3::from_array(m.mesh.hi)),
+            Sdf::Reflect { inner, origin, normal } => {
+                let (l, h) = inner.bounds();
+                let (mut lo, mut hi) = (DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY));
+                for i in 0..8 {
+                    let c = DVec3::new(if i & 1 == 0 { l.x } else { h.x }, if i & 2 == 0 { l.y } else { h.y }, if i & 4 == 0 { l.z } else { h.z });
+                    let r = c - *normal * (2.0 * (c - *origin).dot(*normal));
+                    lo = lo.min(r);
+                    hi = hi.max(r);
+                }
+                (lo, hi)
+            }
             Sdf::Empty => (DVec3::ZERO, DVec3::ZERO),
             Sdf::Prism { profile, z0, z1, draft, .. } => {
                 let b = profile.bounds;
@@ -899,6 +918,18 @@ impl Document {
             match &f.shape {
                 // Not built by this kernel (the kernel says so): the edges stay sharp.
                 crate::document::Shape::EdgeBlend { .. } => continue,
+                // Mirror the part so far about a plane and join the reflection.
+                crate::document::Shape::MirrorPlane { origin, normal } => {
+                    let n = DVec3::from_array(*normal).normalize_or_zero();
+                    if n != DVec3::ZERO {
+                        body = body.take().map(|b| {
+                            Sdf::Union(Box::new(b.clone()), Box::new(Sdf::Reflect { inner: Box::new(b), origin: DVec3::from_array(*origin), normal: n }), 0.0)
+                        });
+                    }
+                    continue;
+                }
+                // Not built by this kernel (the kernel says so): the faces stay vertical.
+                crate::document::Shape::Draft { .. } => continue,
                 crate::document::Shape::ShellFaces { thickness, faces } => {
                     body = body.take().map(|b| {
                         let open = !faces.is_empty();

@@ -67,10 +67,10 @@ pub fn effective_document(document: &str, overrides: &str, configuration: &str) 
     Ok(d)
 }
 
-/// Evaluate a document on the implicit kernel.
+/// Evaluate a document on the implicit kernel (the quick one the environment shows while editing);
+/// the parts of an assembly are placed beside each other.
 pub fn evaluate(doc: &Document, resolution: usize, project: bool) -> Result<Evaluated> {
-    let k = ImplicitKernel { resolution, project };
-    k.evaluate(doc).map_err(|e| anyhow!("{e}"))
+    aurafx_cad::kernel::evaluate_with(aurafx_cad::KernelChoice::Implicit, doc, resolution, project).map_err(|e| anyhow!("{e}"))
 }
 
 /// Evaluate with the chosen kernel (`Auto`: the exact B-rep kernel when it builds the part,

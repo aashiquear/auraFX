@@ -170,6 +170,53 @@ print(round(c.cad.interference(c, at=(12, 6, 0), resolution=0.4) / 100))
     assert!((lost - 17).abs() <= 2, "one filleted edge of 20 mm and r=2 loses about 17: {o}");
     assert_eq!(l[3], "True brep", "{o}");
     assert_eq!(l[4], "22", "overlap 8 x 14 x 20 = 2240: {o}");
+    // Mirror about a face, a draft, a pattern on a face, and an assembly of components.
+    let o = run(
+        &rt,
+        r#"
+h = afx.cad_model(name="Half")
+h.cad.clear("Half")
+h.cad.box(size=(20, 20, 10), name="Half", at=(10, 0, 0))
+v0 = h.cad.volume()
+h.cad.mirror_about("Half x-", (1, 0, 0))
+print(round(h.cad.volume() / v0, 2))
+p = afx.cad_model(name="Plate")
+p.cad.clear("Plate")
+p.cad.box(size=(60, 60, 10), name="Slab", at=(0, 0, 5))
+v1 = p.cad.volume()
+p.cad.edit("face_pattern", face="Slab z+", layout="circular", count=4, radius=15, diameter=6, depth=10)
+print(round((v1 - p.cad.volume()) / (4 * 3.14159265 * 9 * 10), 2))
+d = afx.cad_model(name="Draft")
+d.cad.clear("Draft")
+d.cad.box(size=(20, 20, 20), name="Block", at=(0, 0, 10))
+vd = d.cad.volume()
+d.cad.draft(["Block x+"], angle=5)
+print(round((vd - d.cad.volume()) / 350.0, 1))
+a = afx.cad_model(name="Assembly")
+a.cad.clear("Assembly")
+a.cad.component_add(name="A", template="bracket")
+a.cad.component_add(name="B", template="bracket", at=(20, 0, 0))
+a.cad.component_add(name="C", template="bracket", at=(500, 0, 0))
+print([c["name"] for c in a.cad.components()])
+ov = a.cad.component_interference(resolution=1.0)
+print([(o["a"], o["b"]) for o in ov])
+a.cad.component_move("B", by=(240, 0, 0))
+print(len(a.cad.component_interference(resolution=1.0)))
+a.cad.component_op("C", "add", kind="box", name="Extra", size=[5, 5, 5], at=[0, 0, 30])
+print(len(a.cad.evaluate()["faces"]) > 12, a.cad.faces()[0]["name"].count("/"))
+a.cad.component_visible("C", False)
+print(len(a.cad.components()), a.cad.components()[2]["visible"])
+"#,
+    );
+    let l: Vec<&str> = o.lines().collect();
+    assert_eq!(l[0], "2.0", "mirror doubles the half: {o}");
+    assert_eq!(l[1], "1.0", "four 6 mm holes through 10 mm: {o}");
+    assert_eq!(l[2], "1.0", "a 5 degree draft over 20 mm removes a wedge of 0.5 x 20 x 20 tan 5 x 20 = 350: {o}");
+    assert_eq!(l[3], "['A', 'B', 'C']", "{o}");
+    assert_eq!(l[4], "[('A', 'B')]", "{o}");
+    assert_eq!(l[5], "0", "{o}");
+    assert_eq!(l[6], "True 1", "faces of a component are named Component/Face: {o}");
+    assert_eq!(l[7], "3 False", "{o}");
     let trace = session.lock().trace.join("\n");
     assert!(trace.contains(".cad.edit('add'"), "{trace}");
     std::fs::remove_file("/tmp/afx_cad_py_test.afxcad").ok();

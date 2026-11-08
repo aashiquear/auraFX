@@ -79,6 +79,7 @@ pub fn ribbon_ui(state: &mut State, ui: &mut egui::Ui) {
         RibbonTab::Sketch => sketch_tab(state, ui, at, has_part),
         RibbonTab::Modify => modify_tab(state, ui),
         RibbonTab::Inspect => inspect_tab(state, ui),
+        RibbonTab::Assemble => assemble_tab(state, ui),
         RibbonTab::Files => files_tab(state, ui),
     });
 }
@@ -208,6 +209,15 @@ fn modify_tab(state: &mut State, ui: &mut egui::Ui) {
     if button(ui, "Shell, open faces…", "Hollow the part, choosing the faces to open (exact kernel)") {
         super::pick::open(state, super::PickKind::Shell);
     }
+    if button(ui, "Draft faces…", "Taper side faces by an angle, choosing them from a list (exact kernel)") {
+        super::pick::open(state, super::PickKind::Draft);
+    }
+    if button(ui, "Pattern on a face…", "Lay holes or bosses out in a row, a grid or a circle on a flat face") {
+        super::pick::open(state, super::PickKind::PatternFace);
+    }
+    if button(ui, "Mirror about a face…", "Add the reflection of the part about a flat face") {
+        super::pick::open(state, super::PickKind::MirrorFace);
+    }
     ui.separator();
     if button(ui, "Fillet", "Round all edges by 1 mm") {
         add(state, json!({"kind": "Fillet", "radius": 1}));
@@ -269,6 +279,90 @@ fn inspect_tab(state: &mut State, ui: &mut egui::Ui) {
     if let Some(a) = state.cad.section_area {
         ui.label(format!("= {} mm²", super::num_text(a)));
     }
+}
+
+/// File types a part can be placed from.
+const PART_FILES: &[&str] = &["afxcad", "step", "stp", "igs", "iges", "3mf", "sc"];
+
+/// The parts a menu offers: the templates, a blank part and a CAD file. `make` turns the choice
+/// into the arguments of the operation (a template name, a blank part, or a file's path).
+fn part_menu(state: &mut State, ui: &mut egui::Ui, run: &str, extra: Value) {
+    let mut chosen: Option<Value> = None;
+    for (title, _) in aurafx_cad::templates() {
+        if ui.button(title).clicked() {
+            ui.close();
+            chosen = Some(json!({"template": title.split([' ', '(']).next().unwrap_or(title)}));
+        }
+    }
+    ui.separator();
+    if ui.button("Blank part").on_hover_text("An empty part to model in (edit it with the Python call component_op)").clicked() {
+        ui.close();
+        chosen = Some(json!({}));
+    }
+    if ui.button("From a file…").on_hover_text("A CAD file: .afxcad, STEP, IGES, 3MF or .sc").clicked() {
+        ui.close();
+        if let Some(p) = crate::dialogs::FileDialog::new().add_filter("CAD files", PART_FILES).pick_file() {
+            let name = p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Part".into());
+            chosen = Some(json!({"path": p.to_string_lossy(), "name": name}));
+        }
+    }
+    if let Some(mut a) = chosen {
+        if let (Some(o), Some(e)) = (a.as_object_mut(), extra.as_object()) {
+            o.extend(e.clone());
+        }
+        op(state, run, a);
+    }
+}
+
+/// Find the pairs of parts that overlap and keep the result for the Assemble tab.
+pub fn check_fit(state: &mut State) {
+    let (doc, size) = {
+        let s = state.session.lock();
+        (
+            s.cad_edit.as_ref().map(|e| e.document_to_build()),
+            s.cad_edit.as_ref().and_then(|e| e.summary.as_ref()).map(|m| (0..3).map(|k| m.bounds.1[k] - m.bounds.0[k]).fold(1.0, f64::max)),
+        )
+    };
+    if let Some(doc) = doc {
+        match aurafx_cad::kernel::assemble::component_interference(aurafx_cad::KernelChoice::Auto, &doc, (size.unwrap_or(100.0) / 120.0).max(0.2)) {
+            Ok(v) => {
+                state.status = if v.is_empty() { "Check fit: no two parts overlap".into() } else { format!("Check fit: {} pair(s) overlap", v.len()) };
+                state.cad.fit = Some(v);
+            }
+            Err(e) => state.toast(format!("{e}"), true),
+        }
+    }
+}
+
+fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
+    ui.menu_button("Insert part", |ui| part_menu(state, ui, "component_add", json!({"at": [0, 0, 0]})))
+        .response
+        .on_hover_text("Place another part beside this one: a template, a blank part or a CAD file. It keeps its own features; move it in the FeatureManager.");
+    for (label, how, tip) in [
+        ("Add part", "add", "Join another part to this one (a boolean union of the two solids)"),
+        ("Cut with part", "subtract", "Remove another part's volume from this one"),
+        ("Keep common part", "intersect", "Keep only where this part and another overlap"),
+    ] {
+        ui.menu_button(label, |ui| part_menu(state, ui, "combine", json!({"op": how}))).response.on_hover_text(tip);
+    }
+    ui.separator();
+    let has = state.session.lock().cad_edit.as_ref().is_some_and(|e| e.document.components.len() + usize::from(!e.document.features.is_empty()) > 1);
+    if ui
+        .add_enabled(has, egui::Button::new("Check fit"))
+        .on_hover_text("Find the parts that overlap, with the overlap volume (the parts of the assembly, two at a time)")
+        .clicked()
+    {
+        check_fit(state);
+    }
+    if let Some(fit) = &state.cad.fit {
+        if fit.is_empty() {
+            ui.label(RichText::new("no overlap").color(crate::theme::OK).small());
+        }
+        for (a, b, v) in fit {
+            ui.label(RichText::new(format!("{a} and {b} overlap by {} mm³", super::num_text(*v))).color(crate::theme::ERROR).small());
+        }
+    }
+    ui.label(RichText::new("Parts are listed, moved and hidden under Components in the feature tree.").weak().small());
 }
 
 fn files_tab(state: &mut State, ui: &mut egui::Ui) {

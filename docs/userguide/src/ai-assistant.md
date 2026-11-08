@@ -26,6 +26,21 @@ afx.ask("make an isosurface at the mean temperature")
 afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 ```
 
+A script can wait for the assistant and read what it said: `afx.assistant_status()` returns
+`{"busy", "agent", "messages", "last", "error"}` (an answer is arriving, agent mode is iterating,
+the number of messages, the last answer, the last error).
+
+## Modelling parts
+
+The assistant knows the CAD modeler (see [CAD modeling](cad.md)). Ask it to **start** a part
+("a base plate 60 by 40 by 8 mm; name the dimensions width, depth and thickness"), to **build**
+it ("add a wall along the back edge, two 6 mm holes, round the corner"), and to **change** it
+("make the plate 80 mm wide and the holes 8 mm"). It names dimensions, uses the part's faces by
+name, checks the volume against numbers it worked out, and can open the part in the CAD
+environment, edit the working copy, and apply it; when applying would break a node below the
+part, it is asked for the fixes. It also places parts side by side (assemblies) and uses the
+face operations (patterns on a face, draft, mirror).
+
 ## Providers
 
 Choose the provider and model in the panel's drop-downs or in **Settings**:

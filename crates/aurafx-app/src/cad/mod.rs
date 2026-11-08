@@ -21,9 +21,9 @@ use serde_json::{json, Value};
 
 pub use conflicts::hold_banner;
 pub use feature_manager::feature_manager_ui;
-pub use pick::{open as open_picker, PickKind};
+pub use pick::{click as pick_click, draw_overlay as pick_overlay, open as open_picker, picking, PickKind};
 pub use property_manager::property_manager_ui;
-pub use ribbon::ribbon_ui;
+pub use ribbon::{check_fit, ribbon_ui};
 pub use sketch::{begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, canvas_ui as sketch_canvas_ui, sketching};
 pub use timeline::timeline_ui;
 
@@ -35,17 +35,19 @@ pub enum RibbonTab {
     Features,
     Modify,
     Inspect,
+    Assemble,
     Files,
 }
 
 impl RibbonTab {
-    pub const ALL: [RibbonTab; 5] = [RibbonTab::Sketch, RibbonTab::Features, RibbonTab::Modify, RibbonTab::Inspect, RibbonTab::Files];
+    pub const ALL: [RibbonTab; 6] = [RibbonTab::Sketch, RibbonTab::Features, RibbonTab::Modify, RibbonTab::Inspect, RibbonTab::Assemble, RibbonTab::Files];
     pub fn label(self) -> &'static str {
         match self {
             RibbonTab::Sketch => "Sketch",
             RibbonTab::Features => "Features",
             RibbonTab::Modify => "Modify",
             RibbonTab::Inspect => "Inspect",
+            RibbonTab::Assemble => "Assemble",
             RibbonTab::Files => "Files",
         }
     }
@@ -78,6 +80,10 @@ pub struct CadUi {
     pub sketch: Option<sketch::SketchEdit>,
     /// The edge or face picker of the Modify tab.
     pub pick: Option<pick::Pick>,
+    /// The component selected in the FeatureManager (by name).
+    pub component: Option<String>,
+    /// The overlaps found by the last "Check fit": the two parts and the volume in mm³.
+    pub fit: Option<Vec<(String, String, f64)>>,
 }
 
 impl Default for CadUi {
@@ -99,6 +105,8 @@ impl Default for CadUi {
             rerun_now: true,
             sketch: None,
             pick: None,
+            component: None,
+            fit: None,
         }
     }
 }
@@ -215,9 +223,9 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
     if state.cad.running {
         ctx.request_repaint_after(std::time::Duration::from_millis(60));
     }
-    // Keyboard: Alt+1..5 ribbon tabs, Ctrl+Enter apply, Delete removes the selected feature, F2 renames it.
+    // Keyboard: Alt+1..6 ribbon tabs, Ctrl+Enter apply, Delete removes the selected feature, F2 renames it.
     if !ctx.text_edit_focused() && !state.cad.dialog_open() && !state.cad.leave_dialog {
-        let keys = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5];
+        let keys = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5, egui::Key::Num6];
         for (k, tab) in keys.iter().zip(RibbonTab::ALL) {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::ALT, *k)) {
                 state.cad.tab = tab;

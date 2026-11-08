@@ -104,7 +104,7 @@ footer .notice { background: var(--bg2); border: 1px solid var(--line); border-l
     <h1><em>Visualize.</em> <em>Analyze.</em> <em>Orchestrate.</em></h1>
     <p class="lead">The open-source, AI-enhanced scientific visualization and analysis engine, and a simulation workbench for the solver of your choice, built in Rust for seamless local and remote HPC workloads.</p>
     <p class="lead" style="font-size:16px">It ingests heterogeneous engineering datasets and standalone geometries, renders flows, fields and volumes on any GPU
-      through its native graphics API, and constructs high-fidelity meshes, uniquely unifying CAD-free geometric meshing with polycrystal
+      through its native graphics API, and constructs high-fidelity meshes, uniquely unifying parametric CAD modeling and geometric meshing with polycrystal
       grain-structure generation and microstructural EBSD analysis. By coupling an embedded, NumPy-integrated Python runtime with a
       pipeline-aware AI agent, it streamlines simulation workflows alongside the 3D view, from raw data manipulation directly into local
       or remote HPC simulation suites over SSH and Slurm.</p>
@@ -140,6 +140,8 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
       molecular-dynamics, flow, chemistry and geoscience runs, meshes it generated, and microstructures it measured. No window
       chrome, no retouching.</p>
     <div class="grid g3">
+      <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/cad_model.jpg" src="site/media/cad_model.mp4"></video>
+        <div class="body"><div class="kicker">CAD modeling</div><h3>A flange that follows its dimensions</h3><p>A parametric part with constrained sketches, a feature timeline, exact B-rep and distance-field kernels, and every face named: change the outside diameter or the number of bolt holes and the part, its meshes and the solver case below it follow. STEP, IGES and 3MF in and out.</p></div></div>
       <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/can_crash.jpg" src="site/media/can_crash.mp4"></video>
         <div class="body"><div class="kicker">Mechanics</div><h3>Explicit dynamics</h3><p>A crushed can from an Exodus II file, colored by equivalent plastic strain. Play, scrub, chart any variable over time, export the clip.</p></div></div>
       <div class="card"><video autoplay muted loop playsinline preload="metadata" poster="site/media/plate_cp.jpg" src="site/media/plate_cp.mp4"></video>

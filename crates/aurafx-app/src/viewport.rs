@@ -453,6 +453,13 @@ fn do_pick(state: &mut State, rect: Rect, pos: Pos2) {
     let meshes: Vec<(NodeId, Arc<MeshData>)> =
         state.viewport.meshes.iter().filter(|(id, _)| visible.contains(*id)).map(|(id, c)| (*id, c.mesh.clone())).collect();
     let radius = state.viewport.camera.world_per_pixel(rect.height() as f64) * 6.0;
+    // While a CAD picker is open a click chooses the edge or face under it.
+    if crate::cad::picking(state) {
+        if let Some(hit) = crate::pick::raycast(&ray, &meshes, radius) {
+            crate::cad::pick_click(state, hit.node, hit.world.to_array());
+        }
+        return;
+    }
     match crate::pick::raycast(&ray, &meshes, radius) {
         Some(hit) => {
             let (name, ds) = {
@@ -657,7 +664,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         }
     }
     // Click to pick (Pick mode, or Ctrl+click in any mode).
-    if response.clicked() && (state.viewport.mode == InteractMode::Pick || (mods.command && !selecting)) {
+    if response.clicked() && (state.viewport.mode == InteractMode::Pick || (mods.command && !selecting) || crate::cad::picking(state)) {
         if let Some(pos) = response.interact_pointer_pos() {
             do_pick(state, rect, pos);
         }
@@ -914,6 +921,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             );
         }
     }
+    crate::cad::pick_overlay(&painter, &state.viewport.camera, rect, state);
     // Ruler.
     if !state.viewport.ruler.is_empty() {
         let col = Color32::from_rgb(80, 220, 255);

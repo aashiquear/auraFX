@@ -445,3 +445,26 @@ back encloses the same volume within 0.5 %. The Signed Distance Field of that fi
 The `.htg` writer produces XML version 2, as ParaView 5.10 and later write it. Files written
 by the VTK XML, VTKHDF, Exodus, EnSight, Xdmf and CGNS writers open in ParaView with the same
 points, cells and values.
+
+## CAD parts and files
+
+The two kernels are checked against each other and against closed forms:
+
+- A box, a cylinder, a sphere, a torus, a drilled and a counterbored hole, a fillet and a chamfer
+  on picked edges, a shell with an open face, a draft (a wedge of 0.5 · h · h tan a · w), a mirror
+  about a face (twice the half's volume), a combined part (union, difference and intersection of
+  two boxes) and patterns on a face (the holes' volume and wall area) have volumes and face areas
+  that match their formulas to 0.5 % on the B-rep kernel and to a few percent (the grid's cell
+  size) on the implicit one.
+- Four of the six templates (enclosure, flange, knob, bracket) are built by both kernels and agree
+  within 1 % (3 % for the enclosure, whose open rim the implicit kernel cuts straight and says so).
+  The threaded rod and the vase fall back to the implicit kernel on purpose (a modelled thread; a
+  shell of a loft the engine's own check refuses).
+- STEP, IGES and the faceted STEP of a part only the implicit kernel builds were read back with
+  OpenCASCADE (the `cadquery-ocp` wheel, through `scripts/cad/step_check.py`, run by the test
+  `an_independent_step_reader_measures_the_same_part` when `AURAFX_OCP_PYTHON` names a Python that
+  has it): one solid, seven faces for the plate with a hole, and the volume within 0.1 % of the
+  exact kernel's. The same files read back through the vendored engine give the same volume to
+  0.1 %.
+- The overlap of two parts (Check fit) is the sampled volume of the two distance fields: two
+  boxes overlapping over a 10 × 40 × 10 slab give 4000 mm³ within 2 %.

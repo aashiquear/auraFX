@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-55b62fa8.js";
+            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -1000,6 +1000,18 @@ at the result (values, errors, the pipeline) and keeps going until the task is d
 <pre><code class="language-python">afx.ask("make an isosurface at the mean temperature")
 afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 </code></pre>
+<p>A script can wait for the assistant and read what it said: <code>afx.assistant_status()</code> returns
+<code>{"busy", "agent", "messages", "last", "error"}</code> (an answer is arriving, agent mode is iterating,
+the number of messages, the last answer, the last error).</p>
+<h2 id="modelling-parts"><a class="header" href="#modelling-parts">Modelling parts</a></h2>
+<p>The assistant knows the CAD modeler (see <a href="#cad-modeling">CAD modeling</a>). Ask it to <strong>start</strong> a part
+(“a base plate 60 by 40 by 8 mm; name the dimensions width, depth and thickness”), to <strong>build</strong>
+it (“add a wall along the back edge, two 6 mm holes, round the corner”), and to <strong>change</strong> it
+(“make the plate 80 mm wide and the holes 8 mm”). It names dimensions, uses the part’s faces by
+name, checks the volume against numbers it worked out, and can open the part in the CAD
+environment, edit the working copy, and apply it; when applying would break a node below the
+part, it is asked for the fixes. It also places parts side by side (assemblies) and uses the
+face operations (patterns on a face, draft, mirror).</p>
 <h2 id="providers"><a class="header" href="#providers">Providers</a></h2>
 <p>Choose the provider and model in the panel’s drop-downs or in <strong>Settings</strong>:</p>
 <div class="table-wrapper">
@@ -3392,9 +3404,11 @@ adds a new part and opens it), from <strong>Edit in CAD…</strong> (right-click
 or the button at the top of its Properties), or from Python with <code>part.edit_cad()</code>. While it
 is open:</p>
 <ul>
-<li>the toolbar becomes the <strong>ribbon</strong> with tabs <em>Sketch</em>, <em>Features</em>, <em>Modify</em>, <em>Inspect</em> and
-<em>Files</em>. Each button adds a feature with sensible sizes at the top of the part; you then set
-its numbers in the PropertyManager.</li>
+<li>the toolbar becomes the <strong>ribbon</strong> with tabs <em>Sketch</em>, <em>Features</em>, <em>Modify</em>, <em>Inspect</em>,
+<em>Assemble</em> and <em>Files</em> (Alt+1 to Alt+6). Each button adds a feature with sensible sizes at
+the top of the part; you then set its numbers in the PropertyManager. <em>Inspect</em> reads the part
+(volume, surface, size, center, mass for a density, the area of a cross-section); <em>Assemble</em>
+places other parts (see below); <em>Files</em> starts from a template or opens and saves a document.</li>
 <li>the Pipeline panel becomes the <strong>FeatureManager</strong>: the part’s dimensions, its features in
 order (the checkbox suppresses one; double-click renames; right-click for <em>Suppress</em>,
 <em>Roll back to here</em>, <em>Move up</em>, <em>Move down</em>, <em>Delete</em>), the modifiers on the whole part and
@@ -3413,6 +3427,11 @@ background (the timeline shows the time it took and the part’s volume).</li>
 say so in a grey banner; nothing downstream re-runs on every edit.</li>
 </ul>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_environment.png" alt="The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline"><span class="img-wrapper"><img src="images/cad_environment.png" alt="The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_inspect.png" alt="The Inspect tab: the bracket template’s volume, surface, size, center of volume, mass for a density and a cross-section area"><span class="img-wrapper"><img src="images/cad_inspect.png" alt="The Inspect tab: the bracket template’s volume, surface, size, center of volume, mass for a density and a cross-section area"></span></label></p>
+<p><strong>Starter parts.</strong> <em>Files › New from template</em> (or <code>afx.cad_model(template="flange")</code>) replaces the
+part by one of six starters, all driven by named dimensions (the enclosure follows <code>width</code>,
+<code>depth</code>, <code>height</code> and <code>wall</code>; the flange its diameter, bolt circle and number of holes):</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_templates.png" alt="The six templates side by side: enclosure, flange, knob, threaded rod, vase and bracket, colored by face"><span class="img-wrapper"><img src="images/cad_templates.png" alt="The six templates side by side: enclosure, flange, knob, threaded rod, vase and bracket, colored by face"></span></label></p>
 <p>The right end of the ribbon leaves the environment:</p>
 <ul>
 <li><strong>Apply</strong> hands the part to the CAD Model node and closes the environment; the nodes below
@@ -3513,12 +3532,14 @@ without it.</p>
 <p>A part is built by one of two kernels, chosen in the CAD Model’s Properties (<strong>Kernel</strong>):</p>
 <ul>
 <li><strong>B-rep</strong> builds <em>exact</em> solids with true faces and edges (a cylinder is a cylinder, a hole’s
-wall is a real cylindrical face). It maps primitives, extruded and revolved sketches, holes,
-patterns (as copies), rounding and hollowing of a feature or of the whole part, and cap
-chamfers. This is what <strong>STEP</strong> is written from, and it reads imported solids.</li>
+wall is a real cylindrical face). It maps primitives, extruded and revolved sketches, lofts,
+holes, patterns (as copies), rounding and hollowing of a feature or of the whole part, the
+rounded junction a feature’s <em>blend</em> makes with the part, drafts, mirrors about a face,
+combined parts, and cap chamfers. This is what <strong>STEP</strong> and <strong>IGES</strong> are written from, and it
+reads imported solids.</li>
 <li><strong>Implicit</strong> describes the part as a distance field. It builds every feature, including
-threads, lofts and sweeps and the rounded junction a feature’s <em>blend</em> makes, and never fails;
-edges are not exact.</li>
+threads, sweeps and a loft’s shell, and never fails; edges are not exact. It leaves a picked
+fillet or a draft undone and says so.</li>
 <li><strong>Auto</strong> (the default) uses B-rep when it can build the part and Implicit otherwise. The
 result carries a field <code>Kernel</code> (which one built it) and <code>KernelNotes</code> (why B-rep could not).</li>
 </ul>
@@ -3535,14 +3556,22 @@ it as a CAD Model from Python.</p>
 m.cad.hole(diameter=6, depth=20, at=(10, 5, 8))   # cut into it
 m.cad.save("bracket2.step")                       # exact STEP (faces and edges)
 m.cad.save("bracket2.3mf"); m.cad.save("part.sc") # 3MF, a SolidCraft design (also .stl, .obj)
+m.cad.save("bracket2.igs")                        # IGES, exact (the exact kernel only)
 r = m.cad.save("lofted.step")                     # {"exact": False, "note": "faceted: ..."} when
                                                   # only the Implicit kernel builds the part
 </code></pre>
 <p>A part that only the Implicit kernel builds is written as STEP or STL from its tessellation: a
-valid solid of triangles whose header says <em>faceted B-rep</em> and why. IGES can be read but not yet
-written.</p>
+valid solid of triangles whose header says <em>faceted B-rep</em> and why. IGES is written only for a
+part the exact kernel builds (its faces are true surfaces); for any other part the message says to
+write STEP instead.</p>
+<p>The files auraFX writes were checked with an independent CAD reader: the same number of faces
+and the same volume, to a thousandth, for STEP and IGES (the checks are in the test suite and
+need that reader installed to run).</p>
 <h2 id="edges-faces-and-measures"><a class="header" href="#edges-faces-and-measures">Edges, faces and measures</a></h2>
 <p>With the exact kernel the part has real edges, and you can work on them. In the <strong>Modify</strong> tab:</p>
+<p>While one of these pickers is open you can also <strong>click the part in the 3D view</strong>: a click chooses
+the face under the pointer, or, for an edge, the edge of that face the click is nearest to (click
+again to un-choose). Chosen edges are drawn in orange and chosen faces are marked with a dot.</p>
 <ul>
 <li><strong>Fillet edges…</strong> and <strong>Chamfer edges…</strong> open a picker in the PropertyManager that <strong>lists the
 part’s edges</strong>, each with the two faces it lies between (<code>Base z+ × Bore side</code>), its length and
@@ -3551,10 +3580,24 @@ dimensions) and press <strong>Apply</strong>: a <em>Fillet</em> or <em>Chamfer</
 modifies, so it follows them when you roll back or change a dimension.</li>
 <li><strong>Shell, open faces…</strong> lists the faces; tick the ones to remove (none: a closed hollow body)
 and give the wall.</li>
+<li><strong>Draft faces…</strong> lists the faces; tick the side faces to taper and give the angle. They stay
+fixed where the part meets the bottom plane and lean by that angle above it.</li>
+<li><strong>Pattern on a face…</strong> lists the <em>flat</em> faces; pick one, choose <strong>Holes</strong> or <strong>Bosses</strong> and a
+<strong>Row</strong>, <strong>Grid</strong> or <strong>Circle</strong>, and give the size, the count, the spacing (or the radius of the
+circle). The first copy sits at the face’s center and the row runs along the face’s own x axis,
+so the pattern follows a face that is not horizontal. A pattern on a face is one feature: the
+count and the spacing can be changed afterwards, and a hole’s copies share its face names
+(<code>Hole side</code>).</li>
+<li><strong>Mirror about a face…</strong> lists the flat faces; the reflection of the part about the chosen face
+is joined to it. Model half a part, mirror it, and the halves stay in step when a dimension
+changes.</li>
 </ul>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_pick.png" alt="The edge picker: the edges of a plate with a bored hole, each with the faces on either side"><span class="img-wrapper"><img src="images/cad_pick.png" alt="The edge picker: the edges of a plate with a bored hole, each with the faces on either side"></span></label></p>
-<p>These features need the <strong>B-rep</strong> kernel. On the Implicit kernel a picked fillet or chamfer
-leaves the edges sharp, and the result says so (<code>KernelNotes</code>); a picked-face shell is approximated.
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_face_ops.png" alt="Three parts side by side: a plate with a bolt circle of holes and a grid of pins laid out on its top face, a block with drafted sides, and a half part mirrored about its flat face"><span class="img-wrapper"><img src="images/cad_face_ops.png" alt="Three parts side by side: a plate with a bolt circle of holes and a grid of pins laid out on its top face, a block with drafted sides, and a half part mirrored about its flat face"></span></label></p>
+<p>These features need the <strong>B-rep</strong> kernel for a fillet, a chamfer and a draft. On the Implicit
+kernel a picked fillet or chamfer leaves the edges sharp and a draft leaves the faces vertical, and
+the result says so (<code>KernelNotes</code>); a picked-face shell is approximated. Patterns on a face and
+mirrors work on both kernels.
 <strong>Fillet</strong> and <strong>Chamfer</strong> without a picker round every edge of the selected feature or of the
 whole part.</p>
 <p>The <strong>Inspect</strong> tab and Python read the part: mass (volume, surface, center, bounds, mass for a
@@ -3566,9 +3609,37 @@ b.cad.edges()                                        # [{'index': 0, 'point': [.
 b.cad.fillet_edges(("Base z+", "Base side 2"), size=2)   # the edge between two named faces
 b.cad.chamfer_edges([0, 3, 5], size=1)               # edges by index (or a point on each)
 b.cad.shell_faces(["Base z+"], thickness=2)          # an open box
+b.cad.draft(["Base side 1"], angle=5)                # taper a face, fixed at the bottom plane
+b.cad.mirror_about("Base x-", (1, 0, 0))             # the reflection about that face, joined to the part
+b.cad.edit("face_pattern", face="Base z+", layout="circular", count=6, radius=12, diameter=4, depth=6)
+b.cad.edit("combine", template="flange", op="subtract", at=(0, 0, 4))   # cut another part from this one
 b.cad.mass(7.85)                                     # steel
 b.cad.measure_faces("Base x-", "Base x+")            # {'parallel': True, 'distance': 40.0, ...}
 b.cad.interference(other, at=(12, 6, 0))             # overlap volume with another CAD Model placed there
+</code></pre>
+<h2 id="assemblies"><a class="header" href="#assemblies">Assemblies</a></h2>
+<p>A CAD Model can hold <strong>several parts side by side</strong>. On the <strong>Assemble</strong> tab, <strong>Insert part</strong>
+places another part: a template, a blank part, or a CAD file (<code>.afxcad</code>, STEP, IGES, 3MF, <code>.sc</code>).
+The part keeps its own features and dimensions; the model shows all the parts together, as one
+surface with one body per part, and a part’s faces are named <code>Part/Face</code> (<code>Lid/Base z+</code>), so the
+mesh tools and the downstream check refer to them as they do to any face.</p>
+<p>In the feature tree a <strong>Components</strong> section lists the parts. Tick one off to leave it out, click
+a name to see where it sits: three positions (mm) and three turns (degrees, about x, y and then
+z), which you can drag or type; <strong>×</strong> removes it. <strong>Check fit</strong> lists the pairs of parts that
+overlap, with the overlap volume in mm³ (the parts are compared two at a time, on the exact
+solids when the exact kernel builds them), and says so when none do.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_assembly.png" alt="The Assemble tab: a housing with a lid and a flange placed beside it, the flange selected with its position and turn, and Check fit’s list of overlaps"><span class="img-wrapper"><img src="images/cad_assembly.png" alt="The Assemble tab: a housing with a lid and a flange placed beside it, the flange selected with its position and turn, and Check fit’s list of overlaps"></span></label></p>
+<p><strong>Add part</strong>, <strong>Cut with part</strong> and <strong>Keep common part</strong> (on the same tab) do something else: they
+make another part a <em>feature</em> of this one, which joins it, removes its volume or keeps only the
+common volume. Use components for parts that stay apart (a bolt in a bracket) and these for parts
+that become one solid.</p>
+<pre><code class="language-python">m = afx.cad_model(name="Housing")
+m.cad.component_add(name="Lid", template="bracket", at=(0, 0, 14))
+m.cad.component_add(name="Bolt", file="bolt.step", at=(20, 0, 14), rotate=(0, 90, 0))
+m.cad.component_op("Lid", "add", kind="cylinder", radius=3, height=6)   # edit a part in place
+m.cad.component_move("Bolt", by=(0, 5, 0))
+m.cad.component_interference()                        # [{'a': 'Lid', 'b': 'Bolt', 'volume': 120.4}]
+m.cad.components()                                    # name, position, turn, visibility
 </code></pre>
 <h2 id="from-a-cad-part-to-a-mesh-and-a-solver-case"><a class="header" href="#from-a-cad-part-to-a-mesh-and-a-solver-case">From a CAD part to a mesh and a solver case</a></h2>
 <p>A CAD Model feeds the meshing tools directly, and <strong>its faces come along as named side sets</strong>:</p>
@@ -3578,6 +3649,7 @@ b.cad.interference(other, at=(12, 6, 0))             # overlap volume with anoth
 boundary condition can name the wall of a hole. <strong>Extract Set</strong> shows one.</li>
 <li>In geometry commands, <strong><code>import 'part.step'</code></strong> (also <code>.stp</code>, <code>.igs</code>, <code>.3mf</code>, <code>.sc</code>, <code>.afxcad</code>)
 brings the part in as a body whose faces keep their names, and <code>mesh body 1 size 0.5 scheme overlay</code> meshes it; the Hex mesh output carries the same side sets.</li>
+<li><strong>Tet Mesh</strong> keeps the names too: one side set per CAD face.</li>
 <li>Assign Grains and the solver cases follow as for any mesh: give the set to hold and the set to
 pull by name (<code>fixed='plate_with_hole face 1'</code>, <code>loaded='plate_with_hole face 2'</code>).</li>
 </ul>
@@ -3612,6 +3684,8 @@ dimension. The calls:</p>
 <tr><td><code>m.cad.extrude(s, depth, end="blind")</code></td><td>extrude a sketch (<code>"midplane"</code>, <code>"through_all"</code>; <code>draft</code>, <code>top={"fillet": 1}</code>)</td></tr>
 <tr><td><code>m.cad.revolve(s, angle=360)</code></td><td>revolve a sketch about its vertical axis (x is the radius)</td></tr>
 <tr><td><code>m.cad.fillet(r)</code>, <code>shell(t)</code>, <code>linear_pattern</code>, <code>grid_pattern</code>, <code>circular_pattern</code>, <code>mirror</code>, <code>split</code>, <code>scale</code></td><td>modifiers on a feature (<code>feature="Base"</code>) or the whole part</td></tr>
+<tr><td><code>m.cad.mirror_about(face_or_point, normal)</code>, <code>draft(faces, angle)</code>, <code>edit("face_pattern", ...)</code>, <code>edit("combine", ...)</code></td><td>operations on faces and bodies</td></tr>
+<tr><td><code>m.cad.component_add(...)</code>, <code>component_move</code>, <code>component_op</code>, <code>component_visible</code>, <code>component_remove</code>, <code>components()</code>, <code>component_interference()</code></td><td>assemblies</td></tr>
 <tr><td><code>m.cad.suppress(name)</code>, <code>remove</code>, <code>rename</code>, <code>move</code></td><td>edit the history</td></tr>
 <tr><td><code>m.cad.configuration("small", width=20)</code>, <code>activate("small")</code></td><td>named variants</td></tr>
 <tr><td><code>m.cad.faces()</code>, <code>volume()</code>, <code>features()</code>, <code>parameters()</code></td><td>read the result</td></tr>
@@ -3619,7 +3693,9 @@ dimension. The calls:</p>
 </tbody>
 </table>
 </div>
-<p>Every call is one undo step, and is recorded in the Python trace.</p>
+<p>Every call is one undo step, and is recorded in the Python trace. A feature name can be used once
+(faces are named after features): adding a second <code>Base</code> is refused with that reason, and
+<code>m.cad.clear("Name")</code> empties a part to start from nothing.</p>
 <h2 id="files"><a class="header" href="#files">Files</a></h2>
 <p>A part is saved as an <strong><code>.afxcad</code></strong> file: readable JSON with a format version, so a later
 auraFX opens an earlier file, and an earlier one says plainly that a file is from a newer
@@ -3633,8 +3709,13 @@ Face names carry through: an extracted set or a boundary layer can name <code>Bo
 <li>The kernel used here describes the part as a distance field. It never fails on a hard
 combination of features, but edges are not exact lines: the faces it reports are labelled
 regions of the surface, and the same labels come back after every rebuild.</li>
-<li>A part is one body. Sketches start on the three principal planes or on a flat face whose
-normal is along x, y or z; a face at another angle can not be sketched on yet.</li>
+<li>Sketches start on the three principal planes or on a flat face whose normal is along x, y or z;
+a face at another angle can not be sketched on yet (a pattern on a face does follow any flat face).</li>
+<li>Components are placed rigidly, by position and turn; there are no mates or motion. A component
+is edited in place from Python (<code>component_op</code>); to model it with the sketch canvas, build it as
+its own CAD Model and insert the file.</li>
+<li>Check fit samples the two solids on a grid, so a thin overlap smaller than a cell is missed;
+the result is accurate to a few percent for overlaps that span several cells.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="settings-and-keyboard-shortcuts"><a class="header" href="#settings-and-keyboard-shortcuts">Settings and keyboard shortcuts</a></h1>

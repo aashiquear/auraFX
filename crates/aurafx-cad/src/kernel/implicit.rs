@@ -103,7 +103,9 @@ impl FeatureFaces {
             | Shape::Body { .. }
             | Shape::Brep { .. }
             | Shape::EdgeBlend { .. }
-            | Shape::ShellFaces { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Freeform)]),
+            | Shape::ShellFaces { .. }
+            | Shape::MirrorPlane { .. }
+            | Shape::Draft { .. } => (Classifier::Single, vec![("surface".into(), FaceKind::Freeform)]),
         };
         FeatureFaces {
             import: matches!(f.shape, Shape::Brep { .. }),
@@ -456,6 +458,18 @@ impl Kernel for ImplicitKernel {
                         Some(format!("'{}' is not built by the implicit kernel: the picked edges stay sharp (choose the B-rep kernel)", f.name))
                     }
                     Shape::ShellFaces { .. } => Some(format!("'{}' hollows the part with an approximate open face on the implicit kernel", f.name)),
+                    Shape::Draft { .. } => {
+                        Some(format!("'{}' is not built by the implicit kernel: the picked faces stay vertical (choose the B-rep kernel)", f.name))
+                    }
+                    // An open shell of a rounded box: the exact kernel offsets the rounded rim, this one cuts the opening straight.
+                    Shape::Box { corner_radius, .. }
+                        if *corner_radius > 0.0 && f.modifiers.iter().any(|m| matches!(m, crate::document::Modifier::ShellOpen { open_top: true, .. })) =>
+                    {
+                        Some(format!(
+                            "'{}': the rim of the open shell is approximate on the implicit kernel (the exact kernel offsets the rounded rim)",
+                            f.name
+                        ))
+                    }
                     _ => None,
                 })
                 .collect(),

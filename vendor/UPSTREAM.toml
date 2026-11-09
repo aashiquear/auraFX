@@ -1,0 +1,18 @@
+# The upstream revision each vendored tree was copied from (verbatim, then pruned to the
+# directories in vendor/prune.txt). scripts/cad/upstream-pull.sh reads this file to make the
+# upstream patch since `rev` and updates it after a pull; scripts/cad/upstream-diff.sh reads it.
+# The trees are plain files in this repository: no submodule, no subtree, nothing to fetch.
+
+[solidcraft]
+url = "https://github.com/tangency-labs/solidcraft"
+ref = "v0.40.0-rc.3"
+rev = "7001949c49e211a430fe4747221589b2b9384f2c"
+carried = "2026-11-07"
+licence = "MIT OR Apache-2.0"
+
+[solidcore]
+url = "https://github.com/tangency-labs/solidcore"
+ref = "a445bdaac60a980b0e9d1dba3ee28eb7ada44f50"
+rev = "a445bdaac60a980b0e9d1dba3ee28eb7ada44f50"
+carried = "2026-11-07"
+licence = "Apache-2.0"

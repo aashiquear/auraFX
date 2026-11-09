@@ -86,6 +86,9 @@ pub struct State {
     pub status: String,
     pub show_settings: bool,
     pub show_about: bool,
+    /// Help > About auraFX > Third-party licences, and its find box.
+    pub show_licences: bool,
+    pub licence_find: String,
     pub show_shortcuts: bool,
     pub rename_target: Option<(NodeId, String)>,
     pub playing: bool,
@@ -349,6 +352,8 @@ impl AuraApp {
             status: "Ready. Open a file (Ctrl+O), add a source, or press Ctrl+K.".into(),
             show_settings: false,
             show_about: false,
+            show_licences: false,
+            licence_find: String::new(),
             show_shortcuts: false,
             rename_target: None,
             playing: false,
@@ -1373,9 +1378,37 @@ impl State {
                     ui.label(format!("Renderer: {}", self.viewport.adapter_name()));
                     ui.label(format!("Python: {}", self.python.version.lock()));
                     ui.hyperlink("https://github.com/aashiquear/auraFX");
+                    ui.add_space(6.0);
+                    ui.label("auraFX includes open-source software. The B-rep CAD kernel and the CAD file formats come from SolidCraft and solidcore.");
+                    if ui.button(format!("{} Third-party licences...", crate::icons::FILE_TEXT)).clicked() {
+                        self.show_licences = true;
+                    }
                 });
             });
             self.show_about = open;
+        }
+        if self.show_licences {
+            // The notices the licences of the bundled software ask to be passed on (scripts/licences.sh).
+            static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+            let lines = LINES.get_or_init(|| include_str!("../../../THIRD-PARTY-NOTICES.txt").lines().collect());
+            let mut open = true;
+            egui::Window::new("Third-party licences").open(&mut open).default_size([680.0, 520.0]).show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{} Find", crate::icons::MAGNIFYING_GLASS));
+                    ui.add(egui::TextEdit::singleline(&mut self.licence_find).hint_text("a crate or a licence, e.g. Apache-2.0").desired_width(260.0));
+                });
+                let find = self.licence_find.trim().to_lowercase();
+                let shown: Vec<&str> =
+                    if find.is_empty() { lines.clone() } else { lines.iter().copied().filter(|l| l.to_lowercase().contains(&find)).collect() };
+                ui.weak(format!("{} of {} lines. The same text is THIRD-PARTY-NOTICES.txt next to the program.", shown.len(), lines.len()));
+                let row = ui.text_style_height(&egui::TextStyle::Monospace);
+                egui::ScrollArea::both().auto_shrink([false, false]).show_rows(ui, row, shown.len(), |ui, range| {
+                    for l in &shown[range] {
+                        ui.add(egui::Label::new(egui::RichText::new(*l).monospace()).extend());
+                    }
+                });
+            });
+            self.show_licences = open;
         }
         if self.show_shortcuts {
             let mut open = true;
@@ -1702,6 +1735,17 @@ impl eframe::App for AuraApp {
                     if let Some(def) = aurafx_filters::find(arg.trim()).filter(|d| d.is_source) {
                         self.state.source_dialog = crate::source_dialog::SourceDialog::new(def.id);
                     }
+                }
+                // "about [licences]": the About window, or its third-party licences.
+                "about" => {
+                    self.state.show_about = true;
+                    self.state.show_licences = arg.trim() == "licences";
+                }
+                // "licence_find <text>": the find box of the third-party licences.
+                "licence_find" => {
+                    self.state.show_about = true;
+                    self.state.show_licences = true;
+                    self.state.licence_find = arg.trim().to_string();
                 }
                 "show" => {
                     if let Some(p) = find(arg) {

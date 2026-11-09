@@ -24,6 +24,7 @@ pub const CHAT_CIRCLE_TEXT: &str = "\u{E16E}";
 pub const LIST: &str = "\u{E2F0}";
 pub const TABLE: &str = "\u{E476}";
 pub const INFO: &str = "\u{E2CE}";
+pub const FILE_TEXT: &str = "\u{E23A}";
 pub const WARNING: &str = "\u{E4E0}";
 pub const CAMERA: &str = "\u{E10E}";
 pub const SCISSORS: &str = "\u{EAE0}";

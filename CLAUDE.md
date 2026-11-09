@@ -40,6 +40,20 @@ named after a program, comments in readers and tests that explain how a referenc
 color-map `.json`), and the test suite, `testdata/README.md` and `docs/reference/verification.md`, which may say
 which reference program produced a reference file and how the results compare.
 
+## Third-party code and licences
+
+- Every dependency and every piece of carried code must have a licence auraFX can ship under
+  MIT OR Apache-2.0 (the allowed list is in `scripts/licences.sh`; no GPL, LGPL, AGPL, SSPL,
+  non-commercial or unlicensed code). Check before adding it, not after.
+- After any change to `Cargo.lock` or `vendor/`, run `scripts/licences.sh` and commit the
+  regenerated `THIRD-PARTY-NOTICES.txt` and `docs/reference/third-party.md` (CI runs `--check`).
+- Code copied from another project goes under `vendor/<name>/` as plain files at a recorded
+  revision (`vendor/UPSTREAM.toml`), pruned to whole directories that the build uses, with its
+  `LICENSE*`, `NOTICE` and attribution files kept; never as a submodule or a subtree, and never
+  with the upstream history or the unused directories in a commit. Changes inside it carry
+  `// auraFX:` and an entry in `vendor/README.md`. Upstream work comes in with
+  `scripts/cad/upstream-pull.sh` (a three-way patch of the carried directories).
+
 ## Other conventions
 
 - Rebuild `target/release/aurafx` (and `aurafx-server`) after each batch; the user runs the

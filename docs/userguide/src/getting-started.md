@@ -123,3 +123,16 @@ source** turns the window back on. Sources added from Python (`afx.sphere(radius
   Pipeline's right-click **Add filter** has the same categories.
 - The AI assistant answers questions about the loaded data and the app (see
   [AI assistant](ai-assistant.md)).
+
+## Open-source software in auraFX
+
+**Help › About auraFX** shows the version, the graphics card in use and the Python version.
+auraFX includes open-source software: the CAD environment's B-rep kernel and its CAD file formats
+come from the SolidCraft and solidcore projects (see the README's Credits), and the program is
+built from several hundred open-source Rust libraries. **Third-party licences…** in the About
+window lists each of them with its licence, followed by the copyright notices and licence texts
+they ask to be passed on. Type in **Find** to show only the lines with a library's name or a
+licence (for example `Apache-2.0`). The same text is the file `THIRD-PARTY-NOTICES.txt` next to
+the program in every package.
+
+![The About window and its third-party licences, found by a library name](images/about_licences.png)

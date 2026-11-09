@@ -38,7 +38,7 @@ Copy-Item "$env:CARGO_TARGET_DIR/release/aurafx-server.exe" $Stage
 Copy-Item -Recurse $PyRoot "$Stage/python"
 Copy-Item "$PyRoot/python3*.dll" $Stage
 Get-ChildItem "$Stage/python" -Recurse -Directory -Include "test","tests","__pycache__","idlelib","tkinter","turtledemo" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-Copy-Item "$Root/assets/icons/aurafx.ico", "$Root/LICENSE-MIT", "$Root/LICENSE-APACHE", "$Root/README.md" $Stage
+Copy-Item "$Root/assets/icons/aurafx.ico", "$Root/LICENSE-MIT", "$Root/LICENSE-APACHE", "$Root/THIRD-PARTY-NOTICES.txt", "$Root/README.md" $Stage
 & "$Stage/aurafx.exe" --version
 
 Compress-Archive -Path "$Stage" -DestinationPath "$Out/auraFX-$Version-windows-x64.zip" -Force

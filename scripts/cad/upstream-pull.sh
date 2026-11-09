@@ -1,51 +1,103 @@
 #!/usr/bin/env bash
-# Pull a newer SolidCraft into vendor/solidcraft (and the solidcore revision it pins into
-# vendor/solidcore) with git subtree, prune again, and say what to do next.
+# Take upstream work into the vendored SolidCraft (and the solidcore revision it pins) as a patch:
+# the upstream change from the carried revision (vendor/UPSTREAM.toml) to <ref>, limited to the
+# directories auraFX carries (vendor/prune.txt lists the others), applied with a three-way merge
+# so that auraFX's own edits inside the trees stay. For developers; users never need it.
 #
-#   scripts/cad/upstream-pull.sh v0.40.0        # a SolidCraft tag
+#   scripts/cad/upstream-pull.sh v0.41.0             # a SolidCraft tag, branch or commit
+#   scripts/cad/upstream-pull.sh v0.41.0 --dry-run   # report what would change, apply nothing
 #
-# The trees are carried in this repository (vendor/README.md). Only whole directories are ever
-# deleted (vendor/prune.txt), so a pull merges; a file upstream changed in a directory we pruned
-# shows as a modify/delete conflict, which this script settles by keeping it deleted.
+# The upstream repositories are cloned (without file contents until needed) into a temporary
+# folder outside this repository, so none of their history enters it. Only the changed files of
+# the carried directories do. Nothing is committed: review, build, test, then commit.
 set -euo pipefail
-tag="${1:?usage: upstream-pull.sh <solidcraft tag>}"
+ref="${1:?usage: upstream-pull.sh <solidcraft tag|branch|commit> [--dry-run]}"
+dry=0; [ "${2:-}" = "--dry-run" ] && dry=1
 root="$(cd "$(dirname "$0")/../.." && pwd)"; cd "$root"
-sc_url=https://github.com/tangency-labs/solidcraft
-core_url=https://github.com/tangency-labs/solidcore
 [ -z "$(git status --porcelain)" ] || { echo "the working tree has changes: commit or stash them first" >&2; exit 1; }
+work="$(mktemp -d "${TMPDIR:-/tmp}/afx-upstream.XXXXXX")"; trap 'rm -rf "$work"' EXIT
 
-prune() {
-  grep -v '^#' vendor/prune.txt | grep -v '^$' | while read -r p; do git rm -rq --ignore-unmatch "$p" || true; done
-  # Directories that must still exist, empty: SolidCraft's workspace lists apps/* as members, and
-  # cargo reads a glob over a missing directory as a literal path (cargo metadata, cargo fmt).
-  grep -v '^#' vendor/keep.txt | grep -v '^$' | while read -r p; do mkdir -p "$p"; touch "$p/.gitkeep"; git add -f "$p/.gitkeep"; done
+field() { python3 -I -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))[sys.argv[2]][sys.argv[3]])' vendor/UPSTREAM.toml "$1" "$2"; }
+set_fields() { # tree ref rev: record the new revision
+  python3 -I - vendor/UPSTREAM.toml "$1" "$2" "$3" "$(date +%F)" <<'PY'
+import re, sys
+p, tree, ref, rev, day = sys.argv[1:]
+s = open(p).read()
+head, sep, rest = s.partition(f"[{tree}]\n")
+body, nxt, tail = rest.partition("\n[")
+for k, v in (("ref", ref), ("rev", rev), ("carried", day)):
+    body = re.sub(rf'^{k} = ".*"$', f'{k} = "{v}"', body, flags=re.M)
+open(p, "w").write(head + sep + body + nxt + tail)
+PY
 }
-settle() {  # after a subtree pull that stopped on modify/delete conflicts in pruned directories
-  prune
-  if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
-    echo "conflicts remain outside the pruned directories:" >&2; git diff --name-only --diff-filter=U >&2
-    echo "resolve them, run 'git add -A' and 'git commit --no-edit', then re-run this script's remaining steps by hand (vendor/README.md)." >&2
-    exit 1
+excludes() {
+  grep -v '^#' vendor/prune.txt | grep "^vendor/$1/" | sed "s#^vendor/$1/#:(exclude)#"
+  # Newer SolidCraft carries solidcore inside its own tree (solidcore/): prune it the same way.
+  [ "$1" = solidcraft ] && grep -v '^#' vendor/prune.txt | grep '^vendor/solidcore/' | sed 's#^vendor/solidcore/#:(exclude)solidcore/#'
+  return 0
+}
+clone() { # tree ref -> prints the commit
+  local dir="$work/$1"
+  [ -d "$dir" ] || git clone -q --filter=blob:none --no-checkout "$(field "$1" url)" "$dir"
+  git -C "$dir" rev-parse -q --verify "$2^{commit}" 2>/dev/null \
+    || { git -C "$dir" fetch -q origin "$2" && git -C "$dir" rev-parse FETCH_HEAD; }
+}
+status=0
+take() { # tree ref
+  local tree=$1 want=$2 have new dir
+  have="$(field "$tree" rev)"; new="$(clone "$tree" "$want")"; dir="$work/$tree"
+  git -C "$dir" cat-file -e "$have^{commit}" 2>/dev/null || git -C "$dir" fetch -q origin "$have"
+  echo "== $tree: carried $(field "$tree" ref) (${have:0:9}), new $want (${new:0:9})"
+  if [ "$have" = "$new" ]; then echo "   already carried"; return; fi
+  echo "   $(git -C "$dir" rev-list --count "$have..$new" 2>/dev/null || echo '?') upstream commits"
+  # Directories upstream added that are not carried yet and not pruned: decide per directory.
+  local added; added="$(git -C "$dir" diff --name-only --diff-filter=A "$have" "$new" -- . $(excludes "$tree") \
+    | awk -F/ '{ d = ($1 == "crates" || $1 == "assets") ? $1 "/" $2 : $1; print d }' | sort -u \
+    | while read -r d; do [ -e "vendor/$tree/$d" ] || echo "$d"; done)"
+  [ -z "$added" ] || { echo "   new upstream directories (carried by this pull; add them to vendor/prune.txt if auraFX does not need them):"; echo "$added" | sed 's/^/     /'; }
+  git -C "$dir" diff --binary --full-index "$have" "$new" -- . $(excludes "$tree") > "$work/$tree.patch"
+  git apply --stat --directory="vendor/$tree" "$work/$tree.patch" | tail -1 | sed 's/^/  /'
+  [ "$dry" = 1 ] && return
+  if git apply --3way --whitespace=nowarn --directory="vendor/$tree" "$work/$tree.patch"; then
+    echo "   applied"
+  else
+    echo "   applied with conflicts (auraFX and upstream changed the same lines): resolve the files below" >&2
+    git diff --name-only --diff-filter=U | sed 's/^/     /' >&2
+    status=1
   fi
-  git add -A; git commit -q --no-edit
+  set_fields "$tree" "$want" "$new"
 }
 
-echo "== SolidCraft $tag"
-git subtree pull --prefix vendor/solidcraft "$sc_url" "$tag" --squash -m "Vendor SolidCraft $tag (git subtree pull)" || settle
-rev=$(git fetch -q "$sc_url" "$tag" && git show FETCH_HEAD:Cargo.toml | grep -E '^solidcore *=' | sed -E 's/.*rev *= *"([0-9a-f]+)".*/\1/' | head -1)
-[ -n "$rev" ] || { echo "could not read the solidcore revision $tag pins" >&2; exit 1; }
-echo "== solidcore $rev (pinned by $tag)"
-git subtree pull --prefix vendor/solidcore "$core_url" "$rev" --squash -m "Vendor solidcore $rev (git subtree pull)" || settle
-prune
-if [ -n "$(git status --porcelain)" ]; then git add -A; git commit -q -m "Prune the vendored trees again after pulling SolidCraft $tag"; fi
-
+take solidcraft "$ref"
+# solidcore: the revision the new SolidCraft pins, or carried inside SolidCraft's own tree.
+manifest="$(git -C "$work/solidcraft" show "$(clone solidcraft "$ref"):Cargo.toml")"
+core="$(echo "$manifest" | sed -nE 's/^solidcore *=.*rev *= *"([0-9a-f]+)".*/\1/p' | head -1)"
+if [ -n "$core" ]; then
+  take solidcore "$core"
+elif echo "$manifest" | grep -qE '^solidcore *=.*path *= *"solidcore/'; then
+  cat <<MSG
+== solidcore: SolidCraft $ref carries it inside its own tree (solidcore/), no longer by git revision.
+   This pull brings it to vendor/solidcraft/solidcore (pruned like vendor/solidcore). Once, by hand:
+   remove vendor/solidcore and the [patch."https://github.com/tangency-labs/solidcore"] section of
+   the root Cargo.toml, move the vendor/solidcore/ lines of vendor/prune.txt to
+   vendor/solidcraft/solidcore/, and drop the [solidcore] section of vendor/UPSTREAM.toml
+   (vendor/README.md, "When upstream moves solidcore").
+MSG
+else
+  echo "could not tell how SolidCraft $ref includes solidcore (Cargo.toml): stop and check by hand" >&2; exit 1
+fi
+# Directories that must exist, empty (vendor/keep.txt says why).
+grep -v '^#' vendor/keep.txt | grep -v '^$' | while read -r p; do mkdir -p "$p"; [ -e "$p/.gitkeep" ] || { touch "$p/.gitkeep"; [ "$dry" = 1 ] || git add -f "$p/.gitkeep"; }; done
+[ "$dry" = 1 ] && exit 0
 cat <<MSG
 
-Pulled SolidCraft $tag with solidcore $rev. Next:
-  1. update the tag, revision and date in vendor/README.md and docs/reference/third-party.md
-     (scripts/cad/third-party.sh regenerates the licence table);
-  2. cargo build --release -p aurafx-app && cargo test -p aurafx-cad;
-  3. scripts/cad/upstream-diff.sh shows the commands the new version added (wire them into
+Next:
+  1. review: git diff --cached --stat (and git diff for unresolved conflicts);
+  2. scripts/licences.sh (regenerates THIRD-PARTY-NOTICES.txt and docs/reference/third-party.md;
+     it stops on a licence that is not permissive);
+  3. cargo build --release -p aurafx-app && cargo test -p aurafx-cad;
+  4. scripts/cad/upstream-diff.sh lists the commands the new version added (wire them into
      crates/aurafx-cad/src/kernel/brep.rs and the ribbon);
-  4. a change of ours inside the trees carries '// auraFX:' and an entry in vendor/README.md.
+  5. update the table in vendor/README.md, then commit ("Take SolidCraft $ref into vendor/").
 MSG
+exit $status

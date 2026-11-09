@@ -43,7 +43,7 @@ HERE="$(dirname "$(readlink -f "$0")")"
 exec "$HERE/usr/bin/aurafx" "$@"
 RUN
 chmod +x "$APPDIR/AppRun"
-cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/README.md" "$APPDIR/usr/lib/aurafx/"
+cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/THIRD-PARTY-NOTICES.txt" "$ROOT/README.md" "$APPDIR/usr/lib/aurafx/"
 
 # Smoke test: the packaged binary starts and its Python imports NumPy.
 "$APPDIR/usr/bin/aurafx" --version

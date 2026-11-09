@@ -127,9 +127,8 @@ its B-rep kernel is the separate `solidcore` repository (Apache-2.0, a port of S
 
 **How the code comes in**
 
-- `vendor/solidcraft/`: a `git subtree` snapshot of the SolidCraft repository at a tag
-  (`git subtree add --prefix vendor/solidcraft https://github.com/tangency-labs/solidcraft <tag> --squash`),
-  pruned in a follow-up commit to the crates we build: `geom`, `profile`, `sketch`, `kernel`,
+- `vendor/solidcraft/`: the files of the SolidCraft repository at a tag, copied verbatim and
+  pruned to the crates we build (originally a `git subtree` snapshot; see the revision below): `geom`, `profile`, `sketch`, `kernel`,
   `smlib`, `step`, `doc`, `io`, `engine`, `derive`, `testkit` (tests) and their `vendor/`
   fixes; `apps/`, `ui-egui`, `gpu`, `mcp`, `render`, `dynamics`, `space-mouse`, the browser
   build and the docs are removed. `vendor/solidcore/`: the same for solidcore at the revision
@@ -143,28 +142,32 @@ its B-rep kernel is the separate `solidcore` repository (Apache-2.0, a port of S
 - Workspace `rust-version` becomes 1.95. The B-rep kernel is **always built** (no cargo
   feature, no CLI bridge); the implicit kernel remains the second kernel and the fallback
   when a B-rep operation refuses.
-- `docs/reference/third-party.md` lists both trees with licence, tag and the SPDX of every
-  crate they pull in (`cargo tree` of `aurafx-cad`); the README credits SolidCraft and
+- `docs/reference/third-party.md` lists the SPDX licence of every crate auraFX builds in and
+  `THIRD-PARTY-NOTICES.txt` carries the notices and licence texts (`scripts/licences.sh`); the README credits SolidCraft and
   solidcore as libraries (the naming rule allows crediting a library; the environment is
   described in auraFX's own words and its UI is auraFX's own).
 
-Decided (2026-11-07): the subtree route, not a copy script. The first commit of C6 is the
-whole upstream repository as a squashed subtree (large, once); the second commit prunes it.
-Prune by deleting directories only, never by editing upstream files, so `git subtree pull`
-merges cleanly: deleted paths that upstream later changes resolve as "keep deleted" (the
-pull script passes `-X ours` for `vendor/` and re-runs the prune list in `vendor/README.md`).
+Decided (2026-11-07): the subtree route. **Revised (2026-11-08): plain files and a patch
+script.** The subtree route stored each whole upstream repository once in history (about 145 MB
+compressed of directories auraFX never builds), and every later `git subtree pull` would store
+the whole new upstream tree again and turn each upstream change in a pruned directory into a
+conflict. Before the branch reached `main`, its history was rewritten so that one commit adds
+only the carried directories, copied verbatim; `vendor/UPSTREAM.toml` records the upstream
+revision of each tree.
 
 **Diverging and taking upstream work later**
 
 - auraFX's features go into `aurafx-cad` and the app first. A change inside a vendored
   crate carries an `// auraFX:` comment and an entry in `vendor/README.md` so a merge shows
   it. Prefer new modules over edits of upstream files.
-- Upstream features arrive by `scripts/cad/upstream-pull.sh <tag>`: `git subtree pull
-  --prefix vendor/solidcraft … <tag> --squash` (and solidcore at the revision the new tag
-  pins), prune again, rebuild, run the CAD tests, update `vendor/README.md` and
-  `third-party.md`. `scripts/cad/upstream-diff.sh` lists upstream commits and changed command
-  ids since the recorded tag (the engine's `command_specs()` diffed against ours), so a
-  developer sees what to wire into the ribbon and `kernel/brep.rs`.
+- Upstream features arrive by `scripts/cad/upstream-pull.sh <tag>`: it clones upstream into a
+  temporary folder (without file contents), makes the diff from the recorded revision to the
+  new one limited to the carried directories, applies it with `git apply --3way` (auraFX's
+  edits stay; a line both sides changed is a conflict), takes the solidcore revision the new tag
+  pins, and records both. A developer then reviews, runs `scripts/licences.sh`, rebuilds, runs
+  the CAD tests and commits. `scripts/cad/upstream-diff.sh` lists upstream commits and changed
+  command ids since the recorded revision, so a developer sees what to wire into the ribbon and
+  `kernel/brep.rs`.
 - The B-rep kernel maps our document onto SolidCraft **commands** (stable dotted ids), not
   onto its internal types, which is what keeps upstream merges cheap: a new upstream command
   is a new arm in `kernel/brep.rs` and a new ribbon button, nothing else moves.
@@ -338,7 +341,7 @@ counts to help a small agent budget the work.
 | **C3 Environment shell** | mode switch (`Session.cad_editing`, stale banners, scheduler pause), CAD menu, ribbon with tabs, FeatureManager, PropertyManager for every Feature/Modifier/Parameter, timeline bar, Apply/Apply-keep/Discard, `node.edit_cad()`; undo groups | `aurafx-app/src/cad/{mod,ribbon,feature_manager,property_manager,timeline}.rs`, `app.rs` (menu, layout) | an app-driven script test (like `scripts/userguide/shots`) that enters, adds a feature, applies; `cargo test` of the pipeline part | 2 500 (ported) |
 | **C4 Sketching** | sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints and dimensions with the solver's DOF status, sketch on a face | `aurafx-app/src/cad/sketch_canvas.rs` (ported `sketch_ui.rs`), `aurafx-cad/src/sketch.rs` | solver tests ported (fully constrained rectangle, over-constrained rejection, tangent arcs); canvas script test | 1 200 |
 | **C5 Downstream check** | `cad_check.rs`: reference collection, `aurafx-cad::diff`, kinds, default fixers, the dialog, re-run confirmation, Python `afx.cad_check`, assistant prompt and parser | `aurafx-pipeline/src/cad_check.rs`, `aurafx-cad/src/diff.rs`, `aurafx-app/src/cad/conflicts.rs` | a plate with a hole → `extract_set("hole")` → rename the hole feature: `Renamed` fixed by default; delete it: `Removed` offered; move a `refine_region` box: `Moved`; canned assistant answer parsed and applied | 1 200 |
-| **C6 B-rep kernel** | `vendor/solidcraft` and `vendor/solidcore` added by `git subtree` at a tag and pruned; `vendor/README.md`, `docs/reference/third-party.md`, `scripts/cad/upstream-{pull,diff}.sh`; workspace `rust-version` 1.95; `kernel/brep.rs` mapping every Shape/Modifier to SolidCraft commands run in process; exact faces and edges with ids; STEP AP242, IGES, 3MF, `.sc` read and write; STEP/IGES import as `Brep` base feature; the faceted STEP writer | `vendor/`, `aurafx-cad/src/kernel/brep.rs`, `aurafx-cad/src/io/*`, `aurafx-io` registrations, `Cargo.toml`s, CI cache | the same templates evaluate on both kernels with volumes within 1 %; a STEP written here measures the same through the vendored engine's measure command and, where installed, in an independent STEP reader; `testdata/cad/` gets small STEP/IGES files with their provenance in `testdata/README.md`; the Linux package script builds offline from a clean clone | 2 500 |
+| **C6 B-rep kernel** | `vendor/solidcraft` and `vendor/solidcore` copied at a tag and pruned (`vendor/UPSTREAM.toml`); `vendor/README.md`, `docs/reference/third-party.md`, `scripts/cad/upstream-{pull,diff}.sh`, `scripts/licences.sh`; workspace `rust-version` 1.95; `kernel/brep.rs` mapping every Shape/Modifier to SolidCraft commands run in process; exact faces and edges with ids; STEP AP242, IGES, 3MF, `.sc` read and write; STEP/IGES import as `Brep` base feature; the faceted STEP writer | `vendor/`, `aurafx-cad/src/kernel/brep.rs`, `aurafx-cad/src/io/*`, `aurafx-io` registrations, `Cargo.toml`s, CI cache | the same templates evaluate on both kernels with volumes within 1 %; a STEP written here measures the same through the vendored engine's measure command and, where installed, in an independent STEP reader; `testdata/cad/` gets small STEP/IGES files with their provenance in `testdata/README.md`; the Linux package script builds offline from a clean clone | 2 500 |
 | **C7 Edge operations and assemblies** | fillet/chamfer on picked edges and faces (B-rep), draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties panel; measure tool | `aurafx-app/src/cad/pick.rs` (edges/faces from the B-rep tessellation), `aurafx-cad/src/assembly.rs` | B-rep fillet volume against SolidCraft's measure; interference volume of two overlapping boxes analytic | 1 500 |
 | **C8 Meshing from CAD** | `mesh body` commands accept CAD bodies; face names to side sets; `import 'x.step'` in journals; CAD Model → tet mesh / overlay mesh / Assign Grains / solver case end to end; the guide's worked example extended (STEP → mesh → grains → case) | `aurafx-mesh/src/model.rs`, `bodymesh.rs`, `aurafx-filters/src/mesh_gen.rs` | the worked example as a test (as `worked_example` in `grains_on_mesh.rs`) from a STEP file in testdata | 600 |
 | **C9 Polish** | templates gallery, keyboard shortcuts, PropertyManager help texts, the assistant modelling in the environment through the same commands (`afx.cad` from agent mode), the project page's CAD video | docs, `scripts/site/media/cad.py` | guide complete; screenshot per ribbon tab | 500 |

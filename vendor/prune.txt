@@ -1,6 +1,7 @@
-# Directories removed from the upstream trees after `git subtree add` (and again after every pull,
-# by scripts/cad/upstream-pull.sh). Directories only: no upstream file is ever edited, so a pull
-# merges. One path per line, relative to the repository root.
+# Upstream directories that are not carried in vendor/ (nothing in auraFX's build uses them).
+# scripts/cad/upstream-pull.sh leaves them out of every upstream patch, so they never enter the
+# repository. One path per line, relative to the repository root. Directories only: no upstream
+# file is edited to prune it.
 vendor/solidcraft/apps
 vendor/solidcraft/docs
 vendor/solidcraft/packaging
@@ -15,6 +16,7 @@ vendor/solidcraft/crates/dynamics
 vendor/solidcraft/crates/space-mouse
 vendor/solidcraft/crates/threedx-client
 vendor/solidcraft/crates/ui-egui
+vendor/solidcraft/assets/locales
 vendor/solidcore/fixtures
 vendor/solidcore/reports
 vendor/solidcore/harness
@@ -23,4 +25,5 @@ vendor/solidcore/docs
 vendor/solidcore/plan
 vendor/solidcore/scripts
 vendor/solidcore/crates/goldens
+vendor/solidcore/crates/solidcore/tests/kernel_cases
 vendor/solidcore/assets

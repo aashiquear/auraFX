@@ -889,6 +889,21 @@ Getting started (Adding a source, hidden parents, scrolling menus); Data on anot
 Simulations (DAMASK, FFT, LAMMPS); Grains (hexagonal grids); Geometry (webcut, imprint, merge);
 Filters (Extracting parts and making tetrahedra; Tensors, derivatives and tables); AI assistant.
 
+Vendored code and licences (after iteration 82, 2026-11-08): the branch history was rewritten
+before it reached `main` so that one commit adds only the carried SolidCraft and solidcore
+directories (the two whole-repository subtree snapshots and the prune commit are gone; the CAD
+branch adds 176 MB to the history instead of 312 MB, and solidcore's test corpus and
+SolidCraft's translations are no longer carried). `vendor/UPSTREAM.toml` records the upstream
+revisions; `scripts/cad/upstream-pull.sh` takes upstream work as a three-way patch of the
+carried directories (checked against upstream `main`: auraFX edits stay, same-line edits are
+conflicts; `main` now keeps solidcore inside SolidCraft's tree, a one-time move described in
+`vendor/README.md`). `scripts/licences.sh` writes `THIRD-PARTY-NOTICES.txt` (568 crates, all
+under licences auraFX can ship; the NOTICE and licence files of SolidCraft and solidcore; the
+font licences) and `docs/reference/third-party.md`; CI runs `--check`; the Linux, macOS and
+Windows packages ship the notices and Help › About auraFX › Third-party licences shows them.
+A fresh clone of the branch passes all 378 tests with `--locked`. Guide: Getting started ›
+Open-source software in auraFX (`about_licences`).
+
 Not started: the rest of section 14 (the prioritized gaps against the reference programs: Delaunay 3D, Iso Volume and the other row-2 items; the point-interpolation, table, tensor and
 temporal rows; readers such as DICOM, NRRD and LAS;
 microstructure clean-up and metrics; DAMASK and LAMMPS inputs; webcut, imprint, merge, paving

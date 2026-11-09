@@ -190,12 +190,18 @@ is MIT-licensed (see `assets/fonts/`).
 
 ### Credits
 
-The CAD environment builds on two open-source libraries whose code is carried in this
-repository under `vendor/` (how, and how upstream work is taken, is in
-[vendor/README.md](vendor/README.md)): **SolidCraft** (the B-rep kernel's command engine and the
-STEP, IGES, 3MF and design-file formats; MIT OR Apache-2.0,
-<https://github.com/tangency-labs/solidcraft>) and **solidcore** (the geometry kernel under it;
-Apache-2.0, <https://github.com/tangency-labs/solidcore>). The parametric part model, the
-sketch solver and the expression evaluator were ported from the author's own EZ-YX-craft
-project (MIT OR Apache-2.0). The licence of every crate the CAD environment uses is in
-[docs/reference/third-party.md](docs/reference/third-party.md).
+Part of the CAD environment comes from two open-source projects, which can be found in full in
+their own repositories: **SolidCraft** (the B-rep kernel's command engine and the STEP, IGES, 3MF
+and design-file formats; MIT OR Apache-2.0, <https://github.com/tangency-labs/solidcraft>) and
+**solidcore** (the geometry kernel under it; Apache-2.0,
+<https://github.com/tangency-labs/solidcore>). The parts auraFX builds are carried in this
+repository under `vendor/`, so the CAD environment works out of the box without fetching them;
+auraFX's CAD module may diverge from them as it gains its own features, and developers take
+upstream work when they choose ([vendor/README.md](vendor/README.md) says which version is
+carried and how). The parametric part model, the sketch solver and the expression evaluator were
+ported from the author's own EZ-YX-craft project (MIT OR Apache-2.0).
+
+The licence of every crate auraFX builds in is in
+[docs/reference/third-party.md](docs/reference/third-party.md); the notices and licence texts
+they ask to be passed on are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which the
+packages ship and Help › About auraFX › Third-party licences shows.

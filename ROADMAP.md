@@ -25,7 +25,7 @@ one ships something usable on its own.
 ### 0.1 Workspace and tooling
 - [x] Cargo workspace with one crate per subsystem (see `docs/ARCHITECTURE.md`).
 - [x] App icon and branding assets (`assets/icons`, `assets/branding`).
-- [~] CI: build + test on Linux/macOS/Windows, clippy, rustfmt (workflow written, not yet run on GitHub).
+- [~] CI: build + test on Linux/macOS/Windows, clippy, rustfmt, licence check (green on `main` since iteration 71; not yet run on the CAD branch, whose pull request starts it).
 - [~] Packaging: AppImage, tar.gz + `install.sh`, `.dmg`, Windows installer + zip, Android APK, unsigned iOS IPA (done); `.deb`, MSIX, Flatpak (todo).
 - [~] Crash reporting and structured logs (`tracing`), log panel in the UI. (Logs and log panel done; crash reporting todo.)
 - [~] Settings system (TOML in platform config dir), settings UI with search.
@@ -81,7 +81,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32), FLASH and Enzo particles (iteration 42), Chombo particles and node-centered Chombo (iteration 43), 4-D Chombo (iteration 52).
 - [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
 - [ ] Point clouds: LAS/LAZ (PDAL), PTS, H5Part.
-- [ ] CAD: STEP, IGES (via OpenCASCADE feature), VRML, Alembic, USD, OpenVDB.
+- [~] CAD: STEP, IGES, 3MF and `.sc` (read and written by the CAD environment, section 13, iteration 78); VRML, Alembic, USD, OpenVDB todo.
 - [ ] Every remaining reader in the catalog, tracked per entry in `docs/reference/format-matrix.md`.
 
 ### 1.3 Writers
@@ -166,6 +166,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 
 ### 3.2 Other views
 - [~] Line chart ★ (multiple series, log axes, styles, legends, markers, selection link), Bar chart, Point chart, XY bar chart, Histogram view, Box chart / Quartile chart, Plot matrix (scatter matrix), Parallel coordinates, Image chart, Comparative views (render/line chart), Slice view, Orthographic slice view, Spreadsheet view ★ (point/cell/field/row data, sort, filter, column visibility, precision, export CSV), Python view (matplotlib embedded), Spreadsheet of selection.
+- [ ] Several chart views at once, each plotting its own pipeline object (or following the selection), saved with the state and opened from menus, the Pipeline and Python; pictures and animations of every open view (3D views and charts) as laid out.
 - [~] Layouts (split views, linked cameras, match view direction done): split horizontally/vertically, tabs, link cameras, link views, link selections, maximize, save/restore layouts, multiple windows/monitors.
 
 ### 3.3 Animation and time
@@ -265,7 +266,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 - [~] Golden-image render tests, filter regression tests against VTK outputs, reader conformance suite with sample files for every format.
 - [ ] Benchmarks (load time, filter time, frame rate) published in docs.
-- [ ] User guide, filter reference (auto-generated from property metadata), Python API docs, tutorials, example gallery.
+- [~] User guide (done: Markdown, HTML book and PDF, a picture per feature), tutorials and examples (done, iteration 71); filter reference auto-generated from property metadata, Python API docs todo.
 - [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook (done: `docs/plugins.md`).
 
 ---
@@ -330,7 +331,7 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 - [x] C3 Environment shell (iteration 75): `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
 - [x] C5 Downstream check (iteration 76; before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
 - [x] C4 Sketching (iteration 77): the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
-- [x] C6 B-rep kernel and CAD files, shipped in the repository (iterations 78 and 81; the CAD readers are registered in aurafx-io's reader table, not compiled into the crate, because aurafx-cad depends on aurafx-mesh, which depends on aurafx-io; four of the six templates build exactly, the other two fall back by design; see Status): `vendor/solidcraft` and `vendor/solidcore` added with `git subtree` at a recorded tag (decided: the subtree route; one squashed commit for the whole upstream tree, then a prune commit that deletes directories only, so later pulls merge) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`'s reader table (`aurafx_io::register_reader`); `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP and an IGES file written here measure the same through the vendored engine and an independent reader (done: `scripts/cad/step_check.py`); the committed tree builds offline from a clean clone (`cargo build --offline --locked -p aurafx-cad --release`, done; the installers themselves were not run).
+- [x] C6 B-rep kernel and CAD files, shipped in the repository (iterations 78 and 81; the CAD readers are registered in aurafx-io's reader table, not compiled into the crate, because aurafx-cad depends on aurafx-mesh, which depends on aurafx-io; four of the six templates build exactly, the other two fall back by design; see Status): `vendor/solidcraft` and `vendor/solidcore` carried as plain files at a recorded revision (first added by `git subtree`; after iteration 82 the history was rewritten so that one commit adds only the carried directories, and `scripts/cad/upstream-pull.sh` takes upstream work as a three-way patch; see the Status note on vendored code) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`'s reader table (`aurafx_io::register_reader`); `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP and an IGES file written here measure the same through the vendored engine and an independent reader (done: `scripts/cad/step_check.py`); the committed tree builds offline from a clean clone (`cargo build --offline --locked -p aurafx-cad --release`, done; the installers themselves were not run).
 - [x] C7 Edge operations and assemblies (iterations 78 and 81; see Status): picking faces and edges on the B-rep tessellation (a click in the 3D view, or the list); fillet and chamfer on picked edges, draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties, a measure tool. Tests: fillet volume against SolidCraft's measure; interference of two boxes analytic.
 - [x] C8 Meshing from CAD (iterations 79 and 81; Overlay Mesh and Tet Mesh both keep the faces' names): `mesh body` on CAD bodies, face names to side sets, `import 'part.step'` and `import 'part.afxcad'` in journals, STEP → mesh → grains → solver case end to end as a test and in the guide's worked example.
 - [x] C9 Polish (iterations 79 and 81; see Status): templates gallery, shortcuts, PropertyManager help, the assistant modelling in the environment through `afx.cad`, the project page's CAD video, the README's credits for SolidCraft and solidcore.
@@ -363,7 +364,7 @@ noticed. Priority: **P1** next, **P2** after, **P3** when asked.
 
 Readers and writers still missing (section 1 has the long list): **P1** DICOM/NRRD/MetaImage/MRC/OME-TIFF
 (medical and microscopy volumes; `aurafx-io/src/images.rs` already stacks images), LAS/LAZ
-point clouds, STEP/IGES (**arrives with C6**), glTF/VRML/OFF import, LS-DYNA d3plot, Fluent
+point clouds, STEP/IGES (done with C6), glTF/VRML/OFF import, LS-DYNA d3plot, Fluent
 `.cas/.msh`, Nastran BDF; **P2** openPMD/ADIOS2 (HDF5 side first), Silo, H5Part, Nek5000, PLY
 and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parallel VTK
 `.pv*` pieces, a `.pvd` collection writer (the app writes series as one file per format today).
@@ -407,8 +408,8 @@ and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parall
 | P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
 | P8 Grains | done (section 11) | Crystal core, EBSD readers, features, texture, synthetic builder, surface meshing, mechanics, `.dream3d`, solver templates |
 | P9 Mesh | done (section 12) | Geometry kernel and command language, structured hex (hexaform), overlay-grid mesher, refinement and tets, grains on meshes |
-| P10 CAD | built, C0 to C9 (section 13; the iOS target and the installers were not built here), branch `feat/CAD-modeling-environment` | auraFX's own parametric CAD modeler: the document and two kernels (implicit; B-rep from SolidCraft's code carried in `vendor/`, free to diverge, upstream pulled by subtree), the environment with its ribbon, commit with the downstream check and fixers, STEP/IGES/3MF, meshing from CAD |
-| P11 Gaps | planned (section 14) | The prioritized items missing against the reference programs' catalogs: filters and readers, microstructure cleanup and metrics, solver inputs, webcut/imprint/merge, paving and sizing |
+| P10 CAD | built, C0 to C9 (section 13; the iOS target and the installers were not built here), branch `feat/CAD-modeling-environment` | auraFX's own parametric CAD modeler: the document and two kernels (implicit; B-rep from SolidCraft's code carried in `vendor/` as plain files, free to diverge), the environment with its ribbon, commit with the downstream check and fixers, STEP/IGES/3MF, meshing from CAD; upstream work comes in as a three-way patch of the carried directories (`vendor/UPSTREAM.toml`, `scripts/cad/upstream-pull.sh`) |
+| P11 Gaps | in progress (section 14; iterations 80 and 82 did half of the P1 rows) | The prioritized items missing against the reference programs' catalogs: filters and readers, microstructure cleanup and metrics, solver inputs, webcut/imprint/merge, paving and sizing |
 
 P8 and P9 are developed interleaved (G1, M1, G2, M2, G3, M3, G4, G5, M4, G6, M5, G7) so that
 each side is usable early; see the design document for the test reference of every stage.
@@ -904,11 +905,20 @@ Windows packages ship the notices and Help › About auraFX › Third-party lice
 A fresh clone of the branch passes all 378 tests with `--locked`. Guide: Getting started ›
 Open-source software in auraFX (`about_licences`).
 
-Not started: the rest of section 14 (the prioritized gaps against the reference programs: Delaunay 3D, Iso Volume and the other row-2 items; the point-interpolation, table, tensor and
-temporal rows; readers such as DICOM, NRRD and LAS;
-microstructure clean-up and metrics; DAMASK and LAMMPS inputs; webcut, imprint, merge, paving
-and sizing; Nastran and Fluent writers), and the older open items of sections 0 to 10. This
-branch's work was the CAD environment, C0 to C9, which is finished. Next: section 14, one row at a time.
+Asked next (2026-11-08): several chart views at once, each plotting its own pipeline object, and
+pictures and animations of all the open views (3D views and charts) as they are laid out, for
+presentations; then the rest of section 14, before the pull request that runs CI on this branch.
+
+Still open in section 14 (see each table): 14.1 point interpolation, Resample To Line, the
+sorted-line and intersection-curve plots, Evenly Spaced Streamlines 2D, seeds injected over
+time, the temporal utilities, the statistics, annotation, ghost-cell/partition and
+material-interface rows and the P3 row; the readers (DICOM, NRRD, MetaImage, MRC, OME-TIFF,
+LAS/LAZ, LS-DYNA d3plot, Fluent, Nastran; openPMD, Silo, H5Part, Nek5000) and writers (image
+stacks, MetaImage, `.pv*` pieces, `.pvd`); 14.2 the bad-data clean-up, feature metrics,
+resampling rectilinear grids, the P2 and P3 rows; 14.3 sheet and swept-curve webcuts, paving and
+sweeping, sizing, transition templates, Winslow smoothing, Nastran and Fluent mesh writers, the
+P2 and P3 rows. The older open items of sections 0 to 10 are unchanged. This branch's CAD work,
+C0 to C9, is finished.
 
 ## Status (2026-11-05)
 

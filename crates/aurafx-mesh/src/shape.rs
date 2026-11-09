@@ -103,6 +103,20 @@ pub enum Shape {
         offset: f64,
         face: FaceId,
     },
+    /// An open (or closed) surface thickened by `half` on both sides.
+    Thick {
+        mesh: Arc<TriMesh>,
+        half: f64,
+        face: FaceId,
+    },
+    /// A loft from outline `a` at z = 0 to outline `b` at z = `h` (the profile changes linearly);
+    /// faces: side, bottom, top.
+    Loft {
+        a: Arc<Outline>,
+        b: Arc<Outline>,
+        h: f64,
+        faces: [FaceId; 3],
+    },
     /// The side of an open surface its normals point away from (signed distance to the sheet).
     /// Used by `webcut`; never a body on its own.
     Sheet {
@@ -294,6 +308,25 @@ impl Shape {
                 // Scaled down: the radial distance overestimates where the surface is slanted.
                 ((n - rr) * 0.7, *face)
             }
+            Shape::Thick { mesh, half, face } => (mesh.distance(p).abs() - half, *face),
+            Shape::Loft { a, b, h, faces } => {
+                let s = (p[2] / h).clamp(0.0, 1.0);
+                let (da, db) = (a.distance([p[0], p[1]]).0, b.distance([p[0], p[1]]).0);
+                // The interpolated profile distance, scaled by the side's slope to be a distance in 3-D.
+                let g = (db - da) / h;
+                let d2 = ((1.0 - s) * da + s * db) / (1.0 + g * g).sqrt();
+                let dz = (p[2] - h / 2.0).abs() - h / 2.0;
+                (
+                    box2(d2, dz),
+                    if d2 >= dz {
+                        faces[0]
+                    } else if p[2] < h / 2.0 {
+                        faces[1]
+                    } else {
+                        faces[2]
+                    },
+                )
+            }
             Shape::Extrude { outline, h, curve_faces, bottom, top } => {
                 let (d2, c) = outline.distance([p[0], p[1]]);
                 let dz = (p[2] - h / 2.0).abs() - h / 2.0;
@@ -444,6 +477,11 @@ impl Shape {
                 (a, b)
             }
             Shape::Surface { mesh, .. } => (mesh.lo, mesh.hi),
+            Shape::Thick { mesh, half, .. } => (mesh.lo.map(|x| x - half), mesh.hi.map(|x| x + half)),
+            Shape::Loft { a, b, h, .. } => {
+                let ((a0, a1), (b0, b1)) = (a.bounds(), b.bounds());
+                ([a0[0].min(b0[0]), a0[1].min(b0[1]), 0.0], [a1[0].max(b1[0]), a1[1].max(b1[1]), *h])
+            }
             Shape::Transform { inner, rot, offset, scale } => {
                 let (lo, hi) = inner.bounds();
                 let (mut a, mut b) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
@@ -483,6 +521,8 @@ impl Shape {
             Shape::Cylinder { faces, .. } | Shape::Cone { faces, .. } => out.extend(faces),
             Shape::Sphere { face, .. } | Shape::Torus { face, .. } | Shape::Superquadric { face, .. } | Shape::Harmonic { face, .. } => out.push(*face),
             Shape::Surface { face, mesh } => out.extend((0..mesh.n_patches).map(|k| face + k)),
+            Shape::Thick { face, .. } => out.push(*face),
+            Shape::Loft { faces, .. } => out.extend(faces),
             Shape::Extrude { curve_faces, bottom, top, .. } => {
                 out.extend(curve_faces);
                 out.extend([bottom, top]);

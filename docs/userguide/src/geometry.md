@@ -51,6 +51,8 @@ All primitives are centred on the origin, and round ones stand along z.
 | `superquadric x 1 y 0.8 z 0.6 e1 0.5 e2 0.7` | a superellipsoid (exponents 1 give an ellipsoid; smaller ones square it off) |
 | `harmonic radius 1 coefficient 2 0 0.3 coefficient 3 2 0.1` | a star-shaped body with radius r (1 + Σ c Y<sub>lm</sub>), real spherical harmonics, for particle and grain shapes |
 | `import 'part.stl' scale 0.001` | a closed surface from a file (STL, PLY, OBJ, VTK polygonal data) |
+| `thicken 'sheet.stl' thickness 0.2` | an open (or closed) surface from a file made into a solid of that thickness, half on each side, its rim rounded |
+| `sew 'a.stl' 'b.stl' tolerance 1e-4` | surface patches from files joined into one closed body: corners closer than the tolerance become one; it fails, saying how many edges are left open, when the patches do not close up |
 
 ### Outlines and profile solids
 
@@ -69,6 +71,7 @@ An outline is a closed 2-D curve. Build it, then extrude, revolve or sweep it.
 | `outline 1 fillet radius 0.2` | every corner between straight edges rounded |
 | `extrude outline 1 height 2` | the outline from z = 0 to the height |
 | `revolve outline 1 angle 360` | the outline turned about z; x is the distance from the axis and y the height |
+| `loft outline 1 outline 2 height 3` | a solid from outline 1 at z = 0 to outline 2 at z = 3, the profile changing steadily between them (from a circle to a smaller circle: a cone frustum; corners of polygon outlines are rounded part way up) |
 | `sweep outline 1 path 0 0 0 4 0 0 4 3 0` | the outline carried along a path of points, kept normal to it |
 
 Faces of profile solids are named after the outline's curves: `edge 1`, `edge 2`, … for
@@ -92,6 +95,7 @@ straight edges, then `arc 1`, `fillet 1`, `circle`, `spline 1`. Extrusions add `
 | `imprint body 1 2` (or `imprint all`) | touching bodies are meshed with one element size (the smallest asked for), so their meshes meet node to node on the faces they share |
 | `merge body 1 2` (or `merge all`) | the bodies' meshes share the nodes of their common faces (with one size, as imprint); meshing stops with a message if they cannot meet node to node there (bodies offset by part of a cell) |
 | `copy body 1` | a copy as a new body |
+| `group 1 add body 1 2 face 6 name 'clamped'` | a named group of bodies and faces; any command then takes `group 1` or `group clamped` in place of the bodies (`mesh group clamped size 0.1`, `block 9 add group 1`), and side and node sets take its faces and its bodies' faces (`sideset 4 add group clamped`) |
 | `delete body 2` | removes a body |
 | `body 1 name 'bracket'` | names a body |
 | `face 6 name 'inlet'` | names a face |
@@ -119,6 +123,7 @@ These commands make a hexahedral mesh, shown when the Geometry source's **Output
 |---|---|
 | `mesh body 1 2 size 0.1 element HEX20` | meshes bodies with elements of about that size (HEX8 by default) |
 | `mesh body 3 size 0.1 scheme overlay` | chooses how: `structured`, `overlay` or `stairstep` (by default bricks and cylinders are structured, everything else overlay) |
+| `mesh body 3 size 0.1 scheme mapped` | one structured block bent onto a body that a box can be bent into (a ball, a rounded block, a superquadric): the box's outer nodes go onto the body along rays from its centre, the inner ones follow (with Winslow smoothing); takes `intervals` and `bias` too |
 | `mesh body 1 size 0.1 intervals 20 8 4 bias 3 1 1 cluster start` | a structured body's pieces along its own x, y and z (a cylinder: a quarter of the way round, across the radius, along the height) instead of from the size, and per axis the largest piece over the smallest, the small ones at the `start`, `end` or `both` |
 | `block 7 add body 2 name 'rod'` | puts bodies in an element block (by default each body is its own block, with its id and name) |
 | `sideset 1 add face 6 9 name 'top'` | a side set of the mesh faces on those geometry faces |
@@ -141,6 +146,8 @@ overlay grid; see [Overlay meshing](#overlay-meshing) below.
 - **Curved elements.** With HEX20 or HEX27 elements, the new nodes on a body's surface are
   moved onto it.
 - **Stair-step.** `scheme stairstep` keeps whole grid cells, for a quick look.
+
+![A ball and a rounded block, each meshed with the mapped scheme as one structured block](images/geometry_mapped.png)
 
 ![A plate with a hole and a ball pressed into its end, meshed together on one overlay grid as two blocks](images/overlay_part.png)
 
@@ -713,6 +720,12 @@ t = m.mesh_quality(output="Summary table")        # one row per metric
   smaller than the exact sphere.
 - Overlay meshing of 100 000 voxels takes about 3 seconds.
 - Gmsh files carry no node sets.
+- A loft's rims (where its side meets the ends) come out rough in hexahedral meshes, on the overlay
+  grid and with the mapped scheme. The mapped scheme also makes sharp edges that do not follow the
+  box's edges wavy: use it for rounded bodies.
+- The mapped scheme needs a body that every ray from the centre of its box leaves once (it
+  refuses a ring). On a smooth body such as a ball, the eight corner elements of the single block
+  are nearly flat (scaled Jacobian about 0.1); a rounded block keeps them above 0.3.
 - Face Mesh meshes flat faces; curved faces are meshed with Remesh Surface from a surface of the
   part. Remesh Surface keeps the nodes of sharp edges where they are (it adds nodes along them
   but does not remove any). On a faceted surface, such as a contoured Geometry surface, a few

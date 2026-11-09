@@ -91,6 +91,7 @@ fn scheme_of(model: &Model, id: u32, shape: &Shape) -> &'static str {
         Some("overlay") => "overlay",
         Some("stairstep") => "stairstep",
         Some("structured") => "structured",
+        Some("mapped") => "mapped",
         _ if structured => "structured",
         _ => "overlay",
     }
@@ -144,12 +145,18 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
         npe = npe.max(n);
         smallest = smallest.min(size);
         let scheme = scheme_of(model, id, &body.shape);
-        if scheme != "structured" {
+        if scheme != "structured" && scheme != "mapped" {
             overlay_bodies.push((id, size, scheme));
             continue;
         }
-        let (aff, prim) = base(&body.shape);
-        let mut m = body_mesh(prim, size, model.mesh_divisions.get(&id)).map_err(|e| format!("body {id}: {e}"))?;
+        // Mapped bodies are meshed in world coordinates (the box of the whole body, moved onto it).
+        let mapped = scheme == "mapped";
+        let (aff, prim) = if mapped { (Affine::identity(), &body.shape) } else { base(&body.shape) };
+        let mut m = if mapped {
+            crate::mapped::mapped_mesh(&body.shape, size, model.mesh_divisions.get(&id)).map_err(|e| format!("body {id}: {e}"))?
+        } else {
+            body_mesh(prim, size, model.mesh_divisions.get(&id)).map_err(|e| format!("body {id}: {e}"))?
+        };
         let proj = if let Shape::Cylinder { r, faces, .. } = prim {
             projs.push(Proj::Cylinder(aff, *r));
             Some((faces[0], projs.len() - 1))

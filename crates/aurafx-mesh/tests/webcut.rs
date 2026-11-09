@@ -158,3 +158,87 @@ fn intervals_and_bias_per_axis_of_a_structured_body() {
     assert!((last / first - 3.0).abs() < 1e-6, "{first} {last}");
     assert!(Model::new().run("brick 1\nmesh body 1 size 0.1 bias 0.5").is_err());
 }
+
+#[test]
+fn a_ball_and_a_rounded_block_meshed_with_the_mapped_scheme() {
+    let m = model("sphere radius 1\nmesh body 1 size 0.25 scheme mapped");
+    let mesh = mesh_model(&m).unwrap();
+    assert_eq!(mesh.n_elements(), 8 * 8 * 8);
+    let vol: f64 = (0..mesh.n_elements()).map(|e| hex_volume(&mesh, e)).sum();
+    assert!(vol > 0.95 * 4.0 / 3.0 * std::f64::consts::PI && vol < 4.0 / 3.0 * std::f64::consts::PI, "{vol}");
+    // The sphere's face is a side set.
+    assert!(mesh.side_set("sphere 1 surface").is_some());
+    // A superquadric with intervals.
+    let m = model("superquadric x 2 y 1 z 1 e1 0.5 e2 0.5\nmesh body 1 size 0.2 scheme mapped intervals 12 6 6");
+    let mesh = mesh_model(&m).unwrap();
+    assert_eq!(mesh.n_elements(), 12 * 6 * 6);
+    // A rounded block: its corners are where the box's are, so the elements stay well shaped.
+    let worst = (0..mesh.n_elements())
+        .map(|e| {
+            let c: [[f64; 3]; 8] = std::array::from_fn(|k| mesh.points[mesh.cell(e)[k] as usize]);
+            aurafx_mesh::quality::hex_metric(aurafx_mesh::quality::HexMetric::ScaledJacobian, &c, 0.0)
+        })
+        .fold(f64::INFINITY, f64::min);
+    eprintln!("rounded block worst scaled Jacobian {worst}");
+    assert!(worst > 0.3, "{worst}");
+}
+
+#[test]
+fn groups_name_bodies_and_faces_for_meshing_blocks_and_sets() {
+    let m = model(
+        "brick x 1 y 1 z 1\nbrick x 1 y 1 z 1\nmove body 2 x 1\nsphere radius 0.3\nmove body 3 x 3\ngroup 1 add body 1 2 name 'bricks'\ngroup 2 add face 6 name 'top of one'\nmesh group bricks size 0.25\nmesh body 3 size 0.1\nblock 9 add group 1 name 'steel'\nsideset 4 add group 2 name 'lid'\nnodeset 5 add group bricks name 'all brick faces'",
+    );
+    assert_eq!(m.groups.len(), 2);
+    let mesh = mesh_model(&m).unwrap();
+    // Both bricks in block 9 (4 x 4 x 4 each).
+    assert_eq!(mesh.block.iter().filter(|b| **b == 9).count(), 2 * 64);
+    assert_eq!(mesh.block_names.get(&9).map(|s| s.as_str()), Some("steel"));
+    // The lid: one brick face of 4 x 4 element faces.
+    assert_eq!(mesh.side_set("lid").unwrap().len(), 16);
+    assert!(mesh.node_sets.iter().any(|n| n.0 == "all brick faces"));
+    assert!(Model::new().run("brick 1\nmesh group 7 size 0.1").is_err());
+}
+
+fn stl(path: &std::path::Path, tris: &[[[f64; 3]; 3]]) {
+    let mut s = String::from("solid s\n");
+    for t in tris {
+        s += "facet normal 0 0 0\nouter loop\n";
+        for p in t {
+            s += &format!("vertex {} {} {}\n", p[0], p[1], p[2]);
+        }
+        s += "endloop\nendfacet\n";
+    }
+    s += "endsolid s\n";
+    std::fs::write(path, s).unwrap();
+}
+
+#[test]
+fn thicken_loft_and_sew() {
+    let dir = std::env::temp_dir().join(format!("aurafx_implicit_ops_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A 2 x 2 sheet thickened by 0.2: the slab plus its rounded rim.
+    let sheet = dir.join("sheet.stl");
+    stl(&sheet, &[[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]], [[-1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]]]);
+    let m = model(&format!("thicken '{}' thickness 0.2", sheet.display()));
+    let (v, _) = aurafx_mesh::measure(&m.bodies[&1].shape, 0.01);
+    let r: f64 = 0.1;
+    let exact = 4.0 * 2.0 * r + 8.0 * std::f64::consts::PI * r * r / 2.0 + 4.0 / 3.0 * std::f64::consts::PI * r.powi(3);
+    assert!((v - exact).abs() < 0.01 * exact, "{v} vs {exact}");
+    // A loft from a circle of radius 1 to one of 0.5 over a height of 1: a cone frustum.
+    let m = model("outline 1 circle radius 1\noutline 2 circle radius 0.5\nloft outline 1 outline 2 height 1");
+    let (v, _) = aurafx_mesh::measure(&m.bodies[&1].shape, 0.01);
+    let frustum = std::f64::consts::PI / 3.0 * (1.0 + 0.5 + 0.25);
+    assert!((v - frustum).abs() < 0.01 * frustum, "{v} vs {frustum}");
+    // A tetrahedron in two patches, the second one's corners off by 1e-5: sewn with a tolerance.
+    let (o, x, y, z) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]);
+    let nudge = |p: [f64; 3]| [p[0] + 1e-5, p[1], p[2]];
+    stl(&dir.join("a.stl"), &[[o, y, x], [o, x, z]]);
+    stl(&dir.join("b.stl"), &[[nudge(o), nudge(z), nudge(y)], [nudge(x), nudge(y), nudge(z)]]);
+    let cmd = format!("sew '{}' '{}' tolerance 1e-4", dir.join("a.stl").display(), dir.join("b.stl").display());
+    let m = model(&cmd);
+    let (v, _) = aurafx_mesh::measure(&m.bodies[&1].shape, 0.005);
+    assert!((v - 1.0 / 6.0).abs() < 0.01, "{v}");
+    // Without the tolerance the patches do not close up.
+    assert!(Model::new().run(&cmd.replace("1e-4", "1e-9")).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

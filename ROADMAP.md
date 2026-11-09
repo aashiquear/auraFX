@@ -390,9 +390,9 @@ and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parall
 | P1 done (iteration 83: Face Mesh, Remesh Surface; quads by pairing and splitting triangles, then Sweep Quads) | **Triangle meshing of arbitrary surfaces** (advancing front / Delaunay with sizing) and **quad paving** of planar faces, then **sweep** of paved faces into hexahedra (the sweep of structured quads exists) | `aurafx-mesh/src/pave.rs` (new), `structured.rs` | a plate with a hole paved and swept: Mesh Quality acceptable, hex count as expected |
 | P1 done but transition templates (iteration 83: intervals and bias per axis, sizes near curves, from a point array and from curvature, Winslow smoothing; hexahedra are refined locally by turning a region into tetrahedra) | **Sizing functions**: per-curve intervals and bias, per-face/body size, curvature-based size, size from a scalar field; **transition templates** for local hex refinement; **Winslow smoothing** (the "Later" line of M4) | `model.rs`, `improve.rs`, `hex.rs` | graded box: element counts per curve; refined region conforms |
 | P1 done (iteration 83; named blocks per body come through `import` in the geometry commands, each body its own block) | **Nastran BDF** and **Fluent `.msh`** mesh writers; Exodus named blocks per body from CAD (C8) | `mesh_writers.rs` | read back by the readers of 14.1 |
-| P2 | **Fillet and chamfer on picked curves/vertices** of implicit bodies (today whole-body), **loft between faces**, **thicken sheet bodies**, **sewing surfaces into volumes**, **healing/tolerant imprint** of imported STEP (C6/C7 give the B-rep versions) | `aurafx-mesh/src/implicit.rs`, C7 | |
-| P2 done but groups (iteration 83: Tetrahedra in a Region, Define Mesh Set, Merge Nodes; Transform keeps blocks and sets) | **Pyramid transitions** hex-to-tet, **node and side sets by location or by expression**, **groups** of entities, **merge nodes / equivalence** with tolerance, **mesh scale/translate/rotate** commands | `model.rs`, `tet.rs` | |
-| P3 | Sweep with multiple sources/targets, mapped hex of general 6-sided volumes, submapping | later | |
+| P2 partly (iteration 84: `thicken`, `loft`, `sew` with a tolerance; fillets on picked curves and healing of implicit bodies open, the B-rep kernel has fillets, chamfers and lofts on picked edges) | **Fillet and chamfer on picked curves/vertices** of implicit bodies (today whole-body), **loft between faces**, **thicken sheet bodies**, **sewing surfaces into volumes**, **healing/tolerant imprint** of imported STEP (C6/C7 give the B-rep versions) | `aurafx-mesh/src/implicit.rs`, C7 | |
+| P2 done (iteration 83: Tetrahedra in a Region, Define Mesh Set, Merge Nodes; Transform keeps blocks and sets; iteration 84: groups in the geometry commands) | **Pyramid transitions** hex-to-tet, **node and side sets by location or by expression**, **groups** of entities, **merge nodes / equivalence** with tolerance, **mesh scale/translate/rotate** commands | `model.rs`, `tet.rs` | |
+| P3 partly (iteration 84: `scheme mapped` for bodies a box bends into; multi-source sweeps and submapping open) | Sweep with multiple sources/targets, mapped hex of general 6-sided volumes, submapping | later | |
 
 ## Delivery phases
 
@@ -934,11 +934,21 @@ pipeline file maps 40 of its 71 steps. 14.3: sheet and swept-curve webcuts, Face
 Remesh Surface (fixed size, a size array, curvature), intervals and bias per axis, Winslow
 smoothing, Define Mesh Set, Merge Nodes and Tetrahedra in a Region (pyramid transitions).
 
+Done in iteration 84 (2026-11-09), asked after iteration 83: in the CAD environment, snapping on
+the sketch canvas (points, centers, midpoints, quadrants, intersections, curves, the grid, each
+switched on or off; Ctrl places freely) with dashed guide lines through points also far away;
+sketches on any flat face (slanted ones too, picked in the 3D view) and on reference planes
+(from a plane or a face, moved and turned, or through three points; drawn in the 3D view; kept
+with the part); dimensions drawn with extension lines and arrows, labels dragged and
+double-clicked to type a value, distances from a point to a line and between parallel lines;
+the assistant ships with no model chosen and agent mode on. Section 14: groups in the geometry
+commands, the mapped scheme, `thicken`, `loft` and `sew`.
+
 Still open in section 14: the Silo and ADIOS2 readers (no Silo library or reference reader here),
 indexing EBSD patterns, all-hexahedral transition templates for local refinement (hexahedra are
-refined everywhere, or a region becomes tetrahedra), groups of entities, the 14.3 P2 row on
-implicit bodies (fillets on picked curves, lofts between faces, thickened sheets, sewing,
-healing; the B-rep kernel has fillets, lofts and drafts) and the 14.3 P3 row. The older open items
+refined everywhere, or a region becomes tetrahedra), fillets on picked curves and healing of
+implicit bodies (the B-rep kernel has fillets, chamfers and lofts on picked edges), and
+multi-source sweeps and submapping. The older open items
 of sections 0 to 10 are unchanged.
 
 ## Status (2026-11-05)

@@ -6,6 +6,7 @@ pub mod bodymesh;
 pub mod hex;
 pub mod improve;
 pub mod inclusions;
+pub mod mapped;
 pub mod model;
 pub mod outline;
 pub mod overlay;

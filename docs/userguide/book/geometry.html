@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-37608fda.js";
+            window.path_to_searchindex_js = "searchindex-5f60c4e3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -224,6 +224,8 @@ model units and angles in degrees.</p>
 <tr><td><code>superquadric x 1 y 0.8 z 0.6 e1 0.5 e2 0.7</code></td><td>a superellipsoid (exponents 1 give an ellipsoid; smaller ones square it off)</td></tr>
 <tr><td><code>harmonic radius 1 coefficient 2 0 0.3 coefficient 3 2 0.1</code></td><td>a star-shaped body with radius r (1 + Σ c Y<sub>lm</sub>), real spherical harmonics, for particle and grain shapes</td></tr>
 <tr><td><code>import 'part.stl' scale 0.001</code></td><td>a closed surface from a file (STL, PLY, OBJ, VTK polygonal data)</td></tr>
+<tr><td><code>thicken 'sheet.stl' thickness 0.2</code></td><td>an open (or closed) surface from a file made into a solid of that thickness, half on each side, its rim rounded</td></tr>
+<tr><td><code>sew 'a.stl' 'b.stl' tolerance 1e-4</code></td><td>surface patches from files joined into one closed body: corners closer than the tolerance become one; it fails, saying how many edges are left open, when the patches do not close up</td></tr>
 </tbody>
 </table>
 </div>
@@ -246,6 +248,7 @@ model units and angles in degrees.</p>
 <tr><td><code>outline 1 fillet radius 0.2</code></td><td>every corner between straight edges rounded</td></tr>
 <tr><td><code>extrude outline 1 height 2</code></td><td>the outline from z = 0 to the height</td></tr>
 <tr><td><code>revolve outline 1 angle 360</code></td><td>the outline turned about z; x is the distance from the axis and y the height</td></tr>
+<tr><td><code>loft outline 1 outline 2 height 3</code></td><td>a solid from outline 1 at z = 0 to outline 2 at z = 3, the profile changing steadily between them (from a circle to a smaller circle: a cone frustum; corners of polygon outlines are rounded part way up)</td></tr>
 <tr><td><code>sweep outline 1 path 0 0 0 4 0 0 4 3 0</code></td><td>the outline carried along a path of points, kept normal to it</td></tr>
 </tbody>
 </table>
@@ -273,6 +276,7 @@ straight edges, then <code>arc 1</code>, <code>fillet 1</code>, <code>circle</co
 <tr><td><code>imprint body 1 2</code> (or <code>imprint all</code>)</td><td>touching bodies are meshed with one element size (the smallest asked for), so their meshes meet node to node on the faces they share</td></tr>
 <tr><td><code>merge body 1 2</code> (or <code>merge all</code>)</td><td>the bodies’ meshes share the nodes of their common faces (with one size, as imprint); meshing stops with a message if they cannot meet node to node there (bodies offset by part of a cell)</td></tr>
 <tr><td><code>copy body 1</code></td><td>a copy as a new body</td></tr>
+<tr><td><code>group 1 add body 1 2 face 6 name 'clamped'</code></td><td>a named group of bodies and faces; any command then takes <code>group 1</code> or <code>group clamped</code> in place of the bodies (<code>mesh group clamped size 0.1</code>, <code>block 9 add group 1</code>), and side and node sets take its faces and its bodies’ faces (<code>sideset 4 add group clamped</code>)</td></tr>
 <tr><td><code>delete body 2</code></td><td>removes a body</td></tr>
 <tr><td><code>body 1 name 'bracket'</code></td><td>names a body</td></tr>
 <tr><td><code>face 6 name 'inlet'</code></td><td>names a face</td></tr>
@@ -300,6 +304,7 @@ through a row of grid-cell centres, the overlay gives those cells to the first b
 <tbody>
 <tr><td><code>mesh body 1 2 size 0.1 element HEX20</code></td><td>meshes bodies with elements of about that size (HEX8 by default)</td></tr>
 <tr><td><code>mesh body 3 size 0.1 scheme overlay</code></td><td>chooses how: <code>structured</code>, <code>overlay</code> or <code>stairstep</code> (by default bricks and cylinders are structured, everything else overlay)</td></tr>
+<tr><td><code>mesh body 3 size 0.1 scheme mapped</code></td><td>one structured block bent onto a body that a box can be bent into (a ball, a rounded block, a superquadric): the box’s outer nodes go onto the body along rays from its centre, the inner ones follow (with Winslow smoothing); takes <code>intervals</code> and <code>bias</code> too</td></tr>
 <tr><td><code>mesh body 1 size 0.1 intervals 20 8 4 bias 3 1 1 cluster start</code></td><td>a structured body’s pieces along its own x, y and z (a cylinder: a quarter of the way round, across the radius, along the height) instead of from the size, and per axis the largest piece over the smallest, the small ones at the <code>start</code>, <code>end</code> or <code>both</code></td></tr>
 <tr><td><code>block 7 add body 2 name 'rod'</code></td><td>puts bodies in an element block (by default each body is its own block, with its id and name)</td></tr>
 <tr><td><code>sideset 1 add face 6 9 name 'top'</code></td><td>a side set of the mesh faces on those geometry faces</td></tr>
@@ -325,6 +330,7 @@ overlap.</li>
 moved onto it.</li>
 <li><strong>Stair-step.</strong> <code>scheme stairstep</code> keeps whole grid cells, for a quick look.</li>
 </ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_mapped.png" alt="A ball and a rounded block, each meshed with the mapped scheme as one structured block"><span class="img-wrapper"><img src="images/geometry_mapped.png" alt="A ball and a rounded block, each meshed with the mapped scheme as one structured block"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/overlay_part.png" alt="A plate with a hole and a ball pressed into its end, meshed together on one overlay grid as two blocks"><span class="img-wrapper"><img src="images/overlay_part.png" alt="A plate with a hole and a ball pressed into its end, meshed together on one overlay grid as two blocks"></span></label></p>
 <h2 id="python"><a class="header" href="#python">Python</a></h2>
 <p><code>afx.mesh.geometry()</code> builds geometry command by command. Each command is checked at once,
@@ -838,6 +844,12 @@ small grains lose some volume: a voxel sphere 5 voxels in radius comes out about
 smaller than the exact sphere.</li>
 <li>Overlay meshing of 100 000 voxels takes about 3 seconds.</li>
 <li>Gmsh files carry no node sets.</li>
+<li>A loft’s rims (where its side meets the ends) come out rough in hexahedral meshes, on the overlay
+grid and with the mapped scheme. The mapped scheme also makes sharp edges that do not follow the
+box’s edges wavy: use it for rounded bodies.</li>
+<li>The mapped scheme needs a body that every ray from the centre of its box leaves once (it
+refuses a ring). On a smooth body such as a ball, the eight corner elements of the single block
+are nearly flat (scaled Jacobian about 0.1); a rounded block keeps them above 0.3.</li>
 <li>Face Mesh meshes flat faces; curved faces are meshed with Remesh Surface from a surface of the
 part. Remesh Surface keeps the nodes of sharp edges where they are (it adds nodes along them
 but does not remove any). On a faceted surface, such as a contoured Geometry surface, a few

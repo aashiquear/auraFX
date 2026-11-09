@@ -78,6 +78,8 @@ pub struct Model {
     pub merges: Vec<Vec<u32>>,
     /// Webcuts made so far (numbers the cut faces).
     webcuts: u32,
+    /// Groups: (id, name, bodies, faces). Commands name them as `group N` or `group <name>`.
+    pub groups: Vec<(u32, String, Vec<u32>, Vec<FaceId>)>,
 }
 
 /// Split a command into words, keeping quoted text together.
@@ -369,9 +371,67 @@ impl Model {
         o.curves.iter().map(|c| if c.is_empty() { 0 } else { self.face(format!("{prefix} {c}")) }).collect()
     }
 
+    /// Replace `group N` (or `group <name>`) in a command by its bodies (`body ...`), or for side
+    /// and node sets by its faces and its bodies' faces (`face ...`).
+    fn expand_groups(&self, w: Vec<String>) -> Result<Vec<String>> {
+        let verb = w[0].to_ascii_lowercase();
+        if verb == "group" {
+            return Ok(w);
+        }
+        let faces_wanted = verb == "sideset" || verb == "nodeset";
+        let mut out: Vec<String> = Vec::new();
+        let mut add: Vec<u32> = Vec::new();
+        let mut i = 0;
+        while i < w.len() {
+            if i > 0 && w[i].eq_ignore_ascii_case("group") && i + 1 < w.len() {
+                let key = &w[i + 1];
+                let g = self
+                    .groups
+                    .iter()
+                    .find(|g| key.parse::<u32>().ok() == Some(g.0) || g.1.eq_ignore_ascii_case(key))
+                    .ok_or_else(|| anyhow!("there is no group {key}"))?;
+                if faces_wanted {
+                    add.extend(g.3.iter().copied());
+                    for b in &g.2 {
+                        if let Some(body) = self.bodies.get(b) {
+                            add.extend(body.shape.faces());
+                        }
+                    }
+                } else {
+                    add.extend(g.2.iter().copied());
+                }
+                i += 2;
+                continue;
+            }
+            out.push(w[i].clone());
+            i += 1;
+        }
+        if add.is_empty() {
+            return Ok(out);
+        }
+        let kw = if faces_wanted { "face" } else { "body" };
+        let ids: Vec<String> = add.iter().map(|x| x.to_string()).collect();
+        match out.iter().position(|t| t.eq_ignore_ascii_case(kw) || t.eq_ignore_ascii_case(&format!("{kw}s"))) {
+            Some(p) => {
+                for (k, id) in ids.into_iter().enumerate() {
+                    out.insert(p + 1 + k, id);
+                }
+            }
+            None => {
+                // After `add` for sets and blocks, else after the verb.
+                let p = out.iter().position(|t| t.eq_ignore_ascii_case("add")).map(|p| p + 1).unwrap_or(1);
+                out.insert(p, kw.to_string());
+                for (k, id) in ids.into_iter().enumerate() {
+                    out.insert(p + 1 + k, id);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn command(&mut self, cmd: &str) -> Result<()> {
-        let w = words(cmd);
-        let a = Args { w: w.iter().map(|s| s.to_string()).collect() };
+        let w = self.expand_groups(words(cmd).iter().map(|s| s.to_string()).collect())?;
+        let a = Args { w };
         let verb = a.w[0].to_ascii_lowercase();
         let next = self.next_body;
         match verb.as_str() {
@@ -530,6 +590,75 @@ impl Model {
                 let (start, end) = (self.face(format!("sweep {id} start")), self.face(format!("sweep {id} end")));
                 let desc = format!("sweep outline {} along {} points", a.ids("outline")[0], pts.len());
                 self.add_body("sweep", |_, _| Shape::Sweep { outline: o, path: Arc::new(Path::new(pts)), curve_faces: cf, start, end }, desc);
+            }
+            "thicken" => {
+                let file = a.w.get(1).ok_or_else(|| anyhow!("thicken '<surface file>' thickness t"))?.clone();
+                let t = a.need("thickness")?;
+                positive(&[t])?;
+                let mesh = read_surface(&self.resolve(&file))?;
+                self.add_body(
+                    "thickened",
+                    |m, id| Shape::Thick { mesh: Arc::new(mesh), half: t / 2.0, face: m.face(format!("thickened {id} surface")) },
+                    format!("{file} thickened {t}"),
+                );
+            }
+            "loft" => {
+                let ids = a.ids("outline");
+                let (Some(&o1), Some(&o2)) = (
+                    ids.first(),
+                    a.w.iter().rposition(|x| x.eq_ignore_ascii_case("outline")).and_then(|i| a.w.get(i + 1)).and_then(|x| x.parse::<u32>().ok()).as_ref(),
+                ) else {
+                    bail!("loft outline 1 outline 2 height h");
+                };
+                let h = a.need("height")?;
+                positive(&[h])?;
+                let get = |id: u32| -> Result<Arc<Outline>> {
+                    let o = self.outlines.get(&id).ok_or_else(|| anyhow!("there is no outline {id}"))?;
+                    o.validate()?;
+                    Ok(Arc::new(o.clone()))
+                };
+                let (oa, ob) = (get(o1)?, get(o2)?);
+                self.add_body(
+                    "loft",
+                    |m, id| Shape::Loft { a: oa, b: ob, h, faces: ["side", "bottom", "top"].map(|f| m.face(format!("loft {id} {f}"))) },
+                    format!("loft from outline {o1} to outline {o2}, height {h}"),
+                );
+            }
+            "sew" => {
+                // Surface patches from files, their corners joined within a tolerance, into one closed surface.
+                let tol = a.num("tolerance")?.unwrap_or(1e-6);
+                let files: Vec<String> = a.w[1..].iter().take_while(|x| !x.eq_ignore_ascii_case("tolerance")).cloned().collect();
+                if files.is_empty() {
+                    bail!("sew 'a.stl' 'b.stl' ... [tolerance t]");
+                }
+                let (mut pts, mut tris): (Vec<V3>, Vec<[u32; 3]>) = (Vec::new(), Vec::new());
+                for f in &files {
+                    let m = read_surface_open(&self.resolve(f))?;
+                    let o = pts.len() as u32;
+                    pts.extend(m.0);
+                    tris.extend(m.1.iter().map(|t| t.map(|i| i + o)));
+                }
+                let (pts, tris) = weld(&pts, &tris, tol);
+                let mut edges: std::collections::HashMap<(u32, u32), u32> = Default::default();
+                for t in &tris {
+                    for k in 0..3 {
+                        let (x, y) = (t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3]));
+                        *edges.entry((x, y)).or_default() += 1;
+                    }
+                }
+                let open = edges.values().filter(|c| **c != 2).count();
+                if open > 0 {
+                    bail!("the patches do not close up: {open} edges are not shared by exactly two triangles (raise the tolerance, or a patch is missing)");
+                }
+                let mesh = TriMesh::new(&pts, &tris)?;
+                if mesh.volume() < 0.0 {
+                    bail!("the sewn surface faces inwards: flip the patches' triangles");
+                }
+                self.add_body(
+                    "sewn",
+                    |m, id| Shape::Surface { mesh: Arc::new(mesh), face: m.face(format!("sewn {id} surface")) },
+                    format!("{} sewn", files.join(", ")),
+                );
             }
             "import" => {
                 let file = a.w.get(1).ok_or_else(|| anyhow!("import '<file>'"))?.clone();
@@ -739,8 +868,8 @@ impl Model {
                     None => 8,
                 };
                 let scheme = match a.text("scheme").map(|s| s.to_ascii_lowercase()) {
-                    Some(s) if ["structured", "overlay", "stairstep", "auto"].contains(&s.as_str()) => s,
-                    Some(s) => bail!("unknown scheme {s} (auto, structured, overlay, stairstep)"),
+                    Some(s) if ["structured", "overlay", "stairstep", "mapped", "auto"].contains(&s.as_str()) => s,
+                    Some(s) => bail!("unknown scheme {s} (auto, structured, mapped, overlay, stairstep)"),
                     None => "auto".into(),
                 };
                 let intervals: Vec<usize> = a.nums("intervals").into_iter().map(|x| x.max(1.0) as usize).collect();
@@ -814,6 +943,41 @@ impl Model {
                     if let Some(n) = name {
                         e.1 = n;
                     }
+                }
+            }
+            "group" => {
+                let id = a.w.get(1).and_then(|x| x.parse::<u32>().ok()).ok_or_else(|| anyhow!("group N add body 1 2 face 5 [name '<name>']"))?;
+                let bodies = a.ids("body");
+                let faces = a.ids("face");
+                for b in &bodies {
+                    if !self.bodies.contains_key(b) {
+                        bail!("there is no body {b}");
+                    }
+                }
+                for f in &faces {
+                    if *f == 0 || *f as usize >= self.faces.len() {
+                        bail!("there is no face {f}");
+                    }
+                }
+                let e = match self.groups.iter_mut().find(|g| g.0 == id) {
+                    Some(e) => e,
+                    None => {
+                        self.groups.push((id, format!("group_{id}"), Vec::new(), Vec::new()));
+                        self.groups.last_mut().unwrap()
+                    }
+                };
+                for b in bodies {
+                    if !e.2.contains(&b) {
+                        e.2.push(b);
+                    }
+                }
+                for f in faces {
+                    if !e.3.contains(&f) {
+                        e.3.push(f);
+                    }
+                }
+                if let Some(n) = a.text("name") {
+                    e.1 = n;
                 }
             }
             "body" => {
@@ -919,6 +1083,62 @@ fn positive(v: &[f64]) -> Result<()> {
         bail!("sizes must be positive");
     }
     Ok(())
+}
+
+impl Model {
+    fn resolve(&self, file: &str) -> std::path::PathBuf {
+        let p = std::path::PathBuf::from(file);
+        match (&self.base_dir, p.is_relative()) {
+            (Some(b), true) => b.join(p),
+            _ => p,
+        }
+    }
+}
+
+/// The points and triangles of a surface file as they are (open surfaces too).
+fn read_surface_open(path: &std::path::Path) -> Result<(Vec<V3>, Vec<[u32; 3]>)> {
+    let ds = match aurafx_io::read_file(path)? {
+        aurafx_io::Loaded::Static(d) => d,
+        aurafx_io::Loaded::Series(s) => match s.steps.first() {
+            Some(st) => aurafx_io::load_step(st)?.into(),
+            None => bail!("{}: no data", path.display()),
+        },
+    };
+    let aurafx_data::DataSet::PolyData(pd) = &*ds else { bail!("{}: not a surface", path.display()) };
+    let pts = (0..pd.points.len()).map(|i| pd.points.get(i)).collect();
+    let mut tris = Vec::new();
+    for (_, c) in pd.polys.iter() {
+        for k in 1..c.len().saturating_sub(1) {
+            tris.push([c[0], c[k], c[k + 1]]);
+        }
+    }
+    Ok((pts, tris))
+}
+
+/// Join points closer than `tol` (each to the first of them) and drop triangles that collapse.
+fn weld(pts: &[V3], tris: &[[u32; 3]], tol: f64) -> (Vec<V3>, Vec<[u32; 3]>) {
+    let tree = aurafx_data::kdtree::KdTree::new(pts);
+    let mut to: Vec<u32> = (0..pts.len() as u32).collect();
+    for i in 0..pts.len() {
+        if to[i] as usize != i {
+            continue;
+        }
+        for (j, _) in tree.within(pts[i], tol) {
+            if j > i && to[j] as usize == j {
+                to[j] = i as u32;
+            }
+        }
+    }
+    let mut keep = vec![u32::MAX; pts.len()];
+    let mut out = Vec::new();
+    for i in 0..pts.len() {
+        if to[i] as usize == i {
+            keep[i] = out.len() as u32;
+            out.push(pts[i]);
+        }
+    }
+    let t = tris.iter().map(|t| t.map(|v| keep[to[v as usize] as usize])).filter(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2]).collect();
+    (out, t)
 }
 
 /// A closed surface from a file (STL, PLY, OBJ, VTK polygonal data ...).

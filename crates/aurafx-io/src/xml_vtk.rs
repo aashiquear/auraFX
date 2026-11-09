@@ -819,6 +819,13 @@ fn read_parallel(path: &Path, body: &Node) -> Result<DataSet> {
             read(&sub)
         })
         .collect::<Result<_>>()?;
+    if crate::option("pieces").is_some_and(|v| v.eq_ignore_ascii_case("partitions")) && crate::current_piece().is_none() {
+        let mut mb = MultiBlock::default();
+        for (k, p) in pieces.into_iter().enumerate() {
+            mb.blocks.push((format!("piece {k}"), Some(p)));
+        }
+        return Ok(DataSet::MultiBlock(mb));
+    }
     merge_pieces(pieces)
 }
 
@@ -851,6 +858,15 @@ pub fn merge_pieces(pieces: Vec<DataSet>) -> Result<DataSet> {
         _ => {
             if rest.is_empty() {
                 return Ok(first);
+            }
+            // Image, rectilinear and structured pieces with extents join into one grid.
+            if matches!(first, DataSet::ImageData(_) | DataSet::RectilinearGrid(_) | DataSet::StructuredGrid(_)) {
+                let mut all = vec![first.clone()];
+                all.extend(rest.iter().cloned());
+                let merged = aurafx_data::pieces::merge(all);
+                if !matches!(merged, DataSet::MultiBlock(_)) {
+                    return Ok(merged);
+                }
             }
             let mut mb = MultiBlock::default();
             mb.blocks.push(("piece 0".into(), Some(first)));

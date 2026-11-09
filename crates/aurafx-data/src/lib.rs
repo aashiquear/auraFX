@@ -16,6 +16,7 @@ pub mod elements;
 pub mod higher_order;
 pub mod htg;
 pub mod info;
+pub mod kdtree;
 pub mod pieces;
 
 pub use array::{Array, ArrayData, ScalarType};

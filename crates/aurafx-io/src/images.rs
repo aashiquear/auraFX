@@ -99,6 +99,20 @@ fn decode_tiff(path: &Path) -> Result<Vec<Picture>> {
     Ok(pages)
 }
 
+/// The pages of a TIFF as (width, height, values with rows bottom first), one value per pixel.
+pub(crate) fn decode_tiff_pages(path: &Path) -> Result<Vec<(usize, usize, ArrayData)>> {
+    decode_tiff(path)?
+        .into_iter()
+        .map(|p| {
+            if p.ncomp != 1 {
+                bail!("{}: pages with {} values per pixel (one channel per page is expected)", path.display(), p.ncomp);
+            }
+            let rows = if p.bottom_up { p.data } else { flip_rows(&p.data, p.w, p.h, 1) };
+            Ok((p.w, p.h, rows))
+        })
+        .collect()
+}
+
 fn decode(path: &Path) -> Result<Vec<Picture>> {
     let tiff = path.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "tif" | "tiff"));
     if tiff {

@@ -400,6 +400,31 @@ impl PyNode {
         self.clone()
     }
 
+    /// Plot this object's arrays in a new chart view: `line.plot("T", "p", x="arc_length")`.
+    /// Returns the view's number (afx.chart_view changes it later).
+    #[pyo3(signature = (*y, x=None, style=None, data=None, log_x=None, log_y=None, title=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn plot(
+        &self,
+        py: Python<'_>,
+        y: Vec<String>,
+        x: Option<String>,
+        style: Option<String>,
+        data: Option<String>,
+        log_x: Option<bool>,
+        log_y: Option<bool>,
+        title: Option<String>,
+    ) -> PyResult<u32> {
+        let mut s = session().lock();
+        if !s.nodes.contains_key(&self.id) {
+            return Err(PyKeyError::new_err("node no longer exists"));
+        }
+        let id = s.new_chart_view(Some(self.id));
+        let ys = if y.is_empty() { None } else { Some(pyo3::types::PyList::new(py, &y)?.into_any()) };
+        set_chart(s.chart_view(id).unwrap(), ys, x, style, data, log_x, log_y, title)?;
+        Ok(id)
+    }
+
     fn hide(&self) -> PyNode {
         session().lock().set_visible(self.id, false);
         self.clone()
@@ -542,26 +567,71 @@ impl PyNode {
     }
 
     /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .vtkhdf .exo .case (EnSight Gold)
-    /// .xmf (Xdmf + .h5) .cgns .csv .stl .ply .dream3d (with the pipeline) .spparks .tex (format from the extension). all_times=True writes every
-    /// time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one mesh), or as an EnSight or
-    /// Xdmf series.
-    #[pyo3(signature = (path, all_times=false))]
-    fn save(&self, path: String, all_times: bool) -> PyResult<()> {
+    /// .xmf (Xdmf + .h5) .cgns .csv .stl .ply .dream3d (with the pipeline) .spparks .tex .inp
+    /// (Abaqus) .msh (Gmsh) .cas (Fluent) .bdf (Nastran) .mha/.mhd (MetaImage) .png/.tif (image
+    /// stacks) .pvtu/.pvtp/.pvti (parallel pieces; pieces=4) .pvd (format from the extension).
+    /// all_times=True writes every time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one
+    /// mesh), or as an EnSight, Xdmf or .pvd series.
+    #[pyo3(signature = (path, all_times=false, pieces=4))]
+    fn save(&self, path: String, all_times: bool, pieces: usize) -> PyResult<()> {
         let p = std::path::Path::new(&path);
         if all_times {
             if !aurafx_pipeline::Session::holds_all_times(p) {
                 return Err(PyValueError::new_err(
-                    "all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case), Xdmf (.xmf) or CGNS (.cgns) file name",
+                    "all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case), Xdmf (.xmf), CGNS (.cgns) or .pvd file name",
                 ));
             }
             return session().lock().save_all_times(self.id, p).map(|_| ()).map_err(err);
         }
         let ds = self.output()?;
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if matches!(ext.as_str(), "pvtu" | "pvtp" | "pvti" | "pvts" | "pvtr") {
+            return aurafx_io::collections::write_parallel(&ds, p, pieces.max(1)).map(|_| ()).map_err(err);
+        }
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dream3d")) {
             // Records the pipeline that made the data.
             return session().lock().save_data(self.id, p).map_err(err);
         }
         aurafx_io::writers::write_file(&ds, p).map_err(err)
+    }
+
+    /// Pole figures of every phase as PNG pictures in a folder (phase1_100.png, ...): sample x
+    /// to the right, y up, each phase's MRD from 0 (dark blue) to its largest value (red).
+    /// Returns the files written with their largest MRD.
+    #[pyo3(signature = (folder, families="100, 110, 111", projection="Stereographic", sigma=7.5, size=256, phase=0, structure="", mask=""))]
+    #[allow(clippy::too_many_arguments)]
+    fn save_pole_figures(
+        &self,
+        folder: String,
+        families: &str,
+        projection: &str,
+        sigma: f64,
+        size: usize,
+        phase: i64,
+        structure: &str,
+        mask: &str,
+    ) -> PyResult<Vec<(String, f64)>> {
+        let ds = self.output()?;
+        let st = if structure.is_empty() { aurafx_filters::crystal::FROM_PHASES } else { structure };
+        let sel = aurafx_filters::crystal_texture::Selection {
+            orientations: None,
+            structure: st,
+            phases: None,
+            phase,
+            mask: Some(mask).filter(|m| !m.is_empty()),
+            max: 200_000,
+            seed: 1,
+        };
+        let imgs = aurafx_filters::crystal_texture::pole_figure_images(&ds, &sel, families, projection, sigma, 2.0, size).map_err(err)?;
+        let dir = std::path::Path::new(&folder);
+        std::fs::create_dir_all(dir).map_err(err)?;
+        let mut out = Vec::new();
+        for (ph, fam, im, hi) in imgs {
+            let path = dir.join(format!("phase{ph}_{fam}.png"));
+            aurafx_io::collections::write_image_stack(&aurafx_data::DataSet::ImageData(im), &path).map_err(err)?;
+            out.push((path.display().to_string(), hi));
+        }
+        Ok(out)
     }
 
     /// The pipeline that makes this node, as JSON text (the form .dream3d files record).
@@ -895,9 +965,40 @@ fn view(direction: Bound<'_, PyAny>, up: Option<[f64; 3]>) -> PyResult<()> {
     Ok(())
 }
 
+/// Save a picture of the active 3D view: `afx.screenshot("fig.png", width=1920)`.
+/// With `views`, a picture of several views as they are laid out in the window: "all" (every
+/// visible 3D view and chart view), "charts", "3d", "chart" (the Charts panel), "chart N"
+/// (the chart titled Chart N) or "view N"; `controls=True` keeps the charts' boxes and buttons.
 #[pyfunction]
-#[pyo3(signature = (path, width=None, height=None, transparent=false, annotations=true))]
-fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u32>, transparent: bool, annotations: bool) -> PyResult<()> {
+#[pyo3(signature = (path, width=None, height=None, transparent=false, annotations=true, views=None, controls=false))]
+#[allow(clippy::too_many_arguments)]
+fn screenshot(
+    py: Python<'_>,
+    path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    transparent: bool,
+    annotations: bool,
+    views: Option<String>,
+    controls: bool,
+) -> PyResult<()> {
+    if let Some(views) = views {
+        if width.is_some() || height.is_some() {
+            return Err(PyValueError::new_err("a picture of several views has the window's pixels: leave out width and height"));
+        }
+        let id = {
+            let mut s = session().lock();
+            s.next_screenshot_id += 1;
+            let id = s.next_screenshot_id;
+            s.layout_request = Some(aurafx_pipeline::session::LayoutRequest { path: std::path::PathBuf::from(path), views, transparent, controls, id });
+            s.revision += 1;
+            id
+        };
+        if let Some(w) = session().lock().wake_ui.clone() {
+            w();
+        }
+        return wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")));
+    }
     let id = request_screenshot(path, width, height, transparent, annotations);
     // Wait until the app has saved it (a ray-traced picture may take a while).
     wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
@@ -911,7 +1012,7 @@ fn export_scene(py: Python<'_>, path: String) -> PyResult<()> {
     if !matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl") {
         return Err(PyValueError::new_err("export_scene writes .glb, .obj, .x3d or .wrl files (afx.screenshot('fig.svg') for a vector picture)"));
     }
-    screenshot(py, path, None, None, false, true)
+    screenshot(py, path, None, None, false, true, None, false)
 }
 
 fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, transparent: bool, overlays: bool) -> u64 {
@@ -932,7 +1033,7 @@ fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, tra
 
 /// Add a line to the Charts panel: afx.plot(x, y, label="T max").
 #[pyfunction]
-#[pyo3(signature = (x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=false))]
+#[pyo3(signature = (x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=false, view=0))]
 #[allow(clippy::too_many_arguments)]
 fn plot(
     x: Bound<'_, PyAny>,
@@ -942,6 +1043,7 @@ fn plot(
     xlabel: Option<String>,
     ylabel: Option<String>,
     clear: bool,
+    view: u32,
 ) -> PyResult<()> {
     let to_vec = |v: &Bound<'_, PyAny>| -> PyResult<Vec<f64>> {
         if let Ok(l) = v.extract::<Vec<f64>>() {
@@ -961,6 +1063,22 @@ fn plot(
         return Err(PyValueError::new_err(format!("x has {} values but y has {}", xs.len(), ys.len())));
     }
     let mut s = session().lock();
+    if view != 0 {
+        // A line in chart view `view` (afx.chart_view opens one).
+        let v = s.chart_view(view).ok_or_else(|| PyValueError::new_err(format!("there is no chart view {view} (afx.chart_views() lists them)")))?;
+        if clear {
+            v.series.clear();
+        }
+        if let Some(t) = title {
+            v.title = t;
+        }
+        let n = v.series.len() + 1;
+        let name = label.unwrap_or_else(|| format!("series {n}"));
+        v.series.retain(|sr| sr.name != name);
+        v.series.push(aurafx_pipeline::ChartSeries { name, x: xs, y: ys });
+        s.touch();
+        return Ok(());
+    }
     if clear {
         s.chart.series.clear();
     }
@@ -976,6 +1094,123 @@ fn plot(
     let n = s.chart.series.len() + 1;
     s.add_series(label.unwrap_or_else(|| format!("series {n}")), xs, ys);
     Ok(())
+}
+
+/// Apply keyword settings to chart view `v`.
+#[allow(clippy::too_many_arguments)]
+fn set_chart(
+    v: &mut aurafx_pipeline::charts::ChartView,
+    y: Option<Bound<'_, PyAny>>,
+    x: Option<String>,
+    style: Option<String>,
+    data: Option<String>,
+    log_x: Option<bool>,
+    log_y: Option<bool>,
+    title: Option<String>,
+) -> PyResult<()> {
+    use aurafx_pipeline::charts::{ChartData, ChartStyle};
+    if let Some(y) = y {
+        v.y = if let Ok(one) = y.extract::<String>() { vec![one] } else { y.extract::<Vec<String>>()? };
+    }
+    if let Some(x) = x {
+        v.x = if x.is_empty() || x == "index" { "(index)".into() } else { x };
+    }
+    if let Some(st) = style {
+        v.style = ChartStyle::parse(&st).ok_or_else(|| PyValueError::new_err("style must be 'lines', 'points', 'markers' or 'bars'"))?;
+    }
+    if let Some(d) = data {
+        v.data = ChartData::parse(&d).ok_or_else(|| PyValueError::new_err("data must be 'auto', 'points' or 'cells'"))?;
+    }
+    if let Some(b) = log_x {
+        v.log_x = b;
+    }
+    if let Some(b) = log_y {
+        v.log_y = b;
+    }
+    if let Some(t) = title {
+        v.title = t;
+    }
+    // Choose defaults for what was not given, for the object shown now.
+    v.defaults_for = Some(u64::MAX);
+    Ok(())
+}
+
+/// Open a chart view, or change one: `afx.chart_view(line, y=["T", "p"], x="arc_length")`.
+/// `node` is the object it plots (None: whichever object is selected); `y` one array name or a
+/// list; `x` an array name or "index"; `style` "lines", "points", "markers" or "bars"; `data`
+/// "auto", "points" or "cells". With `view=n` the existing view n is changed (0 = the Charts
+/// panel). Returns the view's number.
+#[pyfunction]
+#[pyo3(signature = (node=None, y=None, x=None, style=None, data=None, log_x=None, log_y=None, title=None, view=None))]
+#[allow(clippy::too_many_arguments)]
+fn chart_view(
+    node: Option<PyRef<PyNode>>,
+    y: Option<Bound<'_, PyAny>>,
+    x: Option<String>,
+    style: Option<String>,
+    data: Option<String>,
+    log_x: Option<bool>,
+    log_y: Option<bool>,
+    title: Option<String>,
+    view: Option<u32>,
+) -> PyResult<u32> {
+    let mut s = session().lock();
+    let node = node.map(|n| n.id);
+    if let Some(n) = node {
+        if !s.nodes.contains_key(&n) {
+            return Err(PyKeyError::new_err("node no longer exists"));
+        }
+    }
+    let id = match view {
+        Some(id) => {
+            if s.chart_view(id).is_none() {
+                return Err(PyValueError::new_err(format!("there is no chart view {id} (afx.chart_views() lists them)")));
+            }
+            if node.is_some() {
+                s.chart_view(id).unwrap().node = node;
+            }
+            if id == 0 {
+                s.app_commands.push("chart_open 0".into());
+            }
+            id
+        }
+        None => s.new_chart_view(node),
+    };
+    set_chart(s.chart_view(id).unwrap(), y, x, style, data, log_x, log_y, title)?;
+    s.touch();
+    Ok(id)
+}
+
+/// The chart views: a list of dicts (view, node, x, y, style, data, log_x, log_y, title).
+#[pyfunction]
+fn chart_views(py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+    let mut s = session().lock();
+    let _ = s.chart_view(0);
+    let mut out = Vec::new();
+    for v in &s.chart_views {
+        let d = PyDict::new(py);
+        d.set_item("view", v.id)?;
+        d.set_item("node", v.node)?;
+        d.set_item("x", &v.x)?;
+        d.set_item("y", v.y.clone())?;
+        d.set_item("style", format!("{:?}", v.style).to_lowercase())?;
+        d.set_item("data", format!("{:?}", v.data).to_lowercase())?;
+        d.set_item("log_x", v.log_x)?;
+        d.set_item("log_y", v.log_y)?;
+        d.set_item("title", &v.title)?;
+        out.push(d.unbind());
+    }
+    Ok(out)
+}
+
+/// Close chart view `view` (0, the Charts panel, is hidden instead).
+#[pyfunction]
+fn close_chart_view(view: u32) -> PyResult<()> {
+    if session().lock().close_chart_view(view) {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!("there is no chart view {view}")))
+    }
 }
 
 #[pyfunction]
@@ -1327,8 +1562,11 @@ fn load_state(path: String) -> PyResult<()> {
 /// With `cue`, a Python function called with the animation time t (0..1) before each frame
 /// (after the keyframes are applied), the script renders the frames itself and returns when
 /// the file is written: `afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))`.
+///
+/// `views="all"` records every visible 3D view and chart view as laid out in the window
+/// ("charts", "3d", "chart N" and "view N" as for `afx.screenshot`).
 #[pyfunction]
-#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None))]
+#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None))]
 #[allow(clippy::too_many_arguments)]
 fn save_animation(
     py: Python<'_>,
@@ -1339,9 +1577,12 @@ fn save_animation(
     frames: Option<usize>,
     width: Option<u32>,
     height: Option<u32>,
+    views: Option<String>,
 ) -> PyResult<()> {
     let Some(cue) = cue else {
-        session().lock().animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
+        let mut s = session().lock();
+        s.animation_views = views;
+        s.animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
         return Ok(());
     };
     if !cue.is_callable() {
@@ -1373,7 +1614,7 @@ fn save_animation(
                 }
             }
             cue.call1((t,))?;
-            screenshot(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false, true)?;
+            screenshot(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false, true, views.clone(), false)?;
         }
         Ok(())
     };
@@ -2555,6 +2796,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(layout, m)?)?;
     m.add_function(wrap_pyfunction!(hide_panel, m)?)?;
     m.add_function(wrap_pyfunction!(plot, m)?)?;
+    m.add_function(wrap_pyfunction!(chart_view, m)?)?;
+    m.add_function(wrap_pyfunction!(chart_views, m)?)?;
+    m.add_function(wrap_pyfunction!(close_chart_view, m)?)?;
     m.add_function(wrap_pyfunction!(clear_plots, m)?)?;
     m.add_function(wrap_pyfunction!(over_time, m)?)?;
     m.add_function(wrap_pyfunction!(temporal_statistics, m)?)?;

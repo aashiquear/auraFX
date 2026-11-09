@@ -57,21 +57,28 @@ fn cells(len: f64, size: f64) -> usize {
     ((len / size).round() as usize).max(1)
 }
 
-/// The mesh of one body, in its own coordinates, or why it cannot be meshed.
-fn body_mesh(shape: &Shape, size: f64) -> Result<HexMesh, String> {
+/// The mesh of one body, in its own coordinates, or why it cannot be meshed. `div`: pieces and
+/// bias per axis (see `Model::mesh_divisions`).
+fn body_mesh(shape: &Shape, size: f64, div: Option<&(Vec<usize>, Vec<f64>, String)>) -> Result<HexMesh, String> {
+    let pick = |a: usize, n: usize| -> Division {
+        let cells = div.and_then(|d| d.0.get(a).copied()).unwrap_or(n).max(1);
+        let ratio = div.and_then(|d| d.1.get(a).copied()).unwrap_or(1.0).max(1.0);
+        let cluster = if ratio > 1.0 { div.map(|d| d.2.clone()).unwrap_or_else(|| "start".into()) } else { "none".into() };
+        Division { cells, ratio, cluster }
+    };
     match shape {
         Shape::Brick { half, .. } => {
-            let d: Vec<Division> = (0..3).map(|a| Division::uniform(cells(2.0 * half[a], size))).collect();
+            let d: Vec<Division> = (0..3).map(|a| pick(a, cells(2.0 * half[a], size))).collect();
             Ok(box_mesh(half.map(|h| -h), *half, [&d[0], &d[1], &d[2]]))
         }
         Shape::Cylinder { r, h, .. } => {
-            let n = cells(0.9 * r, size).max(2);
-            let rings = cells(0.55 * r, size).max(1);
+            let n = div.and_then(|d| d.0.first().copied()).unwrap_or_else(|| cells(0.9 * r, size)).max(2);
+            let rings = div.and_then(|d| d.0.get(1).copied()).unwrap_or_else(|| cells(0.55 * r, size)).max(1);
             let (mut pts, quads) = disk_quads(*r, n, rings);
             for p in pts.iter_mut() {
                 p[2] = -h / 2.0;
             }
-            sweep_quads(&pts, &quads, &vec![1; quads.len()], [0.0, 0.0, 1.0], *h, &Division::uniform(cells(*h, size)))
+            sweep_quads(&pts, &quads, &vec![1; quads.len()], [0.0, 0.0, 1.0], *h, &pick(2, cells(*h, size)))
         }
         _ => Err("only bricks and cylinders (moved, turned or scaled) have a structured mesh; use scheme overlay".into()),
     }
@@ -142,7 +149,7 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
             continue;
         }
         let (aff, prim) = base(&body.shape);
-        let mut m = body_mesh(prim, size).map_err(|e| format!("body {id}: {e}"))?;
+        let mut m = body_mesh(prim, size, model.mesh_divisions.get(&id)).map_err(|e| format!("body {id}: {e}"))?;
         let proj = if let Shape::Cylinder { r, faces, .. } = prim {
             projs.push(Proj::Cylinder(aff, *r));
             Some((faces[0], projs.len() - 1))

@@ -249,6 +249,7 @@ impl Session {
             "time_index": self.time_index,
             "camera": camera,
             "chart": self.chart,
+            "chart_views": self.chart_views,
             "annotations": self.annotations,
             "animation": self.animation,
             "show_time_label": self.show_time_label,
@@ -330,6 +331,10 @@ impl Session {
         let r = self.apply_snapshot(&snap);
         if let Some(c) = doc.get("chart").cloned().and_then(|c| serde_json::from_value::<Chart>(c).ok()) {
             self.chart = c;
+        }
+        self.chart_views = doc.get("chart_views").cloned().and_then(|c| serde_json::from_value(c).ok()).unwrap_or_default();
+        for v in self.chart_views.iter().filter(|v| v.id != 0) {
+            self.app_commands.push(format!("chart_open {}", v.id));
         }
         self.animation = doc.get("animation").cloned().and_then(|a| serde_json::from_value(a).ok()).unwrap_or_default();
         self.annotations = doc.get("annotations").cloned().and_then(|a| serde_json::from_value(a).ok()).unwrap_or_default();

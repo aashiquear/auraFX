@@ -6,6 +6,7 @@ pub mod cad_check;
 pub mod cad_edit;
 pub mod cases;
 pub mod cases_micro;
+pub mod charts;
 pub mod cluster;
 pub mod colormap;
 pub mod display;

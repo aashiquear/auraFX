@@ -27,6 +27,8 @@ pub enum Pane {
     Charts,
     /// An additional 3D view.
     View(u32),
+    /// An additional chart view (`aurafx_pipeline::charts`; the Charts panel is view 0).
+    Chart(u32),
 }
 
 impl Pane {
@@ -55,6 +57,7 @@ impl Pane {
             Pane::Jobs => "Simulations",
             Pane::Charts => "Charts",
             Pane::View(_) => "3D View",
+            Pane::Chart(_) => "Chart",
         }
     }
     pub fn icon(self) -> &'static str {
@@ -70,6 +73,7 @@ impl Pane {
             Pane::Jobs => crate::icons::ATOM,
             Pane::Charts => crate::icons::WAVE_SINE,
             Pane::View(_) => crate::icons::CUBE,
+            Pane::Chart(_) => crate::icons::WAVE_SINE,
         }
     }
 }
@@ -107,6 +111,7 @@ pub struct State {
     pub anim_dialog: crate::animation::AnimDialog,
     pub screenshot_dialog: crate::screenshot_ui::ScreenshotDialog,
     pub cmap_editor: crate::colormap_editor::ColormapEditor,
+    pub goal_stats: crate::goal_stats::GoalStats,
     pub plugins: crate::plugins_ui::PluginsWindow,
     pub server: crate::server_ui::ServerWindow,
     pub anim_job: Option<crate::animation::AnimJob>,
@@ -134,6 +139,10 @@ pub struct State {
     pub cad: crate::cad::CadUi,
     /// The window that inserts a source with its standard settings or changed ones.
     pub source_dialog: Option<crate::source_dialog::SourceDialog>,
+    /// Chart views whose panes were open last frame (a pane closed by the user closes its view).
+    pub open_chart_panes: Vec<u32>,
+    /// Pictures of the views as laid out (`capture`).
+    pub capture: crate::capture::Capture,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +169,8 @@ pub enum LayoutAction {
         /// the flag keeps it visible in the other views instead of moving it.
         only: Option<(NodeId, bool)>,
     },
+    /// Open chart view `n` (already in the session) beside the other charts.
+    OpenChart(u32),
 }
 
 /// Panes that share a tab group in the default layout; used to re-open a closed pane in a sensible place.
@@ -218,7 +229,7 @@ pub fn show_pane(tree: &mut egui_tiles::Tree<Pane>, pane: Pane) {
             let anchor = tree.tiles.find_pane(&Pane::Viewport).and_then(|v| tree.tiles.parent_of(v)).or(tree.root());
             match anchor {
                 Some(a) => match pane {
-                    Pane::Python | Pane::Charts | Pane::Spreadsheet | Pane::Log => split_beside(tree, a, tabs, Vertical, false, 0.3),
+                    Pane::Python | Pane::Charts | Pane::Spreadsheet | Pane::Log | Pane::Chart(_) => split_beside(tree, a, tabs, Vertical, false, 0.3),
                     Pane::Assistant | Pane::Jobs => split_beside(tree, a, tabs, Horizontal, false, 0.28),
                     Pane::Pipeline | Pane::Properties | Pane::Information => {
                         // Join the left column if the other left-side group is open.
@@ -372,6 +383,7 @@ impl AuraApp {
             anim_dialog: Default::default(),
             screenshot_dialog: Default::default(),
             cmap_editor: Default::default(),
+            goal_stats: Default::default(),
             plugins: Default::default(),
             server: Default::default(),
             anim_job: None,
@@ -388,6 +400,8 @@ impl AuraApp {
             layout_actions: Vec::new(),
             cad: Default::default(),
             source_dialog: None,
+            open_chart_panes: Vec::new(),
+            capture: Default::default(),
         };
         // Scripts see that an app with a 3D view is running before the first frame.
         state.session.lock().view_ids = vec![0];
@@ -981,9 +995,26 @@ impl State {
                         ui.checkbox(&mut self.settings.show_light_widgets, "Show lights in the view").on_hover_text("Drag the sun handles to aim the lights");
                     }
                 });
+                if ui
+                    .button(format!("{} New Chart View", crate::icons::WAVE_SINE))
+                    .on_hover_text("A chart of the selected object's arrays beside the other charts (choose its object in the chart's first box)")
+                    .clicked()
+                {
+                    ui.close();
+                    let active = self.session.lock().active;
+                    self.session.lock().new_chart_view(active);
+                }
                 if ui.button(format!("{} Color Map Editor…", crate::icons::PENCIL_SIMPLE)).clicked() {
                     ui.close();
                     self.cmap_editor.open = true;
+                }
+                if ui
+                    .button(format!("{} Goal Statistics…", crate::icons::DOTS_NINE))
+                    .on_hover_text("Edit the grain size and shape distributions of a synthetic microstructure with live plots, then pack it")
+                    .clicked()
+                {
+                    ui.close();
+                    self.goal_stats.open = true;
                 }
                 {
                     let mut s = self.session.lock();
@@ -1448,7 +1479,8 @@ impl State {
     fn toasts_ui(&mut self, ctx: &egui::Context) {
         let now = self.now();
         self.toasts.retain(|(_, t, _)| now - t < 6.0);
-        if self.toasts.is_empty() {
+        // Nothing over the views while a picture of them is taken.
+        if self.toasts.is_empty() || self.capture.busy() {
             return;
         }
         #[allow(deprecated)]
@@ -1471,6 +1503,9 @@ struct TreeBehavior<'a> {
 
 impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: egui_tiles::TileId, pane: &mut Pane) -> egui_tiles::UiResponse {
+        if crate::capture::is_view(*pane) {
+            self.state.capture.pane_rects.push((*pane, ui.max_rect()));
+        }
         match pane {
             Pane::Pipeline if crate::cad::editing(self.state) => crate::cad::feature_manager_ui(self.state, ui),
             Pane::Properties if crate::cad::editing(self.state) => crate::cad::property_manager_ui(self.state, ui),
@@ -1496,6 +1531,10 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
                 crate::cad::stale_banner(self.state, ui);
                 crate::charts::charts_ui(self.state, ui)
             }
+            Pane::Chart(id) => {
+                crate::cad::stale_banner(self.state, ui);
+                crate::charts::chart_view_ui(self.state, ui, *id)
+            }
         }
         egui_tiles::UiResponse::None
     }
@@ -1518,6 +1557,11 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
                 String::new()
             };
             return format!("{} {name}{link}{mark}", pane.icon()).into();
+        }
+        match pane {
+            Pane::Charts => return format!("{} {}", pane.icon(), crate::charts::chart_title(self.state, 0)).into(),
+            Pane::Chart(id) => return format!("{} {}", pane.icon(), crate::charts::chart_title(self.state, *id)).into(),
+            _ => {}
         }
         if crate::cad::editing(self.state) {
             match pane {
@@ -1714,6 +1758,7 @@ impl eframe::App for AuraApp {
                 "show" if arg.eq_ignore_ascii_case("colormap") || arg.eq_ignore_ascii_case("color map editor") => {
                     self.state.cmap_editor.open = true;
                 }
+                "show" if arg.eq_ignore_ascii_case("goal statistics") => self.state.goal_stats.open = true,
                 "show" if arg.eq_ignore_ascii_case("animation") => {
                     self.state.anim_dialog.open = true;
                     self.state.anim_dialog.mode = crate::animation::AnimMode::Keyframes;
@@ -1750,6 +1795,17 @@ impl eframe::App for AuraApp {
                 "show" => {
                     if let Some(p) = find(arg) {
                         self.state.layout_actions.push(LayoutAction::Show(p));
+                    }
+                }
+                // "chart_open <n>" / "chart_close <n>": the pane of chart view n (0 = the Charts panel).
+                "chart_open" | "chart_close" => {
+                    if let Ok(id) = arg.trim().parse::<u32>() {
+                        let pane = if id == 0 { Pane::Charts } else { Pane::Chart(id) };
+                        self.state.layout_actions.push(match (verb, id) {
+                            ("chart_open", 0) => LayoutAction::Show(pane),
+                            ("chart_open", _) => LayoutAction::OpenChart(id),
+                            _ => LayoutAction::Hide(pane),
+                        });
                     }
                 }
                 // "sim_template <id>": choose a template in the Simulations panel.
@@ -1910,6 +1966,32 @@ impl eframe::App for AuraApp {
                     }
                     self.state.pending_activate = Some(id);
                 }
+                LayoutAction::OpenChart(id) => {
+                    let pane = Pane::Chart(id);
+                    if self.tree.tiles.find_pane(&pane).is_none() {
+                        // Beside the newest chart view (or the Charts panel), else below the 3D view.
+                        let anchor = self
+                            .state
+                            .open_chart_panes
+                            .iter()
+                            .rev()
+                            .find_map(|c| self.tree.tiles.find_pane(&Pane::Chart(*c)))
+                            .or_else(|| self.tree.tiles.find_pane(&Pane::Charts));
+                        let new_pane = self.tree.tiles.insert_pane(pane);
+                        let tabs = self.tree.tiles.insert_tab_tile(vec![new_pane]);
+                        match anchor.and_then(|a| self.tree.tiles.parent_of(a)) {
+                            Some(a) => split_beside(&mut self.tree, a, tabs, egui_tiles::LinearDir::Horizontal, false, 0.5),
+                            None => {
+                                let a = self.tree.tiles.find_pane(&Pane::Viewport).and_then(|v| self.tree.tiles.parent_of(v)).or(self.tree.root());
+                                match a {
+                                    Some(a) => split_beside(&mut self.tree, a, tabs, egui_tiles::LinearDir::Vertical, false, 0.35),
+                                    None => self.tree.root = Some(tabs),
+                                }
+                            }
+                        }
+                    }
+                    self.tree.make_active(|_, t| matches!(t, egui_tiles::Tile::Pane(p) if *p == pane));
+                }
             }
         }
         if self.tree.root().is_none() {
@@ -1920,10 +2002,13 @@ impl eframe::App for AuraApp {
         }
 
         let fill = if ctx.theme() == egui::Theme::Dark { crate::theme::dark_visuals().panel_fill } else { crate::theme::light_visuals().panel_fill };
+        self.state.capture_poll_session();
+        self.state.capture_begin_frame();
         egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(2)).fill(fill)).show(root_ui, |ui| {
             let mut behavior = TreeBehavior { state: &mut self.state };
             self.tree.ui(&mut behavior, ui);
         });
+        self.state.capture_end_frame(ctx);
 
         let open_views: Vec<u32> = self
             .tree
@@ -1936,6 +2021,18 @@ impl eframe::App for AuraApp {
             })
             .collect();
         self.state.views_end_frame(&open_views);
+        // Chart panes and the session's chart views: a pane the user closed closes its view.
+        let open_charts: Vec<u32> =
+            self.tree.tiles.iter().filter_map(|(_, t)| if let egui_tiles::Tile::Pane(Pane::Chart(id)) = t { Some(*id) } else { None }).collect();
+        {
+            let closed: Vec<u32> = self.state.open_chart_panes.iter().copied().filter(|id| !open_charts.contains(id)).collect();
+            if !closed.is_empty() {
+                let mut s = self.state.session.lock();
+                s.chart_views.retain(|v| !closed.contains(&v.id));
+                s.revision += 1;
+            }
+        }
+        self.state.open_chart_panes = open_charts;
         {
             let ids = self.state.view_ids();
             let mut s = self.state.session.lock();
@@ -1966,6 +2063,7 @@ impl eframe::App for AuraApp {
         crate::animation::dialog_ui(st, ctx);
         crate::screenshot_ui::dialog_ui(st, ctx);
         crate::colormap_editor::editor_ui(st, ctx);
+        crate::goal_stats::window(st, ctx);
         st.plugins_tick(ctx);
         crate::plugins_ui::plugins_ui(st, ctx);
         crate::server_ui::server_ui(st, ctx);

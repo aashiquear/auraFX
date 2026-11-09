@@ -116,16 +116,16 @@ fn recorded_pipeline_runs() {
     let mut s = Session::new();
     let r = s.open_file(td("dream3d/am_bench_subset.dream3d")).unwrap();
     let made = s.import_pipeline(&td("dream3d/am_bench_segmentation.json"), Some(r)).unwrap();
-    // Skipped: three Delete Data steps, a feature-to-cell array copy and a CSV export.
-    assert_eq!(made.skipped.len(), 5, "{:?}", made.skipped);
-    assert_eq!(made.nodes.len(), 15);
+    // Skipped: three Delete Data steps and a CSV export.
+    assert_eq!(made.skipped.len(), 4, "{:?}", made.skipped);
+    assert_eq!(made.nodes.len(), 16);
     s.update_blocking();
     for n in &made.nodes {
         assert!(s.nodes[n].error.is_none(), "{}: {:?}", s.nodes[n].name, s.nodes[n].error);
     }
     let last = s.nodes[made.nodes.last().unwrap()].output.clone().unwrap();
     let DataSet::ImageData(img) = &*last else { panic!() };
-    for a in ["FeatureIds", "KernelAverageMisorientations", "IPFColorZ", "Quats"] {
+    for a in ["FeatureIds", "KernelAverageMisorientations", "IPFColorZ", "Quats", "EquivalentDiameters"] {
         assert!(img.cell_data.get(a).is_some(), "{a}");
     }
     let f = img.cell_data.get("FeatureIds").unwrap();

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9be39550.js";
+            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -449,6 +449,47 @@ from their neighbours the same way. Feature 0 can win, so a small feature agains
 outside may become outside. The remaining features are renumbered from 1 in their old
 order, and per-feature field arrays keep their rows.</li>
 </ul>
+<p>Before or instead of segmenting, noisy maps can be cleaned cell by cell (every cell array moves
+with the cell it comes from):</p>
+<ul>
+<li><strong>Replace Element Attributes with Neighbor</strong> (neighbour confidence correlation): each cell
+whose confidence (an array such as <code>Confidence Index</code>) is below a minimum takes the values of
+its most confident neighbour, again and again if asked.</li>
+<li><strong>Neighbor Orientation Correlation</strong>: each low-confidence cell takes the values of the
+neighbour that most other neighbours agree with in orientation (within a misorientation
+tolerance), when enough of them agree, from 6 agreeing neighbours down to 6 minus the
+<em>cleanup level</em>.</li>
+<li><strong>Bad Data Neighbor Orientation Check</strong>: a cell outside the mask (bad) with enough good
+neighbours of nearly its own orientation becomes good.</li>
+<li><strong>Erode Dilate Bad Data</strong>: the features grow into the bad cells (erode) or the bad cells into
+the features (dilate), a number of times, along chosen axes.</li>
+<li><strong>Erode Dilate Coordination Number</strong>: a cell with at least this many face neighbours in one
+other feature joins that feature: smooths jagged boundaries.</li>
+<li><strong>Identify Sample</strong>: the largest connected region of good cells is the sample; other good
+cells become bad, and with <em>fill holes</em> bad pockets inside the sample become good.
+<strong>Isolate Largest Feature</strong> keeps only the largest feature.</li>
+</ul>
+<p>A 20 × 20 map of four grains with one cell in 17 spoilt (wrong orientation, low confidence)
+comes back to its four grains exactly with Replace Element Attributes with Neighbor, Neighbor
+Orientation Correlation, or one pass of Erode Dilate Bad Data.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/ebsd_cleanup.png" alt="A noisy map (left) and the same map after Neighbor Orientation Correlation (right), colored by IPF color"><span class="img-wrapper"><img src="images/ebsd_cleanup.png" alt="A noisy map (left) and the same map after Neighbor Orientation Correlation (right), colored by IPF color"></span></label></p>
+<p>To put a sample the right way round: <strong>Rotate Sample Reference Frame</strong> turns the grid and its
+data (not the crystal orientations; use Rotate Orientations for those) by an angle about an
+axis, exactly for multiples of 90°; <strong>Apply Transformation to Geometry</strong> scales, turns and moves
+the grid (only the origin and spacing change when there is no turn), also by a 4 × 4 matrix;
+<strong>Set Origin and Spacing</strong> gives the volume a new origin and cell size; <strong>Resample Rectilinear
+To Image</strong> puts an unevenly spaced grid on an even one.</p>
+<h3 id="image-filters-on-volumes"><a class="header" href="#image-filters-on-volumes">Image filters on volumes</a></h3>
+<p>In <strong>Filters › Data Analysis</strong>, for any image data (an EBSD map’s quality arrays, an optical or
+X-ray volume): <strong>Median Image</strong> (the median of a box of cells, against speckle), <strong>Gaussian Smooth
+Image</strong> (a standard deviation in cells), <strong>Otsu Threshold</strong> (one to four thresholds that best
+split the histogram; a label array and the thresholds as field data) and <strong>Binary Morphology</strong>
+(erode, dilate, open or close the non-zero cells with a ball of cells). The results agree with
+scipy.ndimage (median, Gaussian, binary erosion and dilation) on a test volume.</p>
+<pre><code class="language-python">m = volume.median_image(array="ImageData", radius=(1, 1, 1))
+o = m.otsu_threshold(array="Median", thresholds=1)
+clean = o.binary_morphology(array="Otsu", operation="Open", radius=1)
+</code></pre>
 <h3 id="per-feature-results"><a class="header" href="#per-feature-results">Per-feature results</a></h3>
 <div class="table-wrapper">
 <table>
@@ -482,6 +523,28 @@ orientations differ by 60° about a ⟨111⟩ axis, within the <strong>Axis</str
 tolerances. Chains of twins share one parent. Parents are numbered in the order of their
 first feature.</li>
 </ul>
+<p>More measures of features and their boundaries:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Filter</th><th>Gives</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Find Neighborhoods</strong></td><td><code>Neighborhoods</code>: how many feature centres lie within some multiple of the mean equivalent diameter</td></tr>
+<tr><td><strong>Find Largest Cross Sections</strong></td><td><code>LargestCrossSections</code>: the largest area of a feature in one slice normal to x, y or z</td></tr>
+<tr><td><strong>Find Feature Clustering</strong></td><td>a table of the radial distribution function of feature centres (of one phase), for the Charts panel</td></tr>
+<tr><td><strong>Find Surface Area to Volume</strong></td><td><code>SurfaceAreas</code>, <code>SurfaceAreaVolumeRatio</code> and <code>Sphericity</code> per feature</td></tr>
+<tr><td><strong>Find Boundary Strengths</strong></td><td>a table per pair of neighbouring grains: m′ (</td></tr>
+<tr><td><strong>Find Twin Boundary Schmid Factors</strong></td><td>for every Σ3 twin boundary of cubic grains, the Schmid factors of the three slip directions in the twin plane, in each grain</td></tr>
+<tr><td><strong>Find C-Axis Locations</strong></td><td><code>CAxisLocation</code> of hexagonal cells (unit vectors)</td></tr>
+<tr><td><strong>Find Feature Reference C-Axis Misorientations</strong></td><td>the angle of each cell’s c axis from its grain’s mean c axis</td></tr>
+<tr><td><strong>Identify Micro-Texture Regions</strong></td><td><code>MTRIds</code>: neighbouring hexagonal grains whose c axes line up (within a tolerance) joined into regions</td></tr>
+<tr><td><strong>Generate Precipitate Statistics</strong></td><td>a table for one phase: count, volume fraction, number density, lognormal size fit, mean nearest-neighbour distance</td></tr>
+<tr><td><strong>Copy Feature Array to Cells</strong></td><td>a per-feature array (equivalent diameter…) on every cell of the feature, to color by</td></tr>
+</tbody>
+</table>
+</div>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/micro_texture_regions.png" alt="Micro-texture regions of a hexagonal map: grains whose c axes line up share a color"><span class="img-wrapper"><img src="images/micro_texture_regions.png" alt="Micro-texture regions of a hexagonal map: grains whose c axes line up share a color"></span></label></p>
 <h3 id="boundaries-colors-and-the-table"><a class="header" href="#boundaries-colors-and-the-table">Boundaries, colors and the table</a></h3>
 <ul>
 <li><strong>Feature Boundaries</strong> gives the cell faces between different features as a surface. Each
@@ -526,6 +589,13 @@ This keeps large maps fast.</li>
 <pre><code class="language-python">pf = ebsd.pole_figure(families="100, 110, 111", projection="Stereographic", sigma=7.5)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pole_figures.png" alt="The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume"><span class="img-wrapper"><img src="images/pole_figures.png" alt="The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume"></span></label></p>
+<p>To keep the pole figures as pictures, one per phase and family, call
+<code>save_pole_figures</code> (Python only): each phase’s figures share one scale, from 0 (dark blue) to the
+largest MRD of that phase (red), with sample X to the right and Y up, white outside the disk.</p>
+<pre><code class="language-python">files = ebsd.save_pole_figures("pole_figures", families="100, 110, 111", size=256)
+# [('pole_figures/phase1_100.png', 3.1), ...]: the file and its largest MRD
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pole_figure_files.png" alt="The {100} and {111} pole figure files of both phases of a two-phase map, opened again side by side"><span class="img-wrapper"><img src="images/pole_figure_files.png" alt="The {100} and {111} pole figure files of both phases of a two-phase map, opened again side by side"></span></label></p>
 <h3 id="inverse-pole-figure"><a class="header" href="#inverse-pole-figure">Inverse Pole Figure</a></h3>
 <p><strong>Inverse Pole Figure</strong> shows which crystal directions lie along a sample direction (X, Y
 or Z, or all three side by side). The density is drawn on the standard triangle of the
@@ -698,6 +768,14 @@ reached during packing.</p>
 <pre><code class="language-python">g = afx.pack_grains(cells=[80, 80, 80], esd_mu=2.48, esd_sigma=0.15, ba=[12, 4], ca=[10, 6])
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pack_grains.png" alt="Grains packed from goal statistics, elongated along x, with precipitates on their boundaries"><span class="img-wrapper"><img src="images/pack_grains.png" alt="Grains packed from goal statistics, elongated along x, with precipitates on their boundaries"></span></label></p>
+<p><strong>View › Goal Statistics</strong> edits the goals with live plots: the lognormal size distribution
+(mu, sigma and where it is cut), the beta distributions of b/a and c/a, the shape, whether the
+grain axes follow x, y and z, the orientations (random or a fibre with its spread), the volume,
+the matrix fraction and the seed. With a Pack Grains source selected the panel edits it and draws
+the packed volume’s measured sizes and aspect ratios as bars under the goal curves, with the
+goal and packed means; with none selected, <strong>Pack</strong> adds one. <code>afx.show_panel("goal statistics")</code>
+opens it from Python.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/goal_statistics.png" alt="The Goal Statistics panel: goal curves (lines) over the packed volume’s sizes and aspect ratios (bars)"><span class="img-wrapper"><img src="images/goal_statistics.png" alt="The Goal Statistics panel: goal curves (lines) over the packed volume’s sizes and aspect ratios (bars)"></span></label></p>
 <h3 id="pack-like"><a class="header" href="#pack-like">Pack Like</a></h3>
 <p><strong>Pack Like</strong> makes a statistical copy of a segmented microstructure in a box of any size:</p>
 <ul>
@@ -719,6 +797,14 @@ boundaries</strong>. No two particles touch.</li>
 <li><strong>Output.</strong> Each particle is a feature with a random orientation, in the next phase
 number, whose crystal structure is added to <code>CrystalStructures</code>.</li>
 </ul>
+<h3 id="insert-transformation-phases-and-adjust-volume"><a class="header" href="#insert-transformation-phases-and-adjust-volume">Insert Transformation Phases and Adjust Volume</a></h3>
+<p><strong>Insert Transformation Phases</strong> puts plates into a fraction of the grains of a parent phase: a
+plate of a thickness in cells through the grain, on one of its {111} planes, becomes a new
+feature of a new phase, turned from its parent by an angle about the plane normal (60°: an
+annealing twin). <code>TransformationParentIds</code> gives each plate’s parent. <strong>Adjust Volume</strong> moves
+cells on feature boundaries between neighbours so that each feature’s size comes closer to a
+target (a per-feature array of cell counts or equivalent diameters).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/transformation_phases.png" alt="Twin plates inserted into Voronoi grains: the plates are the new phase (red)"><span class="img-wrapper"><img src="images/transformation_phases.png" alt="Twin plates inserted into Voronoi grains: the plates are the new phase (red)"></span></label></p>
 <h3 id="match-crystallography"><a class="header" href="#match-crystallography">Match Crystallography</a></h3>
 <p><strong>Match Crystallography</strong> takes a second input: a reference microstructure, normally the
 measured one. It works in two steps:</p>
@@ -770,6 +856,13 @@ of them.</p>
 s.feature_surfaces().save("grains.stl")
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/grain_boundary_mesh.png" alt="Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane"><span class="img-wrapper"><img src="images/grain_boundary_mesh.png" alt="Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane"></span></label></p>
+<h3 id="triangle-angles-and-boundary-curvature"><a class="header" href="#triangle-angles-and-boundary-curvature">Triangle angles and boundary curvature</a></h3>
+<p><strong>Find Triangle Angles</strong> gives each triangle of a surface mesh its smallest and largest interior
+angle and the largest dihedral angle with its neighbours on the same boundary. <strong>Find Feature
+Face Curvature</strong> measures the mean and Gaussian curvature of every boundary (one pair of
+<code>FaceLabels</code>) on its own. A grain surface mesh is also written as text files with
+<code>mesh.save("grains.triangles")</code>: <code>grains.nodes</code> (node id, type, x, y, z) and <code>grains.triangles</code>
+(triangle id, its nodes, the two features on either side).</p>
 <h3 id="face-orientation-colors"><a class="header" href="#face-orientation-colors">Face Orientation Colors</a></h3>
 <p><strong>Face Orientation Colors</strong> colours each triangle three ways:</p>
 <ul>
@@ -882,6 +975,9 @@ too few neighbours in their grain are left empty.</li>
 Misorientation) as KAM / (step · b).</li>
 </ul>
 <p>The field data gives the mean, median and 90th percentile.</p>
+<p>On a 2-D map the curvature across the map cannot be measured, so the Nye tensor method sums the
+five components of the tensor a map gives (a lower bound of the density). A map whose lattice
+turns steadily about its normal gives back that rate over b within 2 %.</p>
 <pre><code class="language-python">g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
 </code></pre>
 <h2 id="limits"><a class="header" href="#limits">Limits</a></h2>

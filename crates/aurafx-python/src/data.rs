@@ -441,6 +441,51 @@ fn run_task(py: Python<'_>, task: aurafx_filters::python::PyTask) -> anyhow::Res
             let ds = out.borrow(py).ds.clone();
             Ok(ds)
         }
+        PyTask::Text { expression, input, time, step } => {
+            // Point arrays, then cell arrays not named like a point array, over every block.
+            let leaves: Vec<&DataSet> = match input {
+                DataSet::MultiBlock(mb) => mb.leaves().into_iter().map(|l| l.1).collect(),
+                d => vec![d],
+            };
+            let mut arrays: std::collections::BTreeMap<String, (usize, Vec<f64>)> = Default::default();
+            let mut points: Vec<f64> = Vec::new();
+            for which in 0..2 {
+                let mut these: std::collections::BTreeMap<String, (usize, Vec<f64>)> = Default::default();
+                for leaf in &leaves {
+                    let attrs = if which == 0 { leaf.point_data() } else { leaf.cell_data() };
+                    for arr in attrs.into_iter().flat_map(|a| a.iter()).filter(|a| a.scalar_type() != ScalarType::String) {
+                        if arrays.contains_key(&arr.name) {
+                            continue;
+                        }
+                        let e = these.entry(arr.name.clone()).or_insert((arr.ncomp, Vec::new()));
+                        if e.0 == arr.ncomp {
+                            e.1.extend(arr.data.to_f64_vec());
+                        }
+                    }
+                    if which == 0 {
+                        if let Some(p) = leaf.points() {
+                            points.extend(p.data.to_f64_vec());
+                        }
+                    }
+                }
+                arrays.extend(these);
+            }
+            for (name, (nc, v)) in arrays {
+                if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit()) {
+                    g.set_item(&name, array_to_numpy(py, &ArrayData::F64(v), nc).map_err(|e| py_error(py, e))?).map_err(|e| py_error(py, e))?;
+                }
+            }
+            g.set_item("points", array_to_numpy(py, &ArrayData::F64(points), 3).map_err(|e| py_error(py, e))?).map_err(|e| py_error(py, e))?;
+            let inp = Py::new(py, PyData { ds: input.clone() }).map_err(|e| py_error(py, e))?;
+            g.set_item("inputs", PyList::new(py, [&inp]).map_err(|e| py_error(py, e))?).map_err(|e| py_error(py, e))?;
+            g.set_item("t", time).map_err(|e| py_error(py, e))?;
+            g.set_item("step", step).map_err(|e| py_error(py, e))?;
+            let v = py.eval(&code(expression)?, Some(&g), None).map_err(|e| py_error(py, e))?;
+            let text: String = v.str().map_err(|e| py_error(py, e))?.to_string();
+            let mut t = Table::default();
+            t.columns.insert(Array::new("Text", 1, ArrayData::String(vec![text])));
+            Ok(DataSet::Table(t))
+        }
     }
 }
 

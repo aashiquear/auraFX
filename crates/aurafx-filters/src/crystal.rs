@@ -127,6 +127,15 @@ pub fn orientation_array<'a>(ds: &'a DataSet, named: Option<(Association, String
 }
 
 /// The crystal class of every tuple of an array of `n` tuples (None: unknown or not indexed).
+/// The crystal structure to use: the one named, or the data's phases when none is.
+pub fn structure_or_phases(structure: &str) -> &str {
+    if structure.trim().is_empty() {
+        FROM_PHASES
+    } else {
+        structure
+    }
+}
+
 pub fn classes_of(ds: &DataSet, assoc: Association, n: usize, structure: &str, phases: Option<&str>) -> Result<Vec<Option<Laue>>> {
     classes(ds, assoc, n, structure, phases)
 }

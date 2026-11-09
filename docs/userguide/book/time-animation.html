@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9be39550.js";
+            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -190,15 +190,68 @@ afx.time(20)         # go to step 20
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/time_charts.png" alt="A time step of an impact simulation, with the maximum plastic strain over time"><span class="img-wrapper"><img src="images/time_charts.png" alt="A time step of an impact simulation, with the maximum plastic strain over time"></span></label></p>
 <h2 id="charts"><a class="header" href="#charts">Charts</a></h2>
-<p>The <strong>Charts</strong> panel plots lines with zoom, legends and log axes:</p>
+<p>The <strong>Charts</strong> panel plots the arrays of an object as lines, points, lines with markers or bars,
+with zoom, a legend and log axes:</p>
 <ul>
 <li><strong>Plot Over Line</strong> (a filter) plots the arrays along a line;</li>
 <li><strong>Edit › Plot Over Time…</strong> or <code>afx.over_time(node, "EQPS", stat="max")</code> plots a statistic
 (max, min, mean, sum, or the value of a global variable) over every time step;</li>
 <li><code>afx.plot(x, y, label="T")</code> plots your own NumPy arrays; <code>afx.clear_plots()</code> empties the panel.</li>
 </ul>
+<p>The boxes along the top of a chart choose, from left to right: the <strong>object</strong> it plots
+(<em>Selected object</em> follows whatever is selected in the Pipeline), whether a mesh’s <strong>point</strong>
+or <strong>cell</strong> arrays are plotted, the <strong>X</strong> array (or the index), the <strong>Y</strong> arrays, the
+<strong>style</strong> (lines, points, lines and markers, bars), and <strong>log x</strong> / <strong>log y</strong> (values that are
+not positive are left out). <strong>CSV</strong> saves the plotted values; <strong>Picture…</strong> saves the chart as a
+PNG without these controls.</p>
+<h3 id="several-chart-views"><a class="header" href="#several-chart-views">Several chart views</a></h3>
+<p>A chart view can be opened for every object you want to compare, and each keeps its own
+object, arrays and style while you select other things:</p>
+<ul>
+<li><strong>View › New Chart View</strong> opens one for the selected object;</li>
+<li>right-click an object in the Pipeline › <strong>Plot in a new chart view</strong>;</li>
+<li><strong>New chart view</strong> on any chart opens another one beside it.</li>
+</ul>
+<p>Chart views open beside the Charts panel and can be dragged, split and stacked like the 3D
+views (drag a tab to an edge). Closing a chart’s tab closes the view. State files
+(<code>.afx</code>) keep the chart views and reopen them.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/chart_views.png" alt="Two chart views beside the 3D view: temperature along a line, and a histogram of another object"><span class="img-wrapper"><img src="images/chart_views.png" alt="Two chart views beside the 3D view: temperature along a line, and a histogram of another object"></span></label></p>
+<pre><code class="language-python">line = src.plot_over_line(point1=[0, 0, -10], point2=[0, 0, 10])
+hist = src.histogram(array="Temp", bins=30)
+a = line.plot("Temp", "Pres", x="arc_length")       # a new chart view of the line
+b = hist.plot("Temp_count", style="bars")           # another one, of the histogram
+afx.chart_view(view=a, log_y=True)                  # change view a later
+afx.chart_view(y="V_X")                             # a view that follows the selection
+afx.chart_views()                                   # a list of dicts, one per view
+afx.plot(t, energy, label="E", view=b)              # your own line in chart view b
+afx.close_chart_view(a)
+</code></pre>
+<p><code>node.plot(*arrays, x=..., style=..., data="points"|"cells", log_x=..., log_y=..., title=...)</code>
+and <code>afx.chart_view(node=None, y=..., x=..., style=..., data=..., log_x=..., log_y=..., title=..., view=None)</code> return the view’s number (<code>view=0</code> is the Charts panel). Charts
+plot up to two million values per array.</p>
 <p>The <strong>Spreadsheet</strong> panel shows the selected object’s points, cells or field data as a table
 with sorting, column choice and export to CSV.</p>
+<h3 id="choosing-and-changing-time-steps"><a class="header" href="#choosing-and-changing-time-steps">Choosing and changing time steps</a></h3>
+<p>In <strong>Filters › Temporal</strong>:</p>
+<ul>
+<li><strong>Extract Time Steps</strong> keeps some steps: a list such as <code>0, 3, 5-8, 10:20:2</code> (step numbers from
+0; <code>start:stop:stride</code> leaves out stop), or every N-th step from a first one.</li>
+<li><strong>Generate Time Steps</strong> gives data a new set of evenly spaced time values (each shows the data at
+that time, or at the step before it); static data gets a time axis to animate filters against.</li>
+<li><strong>Force Time</strong> always shows the data at one step (or time), whatever time the window is at: put
+step 0 beside the animation to compare.</li>
+<li><strong>Temporal Snap to Time Step</strong> shows the data at one of its own steps (nearest, previous or next)
+when the window is at a time in between, set by other data or by Temporal Interpolator.</li>
+<li><strong>Temporal Cache</strong> keeps the last steps shown in memory, so stepping back and forth or replaying
+a loop does not read and filter them again.</li>
+</ul>
+<p>Particle Tracer, Particle Path and Streak Line release their seeds again every N steps with
+<em>Release again every N steps</em>, which makes streak lines from a continuous injection.</p>
+<pre><code class="language-python">first = case.force_time(step=0)                 # step 0 beside the playing data
+every5 = case.extract_time_steps(stride=5)
+smooth = case.temporal_interpolator(interval=0.01).temporal_snap_to_time_step(mode="Previous")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/temporal_utilities.png" alt="Force Time keeps the first step of an impact beside the playing animation"><span class="img-wrapper"><img src="images/temporal_utilities.png" alt="Force Time keeps the first step of an impact beside the playing animation"></span></label></p>
 <h2 id="animation"><a class="header" href="#animation">Animation</a></h2>
 <p><strong>File › Animation…</strong> records one of three things:</p>
 <div class="table-wrapper">
@@ -216,8 +269,14 @@ with sorting, column choice and export to CSV.</p>
 <p>Pick the frame rate and the format: <strong>GIF</strong>, <strong>MP4</strong> (needs <code>ffmpeg</code> on the PATH) or a folder
 of <strong>PNG frames</strong>. Frames are captured at the 3D view’s size, with the legend, labels and
 annotations.</p>
+<p><strong>Record › all views</strong> records every visible 3D view and chart view in each frame, placed as
+they are laid out in the window: the charts follow the time steps (a chart of a Plot Over Line
+changes with the data) while the 3D views play. <strong>Record › chart views</strong> records only the
+charts. These frames have the window’s pixels; the Animation window is hidden while they are
+recorded, and the charts’ controls are left out.</p>
 <pre><code class="language-python">afx.save_animation("run.gif", fps=10)          # time steps (or keyframes if any)
 afx.save_animation("turn.mp4", orbit=72)       # a turntable
+afx.save_animation("all.mp4", views="all")     # every 3D view and chart view, as laid out
 </code></pre>
 <h2 id="keyframes"><a class="header" href="#keyframes">Keyframes</a></h2>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"><span class="img-wrapper"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"></span></label></p>

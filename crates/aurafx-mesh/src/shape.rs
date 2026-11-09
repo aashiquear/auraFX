@@ -103,6 +103,12 @@ pub enum Shape {
         offset: f64,
         face: FaceId,
     },
+    /// The side of an open surface its normals point away from (signed distance to the sheet).
+    /// Used by `webcut`; never a body on its own.
+    Sheet {
+        mesh: Arc<TriMesh>,
+        face: FaceId,
+    },
 }
 
 fn len2(a: f64, b: f64) -> f64 {
@@ -373,6 +379,7 @@ impl Shape {
                 (d * scale[0].min(scale[1]).min(scale[2]), f)
             }
             Shape::HalfSpace { normal, offset, face } => (normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2] - offset, *face),
+            Shape::Sheet { mesh, face } => (mesh.distance(p), *face),
             Shape::Union(v) => v.iter().map(|s| s.eval(p)).min_by(|a, b| a.0.total_cmp(&b.0)).unwrap_or((f64::INFINITY, 0)),
             Shape::Intersect(v) => v.iter().map(|s| s.eval(p)).max_by(|a, b| a.0.total_cmp(&b.0)).unwrap_or((f64::INFINITY, 0)),
             Shape::Subtract(a, b) => {
@@ -457,7 +464,7 @@ impl Shape {
                 (std::array::from_fn(|k| a[k].max(c[k])), std::array::from_fn(|k| b[k].min(d[k])))
             }),
             Shape::Subtract(a, _) => a.bounds(),
-            Shape::HalfSpace { .. } => ([f64::NEG_INFINITY; 3], [f64::INFINITY; 3]),
+            Shape::HalfSpace { .. } | Shape::Sheet { .. } => ([f64::NEG_INFINITY; 3], [f64::INFINITY; 3]),
         }
     }
 
@@ -492,7 +499,7 @@ impl Shape {
             }
             Shape::Transform { inner, .. } => inner.collect_faces(out),
             Shape::Union(v) | Shape::Intersect(v) => v.iter().for_each(|s| s.collect_faces(out)),
-            Shape::HalfSpace { face, .. } => {
+            Shape::HalfSpace { face, .. } | Shape::Sheet { face, .. } => {
                 if !out.contains(face) {
                     out.push(*face);
                 }

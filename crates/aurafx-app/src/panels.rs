@@ -229,6 +229,14 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.close();
                         }
                     });
+                    if ui
+                        .button(format!("{} Plot in a new chart view", crate::icons::WAVE_SINE))
+                        .on_hover_text("Opens a chart of this object's arrays beside the other charts; each chart view keeps its own object")
+                        .clicked()
+                    {
+                        state.session.lock().new_chart_view(Some(r.id));
+                        ui.close();
+                    }
                     ui.separator();
                     if r.selected && multi_sel.len() >= 2 {
                         ui.scroll_menu(format!("{} Combine {} selected", crate::icons::PLUS, multi_sel.len()), |ui| {

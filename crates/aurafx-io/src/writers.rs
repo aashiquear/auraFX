@@ -13,21 +13,40 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
             ("vtu", "VTK unstructured grid"),
             ("inp", "Abaqus input (blocks, node sets, surfaces)"),
             ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"),
+            ("cas", "Fluent mesh (cell zones per block, boundary zones per side set)"),
+            ("bdf", "Nastran bulk data (properties per block)"),
             ("tex", "Grain orientations (phi1 Phi phi2 per grain, degrees)"),
         ],
         DataSet::UnstructuredGrid(_) => vec![
             ("vtu", "VTK unstructured grid"),
+            ("pvtu", "Parallel VTK (4 pieces in a folder)"),
             ("inp", "Abaqus input (blocks, node sets, surfaces)"),
             ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"),
+            ("cas", "Fluent mesh (cell zones per block, boundary zones per side set)"),
+            ("bdf", "Nastran bulk data (properties per block)"),
         ],
-        DataSet::PolyData(_) => vec![("vtp", "VTK polygonal data"), ("stl", "STL surface"), ("ply", "PLY surface")],
+        DataSet::PolyData(_) => {
+            vec![("vtp", "VTK polygonal data"), ("pvtp", "Parallel VTK (4 pieces in a folder)"), ("stl", "STL surface"), ("ply", "PLY surface")]
+        }
         DataSet::ImageData(i) if i.cell_data.get("FeatureIds").is_some() || i.cell_data.get("grain_id").is_some() => {
             vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)"), ("spparks", "SPPARKS site file (feature ids)")]
         }
-        DataSet::ImageData(_) => vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)")],
+        DataSet::ImageData(_) => vec![
+            ("vti", "VTK image data"),
+            ("dream3d", "DREAM.3D file (with the pipeline)"),
+            ("mha", "MetaImage (one file)"),
+            ("mhd", "MetaImage (header and .raw)"),
+            ("tif", "TIFF stack (one page per slice)"),
+            ("png", "PNG stack (one picture per slice)"),
+            ("pvti", "Parallel VTK image (4 pieces in a folder)"),
+        ],
         DataSet::RectilinearGrid(_) => vec![("vtr", "VTK rectilinear grid")],
         DataSet::StructuredGrid(_) => vec![("vts", "VTK structured grid")],
-        DataSet::MultiBlock(_) => vec![("vtm", "VTK multiblock (folder of pieces)"), ("stl", "STL, one file per block (name_block.stl)")],
+        DataSet::MultiBlock(_) => vec![
+            ("vtm", "VTK multiblock (folder of pieces)"),
+            ("pvtu", "Parallel VTK, one piece per block (blocks of one kind)"),
+            ("stl", "STL, one file per block (name_block.stl)"),
+        ],
         DataSet::Table(_) => vec![],
         DataSet::HyperTreeGrid(_) => vec![("htg", "VTK hyper tree grid"), ("vtu", "VTK unstructured grid (the leaves)")],
         DataSet::CellGrid(_) => vec![("dg", "VTK cell grid"), ("vtu", "VTK unstructured grid (values at the corners)")],
@@ -83,11 +102,42 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
         "case" | "encas" => crate::ensight_writer::write_ensight(ds, path),
         "cgns" => crate::cgns_writer::write_cgns(ds, path),
         "inp" => crate::mesh_writers::write_abaqus(ds, path),
+        "msh" if path.to_string_lossy().to_ascii_lowercase().ends_with(".fluent.msh") => crate::solver_meshes::write_fluent(ds, path),
         "msh" => crate::mesh_writers::write_gmsh(ds, path),
+        "cas" => crate::solver_meshes::write_fluent(ds, path),
+        "bdf" | "nas" => crate::solver_meshes::write_nastran(ds, path),
         "xmf" | "xdmf" | "xdmf3" => crate::xdmf_writer::write_xdmf(ds, path),
+        "mha" | "mhd" => crate::volumes::write_metaimage(ds, path, false),
+        "pvtu" | "pvtp" | "pvti" | "pvts" | "pvtr" => crate::collections::write_parallel(ds, path, 4).map(|_| ()),
+        "pvd" => crate::collections::write_pvd_steps(&[(0.0, ds)], path),
+        "nodes" | "triangles" => write_nodes_triangles(ds, path),
+        "png" | "tif" | "tiff" if matches!(ds, DataSet::ImageData(_)) => crate::collections::write_image_stack(ds, path).map(|_| ()),
         e => bail!("don't know how to write .{e} files"),
     };
     r.with_context(|| format!("writing {}", path.display()))
+}
+
+/// A triangle surface as two text files beside each other, `name.nodes` (count, then node id,
+/// node type, x, y, z) and `name.triangles` (count, then triangle id, its three node ids and the
+/// two feature labels on either side, from `NodeType` and `FaceLabels` when present).
+fn write_nodes_triangles(ds: &DataSet, path: &Path) -> Result<()> {
+    let DataSet::PolyData(pd) = ds else { bail!("nodes and triangles files hold a triangle surface") };
+    let mut nodes = format!("{}\n", pd.points.len());
+    let ty = pd.point_data.get("NodeType");
+    for i in 0..pd.points.len() {
+        let p = pd.points.get(i);
+        nodes += &format!("{} {} {:.9e} {:.9e} {:.9e}\n", i, ty.map(|a| a.get(i, 0) as i64).unwrap_or(2), p[0], p[1], p[2]);
+    }
+    let labels = pd.cell_data.get("FaceLabels");
+    let tris: Vec<(usize, &[u32])> = pd.polys.iter().enumerate().filter(|(_, (t, _))| *t == CellType::Triangle).map(|(k, (_, c))| (k, c)).collect();
+    let mut t = format!("{}\n", tris.len());
+    for (n, (k, c)) in tris.iter().enumerate() {
+        let (a, b) = labels.map(|l| (l.get(*k, 0) as i64, l.get(*k, 1) as i64)).unwrap_or((0, 0));
+        t += &format!("{} {} {} {} {} {}\n", n, c[0], c[1], c[2], a, b);
+    }
+    std::fs::write(path.with_extension("nodes"), nodes)?;
+    std::fs::write(path.with_extension("triangles"), t)?;
+    Ok(())
 }
 
 // ------------------------------------------------------------------ VTK XML
@@ -121,6 +171,11 @@ fn le_bytes(d: &ArrayData) -> Vec<u8> {
         ArrayData::F64(v) => v.iter().flat_map(|x| x.to_le_bytes()).collect(),
         ArrayData::String(v) => v.iter().flat_map(|s| s.bytes().chain(std::iter::once(0u8))).collect(),
     }
+}
+
+/// The VTK XML type name of an array's values.
+pub(crate) fn xml_type_name(d: &ArrayData) -> &'static str {
+    type_name(d)
 }
 
 fn type_name(d: &ArrayData) -> &'static str {

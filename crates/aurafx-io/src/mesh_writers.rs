@@ -38,15 +38,15 @@ fn exodus_order(t: CellType, ids: &[u32]) -> Vec<u32> {
     }
 }
 
-struct Mesh<'a> {
+pub(crate) struct Mesh<'a> {
     _ug: std::marker::PhantomData<&'a ()>,
-    block: Vec<i32>,
-    names: std::collections::BTreeMap<i32, String>,
-    side_sets: Vec<(String, Vec<(usize, usize)>)>,
-    node_sets: Vec<(String, Vec<usize>)>,
+    pub block: Vec<i32>,
+    pub names: std::collections::BTreeMap<i32, String>,
+    pub side_sets: Vec<(String, Vec<(usize, usize)>)>,
+    pub node_sets: Vec<(String, Vec<usize>)>,
 }
 
-fn mesh_of(ds: &DataSet) -> Result<(UnstructuredGrid, Option<()>)> {
+pub(crate) fn mesh_of(ds: &DataSet) -> Result<(UnstructuredGrid, Option<()>)> {
     match ds {
         DataSet::UnstructuredGrid(u) => Ok((u.clone(), None)),
         DataSet::MultiBlock(_) => bail!("write one mesh at a time (merge the blocks first)"),
@@ -55,7 +55,7 @@ fn mesh_of(ds: &DataSet) -> Result<(UnstructuredGrid, Option<()>)> {
 }
 
 impl<'a> Mesh<'a> {
-    fn new(ug: &'a UnstructuredGrid) -> Mesh<'a> {
+    pub(crate) fn new(ug: &'a UnstructuredGrid) -> Mesh<'a> {
         let n = ug.cells.len();
         let block: Vec<i32> = match ug.cell_data.get("ElementBlock") {
             Some(a) => (0..n).map(|i| a.get(i, 0) as i32).collect(),
@@ -84,7 +84,7 @@ impl<'a> Mesh<'a> {
 }
 
 /// A name usable as an Abaqus set or Gmsh group name.
-fn clean(name: &str) -> String {
+pub(crate) fn clean(name: &str) -> String {
     let s: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' { c } else { '_' }).collect();
     let s = s.replace('+', "p").replace('-', "m");
     if s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {

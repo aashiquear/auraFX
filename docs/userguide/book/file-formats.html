@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9be39550.js";
+            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -215,12 +215,86 @@ and value ranges on the same files. The comparisons are listed in the verificati
 <tr><td>GIS vectors</td><td>Shapefile <code>.shp</code>, GeoJSON <code>.geojson .json</code>, KML <code>.kml</code>, KMZ <code>.kmz</code>, GeoPackage <code>.gpkg</code>, FlatGeobuf <code>.fgb</code>, GML <code>.gml</code></td><td>points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below</td></tr>
 <tr><td>EBSD maps and microstructures</td><td>TSL/EDAX <code>.ang</code>, Oxford <code>.ctf</code>, <code>.h5ebsd</code> stacks, EDAX and Bruker <code>.h5</code>, <code>.dream3d</code></td><td>crystal orientations on a square grid with phases and quality columns; voxel volumes and meshes with feature and phase arrays; see <a href="grains.html">Grains and crystals</a></td></tr>
 <tr><td>SPPARKS sites</td><td><code>.spparks</code>, <code>.sites</code>; lattice text dumps (<code>id i1 x y z</code>)</td><td>a site file without a <code>Sites</code> section (a lattice filling its box) and a dump of every site of a lattice open as a volume with <code>FeatureIds</code> (from <code>i1</code>); a site file with coordinates opens as points</td></tr>
-<tr><td>Surfaces</td><td><code>.stl .ply .obj</code></td><td></td></tr>
+<tr><td>Surfaces</td><td><code>.stl .ply .obj</code>, <code>.off</code></td><td>OFF also with point colors (<code>COFF</code>) and face colors</td></tr>
+<tr><td>Scenes</td><td>glTF 2.0 <code>.gltf .glb</code>, VRML 2.0 <code>.wrl</code></td><td>triangles, lines and points of every placed mesh (moved by its nodes or transforms), normals, vertex colors; a block per mesh; see below</td></tr>
+<tr><td>Medical and microscopy volumes</td><td>NRRD <code>.nrrd .nhdr</code>, MetaImage <code>.mhd .mha</code>, MRC <code>.mrc .map .rec</code>, DICOM <code>.dcm</code> (or the folder of a series), OME-TIFF <code>.ome.tif</code></td><td>image data at the file’s spacing, origin and orientation; see below</td></tr>
+<tr><td>Point clouds (lidar)</td><td>LAS <code>.las</code>, LAZ <code>.laz</code></td><td>LAS 1.0 to 1.4, point formats 0 to 10, with intensity, returns, classification, scan angle, GPS time and colors; see below</td></tr>
+<tr><td>Particles on HDF5</td><td>H5Part <code>.h5part</code>, openPMD <code>.h5</code></td><td>time steps of particles; openPMD meshes as image data and a block per particle species; see below</td></tr>
+<tr><td>Nek5000</td><td><code>.nek5000</code> (or a data file <code>name0.f00001</code>)</td><td>spectral elements as hexahedra (quadrilaterals in 2-D), velocity, pressure, temperature, passive scalars, time steps</td></tr>
+<tr><td>LS-DYNA</td><td><code>d3plot</code> and its family files</td><td>solids, shells, beams; states with moving nodes, velocities, accelerations, stresses, plastic strain, beam resultants; see below</td></tr>
+<tr><td>Nastran bulk data</td><td><code>.bdf .nas .bulk</code>, <code>.dat</code> with GRID cards</td><td>small, large and free fields; coordinate systems; solid, shell, bar and point elements with their properties as blocks</td></tr>
+<tr><td>Fluent</td><td><code>.msh .cas</code></td><td>ASCII and binary sections; cells rebuilt from their faces; cell zones as blocks, boundary zones as side sets</td></tr>
 <tr><td>CSV / TSV</td><td><code>.csv .tsv .txt</code></td><td>delimiter and header detection; tables with x, y, z columns become points</td></tr>
 </tbody>
 </table>
 </div>
-<p>Numbered files (<code>run_0001.vtu</code>…) open as a series when one of them is opened.</p>
+<p>Numbered files (<code>run_0001.vtu</code>, <code>frame_0001.png</code>, <code>scan_0001.las</code>…) open as a series when one of them is opened; a wildcard name (<code>img_*.png</code>) stacks pictures into one volume instead.</p>
+<h3 id="medical-and-microscopy-volumes"><a class="header" href="#medical-and-microscopy-volumes">Medical and microscopy volumes</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Format</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>NRRD</strong> (<code>.nrrd</code>, detached <code>.nhdr</code> + data)</td><td>raw, gzip and ASCII encodings, any byte order; spacing from <code>spacings</code> or <code>space directions</code> (also the orientation), origin from <code>space origin</code>; a first axis of kind vector, RGB-color… gives components. The array is <code>NRRDImage</code></td></tr>
+<tr><td><strong>MetaImage</strong> (<code>.mha</code>, <code>.mhd</code> + <code>.raw</code>/<code>.zraw</code>)</td><td>every element type, zlib-compressed data, <code>Offset</code>, <code>ElementSpacing</code>, <code>TransformMatrix</code>, channels. The array is <code>MetaImage</code></td></tr>
+<tr><td><strong>MRC / CCP4</strong> (<code>.mrc</code>, <code>.map</code>, <code>.rec</code>, <code>.st</code>)</td><td>cryo-EM maps and tomograms: modes 0 (int8), 1 (int16), 2 (float32), 6 (uint16), 12 (float16); the voxel size from the cell and sample counts; the origin; the axis order of the file (columns, rows, sections) put back to x, y, z</td></tr>
+<tr><td><strong>DICOM</strong> (<code>.dcm</code>, extension-less files, or a folder)</td><td>a file opens its whole series (the files of its folder with the same series id), ordered along the slice normal; spacing from Pixel Spacing and the distance between slices, position and orientation from the patient coordinates; values rescaled by slope and intercept (Hounsfield units for CT). A folder opens its largest series. Compressed (JPEG) files are not read: save them uncompressed</td></tr>
+<tr><td><strong>OME-TIFF</strong> (<code>.ome.tif</code>)</td><td>the planes in the order the OME-XML gives (Z, channels, times), the physical pixel sizes, one array per channel named after it, times as time steps</td></tr>
+</tbody>
+</table>
+</div>
+<p>Axes that a file swaps or reverses (rows of a DICOM picture running down, a NRRD space direction
+along −x) are laid out along +x, +y, +z, so the points sit where the file puts them. An oblique
+orientation (axes not along x, y and z) is kept as the image’s orientation, but auraFX places the
+points along the axes: measure in the grid’s own frame for such files.</p>
+<pre><code class="language-python">ct = afx.load("scans/patient7")            # a folder of DICOM slices
+mri = afx.load("brain.nrrd")
+cells = afx.load("cells.ome.tif")          # DAPI, GFP... arrays; time steps
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/medical_volumes.png" alt="A CT-like volume read from a DICOM series, sliced and volume-rendered"><span class="img-wrapper"><img src="images/medical_volumes.png" alt="A CT-like volume read from a DICOM series, sliced and volume-rendered"></span></label></p>
+<h3 id="point-clouds"><a class="header" href="#point-clouds">Point clouds</a></h3>
+<p><strong>LAS</strong> and <strong>LAZ</strong> files (lidar) open as points with the arrays <code>Intensity</code>, <code>ReturnNumber</code>,
+<code>NumberOfReturns</code>, <code>Classification</code> (2 ground, 5 high vegetation, 6 building…), <code>ScanAngle</code>
+(degrees), <code>UserData</code>, <code>PointSourceId</code>, <code>GpsTime</code> and <code>Color</code> (drawn as its own colors), at real
+coordinates (scaled and offset). LAZ (compressed LAS) is read too. Point Gaussian or Eye-Dome
+Lighting (View › Lighting) suit large clouds; Threshold on <code>Classification</code> keeps one class.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/lidar_points.png" alt="20 000 lidar points colored by classification, with Eye-Dome Lighting"><span class="img-wrapper"><img src="images/lidar_points.png" alt="20 000 lidar points colored by classification, with Eye-Dome Lighting"></span></label></p>
+<h3 id="scenes"><a class="header" href="#scenes">Scenes</a></h3>
+<p>glTF 2.0 (<code>.gltf</code> with embedded or separate buffers, <code>.glb</code>) and VRML 2.0 (<code>.wrl</code>, also
+gzipped) files from modelling programs and web viewers open as surfaces: every mesh of the scene,
+moved by its node’s (or transform’s) translation, rotation and scale, with its normals, vertex
+colors (<code>Colors</code>) and texture coordinates; a block per mesh, named after its node. VRML
+IndexedFaceSet, IndexedLineSet and PointSet are read, with per-vertex or per-face colors;
+PROTO definitions are not.</p>
+<h3 id="particles-on-hdf5"><a class="header" href="#particles-on-hdf5">Particles on HDF5</a></h3>
+<ul>
+<li><strong>H5Part</strong> files (<code>Step#0</code>, <code>Step#1</code>… groups) give one time step per group: points at <code>x</code>,
+<code>y</code>, <code>z</code> with every other dataset as a point array, times from each step’s <code>TimeValue</code>.</li>
+<li><strong>openPMD</strong> series (HDF5; one file holding all iterations, or one file per iteration, which
+opens with its siblings) give one time step per iteration at its time in seconds: the meshes
+as image data (grid spacing, offset and axis labels in metres, values times <code>unitSI</code>) and a
+block per particle species (positions plus position offsets, every record as a point array,
+constant records filled in).</li>
+</ul>
+<h3 id="ls-dyna-results"><a class="header" href="#ls-dyna-results">LS-DYNA results</a></h3>
+<p>Open <code>d3plot</code>: its family files (<code>d3plot01</code>, <code>d3plot02</code>…) are read with it. The mesh holds the
+solids (tetrahedra, pyramids and wedges stored as hexahedra with repeated nodes are made the
+cells they are), thick shells, beams and shells, with <code>Material</code>, <code>ElementId</code> (the user numbers
+when the file has them) and <code>ElementKind</code> (1 solid, 2 thick shell, 3 beam, 4 shell). Each state
+moves the nodes to their current positions; <code>Displacement</code> is the move, with <code>Velocity</code>,
+<code>Acceleration</code> and <code>Temperature</code> when written, <code>Stress</code> (6 components) and
+<code>EffectivePlasticStrain</code> of solids and shells (the middle integration point), <code>BeamResultants</code>,
+and the global energies as field data. Fluid, adaptive and 8-node shell models are not read.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/d3plot_states.png" alt="A d3plot state colored by stress, with its time"><span class="img-wrapper"><img src="images/d3plot_states.png" alt="A d3plot state colored by stress, with its time"></span></label></p>
+<h3 id="solver-meshes"><a class="header" href="#solver-meshes">Solver meshes</a></h3>
+<p>Nastran bulk data (<code>GRID</code>, <code>CTETRA</code>, <code>CPENTA</code>, <code>CHEXA</code>, <code>CPYRAM</code> with their mid-side nodes,
+<code>CTRIA3</code>, <code>CQUAD4</code>, <code>CBAR</code>/<code>CBEAM</code>/<code>CROD</code>, <code>CONM2</code>; small, large and free fields with
+continuations; <code>CORD2R</code>, <code>CORD2C</code> and <code>CORD2S</code> coordinate systems) and Fluent meshes and cases
+(<code>.msh</code>, <code>.cas</code>; ASCII and binary node, cell and face sections; the cells are rebuilt from their
+faces, polyhedra kept as polyhedra) open as meshes with the auraFX block and set arrays: the
+Nastran property or the Fluent cell zone is the <code>ElementBlock</code>, Fluent boundary zones are side
+sets named after the zones. Both are also written (see Writers).</p>
 <p>CGNS files come in two storage formats with the same <code>.cgns</code> extension: HDF5, the default
 since CGNS 3.4, and ADF, which older solvers and older CGNS libraries write. auraFX looks at
 the file and reads either one the same way, with <strong>File › Open</strong> or <code>afx.load("wing.cgns")</code>.
@@ -785,6 +859,12 @@ mesh, so curved cells come out straight.</p>
 <tr><td>Exodus II</td><td><code>.exo</code></td><td>blocks, nodal and element variables, every time step with <code>all_times=True</code>; HEX20 and HEX27 elements; the element blocks, side sets and node sets of generated meshes (see <a href="geometry.html#meshes-blocks-and-sets">Geometry and meshing</a>)</td></tr>
 <tr><td>Abaqus input</td><td><code>.inp</code></td><td>nodes, elements (C3D8, C3D20, C3D27, tetrahedra, wedges, pyramids) in one element set per block, node sets, side sets as element-based surfaces</td></tr>
 <tr><td>Gmsh</td><td><code>.msh</code></td><td>version 4.1 ASCII: one physical volume per element block, one physical surface of quadrilaterals per side set (node sets are not part of the format)</td></tr>
+<tr><td>Fluent</td><td><code>.cas</code> (or <code>name.fluent.msh</code>)</td><td>ASCII: nodes, a cell zone per block, interior faces, a boundary zone per side set and the other outer faces in <code>wall</code>, zone names; 2-D or 3-D cells of one dimension</td></tr>
+<tr><td>Nastran bulk data</td><td><code>.bdf .nas</code></td><td>free field with full precision: GRID, CHEXA/CTETRA/CPENTA/CPYRAM (with mid-side nodes)/CTRIA3/CQUAD4/CBAR, a PSOLID/PSHELL/PBAR per block (named in a comment), node sets as SPC1 cards</td></tr>
+<tr><td>MetaImage</td><td><code>.mha .mhd</code></td><td>image data’s active array (point data, else cell data): all number types, channels, origin, spacing, orientation</td></tr>
+<tr><td>Image stacks</td><td><code>.png</code>, <code>.tif</code></td><td>a volume as one 8- or 16-bit PNG per slice (<code>name_0000.png</code>…; other values scaled to 16 bits), or one multi-page TIFF (also 32-bit floats)</td></tr>
+<tr><td>Parallel VTK</td><td><code>.pvtu .pvtp .pvti .pvts .pvtr</code></td><td>the header and a folder of piece files: the blocks of a partitioned dataset, or 4 pieces cut from one dataset (<code>afx.save</code> takes <code>pieces=</code>)</td></tr>
+<tr><td>Time series collection</td><td><code>.pvd</code></td><td>with <code>all_times=True</code>, one VTK XML file per time step in a folder and the <code>.pvd</code> listing them with their times</td></tr>
 <tr><td>EnSight Gold</td><td><code>.case</code></td><td>C binary; one part per block (image, rectilinear and structured grids as blocks, the rest as elements of every standard type, polygons and polyhedra); every time step with <code>all_times=True</code>, the geometry written once when it does not change</td></tr>
 <tr><td>CGNS</td><td><code>.cgns</code></td><td>HDF5 storage (CGNS 4): a zone per block, image/rectilinear/structured grids as structured zones, the rest as one element section (MIXED when the cell types differ) plus NGON/NFACE for polygons and polyhedra; vectors as <code>NameX/NameY/NameZ</code>; with <code>all_times=True</code> one solution per step (and coordinates per step when the points move), but the cells must stay the same</td></tr>
 <tr><td>Xdmf 3</td><td><code>.xmf</code> + <code>.h5</code></td><td>the description in the <code>.xmf</code>, the arrays in an HDF5 file beside it; block trees as spatial collections, time steps as a temporal collection that shares unchanged points and cells</td></tr>

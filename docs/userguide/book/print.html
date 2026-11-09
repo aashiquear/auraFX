@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9be39550.js";
+            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -575,6 +575,193 @@ g = slice_.tensor_glyph(array="stress", scale=0.01, stride=10)
 pts = afx.load("probe.csv").table_to_points(x="X", y="Y", z="Z")
 spec = afx.load("signal.csv").table_fft(dt=0.001)
 </code></pre>
+<h2 id="scattered-points-onto-grids-and-lines"><a class="header" href="#scattered-points-onto-grids-and-lines">Scattered points onto grids and lines</a></h2>
+<p><strong>Point Interpolator</strong> (<strong>Filters › Data Analysis</strong>) carries the point arrays of scattered points
+(particles, probe measurements, a point cloud) onto other points. Each new value is a weighted mean
+of the nearest points:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kernel</th><th>Weight of a neighbour at distance d</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Shepard</strong></td><td>1 / dᵖ (the power p, 2 by default)</td></tr>
+<tr><td><strong>Gaussian</strong></td><td>exp(−(s·d/R)²), with the sharpness s and the search radius R</td></tr>
+<tr><td><strong>Linear</strong></td><td>the same for every neighbour (an average)</td></tr>
+<tr><td><strong>Nearest point</strong></td><td>the closest point’s value only</td></tr>
+<tr><td><strong>SPH cubic</strong>, <strong>SPH quintic</strong></td><td>a smoothed-particle kernel of smoothing length h (support 2h); with <em>density</em> (and <em>mass</em>) arrays each particle counts with its volume, mass / density, otherwise the weights are scaled to add up to one</td></tr>
+</tbody>
+</table>
+</div>
+<p>The neighbours are the <strong>N closest</strong> points or those within a <strong>radius</strong> (0 picks one from the
+points’ spacing). Where no point is near, the result is a value of your choice or the nearest
+point’s. Without a second input the values go onto a <strong>Volume</strong> (a grid over the points’
+bounds), a <strong>Plane</strong> across them or a <strong>Line</strong>; with a second input (Properties › Destination),
+onto that data’s points, keeping its cells and arrays. <code>vtkValidPointMask</code> is 0 where nothing was
+near. A linear field sampled by 20 000 random points comes back within 2 % (Shepard, Gaussian) and
+SPH on a lattice of particles within 1 %.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/point_interpolator.png" alt="Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel"><span class="img-wrapper"><img src="images/point_interpolator.png" alt="Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel"></span></label></p>
+<p><strong>Lines to plot</strong> (all in <strong>Filters › Data Analysis</strong>, shown in the Charts panel):</p>
+<ul>
+<li><strong>Resample To Line</strong> samples a straight line at evenly spaced points, <strong>at the cell boundaries</strong>
+(where the line enters and leaves each cell) or <strong>at the cell centres</strong> (once in the middle of
+each cell it crosses), with <code>arc_length</code>.</li>
+<li><strong>Plot On Sorted Lines</strong> joins line segments (from Slice, Contour on a surface, Feature Edges)
+into curves ordered from one end to the other, each with its <code>arc_length</code>, one block per curve.</li>
+<li><strong>Plot On Intersection Curves</strong> cuts a surface (a volume’s outer surface) with a plane and gives
+the curves, ordered, with the surface’s arrays: a profile around a section of a body.</li>
+</ul>
+<p>A chart of data with several blocks draws one line per block (each against its own x array), named
+<code>block/array</code>.</p>
+<pre><code class="language-python">pts = afx.load("probes.csv").table_to_points()
+grid = pts.point_interpolator(kernel="Gaussian", output="Plane", axis="Z", nx=200, ny=200)
+onto = pts.point_interpolator(mesh, kernel="Shepard", n_closest=12)   # onto another mesh
+sph = particles.point_interpolator(kernel="SPH cubic", smoothing_length=0.02, density="rho", mass="m")
+prof = body.plot_on_intersection_curves(origin=(0, 0, 0.5), normal=(0, 0, 1))
+cells = mesh.resample_to_line(point1=(0, 0, 0), point2=(1, 0, 0), sampling="Cell boundaries")
+</code></pre>
+<p><strong>Evenly Spaced Streamlines 2D</strong> fills the XY plane with streamlines of a vector field, evenly
+spread: each new line starts at the <em>separation</em> from the lines already there and stops where it
+comes closer than a fraction of it (or closes on itself), until no gap is left. There are no seeds
+to place; the field’s z component is not used.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/evenly_spaced_streamlines.png" alt="Evenly spaced streamlines of a vortex pair"><span class="img-wrapper"><img src="images/evenly_spaced_streamlines.png" alt="Evenly spaced streamlines of a vortex pair"></span></label></p>
+<pre><code class="language-python">s = flow.evenly_spaced_streamlines_2d(vectors="V", separation=0.05)
+</code></pre>
+<h2 id="statistics"><a class="header" href="#statistics">Statistics</a></h2>
+<p>In <strong>Filters › Data Analysis</strong>; <em>variables</em> is a list of array names (<code>T, p</code>; <code>V</code> is a vector’s
+magnitude, <code>V[1]</code> its second component), empty for every array with one value; <em>data</em> chooses the
+point or cell arrays (table columns for tables).</p>
+<ul>
+<li><strong>K-Means</strong> groups the points, cells or rows into K clusters by those values (k-means++ start,
+repeated until nothing moves; <em>standardize</em> divides each variable by its spread first). It adds
+<code>ClusterId</code> and <code>ClusterDistance</code>, and field data with each cluster’s centre, size and the
+within-cluster sum of squares.</li>
+<li><strong>Principal Component Analysis</strong> adds the projections <code>PCA 0</code>, <code>PCA 1</code>… (largest variance first)
+and gives as field data the eigenvalues, the fraction of the variance each explains and the
+components.</li>
+<li><strong>Multicorrelative Statistics</strong>: the means, covariance matrix and (Pearson) correlation matrix
+as a table.</li>
+<li><strong>Contingency Statistics</strong> of two arrays: how often each pair of values occurs (real values are
+put in bins), with joint and conditional probabilities; chi-square, its degrees of freedom and the
+mutual information as field data.</li>
+<li><strong>Compute Quartiles</strong>: minimum, Q1, median, Q3, maximum, interquartile range and whisker ends per
+variable. The chart style <strong>Box plot</strong> draws a box of every plotted array’s values.</li>
+<li><strong>Random Attributes</strong> adds a random array (uniform between two values, scalars or vectors).</li>
+<li><strong>Kernel Smoothing</strong> gives a smooth estimate of an array’s distribution (a density that
+integrates to one) for the Charts panel; <strong>Density Map</strong> puts the joint density of two arrays on
+an image, with the levels holding 50, 90 and 99 % of the samples.</li>
+</ul>
+<p>Three clusters of 200 points each are found exactly; PCA of a cloud stretched along (1, 1) gives
+its two variances within 3 %.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/statistics_filters.png" alt="K-Means clusters of the Wavelet values and their positions, and a box plot of the arrays"><span class="img-wrapper"><img src="images/statistics_filters.png" alt="K-Means clusters of the Wavelet values and their positions, and a box plot of the arrays"></span></label></p>
+<pre><code class="language-python">k = w.k_means(k=4, variables="RTData, Coordinates[0]")
+p = w.principal_component_analysis(variables="RTData, Coordinates[0], Coordinates[1]", keep=2)
+c = afx.chart_view(w.compute_quartiles(), y=["Q1"])
+w.plot("RTData", style="box")
+</code></pre>
+<h2 id="text-in-the-3d-view"><a class="header" href="#text-in-the-3d-view">Text in the 3D view</a></h2>
+<p>The <strong>Annotation</strong> filters write a line of text that every 3D view showing them draws in a
+corner of your choice, at a size of your choice (hide the filter to hide the text):</p>
+<ul>
+<li><strong>Annotate Time Filter</strong>: the time, in a format such as <code>Time: {:.3} s</code> (<code>{}</code> is the value,
+<code>{:.3}</code> three decimals, <code>{:.2e}</code> an exponent, <code>{:.4g}</code> four significant digits), scaled and
+shifted if you like.</li>
+<li><strong>Annotate Global Data</strong>: a global (field) value, such as an energy; one value per time step
+shows the current step’s.</li>
+<li><strong>Annotate Attribute Data</strong>: the value of an array at one point or cell, following the time steps.</li>
+<li><strong>Annotate Selection</strong>: on the output of Extract Selection, how many points are selected and the
+first ones with their numbers and values.</li>
+<li><strong>Environment Annotation</strong>: the date and time, the user, the machine, the operating system, the
+auraFX version.</li>
+<li><strong>Python Annotation</strong>: the result of a Python expression; the point and cell arrays are NumPy
+arrays by name (the blocks of a multi-block joined), with <code>points</code>, <code>inputs</code>, <code>t</code> (the time) and
+<code>step</code>, e.g. <code>f'max T = {T.max():.1f} K'</code>.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/annotation_filters.png" alt="The time, a global value and a Python expression shown over an impact simulation"><span class="img-wrapper"><img src="images/annotation_filters.png" alt="The time, a global value and a Python expression shown over an impact simulation"></span></label></p>
+<pre><code class="language-python">c.annotate_time_filter(format="t = {:.2e} s", corner="upper right")
+c.annotate_global_data(array="KE", format="kinetic energy {:.3g} J")
+c.python_annotation(expression="f'max EQPS {EQPS.max():.3f}'", corner="lower left", size=20)
+</code></pre>
+<h2 id="checking-meshes"><a class="header" href="#checking-meshes">Checking meshes</a></h2>
+<ul>
+<li><strong>Validate Cells</strong> checks every cell: <code>ValidityState</code> is 0 for a good cell, otherwise the sum of
+1 (wrong number of points), 2 (degenerate: no volume, area or length), 4 (inverted, turned inside
+out), 8 (a face that is not flat), 16 (a polygon that is not convex), 32 (repeated points); field
+data counts each problem. Threshold on <code>ValidityState</code> ≥ 1 to see the bad cells.</li>
+<li><strong>Overlapping Cells Detector</strong> counts, for each cell, the other cells that share volume with it
+(or area, for surface cells in one plane): <code>NumberOfOverlapsPerCell</code>. Cells that only touch do
+not count.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/mesh_checks.png" alt="Validate Cells on a mesh with an inverted and a degenerate cell"><span class="img-wrapper"><img src="images/mesh_checks.png" alt="Validate Cells on a mesh with an inverted and a degenerate cell"></span></label></p>
+<h2 id="partitions-and-ghost-cells"><a class="header" href="#partitions-and-ghost-cells">Partitions and ghost cells</a></h2>
+<p>Partitioned data is a multi-block whose blocks are the partitions: a <code>.pvtu</code>, <code>.pvtp</code>, <code>.pvts</code>,
+<code>.pvtr</code> or <code>.pvti</code> file opened with the reader option <strong>Pieces › Partitions</strong> (one block per piece
+file), or the output of Redistribute DataSet.</p>
+<ul>
+<li><strong>Redistribute DataSet</strong> splits a mesh into partitions of nearly equal cell counts, cutting it in
+halves along its longest side again and again (64 cells into 3 partitions: 21, 21 and 22).</li>
+<li><strong>Ghost Cells</strong> gives each partition layers of the neighbouring partitions’ cells that touch it,
+marked in <code>vtkGhostType</code> (1 for a ghost cell, and for a point only ghost cells use), so that
+filters that look at neighbours agree at partition borders.</li>
+<li><strong>Remove Ghost Information</strong> drops the ghost cells and the ghost arrays again.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/partitions.png" alt="A mesh redistributed into four partitions, each with one layer of ghost cells"><span class="img-wrapper"><img src="images/partitions.png" alt="A mesh redistributed into four partitions, each with one layer of ghost cells"></span></label></p>
+<pre><code class="language-python">parts = mesh.redistribute_dataset(partitions=8, ghost_layers=1)
+case = afx.load("run.pvtu"); case.set(pieces="Partitions")
+g = case.ghost_cells(layers=2)
+</code></pre>
+<h2 id="volume-fractions-and-fragments"><a class="header" href="#volume-fractions-and-fragments">Volume fractions and fragments</a></h2>
+<ul>
+<li><strong>Material Interface</strong> rebuilds the interfaces between materials from cell arrays of volume
+fractions (one per material, 0 to 1): in every mixed cell a plane facing down the fraction’s
+gradient, placed so that the cell’s material side holds exactly its fraction. One block of
+interface polygons per material (lines on surface meshes) with <code>VolumeFraction</code>, and the
+material’s volume as field data. For a ball sampled on a 24³ grid the interface area is within
+4 % of the sphere’s and every interface point within a third of a cell of it.</li>
+<li><strong>Fragment Integration</strong> finds the fragments of a material: cells whose fraction (or any cell
+array) is at least a threshold, joined through shared faces (across the levels of AMR data,
+through touching boxes). The table gives each fragment’s cell count, volume (fraction × cell
+volume), centroid and the volume integrals of the other cell arrays; <em>Output › Cells</em> gives the
+cells with <code>FragmentId</code>. Two balls come back as two fragments with their volumes within 1 %.</li>
+<li><strong>AMR Dual Clip</strong> clips AMR data by a cell array without cracks between levels: the levels’ cell
+centres are joined into one stitched mesh and the part above a value is kept.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/material_interface.png" alt="The interface of a ball rebuilt from volume fractions, over the mixed cells"><span class="img-wrapper"><img src="images/material_interface.png" alt="The interface of a ball rebuilt from volume fractions, over the mixed cells"></span></label></p>
+<h2 id="halos-and-shape-measures"><a class="header" href="#halos-and-shape-measures">Halos and shape measures</a></h2>
+<ul>
+<li><strong>Halo Finder</strong> finds halos in particles: particles closer than a <em>linking length</em> (a fraction of
+the mean spacing, 0.2 by default) are friends, and friends of friends form one halo. It adds
+<code>HaloId</code> (−1 outside halos) or gives a table of halos with their count, mass, centre of mass,
+mean velocity, and <code>RadiusSOD</code> / <code>MassSOD</code>, the radius and mass inside which the mean density is
+the <em>overdensity</em> (200) times the box’s mean density.</li>
+<li><strong>Minkowski Functionals</strong> measures the region where an array is above a threshold, from its
+closed boundary surface: volume, surface area, integrated mean curvature, Euler characteristic
+(1 for a ball, 0 for a torus) and the normalised W0 to W3. A ball sampled on a 61³ grid comes
+within 1 % (volume), 2 % (area) and 3 % (mean curvature) of the exact values.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/halo_finder.png" alt="Halos found in particles, colored by HaloId"><span class="img-wrapper"><img src="images/halo_finder.png" alt="Halos found in particles, colored by HaloId"></span></label></p>
+<pre><code class="language-python">h = particles.halo_finder(linking=0.2, min_members=20, mass="mass", velocity="v")
+table = particles.halo_finder(output="Halos")
+m = volume.minkowski_functionals(array="porosity", threshold=0.5)
+</code></pre>
+<h2 id="point-sets"><a class="header" href="#point-sets">Point sets</a></h2>
+<p>In <strong>Filters › Geometry</strong>:</p>
+<ul>
+<li><strong>Point Sample Triangle Geometry</strong> spreads a number of points over a surface at random (seeded),
+each triangle getting points in proportion to its area.</li>
+<li><strong>Crop Points</strong> keeps the points inside a box, with their arrays.</li>
+<li><strong>Iterative Closest Point</strong> moves a point set (the first input) rigidly onto another (the
+second, chosen in Properties): each round pairs every point with its nearest target point and
+finds the rotation and translation that bring the pairs closest, until it stops improving. The
+output is the moved points, with the 4 × 4 <code>Transform</code> (row by row) and the <code>RMSDistance</code> in
+its field data; a cloud turned by 10° and moved comes back to within 10⁻⁶. It finds the
+nearest fit from where the points start, so the two sets must already roughly overlap.</li>
+</ul>
+<pre><code class="language-python">target = afx.load("part.stl").point_sample_surface(samples=3000)
+moved = target.transform(rotate=[0, 20, 10], translate=[0.2, 0, 0])
+aligned = afx.iterative_closest_point(moved, target, iterations=100)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/point_alignment.png" alt="Points sampled on a cone, a turned and moved copy (orange) and the copy moved back by Iterative Closest Point (blue, lying on the original)"><span class="img-wrapper"><img src="images/point_alignment.png" alt="Points sampled on a cone, a turned and moved copy (orange) and the copy moved back by Iterative Closest Point (blue, lying on the original)"></span></label></p>
 <h2 id="from-python"><a class="header" href="#from-python">From Python</a></h2>
 <pre><code class="language-python">afx.filters()                 # every filter with its parameters
 afx.help_filter("clip")       # one filter explained
@@ -770,15 +957,68 @@ afx.time(20)         # go to step 20
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/time_charts.png" alt="A time step of an impact simulation, with the maximum plastic strain over time"><span class="img-wrapper"><img src="images/time_charts.png" alt="A time step of an impact simulation, with the maximum plastic strain over time"></span></label></p>
 <h2 id="charts"><a class="header" href="#charts">Charts</a></h2>
-<p>The <strong>Charts</strong> panel plots lines with zoom, legends and log axes:</p>
+<p>The <strong>Charts</strong> panel plots the arrays of an object as lines, points, lines with markers or bars,
+with zoom, a legend and log axes:</p>
 <ul>
 <li><strong>Plot Over Line</strong> (a filter) plots the arrays along a line;</li>
 <li><strong>Edit › Plot Over Time…</strong> or <code>afx.over_time(node, "EQPS", stat="max")</code> plots a statistic
 (max, min, mean, sum, or the value of a global variable) over every time step;</li>
 <li><code>afx.plot(x, y, label="T")</code> plots your own NumPy arrays; <code>afx.clear_plots()</code> empties the panel.</li>
 </ul>
+<p>The boxes along the top of a chart choose, from left to right: the <strong>object</strong> it plots
+(<em>Selected object</em> follows whatever is selected in the Pipeline), whether a mesh’s <strong>point</strong>
+or <strong>cell</strong> arrays are plotted, the <strong>X</strong> array (or the index), the <strong>Y</strong> arrays, the
+<strong>style</strong> (lines, points, lines and markers, bars), and <strong>log x</strong> / <strong>log y</strong> (values that are
+not positive are left out). <strong>CSV</strong> saves the plotted values; <strong>Picture…</strong> saves the chart as a
+PNG without these controls.</p>
+<h3 id="several-chart-views"><a class="header" href="#several-chart-views">Several chart views</a></h3>
+<p>A chart view can be opened for every object you want to compare, and each keeps its own
+object, arrays and style while you select other things:</p>
+<ul>
+<li><strong>View › New Chart View</strong> opens one for the selected object;</li>
+<li>right-click an object in the Pipeline › <strong>Plot in a new chart view</strong>;</li>
+<li><strong>New chart view</strong> on any chart opens another one beside it.</li>
+</ul>
+<p>Chart views open beside the Charts panel and can be dragged, split and stacked like the 3D
+views (drag a tab to an edge). Closing a chart’s tab closes the view. State files
+(<code>.afx</code>) keep the chart views and reopen them.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/chart_views.png" alt="Two chart views beside the 3D view: temperature along a line, and a histogram of another object"><span class="img-wrapper"><img src="images/chart_views.png" alt="Two chart views beside the 3D view: temperature along a line, and a histogram of another object"></span></label></p>
+<pre><code class="language-python">line = src.plot_over_line(point1=[0, 0, -10], point2=[0, 0, 10])
+hist = src.histogram(array="Temp", bins=30)
+a = line.plot("Temp", "Pres", x="arc_length")       # a new chart view of the line
+b = hist.plot("Temp_count", style="bars")           # another one, of the histogram
+afx.chart_view(view=a, log_y=True)                  # change view a later
+afx.chart_view(y="V_X")                             # a view that follows the selection
+afx.chart_views()                                   # a list of dicts, one per view
+afx.plot(t, energy, label="E", view=b)              # your own line in chart view b
+afx.close_chart_view(a)
+</code></pre>
+<p><code>node.plot(*arrays, x=..., style=..., data="points"|"cells", log_x=..., log_y=..., title=...)</code>
+and <code>afx.chart_view(node=None, y=..., x=..., style=..., data=..., log_x=..., log_y=..., title=..., view=None)</code> return the view’s number (<code>view=0</code> is the Charts panel). Charts
+plot up to two million values per array.</p>
 <p>The <strong>Spreadsheet</strong> panel shows the selected object’s points, cells or field data as a table
 with sorting, column choice and export to CSV.</p>
+<h3 id="choosing-and-changing-time-steps"><a class="header" href="#choosing-and-changing-time-steps">Choosing and changing time steps</a></h3>
+<p>In <strong>Filters › Temporal</strong>:</p>
+<ul>
+<li><strong>Extract Time Steps</strong> keeps some steps: a list such as <code>0, 3, 5-8, 10:20:2</code> (step numbers from
+0; <code>start:stop:stride</code> leaves out stop), or every N-th step from a first one.</li>
+<li><strong>Generate Time Steps</strong> gives data a new set of evenly spaced time values (each shows the data at
+that time, or at the step before it); static data gets a time axis to animate filters against.</li>
+<li><strong>Force Time</strong> always shows the data at one step (or time), whatever time the window is at: put
+step 0 beside the animation to compare.</li>
+<li><strong>Temporal Snap to Time Step</strong> shows the data at one of its own steps (nearest, previous or next)
+when the window is at a time in between, set by other data or by Temporal Interpolator.</li>
+<li><strong>Temporal Cache</strong> keeps the last steps shown in memory, so stepping back and forth or replaying
+a loop does not read and filter them again.</li>
+</ul>
+<p>Particle Tracer, Particle Path and Streak Line release their seeds again every N steps with
+<em>Release again every N steps</em>, which makes streak lines from a continuous injection.</p>
+<pre><code class="language-python">first = case.force_time(step=0)                 # step 0 beside the playing data
+every5 = case.extract_time_steps(stride=5)
+smooth = case.temporal_interpolator(interval=0.01).temporal_snap_to_time_step(mode="Previous")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/temporal_utilities.png" alt="Force Time keeps the first step of an impact beside the playing animation"><span class="img-wrapper"><img src="images/temporal_utilities.png" alt="Force Time keeps the first step of an impact beside the playing animation"></span></label></p>
 <h2 id="animation"><a class="header" href="#animation">Animation</a></h2>
 <p><strong>File › Animation…</strong> records one of three things:</p>
 <div class="table-wrapper">
@@ -796,8 +1036,14 @@ with sorting, column choice and export to CSV.</p>
 <p>Pick the frame rate and the format: <strong>GIF</strong>, <strong>MP4</strong> (needs <code>ffmpeg</code> on the PATH) or a folder
 of <strong>PNG frames</strong>. Frames are captured at the 3D view’s size, with the legend, labels and
 annotations.</p>
+<p><strong>Record › all views</strong> records every visible 3D view and chart view in each frame, placed as
+they are laid out in the window: the charts follow the time steps (a chart of a Plot Over Line
+changes with the data) while the 3D views play. <strong>Record › chart views</strong> records only the
+charts. These frames have the window’s pixels; the Animation window is hidden while they are
+recorded, and the charts’ controls are left out.</p>
 <pre><code class="language-python">afx.save_animation("run.gif", fps=10)          # time steps (or keyframes if any)
 afx.save_animation("turn.mp4", orbit=72)       # a turntable
+afx.save_animation("all.mp4", views="all")     # every 3D view and chart view, as laid out
 </code></pre>
 <h2 id="keyframes"><a class="header" href="#keyframes">Keyframes</a></h2>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"><span class="img-wrapper"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"></span></label></p>
@@ -1292,12 +1538,86 @@ and value ranges on the same files. The comparisons are listed in the verificati
 <tr><td>GIS vectors</td><td>Shapefile <code>.shp</code>, GeoJSON <code>.geojson .json</code>, KML <code>.kml</code>, KMZ <code>.kmz</code>, GeoPackage <code>.gpkg</code>, FlatGeobuf <code>.fgb</code>, GML <code>.gml</code></td><td>points, lines and polygon outlines (or filled areas) with their attributes as cell data, a block per layer; see below</td></tr>
 <tr><td>EBSD maps and microstructures</td><td>TSL/EDAX <code>.ang</code>, Oxford <code>.ctf</code>, <code>.h5ebsd</code> stacks, EDAX and Bruker <code>.h5</code>, <code>.dream3d</code></td><td>crystal orientations on a square grid with phases and quality columns; voxel volumes and meshes with feature and phase arrays; see <a href="#grains-and-crystals">Grains and crystals</a></td></tr>
 <tr><td>SPPARKS sites</td><td><code>.spparks</code>, <code>.sites</code>; lattice text dumps (<code>id i1 x y z</code>)</td><td>a site file without a <code>Sites</code> section (a lattice filling its box) and a dump of every site of a lattice open as a volume with <code>FeatureIds</code> (from <code>i1</code>); a site file with coordinates opens as points</td></tr>
-<tr><td>Surfaces</td><td><code>.stl .ply .obj</code></td><td></td></tr>
+<tr><td>Surfaces</td><td><code>.stl .ply .obj</code>, <code>.off</code></td><td>OFF also with point colors (<code>COFF</code>) and face colors</td></tr>
+<tr><td>Scenes</td><td>glTF 2.0 <code>.gltf .glb</code>, VRML 2.0 <code>.wrl</code></td><td>triangles, lines and points of every placed mesh (moved by its nodes or transforms), normals, vertex colors; a block per mesh; see below</td></tr>
+<tr><td>Medical and microscopy volumes</td><td>NRRD <code>.nrrd .nhdr</code>, MetaImage <code>.mhd .mha</code>, MRC <code>.mrc .map .rec</code>, DICOM <code>.dcm</code> (or the folder of a series), OME-TIFF <code>.ome.tif</code></td><td>image data at the file’s spacing, origin and orientation; see below</td></tr>
+<tr><td>Point clouds (lidar)</td><td>LAS <code>.las</code>, LAZ <code>.laz</code></td><td>LAS 1.0 to 1.4, point formats 0 to 10, with intensity, returns, classification, scan angle, GPS time and colors; see below</td></tr>
+<tr><td>Particles on HDF5</td><td>H5Part <code>.h5part</code>, openPMD <code>.h5</code></td><td>time steps of particles; openPMD meshes as image data and a block per particle species; see below</td></tr>
+<tr><td>Nek5000</td><td><code>.nek5000</code> (or a data file <code>name0.f00001</code>)</td><td>spectral elements as hexahedra (quadrilaterals in 2-D), velocity, pressure, temperature, passive scalars, time steps</td></tr>
+<tr><td>LS-DYNA</td><td><code>d3plot</code> and its family files</td><td>solids, shells, beams; states with moving nodes, velocities, accelerations, stresses, plastic strain, beam resultants; see below</td></tr>
+<tr><td>Nastran bulk data</td><td><code>.bdf .nas .bulk</code>, <code>.dat</code> with GRID cards</td><td>small, large and free fields; coordinate systems; solid, shell, bar and point elements with their properties as blocks</td></tr>
+<tr><td>Fluent</td><td><code>.msh .cas</code></td><td>ASCII and binary sections; cells rebuilt from their faces; cell zones as blocks, boundary zones as side sets</td></tr>
 <tr><td>CSV / TSV</td><td><code>.csv .tsv .txt</code></td><td>delimiter and header detection; tables with x, y, z columns become points</td></tr>
 </tbody>
 </table>
 </div>
-<p>Numbered files (<code>run_0001.vtu</code>…) open as a series when one of them is opened.</p>
+<p>Numbered files (<code>run_0001.vtu</code>, <code>frame_0001.png</code>, <code>scan_0001.las</code>…) open as a series when one of them is opened; a wildcard name (<code>img_*.png</code>) stacks pictures into one volume instead.</p>
+<h3 id="medical-and-microscopy-volumes"><a class="header" href="#medical-and-microscopy-volumes">Medical and microscopy volumes</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Format</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>NRRD</strong> (<code>.nrrd</code>, detached <code>.nhdr</code> + data)</td><td>raw, gzip and ASCII encodings, any byte order; spacing from <code>spacings</code> or <code>space directions</code> (also the orientation), origin from <code>space origin</code>; a first axis of kind vector, RGB-color… gives components. The array is <code>NRRDImage</code></td></tr>
+<tr><td><strong>MetaImage</strong> (<code>.mha</code>, <code>.mhd</code> + <code>.raw</code>/<code>.zraw</code>)</td><td>every element type, zlib-compressed data, <code>Offset</code>, <code>ElementSpacing</code>, <code>TransformMatrix</code>, channels. The array is <code>MetaImage</code></td></tr>
+<tr><td><strong>MRC / CCP4</strong> (<code>.mrc</code>, <code>.map</code>, <code>.rec</code>, <code>.st</code>)</td><td>cryo-EM maps and tomograms: modes 0 (int8), 1 (int16), 2 (float32), 6 (uint16), 12 (float16); the voxel size from the cell and sample counts; the origin; the axis order of the file (columns, rows, sections) put back to x, y, z</td></tr>
+<tr><td><strong>DICOM</strong> (<code>.dcm</code>, extension-less files, or a folder)</td><td>a file opens its whole series (the files of its folder with the same series id), ordered along the slice normal; spacing from Pixel Spacing and the distance between slices, position and orientation from the patient coordinates; values rescaled by slope and intercept (Hounsfield units for CT). A folder opens its largest series. Compressed (JPEG) files are not read: save them uncompressed</td></tr>
+<tr><td><strong>OME-TIFF</strong> (<code>.ome.tif</code>)</td><td>the planes in the order the OME-XML gives (Z, channels, times), the physical pixel sizes, one array per channel named after it, times as time steps</td></tr>
+</tbody>
+</table>
+</div>
+<p>Axes that a file swaps or reverses (rows of a DICOM picture running down, a NRRD space direction
+along −x) are laid out along +x, +y, +z, so the points sit where the file puts them. An oblique
+orientation (axes not along x, y and z) is kept as the image’s orientation, but auraFX places the
+points along the axes: measure in the grid’s own frame for such files.</p>
+<pre><code class="language-python">ct = afx.load("scans/patient7")            # a folder of DICOM slices
+mri = afx.load("brain.nrrd")
+cells = afx.load("cells.ome.tif")          # DAPI, GFP... arrays; time steps
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/medical_volumes.png" alt="A CT-like volume read from a DICOM series, sliced and volume-rendered"><span class="img-wrapper"><img src="images/medical_volumes.png" alt="A CT-like volume read from a DICOM series, sliced and volume-rendered"></span></label></p>
+<h3 id="point-clouds"><a class="header" href="#point-clouds">Point clouds</a></h3>
+<p><strong>LAS</strong> and <strong>LAZ</strong> files (lidar) open as points with the arrays <code>Intensity</code>, <code>ReturnNumber</code>,
+<code>NumberOfReturns</code>, <code>Classification</code> (2 ground, 5 high vegetation, 6 building…), <code>ScanAngle</code>
+(degrees), <code>UserData</code>, <code>PointSourceId</code>, <code>GpsTime</code> and <code>Color</code> (drawn as its own colors), at real
+coordinates (scaled and offset). LAZ (compressed LAS) is read too. Point Gaussian or Eye-Dome
+Lighting (View › Lighting) suit large clouds; Threshold on <code>Classification</code> keeps one class.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/lidar_points.png" alt="20 000 lidar points colored by classification, with Eye-Dome Lighting"><span class="img-wrapper"><img src="images/lidar_points.png" alt="20 000 lidar points colored by classification, with Eye-Dome Lighting"></span></label></p>
+<h3 id="scenes"><a class="header" href="#scenes">Scenes</a></h3>
+<p>glTF 2.0 (<code>.gltf</code> with embedded or separate buffers, <code>.glb</code>) and VRML 2.0 (<code>.wrl</code>, also
+gzipped) files from modelling programs and web viewers open as surfaces: every mesh of the scene,
+moved by its node’s (or transform’s) translation, rotation and scale, with its normals, vertex
+colors (<code>Colors</code>) and texture coordinates; a block per mesh, named after its node. VRML
+IndexedFaceSet, IndexedLineSet and PointSet are read, with per-vertex or per-face colors;
+PROTO definitions are not.</p>
+<h3 id="particles-on-hdf5"><a class="header" href="#particles-on-hdf5">Particles on HDF5</a></h3>
+<ul>
+<li><strong>H5Part</strong> files (<code>Step#0</code>, <code>Step#1</code>… groups) give one time step per group: points at <code>x</code>,
+<code>y</code>, <code>z</code> with every other dataset as a point array, times from each step’s <code>TimeValue</code>.</li>
+<li><strong>openPMD</strong> series (HDF5; one file holding all iterations, or one file per iteration, which
+opens with its siblings) give one time step per iteration at its time in seconds: the meshes
+as image data (grid spacing, offset and axis labels in metres, values times <code>unitSI</code>) and a
+block per particle species (positions plus position offsets, every record as a point array,
+constant records filled in).</li>
+</ul>
+<h3 id="ls-dyna-results"><a class="header" href="#ls-dyna-results">LS-DYNA results</a></h3>
+<p>Open <code>d3plot</code>: its family files (<code>d3plot01</code>, <code>d3plot02</code>…) are read with it. The mesh holds the
+solids (tetrahedra, pyramids and wedges stored as hexahedra with repeated nodes are made the
+cells they are), thick shells, beams and shells, with <code>Material</code>, <code>ElementId</code> (the user numbers
+when the file has them) and <code>ElementKind</code> (1 solid, 2 thick shell, 3 beam, 4 shell). Each state
+moves the nodes to their current positions; <code>Displacement</code> is the move, with <code>Velocity</code>,
+<code>Acceleration</code> and <code>Temperature</code> when written, <code>Stress</code> (6 components) and
+<code>EffectivePlasticStrain</code> of solids and shells (the middle integration point), <code>BeamResultants</code>,
+and the global energies as field data. Fluid, adaptive and 8-node shell models are not read.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/d3plot_states.png" alt="A d3plot state colored by stress, with its time"><span class="img-wrapper"><img src="images/d3plot_states.png" alt="A d3plot state colored by stress, with its time"></span></label></p>
+<h3 id="solver-meshes"><a class="header" href="#solver-meshes">Solver meshes</a></h3>
+<p>Nastran bulk data (<code>GRID</code>, <code>CTETRA</code>, <code>CPENTA</code>, <code>CHEXA</code>, <code>CPYRAM</code> with their mid-side nodes,
+<code>CTRIA3</code>, <code>CQUAD4</code>, <code>CBAR</code>/<code>CBEAM</code>/<code>CROD</code>, <code>CONM2</code>; small, large and free fields with
+continuations; <code>CORD2R</code>, <code>CORD2C</code> and <code>CORD2S</code> coordinate systems) and Fluent meshes and cases
+(<code>.msh</code>, <code>.cas</code>; ASCII and binary node, cell and face sections; the cells are rebuilt from their
+faces, polyhedra kept as polyhedra) open as meshes with the auraFX block and set arrays: the
+Nastran property or the Fluent cell zone is the <code>ElementBlock</code>, Fluent boundary zones are side
+sets named after the zones. Both are also written (see Writers).</p>
 <p>CGNS files come in two storage formats with the same <code>.cgns</code> extension: HDF5, the default
 since CGNS 3.4, and ADF, which older solvers and older CGNS libraries write. auraFX looks at
 the file and reads either one the same way, with <strong>File › Open</strong> or <code>afx.load("wing.cgns")</code>.
@@ -1862,6 +2182,12 @@ mesh, so curved cells come out straight.</p>
 <tr><td>Exodus II</td><td><code>.exo</code></td><td>blocks, nodal and element variables, every time step with <code>all_times=True</code>; HEX20 and HEX27 elements; the element blocks, side sets and node sets of generated meshes (see <a href="#meshes-blocks-and-sets">Geometry and meshing</a>)</td></tr>
 <tr><td>Abaqus input</td><td><code>.inp</code></td><td>nodes, elements (C3D8, C3D20, C3D27, tetrahedra, wedges, pyramids) in one element set per block, node sets, side sets as element-based surfaces</td></tr>
 <tr><td>Gmsh</td><td><code>.msh</code></td><td>version 4.1 ASCII: one physical volume per element block, one physical surface of quadrilaterals per side set (node sets are not part of the format)</td></tr>
+<tr><td>Fluent</td><td><code>.cas</code> (or <code>name.fluent.msh</code>)</td><td>ASCII: nodes, a cell zone per block, interior faces, a boundary zone per side set and the other outer faces in <code>wall</code>, zone names; 2-D or 3-D cells of one dimension</td></tr>
+<tr><td>Nastran bulk data</td><td><code>.bdf .nas</code></td><td>free field with full precision: GRID, CHEXA/CTETRA/CPENTA/CPYRAM (with mid-side nodes)/CTRIA3/CQUAD4/CBAR, a PSOLID/PSHELL/PBAR per block (named in a comment), node sets as SPC1 cards</td></tr>
+<tr><td>MetaImage</td><td><code>.mha .mhd</code></td><td>image data’s active array (point data, else cell data): all number types, channels, origin, spacing, orientation</td></tr>
+<tr><td>Image stacks</td><td><code>.png</code>, <code>.tif</code></td><td>a volume as one 8- or 16-bit PNG per slice (<code>name_0000.png</code>…; other values scaled to 16 bits), or one multi-page TIFF (also 32-bit floats)</td></tr>
+<tr><td>Parallel VTK</td><td><code>.pvtu .pvtp .pvti .pvts .pvtr</code></td><td>the header and a folder of piece files: the blocks of a partitioned dataset, or 4 pieces cut from one dataset (<code>afx.save</code> takes <code>pieces=</code>)</td></tr>
+<tr><td>Time series collection</td><td><code>.pvd</code></td><td>with <code>all_times=True</code>, one VTK XML file per time step in a folder and the <code>.pvd</code> listing them with their times</td></tr>
 <tr><td>EnSight Gold</td><td><code>.case</code></td><td>C binary; one part per block (image, rectilinear and structured grids as blocks, the rest as elements of every standard type, polygons and polyhedra); every time step with <code>all_times=True</code>, the geometry written once when it does not change</td></tr>
 <tr><td>CGNS</td><td><code>.cgns</code></td><td>HDF5 storage (CGNS 4): a zone per block, image/rectilinear/structured grids as structured zones, the rest as one element section (MIXED when the cell types differ) plus NGON/NFACE for polygons and polyhedra; vectors as <code>NameX/NameY/NameZ</code>; with <code>all_times=True</code> one solution per step (and coordinates per step when the points move), but the cells must stay the same</td></tr>
 <tr><td>Xdmf 3</td><td><code>.xmf</code> + <code>.h5</code></td><td>the description in the <code>.xmf</code>, the arrays in an HDF5 file beside it; block trees as spatial collections, time steps as a temporal collection that shares unchanged points and cells</td></tr>
@@ -1914,6 +2240,20 @@ afx.screenshot("fig.svg")
 </code></pre>
 <p><code>afx.screenshot</code> returns only when the file is written, so a script can change the camera or
 the data between pictures.</p>
+<h3 id="all-views-in-one-picture"><a class="header" href="#all-views-in-one-picture">All views in one picture</a></h3>
+<p>For a slide or a report with several views side by side, choose <strong>Picture of › all views</strong> in
+the same dialog: every visible 3D view and chart view is saved in one PNG, each where it sits
+in the window, with tab bars, panels and menus left out and the charts’ controls hidden
+(<strong>keep the chart views’ controls</strong> keeps them). <strong>chart views</strong> saves only the charts. The
+background between the views is the window’s, or transparent. The picture has the window’s
+pixels, so a larger (or full-screen) window gives a larger picture. Only views whose tab is in
+front are in the picture.</p>
+<pre><code class="language-python">afx.screenshot("slide.png", views="all")            # every visible view, as laid out
+afx.screenshot("charts.png", views="charts")
+afx.screenshot("chart2.png", views="chart 2")       # one chart view ("chart" is the Charts panel)
+afx.screenshot("view2.png", views="view 2", transparent=True)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/all_views_picture.png" alt="Two 3D views and two chart views saved as one picture with views=‘all’"><span class="img-wrapper"><img src="images/all_views_picture.png" alt="Two 3D views and two chart views saved as one picture with views=‘all’"></span></label></p>
 <h2 id="scenes-for-other-programs"><a class="header" href="#scenes-for-other-programs">Scenes for other programs</a></h2>
 <p><strong>File › Export Scene…</strong> (<code>afx.export_scene("scene.glb")</code>) writes the visible objects, with
 their colors, as:</p>
@@ -1932,7 +2272,8 @@ their colors, as:</p>
 <p>Volumes are not exported (they are not geometry).</p>
 <h2 id="animations"><a class="header" href="#animations">Animations</a></h2>
 <p><strong>File › Animation…</strong> records the time steps, a turntable or the keyframes as <strong>GIF</strong>, <strong>MP4</strong>
-(<code>ffmpeg</code> on the PATH) or a folder of PNG frames; see
+(<code>ffmpeg</code> on the PATH) or a folder of PNG frames, of the active 3D view or of all views as laid
+out (<code>afx.save_animation("all.mp4", views="all")</code>); see
 <a href="#time-charts-and-animation">Time, charts and animation</a>.</p>
 <h2 id="saving-data"><a class="header" href="#saving-data">Saving data</a></h2>
 <p>Right-click an object › <strong>Save data…</strong>, or <code>node.save("out.vtu")</code>, writes its output; the
@@ -2457,6 +2798,47 @@ from their neighbours the same way. Feature 0 can win, so a small feature agains
 outside may become outside. The remaining features are renumbered from 1 in their old
 order, and per-feature field arrays keep their rows.</li>
 </ul>
+<p>Before or instead of segmenting, noisy maps can be cleaned cell by cell (every cell array moves
+with the cell it comes from):</p>
+<ul>
+<li><strong>Replace Element Attributes with Neighbor</strong> (neighbour confidence correlation): each cell
+whose confidence (an array such as <code>Confidence Index</code>) is below a minimum takes the values of
+its most confident neighbour, again and again if asked.</li>
+<li><strong>Neighbor Orientation Correlation</strong>: each low-confidence cell takes the values of the
+neighbour that most other neighbours agree with in orientation (within a misorientation
+tolerance), when enough of them agree, from 6 agreeing neighbours down to 6 minus the
+<em>cleanup level</em>.</li>
+<li><strong>Bad Data Neighbor Orientation Check</strong>: a cell outside the mask (bad) with enough good
+neighbours of nearly its own orientation becomes good.</li>
+<li><strong>Erode Dilate Bad Data</strong>: the features grow into the bad cells (erode) or the bad cells into
+the features (dilate), a number of times, along chosen axes.</li>
+<li><strong>Erode Dilate Coordination Number</strong>: a cell with at least this many face neighbours in one
+other feature joins that feature: smooths jagged boundaries.</li>
+<li><strong>Identify Sample</strong>: the largest connected region of good cells is the sample; other good
+cells become bad, and with <em>fill holes</em> bad pockets inside the sample become good.
+<strong>Isolate Largest Feature</strong> keeps only the largest feature.</li>
+</ul>
+<p>A 20 × 20 map of four grains with one cell in 17 spoilt (wrong orientation, low confidence)
+comes back to its four grains exactly with Replace Element Attributes with Neighbor, Neighbor
+Orientation Correlation, or one pass of Erode Dilate Bad Data.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/ebsd_cleanup.png" alt="A noisy map (left) and the same map after Neighbor Orientation Correlation (right), colored by IPF color"><span class="img-wrapper"><img src="images/ebsd_cleanup.png" alt="A noisy map (left) and the same map after Neighbor Orientation Correlation (right), colored by IPF color"></span></label></p>
+<p>To put a sample the right way round: <strong>Rotate Sample Reference Frame</strong> turns the grid and its
+data (not the crystal orientations; use Rotate Orientations for those) by an angle about an
+axis, exactly for multiples of 90°; <strong>Apply Transformation to Geometry</strong> scales, turns and moves
+the grid (only the origin and spacing change when there is no turn), also by a 4 × 4 matrix;
+<strong>Set Origin and Spacing</strong> gives the volume a new origin and cell size; <strong>Resample Rectilinear
+To Image</strong> puts an unevenly spaced grid on an even one.</p>
+<h3 id="image-filters-on-volumes"><a class="header" href="#image-filters-on-volumes">Image filters on volumes</a></h3>
+<p>In <strong>Filters › Data Analysis</strong>, for any image data (an EBSD map’s quality arrays, an optical or
+X-ray volume): <strong>Median Image</strong> (the median of a box of cells, against speckle), <strong>Gaussian Smooth
+Image</strong> (a standard deviation in cells), <strong>Otsu Threshold</strong> (one to four thresholds that best
+split the histogram; a label array and the thresholds as field data) and <strong>Binary Morphology</strong>
+(erode, dilate, open or close the non-zero cells with a ball of cells). The results agree with
+scipy.ndimage (median, Gaussian, binary erosion and dilation) on a test volume.</p>
+<pre><code class="language-python">m = volume.median_image(array="ImageData", radius=(1, 1, 1))
+o = m.otsu_threshold(array="Median", thresholds=1)
+clean = o.binary_morphology(array="Otsu", operation="Open", radius=1)
+</code></pre>
 <h3 id="per-feature-results"><a class="header" href="#per-feature-results">Per-feature results</a></h3>
 <div class="table-wrapper">
 <table>
@@ -2490,6 +2872,28 @@ orientations differ by 60° about a ⟨111⟩ axis, within the <strong>Axis</str
 tolerances. Chains of twins share one parent. Parents are numbered in the order of their
 first feature.</li>
 </ul>
+<p>More measures of features and their boundaries:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Filter</th><th>Gives</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Find Neighborhoods</strong></td><td><code>Neighborhoods</code>: how many feature centres lie within some multiple of the mean equivalent diameter</td></tr>
+<tr><td><strong>Find Largest Cross Sections</strong></td><td><code>LargestCrossSections</code>: the largest area of a feature in one slice normal to x, y or z</td></tr>
+<tr><td><strong>Find Feature Clustering</strong></td><td>a table of the radial distribution function of feature centres (of one phase), for the Charts panel</td></tr>
+<tr><td><strong>Find Surface Area to Volume</strong></td><td><code>SurfaceAreas</code>, <code>SurfaceAreaVolumeRatio</code> and <code>Sphericity</code> per feature</td></tr>
+<tr><td><strong>Find Boundary Strengths</strong></td><td>a table per pair of neighbouring grains: m′ (</td></tr>
+<tr><td><strong>Find Twin Boundary Schmid Factors</strong></td><td>for every Σ3 twin boundary of cubic grains, the Schmid factors of the three slip directions in the twin plane, in each grain</td></tr>
+<tr><td><strong>Find C-Axis Locations</strong></td><td><code>CAxisLocation</code> of hexagonal cells (unit vectors)</td></tr>
+<tr><td><strong>Find Feature Reference C-Axis Misorientations</strong></td><td>the angle of each cell’s c axis from its grain’s mean c axis</td></tr>
+<tr><td><strong>Identify Micro-Texture Regions</strong></td><td><code>MTRIds</code>: neighbouring hexagonal grains whose c axes line up (within a tolerance) joined into regions</td></tr>
+<tr><td><strong>Generate Precipitate Statistics</strong></td><td>a table for one phase: count, volume fraction, number density, lognormal size fit, mean nearest-neighbour distance</td></tr>
+<tr><td><strong>Copy Feature Array to Cells</strong></td><td>a per-feature array (equivalent diameter…) on every cell of the feature, to color by</td></tr>
+</tbody>
+</table>
+</div>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/micro_texture_regions.png" alt="Micro-texture regions of a hexagonal map: grains whose c axes line up share a color"><span class="img-wrapper"><img src="images/micro_texture_regions.png" alt="Micro-texture regions of a hexagonal map: grains whose c axes line up share a color"></span></label></p>
 <h3 id="boundaries-colors-and-the-table"><a class="header" href="#boundaries-colors-and-the-table">Boundaries, colors and the table</a></h3>
 <ul>
 <li><strong>Feature Boundaries</strong> gives the cell faces between different features as a surface. Each
@@ -2534,6 +2938,13 @@ This keeps large maps fast.</li>
 <pre><code class="language-python">pf = ebsd.pole_figure(families="100, 110, 111", projection="Stereographic", sigma=7.5)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pole_figures.png" alt="The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume"><span class="img-wrapper"><img src="images/pole_figures.png" alt="The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume"></span></label></p>
+<p>To keep the pole figures as pictures, one per phase and family, call
+<code>save_pole_figures</code> (Python only): each phase’s figures share one scale, from 0 (dark blue) to the
+largest MRD of that phase (red), with sample X to the right and Y up, white outside the disk.</p>
+<pre><code class="language-python">files = ebsd.save_pole_figures("pole_figures", families="100, 110, 111", size=256)
+# [('pole_figures/phase1_100.png', 3.1), ...]: the file and its largest MRD
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pole_figure_files.png" alt="The {100} and {111} pole figure files of both phases of a two-phase map, opened again side by side"><span class="img-wrapper"><img src="images/pole_figure_files.png" alt="The {100} and {111} pole figure files of both phases of a two-phase map, opened again side by side"></span></label></p>
 <h3 id="inverse-pole-figure"><a class="header" href="#inverse-pole-figure">Inverse Pole Figure</a></h3>
 <p><strong>Inverse Pole Figure</strong> shows which crystal directions lie along a sample direction (X, Y
 or Z, or all three side by side). The density is drawn on the standard triangle of the
@@ -2706,6 +3117,14 @@ reached during packing.</p>
 <pre><code class="language-python">g = afx.pack_grains(cells=[80, 80, 80], esd_mu=2.48, esd_sigma=0.15, ba=[12, 4], ca=[10, 6])
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/pack_grains.png" alt="Grains packed from goal statistics, elongated along x, with precipitates on their boundaries"><span class="img-wrapper"><img src="images/pack_grains.png" alt="Grains packed from goal statistics, elongated along x, with precipitates on their boundaries"></span></label></p>
+<p><strong>View › Goal Statistics</strong> edits the goals with live plots: the lognormal size distribution
+(mu, sigma and where it is cut), the beta distributions of b/a and c/a, the shape, whether the
+grain axes follow x, y and z, the orientations (random or a fibre with its spread), the volume,
+the matrix fraction and the seed. With a Pack Grains source selected the panel edits it and draws
+the packed volume’s measured sizes and aspect ratios as bars under the goal curves, with the
+goal and packed means; with none selected, <strong>Pack</strong> adds one. <code>afx.show_panel("goal statistics")</code>
+opens it from Python.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/goal_statistics.png" alt="The Goal Statistics panel: goal curves (lines) over the packed volume’s sizes and aspect ratios (bars)"><span class="img-wrapper"><img src="images/goal_statistics.png" alt="The Goal Statistics panel: goal curves (lines) over the packed volume’s sizes and aspect ratios (bars)"></span></label></p>
 <h3 id="pack-like"><a class="header" href="#pack-like">Pack Like</a></h3>
 <p><strong>Pack Like</strong> makes a statistical copy of a segmented microstructure in a box of any size:</p>
 <ul>
@@ -2727,6 +3146,14 @@ boundaries</strong>. No two particles touch.</li>
 <li><strong>Output.</strong> Each particle is a feature with a random orientation, in the next phase
 number, whose crystal structure is added to <code>CrystalStructures</code>.</li>
 </ul>
+<h3 id="insert-transformation-phases-and-adjust-volume"><a class="header" href="#insert-transformation-phases-and-adjust-volume">Insert Transformation Phases and Adjust Volume</a></h3>
+<p><strong>Insert Transformation Phases</strong> puts plates into a fraction of the grains of a parent phase: a
+plate of a thickness in cells through the grain, on one of its {111} planes, becomes a new
+feature of a new phase, turned from its parent by an angle about the plane normal (60°: an
+annealing twin). <code>TransformationParentIds</code> gives each plate’s parent. <strong>Adjust Volume</strong> moves
+cells on feature boundaries between neighbours so that each feature’s size comes closer to a
+target (a per-feature array of cell counts or equivalent diameters).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/transformation_phases.png" alt="Twin plates inserted into Voronoi grains: the plates are the new phase (red)"><span class="img-wrapper"><img src="images/transformation_phases.png" alt="Twin plates inserted into Voronoi grains: the plates are the new phase (red)"></span></label></p>
 <h3 id="match-crystallography"><a class="header" href="#match-crystallography">Match Crystallography</a></h3>
 <p><strong>Match Crystallography</strong> takes a second input: a reference microstructure, normally the
 measured one. It works in two steps:</p>
@@ -2778,6 +3205,13 @@ of them.</p>
 s.feature_surfaces().save("grains.stl")
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/grain_boundary_mesh.png" alt="Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane"><span class="img-wrapper"><img src="images/grain_boundary_mesh.png" alt="Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane"></span></label></p>
+<h3 id="triangle-angles-and-boundary-curvature"><a class="header" href="#triangle-angles-and-boundary-curvature">Triangle angles and boundary curvature</a></h3>
+<p><strong>Find Triangle Angles</strong> gives each triangle of a surface mesh its smallest and largest interior
+angle and the largest dihedral angle with its neighbours on the same boundary. <strong>Find Feature
+Face Curvature</strong> measures the mean and Gaussian curvature of every boundary (one pair of
+<code>FaceLabels</code>) on its own. A grain surface mesh is also written as text files with
+<code>mesh.save("grains.triangles")</code>: <code>grains.nodes</code> (node id, type, x, y, z) and <code>grains.triangles</code>
+(triangle id, its nodes, the two features on either side).</p>
 <h3 id="face-orientation-colors"><a class="header" href="#face-orientation-colors">Face Orientation Colors</a></h3>
 <p><strong>Face Orientation Colors</strong> colours each triangle three ways:</p>
 <ul>
@@ -2890,6 +3324,9 @@ too few neighbours in their grain are left empty.</li>
 Misorientation) as KAM / (step · b).</li>
 </ul>
 <p>The field data gives the mean, median and 90th percentile.</p>
+<p>On a 2-D map the curvature across the map cannot be measured, so the Nye tensor method sums the
+five components of the tensor a map gives (a lower bound of the density). A map whose lattice
+turns steadily about its normal gives back that rate over b within 2 %.</p>
 <pre><code class="language-python">g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
 </code></pre>
 <h2 id="limits"><a class="header" href="#limits">Limits</a></h2>
@@ -3019,6 +3456,8 @@ straight edges, then <code>arc 1</code>, <code>fillet 1</code>, <code>circle</co
 <tr><td><code>intersect body 1 2</code></td><td>the common part</td></tr>
 <tr><td><code>webcut body 1 with plane xplane offset 0.3</code></td><td>cuts body 1 in two along a plane (<code>xplane</code>, <code>yplane</code>, <code>zplane</code>, or <code>normal 1 1 0</code>, at <code>offset</code> along the normal): the part on the side the normal points away from keeps the number, the rest is a new body, both sharing the face <code>webcut 1</code></td></tr>
 <tr><td><code>webcut body 1 with cylinder radius 0.4 axis z center 0 0 0</code></td><td>cuts a core out of the body (the core keeps the number); <code>with body 3</code> cuts with another body’s shape</td></tr>
+<tr><td><code>webcut body 1 with sweep outline 4 direction 0 0 1</code></td><td>cuts along a curve swept through the body: the points of outline 4 (in the xy plane, used as an open curve and continued past its ends) swept along the direction; the part on the left of the curve as it runs from its first point to its last (seen from the tip of the direction) keeps the number</td></tr>
+<tr><td><code>webcut body 1 with sheet 'cut.stl'</code></td><td>cuts with an open surface read from a file (it must reach across the body): the part its triangles face away from keeps the number</td></tr>
 <tr><td><code>imprint body 1 2</code> (or <code>imprint all</code>)</td><td>touching bodies are meshed with one element size (the smallest asked for), so their meshes meet node to node on the faces they share</td></tr>
 <tr><td><code>merge body 1 2</code> (or <code>merge all</code>)</td><td>the bodies’ meshes share the nodes of their common faces (with one size, as imprint); meshing stops with a message if they cannot meet node to node there (bodies offset by part of a cell)</td></tr>
 <tr><td><code>copy body 1</code></td><td>a copy as a new body</td></tr>
@@ -3037,6 +3476,7 @@ fine region this way and imprint them so the sizes agree. Other cuts (a slanted 
 another body) make general pieces, meshed together on one overlay grid. When a plane runs exactly
 through a row of grid-cell centres, the overlay gives those cells to the first body.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_webcut.png" alt="A brick webcut by a plane into two structured bricks and a cored brick webcut by a cylinder, meshed and colored by block, with the cut surfaces as interface side sets"><span class="img-wrapper"><img src="images/geometry_webcut.png" alt="A brick webcut by a plane into two structured bricks and a cored brick webcut by a cylinder, meshed and colored by block, with the cut surfaces as interface side sets"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/webcut_sweep.png" alt="A brick webcut along an L-shaped curve swept along z (two blocks), and a brick meshed with intervals 16 6 6 and bias 4 1 2, small pieces at both ends"><span class="img-wrapper"><img src="images/webcut_sweep.png" alt="A brick webcut along an L-shaped curve swept along z (two blocks), and a brick meshed with intervals 16 6 6 and bias 4 1 2, small pieces at both ends"></span></label></p>
 <h3 id="meshing-bodies"><a class="header" href="#meshing-bodies">Meshing bodies</a></h3>
 <p>These commands make a hexahedral mesh, shown when the Geometry source’s <strong>Output</strong> is
 <em>Hex mesh</em>:</p>
@@ -3048,6 +3488,7 @@ through a row of grid-cell centres, the overlay gives those cells to the first b
 <tbody>
 <tr><td><code>mesh body 1 2 size 0.1 element HEX20</code></td><td>meshes bodies with elements of about that size (HEX8 by default)</td></tr>
 <tr><td><code>mesh body 3 size 0.1 scheme overlay</code></td><td>chooses how: <code>structured</code>, <code>overlay</code> or <code>stairstep</code> (by default bricks and cylinders are structured, everything else overlay)</td></tr>
+<tr><td><code>mesh body 1 size 0.1 intervals 20 8 4 bias 3 1 1 cluster start</code></td><td>a structured body’s pieces along its own x, y and z (a cylinder: a quarter of the way round, across the radius, along the height) instead of from the size, and per axis the largest piece over the smallest, the small ones at the <code>start</code>, <code>end</code> or <code>both</code></td></tr>
 <tr><td><code>block 7 add body 2 name 'rod'</code></td><td>puts bodies in an element block (by default each body is its own block, with its id and name)</td></tr>
 <tr><td><code>sideset 1 add face 6 9 name 'top'</code></td><td>a side set of the mesh faces on those geometry faces</td></tr>
 <tr><td><code>nodeset 2 add face 1 name 'left'</code></td><td>a node set of the nodes on those faces</td></tr>
@@ -3221,6 +3662,67 @@ Set or a surface read from a file.</p>
 <pre><code class="language-python">thick = plate.extract_set(set="z-").sweep_quads(direction=(0, 0, 1), distance=4, layers=3)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"><span class="img-wrapper"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"></span></label></p>
+<h2 id="face-mesh-triangles-and-quadrilaterals-on-a-planar-face"><a class="header" href="#face-mesh-triangles-and-quadrilaterals-on-a-planar-face">Face Mesh: triangles and quadrilaterals on a planar face</a></h2>
+<p><strong>Sources › Face Mesh</strong> meshes a flat face drawn with the outline commands (see <a href="#outlines-and-profile-solids">Outlines and
+profile solids</a>): an <strong>Outer outline</strong> with <strong>Holes</strong> cut out
+(outline numbers), at a <strong>Size</strong>, with <em>Quadrilaterals</em> (the default) or <em>Triangles</em>:</p>
+<ul>
+<li>The outlines are divided at the size, corners kept. <strong>Pieces per outline</strong> fixes the number of
+pieces of each outline instead (outer first).</li>
+<li><strong>Size at the holes</strong> and <strong>Growth</strong> refine near the holes: the size there grows by Growth per
+unit of distance until it reaches Size. <strong>Smallest size</strong> and <strong>Largest size</strong> limit it.</li>
+<li>Triangles are made by Delaunay triangulation and improved (long edges split, short ones
+removed, edges swapped, nodes smoothed). Quadrilaterals come from triangles of twice the size:
+pairs of triangles that make good quads are joined, then every quad is cut into four and
+every triangle left into three, so the face is all quads.</li>
+<li>The cell array <code>Quality</code> is each quad’s scaled Jacobian (a triangle’s: its smallest angle over
+60°), and <code>MinQuality</code> in the field data the worst.</li>
+</ul>
+<p>A plate 4 × 2 with a hole of radius 0.5 at size 0.15 gives roughly its area over the size
+squared in quads (about 320), the worst scaled Jacobian above 0.3; swept 3 layers through 0.5 with <strong>Sweep Quads</strong> it is 3 hexahedra per quad,
+all with scaled Jacobians above 0.3.</p>
+<pre><code class="language-python">face = afx.face_mesh(commands="outline 1 rectangle x 4 y 2 center 2 1\noutline 2 circle radius 0.5 center 2 1",
+                     outer=1, holes="2", size=0.15, near=0.05, growth=0.3)
+plate = face.sweep_quads(direction=(0, 0, 1), distance=0.5, layers=3)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/face_mesh.png" alt="A plate with a hole meshed with quadrilaterals refined near the hole, and swept into hexahedra"><span class="img-wrapper"><img src="images/face_mesh.png" alt="A plate with a hole meshed with quadrilaterals refined near the hole, and swept into hexahedra"></span></label></p>
+<h2 id="remesh-surface"><a class="header" href="#remesh-surface">Remesh Surface</a></h2>
+<p><strong>Filters › Mesh › Remesh Surface</strong> meshes any triangle surface again (from a file, Extract
+Surface or a Geometry source), with <em>Triangles</em> or <em>Quadrilaterals</em>:</p>
+<ul>
+<li><strong>Size</strong> (0: the input’s mean edge length), or <strong>Size from a point array</strong> (the size wanted at
+each point, such as a Calculator result), or <strong>Curvature: chord tolerance</strong>, which makes the
+size small where the surface curves so that the mesh stays within the tolerance of it (a chord
+of length 2 √(2 R t) on a radius R).</li>
+<li>Edges where the surface turns by more than <strong>Sharp edge angle</strong>, and open boundaries, are kept;
+the other nodes slide along the surface and are put back onto it.</li>
+</ul>
+<p>A sphere of radius 0.5 remeshed at 0.05 has edges within 20 % of 0.05; with a chord tolerance of
+0.002 its edges are close to 0.089.</p>
+<pre><code class="language-python">r = part.remesh_surface(size=0.05)
+c = part.remesh_surface(size=1, tolerance=0.002, element="Quadrilaterals")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/remesh_surface.png" alt="A torus remeshed with triangles at one size (left) and with quadrilaterals sized by its curvature, colored by quality (right)"><span class="img-wrapper"><img src="images/remesh_surface.png" alt="A torus remeshed with triangles at one size (left) and with quadrilaterals sized by its curvature, colored by quality (right)"></span></label></p>
+<h2 id="mesh-sets-merging-and-mixed-meshes"><a class="header" href="#mesh-sets-merging-and-mixed-meshes">Mesh sets, merging and mixed meshes</a></h2>
+<ul>
+<li><strong>Filters › Mesh › Define Mesh Set</strong> adds a <em>Side set</em> (the boundary faces whose nodes all
+satisfy an expression) or a <em>Node set</em> (the nodes that do), named, from an expression of
+<code>coordsX</code>, <code>coordsY</code>, <code>coordsZ</code> and the point arrays, like the Calculator:
+<code>abs(coordsZ - 1) &lt; 1e-6</code> or <code>coordsX*coordsX + coordsY*coordsY &lt; 0.25</code>.</li>
+<li><strong>Merge Nodes</strong> joins nodes closer than a tolerance (meshes made apart that touch), renumbering
+the cells and node sets; <code>MergedNodes</code> in the field data says how many went.</li>
+<li><strong>Tetrahedra in a Region</strong> turns the hexahedra all of whose nodes satisfy an expression into
+tetrahedra. Each gets a node at its centre: across a face between two converted hexahedra
+there are four tetrahedra, and on a face against a hexahedron that stays (or on the boundary)
+a pyramid, so the mixed mesh is conforming. The volume is unchanged; cell arrays follow, and a
+side on a converted hexahedron moves to its pyramid’s base.</li>
+<li>To move, turn or scale a mesh, use <strong>Transform</strong>: blocks and sets stay with it.</li>
+</ul>
+<pre><code class="language-python">m = afx.box_mesh(size=(1, 1, 1), cells=(8, 8, 8))
+m = m.define_mesh_set(kind="Side set", name="hot", expression="coordsZ &gt; 1 - 1e-6")
+mixed = m.hex_to_tets(expression="coordsX &lt; 0.5")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/mixed_mesh.png" alt="Half of a box mesh turned into tetrahedra, with pyramids where it meets the hexahedra"><span class="img-wrapper"><img src="images/mixed_mesh.png" alt="Half of a box mesh turned into tetrahedra, with pyramids where it meets the hexahedra"></span></label></p>
 <h2 id="overlay-meshing"><a class="header" href="#overlay-meshing">Overlay meshing</a></h2>
 <p>Overlay meshing fills any shape with hexahedra. It works in five steps:</p>
 <ol>
@@ -3346,7 +3848,12 @@ the move only when the worst element around it does not get worse.</li>
 <li><strong>Laplacian</strong> always moves; on a badly shaped domain it can fold elements.</li>
 <li><strong>Condition number</strong> searches around each node for the position that lowers the condition
 numbers of its elements. It is slower but untangles better.</li>
+<li><strong>Winslow</strong> moves each node whose eight hexahedra are arranged like a structured grid to the
+solution of the Winslow (elliptic) equations over its 3 × 3 × 3 block of nodes, which spreads
+the nodes evenly without folding; other nodes use Smart Laplacian. A grid whose inner nodes
+were moved by up to a third of a cell comes back to within 5 % of where they were.</li>
 </ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/winslow.png" alt="A slice through a box mesh with its inner nodes disturbed (left) and after Winslow smoothing (right)"><span class="img-wrapper"><img src="images/winslow.png" alt="A slice through a box mesh with its inner nodes disturbed (left) and after Winslow smoothing (right)"></span></label></p>
 <p>The output’s field data <code>MinScaledJacobian</code> gives the worst element after smoothing.</p>
 <h2 id="boundary-layers"><a class="header" href="#boundary-layers">Boundary Layers</a></h2>
 <p><strong>Filters › Mesh › Boundary Layers</strong> inserts <strong>Layers</strong> thin layers of hexahedra under the
@@ -3509,8 +4016,8 @@ faces (a finer mesh resolves them better), and the tetrahedral and hexahedral si
 the mesh to be all one kind.</li>
 <li>Tetrahedral meshes have one element size, refined locally with Refine Region; they round
 sharp edges over about an element, and touching bodies are meshed separately (their nodes
-do not match). Local refinement works on tetrahedra only, and smoothing has no Winslow
-scheme.</li>
+do not match). Local refinement works on tetrahedra only (hexahedra are refined everywhere,
+or turned into tetrahedra in a region).</li>
 <li>Overlay meshes keep convex edges and corners. Concave edges, such as where two crossed
 cylinders join, are rounded over about a cell, and so are features thinner than a
 cell.</li>
@@ -3519,6 +4026,11 @@ small grains lose some volume: a voxel sphere 5 voxels in radius comes out about
 smaller than the exact sphere.</li>
 <li>Overlay meshing of 100 000 voxels takes about 3 seconds.</li>
 <li>Gmsh files carry no node sets.</li>
+<li>Face Mesh meshes flat faces; curved faces are meshed with Remesh Surface from a surface of the
+part. Remesh Surface keeps the nodes of sharp edges where they are (it adds nodes along them
+but does not remove any). On a faceted surface, such as a contoured Geometry surface, a few
+quadrilaterals come out poorly shaped (on a torus about 0.5 % below a scaled Jacobian of 0.2):
+check the <code>Quality</code> array.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="cad-modeling"><a class="header" href="#cad-modeling">CAD modeling</a></h1>

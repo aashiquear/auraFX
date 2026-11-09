@@ -682,7 +682,18 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         crate::overlays::Overlays {
             scalar_bar: scalar_bar.clone(),
             grid_boxes: state.viewport.grid_boxes.clone(),
-            notes: s.annotations.clone(),
+            notes: {
+                // Text annotations, then the text of every visible annotation filter (Annotate Time, ...).
+                let mut notes = s.annotations.clone();
+                for n in s.nodes.values().filter(|n| n.visible) {
+                    if let Some((text, corner, size)) = n.output.as_deref().and_then(aurafx_filters::annotate::annotation_of) {
+                        for line in text.lines() {
+                            notes.push(aurafx_pipeline::Annotation { text: line.to_string(), corner: corner.clone(), size });
+                        }
+                    }
+                }
+                notes
+            },
             time_label: if s.show_time_label { s.current_time().map(|t| format!("t = {}", aurafx_data::info::g(t))) } else { None },
             orientation_axes: state.settings.show_orientation_axes,
             background: state.viewport.settings.background,
@@ -906,7 +917,8 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             painter.line_segment([sp - Vec2::new(0.0, 11.0), sp + Vec2::new(0.0, 11.0)], Stroke::new(1.0, fg));
         }
     }
-    if state.viewport.mode == InteractMode::Navigate {
+    // Handles are tools: not in pictures of the views as laid out.
+    if state.viewport.mode == InteractMode::Navigate && !state.capture.hide_controls() {
         let active = |d: Option<WidgetDrag>, f: fn(usize) -> WidgetDrag| (0..32).find(|k| d == Some(f(*k)));
         if let Some(w) = crate::widgets3d::active(state) {
             crate::widgets3d::draw(&painter, &state.viewport.camera, rect, &w, active(state.viewport.widget_drag, WidgetDrag::Filter));
@@ -940,9 +952,13 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             painter.galley(r.min + Vec2::splat(4.0), galley, Color32::WHITE);
         }
     }
-    viewport_toolbar(state, ui, rect);
+    // Pictures of the views as laid out leave out the tools drawn over the view.
+    let picture = state.capture.hide_controls();
+    if !picture {
+        viewport_toolbar(state, ui, rect);
+    }
     // Mark the active view when several are open.
-    if state.views.len() > 0 && is_active {
+    if !state.views.is_empty() && is_active && !picture {
         ui.painter().rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, crate::theme::ACCENT), egui::StrokeKind::Inside);
     }
     // Keep animating while dragging or playing.

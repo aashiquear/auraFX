@@ -119,3 +119,42 @@ fn a_cylinder_webcut_cores_a_brick() {
     assert!((a - core).abs() < 0.05 * core && (b - (4.0 - core)).abs() < 0.05 * (4.0 - core), "{vol:?}");
     assert!(mesh.side_sets.iter().any(|s| s.0.starts_with("interface ")));
 }
+
+#[test]
+fn a_swept_curve_and_a_sheet_cut_a_brick_into_the_expected_parts() {
+    // A 2 x 2 x 1 brick cut by an L-shaped curve swept along z: the corner x > 0.5, y > 0.5 is the
+    // part on the right of the curve (from (0.5, 2) down to (0.5, 0.5) then out to (2, 0.5)).
+    let m = model("brick x 2 y 2 z 1\noutline 9 polyline 0.5 2 0.5 0.5 2 0.5\nwebcut body 1 with sweep outline 9");
+    assert_eq!(m.bodies.len(), 2);
+    let (v1, _) = aurafx_mesh::measure(&m.bodies[&1].shape, 0.02);
+    let (v2, _) = aurafx_mesh::measure(&m.bodies[&2].shape, 0.02);
+    assert!((v1 + v2 - 4.0).abs() < 0.02, "{v1} + {v2}");
+    // The corner x in [0.5, 1], y in [0.5, 1] is 0.25 of the 1-thick brick, on the left as the curve
+    // runs from (0.5, 2) to (2, 0.5).
+    assert!((v1 - 0.25).abs() < 0.02 || (v2 - 0.25).abs() < 0.02, "{v1} {v2}");
+    assert!((v1 - 0.25).abs() < 0.02, "the left of the curve keeps the number: {v1}");
+    // An open sheet from a file (a tilted square, normals along +z): the part below keeps the id.
+    let dir = std::env::temp_dir().join(format!("aurafx_sheet_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let stl = dir.join("sheet.stl");
+    std::fs::write(&stl, "solid s\nfacet normal 0 0 1\nouter loop\nvertex -5 -5 -0.5\nvertex 5 -5 0.5\nvertex 5 5 0.5\nendloop\nendfacet\nfacet normal 0 0 1\nouter loop\nvertex -5 -5 -0.5\nvertex 5 5 0.5\nvertex -5 5 -0.5\nendloop\nendfacet\nendsolid s\n").unwrap();
+    let m = model(&format!("brick x 2 y 2 z 1\nwebcut body 1 with sheet '{}'", stl.display()));
+    let (lo, _) = aurafx_mesh::measure(&m.bodies[&1].shape, 0.02);
+    // The plane z = 0.1 x splits the brick in two halves of 2.
+    assert!((lo - 2.0).abs() < 0.03, "{lo}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn intervals_and_bias_per_axis_of_a_structured_body() {
+    let m = model("brick x 2 y 1 z 1\nmesh body 1 size 0.1 intervals 10 4 3 bias 3 1 1");
+    let mesh = mesh_model(&m).unwrap();
+    assert_eq!(mesh.n_elements(), 10 * 4 * 3);
+    // Node x positions along the bottom edge: pieces growing from 1 to 3 times the first.
+    let mut xs: Vec<f64> = mesh.points.iter().filter(|p| (p[1] + 0.5).abs() < 1e-9 && (p[2] + 0.5).abs() < 1e-9).map(|p| p[0]).collect();
+    xs.sort_by(|a, b| a.total_cmp(b));
+    assert_eq!(xs.len(), 11);
+    let (first, last) = (xs[1] - xs[0], xs[10] - xs[9]);
+    assert!((last / first - 3.0).abs() < 1e-6, "{first} {last}");
+    assert!(Model::new().run("brick 1\nmesh body 1 size 0.1 bias 0.5").is_err());
+}

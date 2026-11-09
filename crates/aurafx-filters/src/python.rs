@@ -15,6 +15,10 @@ pub enum PyTask<'a> {
     Source { script: &'a str },
     /// Evaluate a NumPy expression over the arrays of `input` and add it as `result`.
     Calculator { expression: &'a str, input: &'a DataSet, cells: bool, result: &'a str },
+    /// Evaluate a Python expression (the point and cell arrays of `input` by name, over every
+    /// block; `points`, `inputs`, `t` the time, `step` the time step) and return its text as a
+    /// one-row table column `Text`.
+    Text { expression: &'a str, input: &'a DataSet, time: f64, step: usize },
 }
 
 pub type PyHook = Arc<dyn Fn(PyTask) -> Result<DataSet> + Send + Sync>;

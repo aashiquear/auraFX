@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9be39550.js";
+            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -268,6 +268,8 @@ straight edges, then <code>arc 1</code>, <code>fillet 1</code>, <code>circle</co
 <tr><td><code>intersect body 1 2</code></td><td>the common part</td></tr>
 <tr><td><code>webcut body 1 with plane xplane offset 0.3</code></td><td>cuts body 1 in two along a plane (<code>xplane</code>, <code>yplane</code>, <code>zplane</code>, or <code>normal 1 1 0</code>, at <code>offset</code> along the normal): the part on the side the normal points away from keeps the number, the rest is a new body, both sharing the face <code>webcut 1</code></td></tr>
 <tr><td><code>webcut body 1 with cylinder radius 0.4 axis z center 0 0 0</code></td><td>cuts a core out of the body (the core keeps the number); <code>with body 3</code> cuts with another body’s shape</td></tr>
+<tr><td><code>webcut body 1 with sweep outline 4 direction 0 0 1</code></td><td>cuts along a curve swept through the body: the points of outline 4 (in the xy plane, used as an open curve and continued past its ends) swept along the direction; the part on the left of the curve as it runs from its first point to its last (seen from the tip of the direction) keeps the number</td></tr>
+<tr><td><code>webcut body 1 with sheet 'cut.stl'</code></td><td>cuts with an open surface read from a file (it must reach across the body): the part its triangles face away from keeps the number</td></tr>
 <tr><td><code>imprint body 1 2</code> (or <code>imprint all</code>)</td><td>touching bodies are meshed with one element size (the smallest asked for), so their meshes meet node to node on the faces they share</td></tr>
 <tr><td><code>merge body 1 2</code> (or <code>merge all</code>)</td><td>the bodies’ meshes share the nodes of their common faces (with one size, as imprint); meshing stops with a message if they cannot meet node to node there (bodies offset by part of a cell)</td></tr>
 <tr><td><code>copy body 1</code></td><td>a copy as a new body</td></tr>
@@ -286,6 +288,7 @@ fine region this way and imprint them so the sizes agree. Other cuts (a slanted 
 another body) make general pieces, meshed together on one overlay grid. When a plane runs exactly
 through a row of grid-cell centres, the overlay gives those cells to the first body.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_webcut.png" alt="A brick webcut by a plane into two structured bricks and a cored brick webcut by a cylinder, meshed and colored by block, with the cut surfaces as interface side sets"><span class="img-wrapper"><img src="images/geometry_webcut.png" alt="A brick webcut by a plane into two structured bricks and a cored brick webcut by a cylinder, meshed and colored by block, with the cut surfaces as interface side sets"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/webcut_sweep.png" alt="A brick webcut along an L-shaped curve swept along z (two blocks), and a brick meshed with intervals 16 6 6 and bias 4 1 2, small pieces at both ends"><span class="img-wrapper"><img src="images/webcut_sweep.png" alt="A brick webcut along an L-shaped curve swept along z (two blocks), and a brick meshed with intervals 16 6 6 and bias 4 1 2, small pieces at both ends"></span></label></p>
 <h3 id="meshing-bodies"><a class="header" href="#meshing-bodies">Meshing bodies</a></h3>
 <p>These commands make a hexahedral mesh, shown when the Geometry source’s <strong>Output</strong> is
 <em>Hex mesh</em>:</p>
@@ -297,6 +300,7 @@ through a row of grid-cell centres, the overlay gives those cells to the first b
 <tbody>
 <tr><td><code>mesh body 1 2 size 0.1 element HEX20</code></td><td>meshes bodies with elements of about that size (HEX8 by default)</td></tr>
 <tr><td><code>mesh body 3 size 0.1 scheme overlay</code></td><td>chooses how: <code>structured</code>, <code>overlay</code> or <code>stairstep</code> (by default bricks and cylinders are structured, everything else overlay)</td></tr>
+<tr><td><code>mesh body 1 size 0.1 intervals 20 8 4 bias 3 1 1 cluster start</code></td><td>a structured body’s pieces along its own x, y and z (a cylinder: a quarter of the way round, across the radius, along the height) instead of from the size, and per axis the largest piece over the smallest, the small ones at the <code>start</code>, <code>end</code> or <code>both</code></td></tr>
 <tr><td><code>block 7 add body 2 name 'rod'</code></td><td>puts bodies in an element block (by default each body is its own block, with its id and name)</td></tr>
 <tr><td><code>sideset 1 add face 6 9 name 'top'</code></td><td>a side set of the mesh faces on those geometry faces</td></tr>
 <tr><td><code>nodeset 2 add face 1 name 'left'</code></td><td>a node set of the nodes on those faces</td></tr>
@@ -470,6 +474,67 @@ Set or a surface read from a file.</p>
 <pre><code class="language-python">thick = plate.extract_set(set="z-").sweep_quads(direction=(0, 0, 1), distance=4, layers=3)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"><span class="img-wrapper"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"></span></label></p>
+<h2 id="face-mesh-triangles-and-quadrilaterals-on-a-planar-face"><a class="header" href="#face-mesh-triangles-and-quadrilaterals-on-a-planar-face">Face Mesh: triangles and quadrilaterals on a planar face</a></h2>
+<p><strong>Sources › Face Mesh</strong> meshes a flat face drawn with the outline commands (see <a href="#outlines-and-profile-solids">Outlines and
+profile solids</a>): an <strong>Outer outline</strong> with <strong>Holes</strong> cut out
+(outline numbers), at a <strong>Size</strong>, with <em>Quadrilaterals</em> (the default) or <em>Triangles</em>:</p>
+<ul>
+<li>The outlines are divided at the size, corners kept. <strong>Pieces per outline</strong> fixes the number of
+pieces of each outline instead (outer first).</li>
+<li><strong>Size at the holes</strong> and <strong>Growth</strong> refine near the holes: the size there grows by Growth per
+unit of distance until it reaches Size. <strong>Smallest size</strong> and <strong>Largest size</strong> limit it.</li>
+<li>Triangles are made by Delaunay triangulation and improved (long edges split, short ones
+removed, edges swapped, nodes smoothed). Quadrilaterals come from triangles of twice the size:
+pairs of triangles that make good quads are joined, then every quad is cut into four and
+every triangle left into three, so the face is all quads.</li>
+<li>The cell array <code>Quality</code> is each quad’s scaled Jacobian (a triangle’s: its smallest angle over
+60°), and <code>MinQuality</code> in the field data the worst.</li>
+</ul>
+<p>A plate 4 × 2 with a hole of radius 0.5 at size 0.15 gives roughly its area over the size
+squared in quads (about 320), the worst scaled Jacobian above 0.3; swept 3 layers through 0.5 with <strong>Sweep Quads</strong> it is 3 hexahedra per quad,
+all with scaled Jacobians above 0.3.</p>
+<pre><code class="language-python">face = afx.face_mesh(commands="outline 1 rectangle x 4 y 2 center 2 1\noutline 2 circle radius 0.5 center 2 1",
+                     outer=1, holes="2", size=0.15, near=0.05, growth=0.3)
+plate = face.sweep_quads(direction=(0, 0, 1), distance=0.5, layers=3)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/face_mesh.png" alt="A plate with a hole meshed with quadrilaterals refined near the hole, and swept into hexahedra"><span class="img-wrapper"><img src="images/face_mesh.png" alt="A plate with a hole meshed with quadrilaterals refined near the hole, and swept into hexahedra"></span></label></p>
+<h2 id="remesh-surface"><a class="header" href="#remesh-surface">Remesh Surface</a></h2>
+<p><strong>Filters › Mesh › Remesh Surface</strong> meshes any triangle surface again (from a file, Extract
+Surface or a Geometry source), with <em>Triangles</em> or <em>Quadrilaterals</em>:</p>
+<ul>
+<li><strong>Size</strong> (0: the input’s mean edge length), or <strong>Size from a point array</strong> (the size wanted at
+each point, such as a Calculator result), or <strong>Curvature: chord tolerance</strong>, which makes the
+size small where the surface curves so that the mesh stays within the tolerance of it (a chord
+of length 2 √(2 R t) on a radius R).</li>
+<li>Edges where the surface turns by more than <strong>Sharp edge angle</strong>, and open boundaries, are kept;
+the other nodes slide along the surface and are put back onto it.</li>
+</ul>
+<p>A sphere of radius 0.5 remeshed at 0.05 has edges within 20 % of 0.05; with a chord tolerance of
+0.002 its edges are close to 0.089.</p>
+<pre><code class="language-python">r = part.remesh_surface(size=0.05)
+c = part.remesh_surface(size=1, tolerance=0.002, element="Quadrilaterals")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/remesh_surface.png" alt="A torus remeshed with triangles at one size (left) and with quadrilaterals sized by its curvature, colored by quality (right)"><span class="img-wrapper"><img src="images/remesh_surface.png" alt="A torus remeshed with triangles at one size (left) and with quadrilaterals sized by its curvature, colored by quality (right)"></span></label></p>
+<h2 id="mesh-sets-merging-and-mixed-meshes"><a class="header" href="#mesh-sets-merging-and-mixed-meshes">Mesh sets, merging and mixed meshes</a></h2>
+<ul>
+<li><strong>Filters › Mesh › Define Mesh Set</strong> adds a <em>Side set</em> (the boundary faces whose nodes all
+satisfy an expression) or a <em>Node set</em> (the nodes that do), named, from an expression of
+<code>coordsX</code>, <code>coordsY</code>, <code>coordsZ</code> and the point arrays, like the Calculator:
+<code>abs(coordsZ - 1) &lt; 1e-6</code> or <code>coordsX*coordsX + coordsY*coordsY &lt; 0.25</code>.</li>
+<li><strong>Merge Nodes</strong> joins nodes closer than a tolerance (meshes made apart that touch), renumbering
+the cells and node sets; <code>MergedNodes</code> in the field data says how many went.</li>
+<li><strong>Tetrahedra in a Region</strong> turns the hexahedra all of whose nodes satisfy an expression into
+tetrahedra. Each gets a node at its centre: across a face between two converted hexahedra
+there are four tetrahedra, and on a face against a hexahedron that stays (or on the boundary)
+a pyramid, so the mixed mesh is conforming. The volume is unchanged; cell arrays follow, and a
+side on a converted hexahedron moves to its pyramid’s base.</li>
+<li>To move, turn or scale a mesh, use <strong>Transform</strong>: blocks and sets stay with it.</li>
+</ul>
+<pre><code class="language-python">m = afx.box_mesh(size=(1, 1, 1), cells=(8, 8, 8))
+m = m.define_mesh_set(kind="Side set", name="hot", expression="coordsZ &gt; 1 - 1e-6")
+mixed = m.hex_to_tets(expression="coordsX &lt; 0.5")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/mixed_mesh.png" alt="Half of a box mesh turned into tetrahedra, with pyramids where it meets the hexahedra"><span class="img-wrapper"><img src="images/mixed_mesh.png" alt="Half of a box mesh turned into tetrahedra, with pyramids where it meets the hexahedra"></span></label></p>
 <h2 id="overlay-meshing"><a class="header" href="#overlay-meshing">Overlay meshing</a></h2>
 <p>Overlay meshing fills any shape with hexahedra. It works in five steps:</p>
 <ol>
@@ -595,7 +660,12 @@ the move only when the worst element around it does not get worse.</li>
 <li><strong>Laplacian</strong> always moves; on a badly shaped domain it can fold elements.</li>
 <li><strong>Condition number</strong> searches around each node for the position that lowers the condition
 numbers of its elements. It is slower but untangles better.</li>
+<li><strong>Winslow</strong> moves each node whose eight hexahedra are arranged like a structured grid to the
+solution of the Winslow (elliptic) equations over its 3 × 3 × 3 block of nodes, which spreads
+the nodes evenly without folding; other nodes use Smart Laplacian. A grid whose inner nodes
+were moved by up to a third of a cell comes back to within 5 % of where they were.</li>
 </ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/winslow.png" alt="A slice through a box mesh with its inner nodes disturbed (left) and after Winslow smoothing (right)"><span class="img-wrapper"><img src="images/winslow.png" alt="A slice through a box mesh with its inner nodes disturbed (left) and after Winslow smoothing (right)"></span></label></p>
 <p>The output’s field data <code>MinScaledJacobian</code> gives the worst element after smoothing.</p>
 <h2 id="boundary-layers"><a class="header" href="#boundary-layers">Boundary Layers</a></h2>
 <p><strong>Filters › Mesh › Boundary Layers</strong> inserts <strong>Layers</strong> thin layers of hexahedra under the
@@ -758,8 +828,8 @@ faces (a finer mesh resolves them better), and the tetrahedral and hexahedral si
 the mesh to be all one kind.</li>
 <li>Tetrahedral meshes have one element size, refined locally with Refine Region; they round
 sharp edges over about an element, and touching bodies are meshed separately (their nodes
-do not match). Local refinement works on tetrahedra only, and smoothing has no Winslow
-scheme.</li>
+do not match). Local refinement works on tetrahedra only (hexahedra are refined everywhere,
+or turned into tetrahedra in a region).</li>
 <li>Overlay meshes keep convex edges and corners. Concave edges, such as where two crossed
 cylinders join, are rounded over about a cell, and so are features thinner than a
 cell.</li>
@@ -768,6 +838,11 @@ small grains lose some volume: a voxel sphere 5 voxels in radius comes out about
 smaller than the exact sphere.</li>
 <li>Overlay meshing of 100 000 voxels takes about 3 seconds.</li>
 <li>Gmsh files carry no node sets.</li>
+<li>Face Mesh meshes flat faces; curved faces are meshed with Remesh Surface from a surface of the
+part. Remesh Surface keeps the nodes of sharp edges where they are (it adds nodes along them
+but does not remove any). On a faceted surface, such as a contoured Geometry surface, a few
+quadrilaterals come out poorly shaped (on a torus about 0.5 % below a scaled Jacobian of 0.2):
+check the <code>Quality</code> array.</li>
 </ul>
 
                     </main>

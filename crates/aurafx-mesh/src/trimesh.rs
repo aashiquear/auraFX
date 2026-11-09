@@ -255,6 +255,31 @@ impl TriMesh {
             .sum()
     }
 
+    /// The point of the surface nearest `p`, with its triangle.
+    pub fn closest_point(&self, p: V) -> (V, usize) {
+        let mut best = (f64::INFINITY, 0usize, p);
+        let mut stack = vec![0usize];
+        while let Some(n) = stack.pop() {
+            let node = &self.nodes[n];
+            if Self::box_dist2(node.lo, node.hi, p) >= best.0 {
+                continue;
+            }
+            if node.count > 0 {
+                for &t in &self.order[node.start..node.start + node.count] {
+                    let (q, _) = self.closest(t, p);
+                    let d = dot(sub(p, q), sub(p, q));
+                    if d < best.0 {
+                        best = (d, t, q);
+                    }
+                }
+            } else {
+                stack.push(node.left);
+                stack.push(node.right);
+            }
+        }
+        (best.2, best.1)
+    }
+
     /// Signed distance to the surface (negative inside).
     pub fn distance(&self, p: V) -> f64 {
         self.distance_patch(p).0

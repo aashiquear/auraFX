@@ -284,7 +284,7 @@ impl Node {
 }
 
 /// A line series for the chart panel (from Python or "plot over time").
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChartSeries {
     pub name: String,
     pub x: Vec<f64>,
@@ -453,6 +453,8 @@ pub struct Session {
     pub next_screenshot_id: u64,
     /// Series plotted from scripts / time analysis.
     pub chart: Chart,
+    /// Chart views (0 is the Charts panel; see `charts`).
+    pub chart_views: Vec<crate::charts::ChartView>,
     /// UI commands from scripts/AI the app executes: "theme light", "layout analyze", "hide Log", "show Charts".
     pub app_commands: Vec<String>,
     /// The app's open 3D views and the active one, published every frame (empty without an app).
@@ -486,6 +488,11 @@ pub struct Session {
     pub animation_request: Option<(PathBuf, f32, Option<usize>)>,
     /// Frames rendered by a script to encode (GIF/MP4); the result goes to `screenshot_results`.
     pub encode_request: Option<EncodeRequest>,
+    /// A picture of several views as laid out (`afx.screenshot(path, views="all")`); the result
+    /// goes to `screenshot_results`.
+    pub layout_request: Option<LayoutRequest>,
+    /// The views an animation requested by a script records ("all", "charts", ...; None: the 3D view).
+    pub animation_views: Option<String>,
     /// Connections to aurafx-server processes, by host name.
     pub remote_clients: std::collections::HashMap<String, Arc<crate::remote::RemoteClient>>,
     /// Outputs of server nodes larger than this come back as their surface (0 = default).
@@ -504,6 +511,18 @@ pub struct EncodeRequest {
     pub frames: usize,
     pub out: PathBuf,
     pub fps: f32,
+    pub id: u64,
+}
+
+/// A picture of the open views as laid out in the window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutRequest {
+    pub path: PathBuf,
+    /// "all", "charts", "3d", "chart", "chart N" or "view N".
+    pub views: String,
+    pub transparent: bool,
+    /// Keep the chart views' controls in the picture.
+    pub controls: bool,
     pub id: u64,
 }
 
@@ -743,8 +762,16 @@ impl Session {
         self.active = Some(id);
         // Show table-like results where they can be read.
         match def.id {
-            "histogram" | "plot_over_line" => self.app_commands.push("show Charts".into()),
-            "descriptive_statistics" | "integrate_variables" | "probe_location" => self.app_commands.push("show Spreadsheet".into()),
+            "histogram" | "plot_over_line" | "resample_to_line" | "plot_on_sorted_lines" | "plot_on_intersection_curves" | "kernel_smoothing" => {
+                self.app_commands.push("show Charts".into())
+            }
+            "descriptive_statistics"
+            | "integrate_variables"
+            | "probe_location"
+            | "multicorrelative_statistics"
+            | "contingency_statistics"
+            | "compute_quartiles"
+            | "minkowski_functionals" => self.app_commands.push("show Spreadsheet".into()),
             _ => {}
         }
         self.trace.push(format!("{} = {}.{}()", self.py_var(id), self.py_var(input), def.id));
@@ -1803,10 +1830,11 @@ impl Session {
     /// Whether a file name is of a format that holds every time step (Exodus, VTKHDF).
     pub fn holds_all_times(path: &std::path::Path) -> bool {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf" | "case" | "encas" | "xmf" | "xdmf" | "xdmf3" | "cgns")
+        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf" | "case" | "encas" | "xmf" | "xdmf" | "xdmf3" | "cgns" | "pvd")
     }
 
-    /// Write node `id` at every time step to one file (Exodus, VTKHDF, EnSight, Xdmf or CGNS, by extension).
+    /// Write node `id` at every time step to one file (Exodus, VTKHDF, EnSight, Xdmf, CGNS, or a `.pvd`
+    /// collection with a file per step, by extension).
     pub fn save_all_times(&mut self, id: NodeId, path: &std::path::Path) -> Result<usize> {
         let saved = self.time_index;
         let n = self.times.len().max(1);
@@ -1837,6 +1865,8 @@ impl Session {
             aurafx_io::xdmf_writer::write_xdmf_steps(&refs, path)?;
         } else if ext == "cgns" {
             aurafx_io::cgns_writer::write_cgns_steps(&refs, path)?;
+        } else if ext == "pvd" {
+            aurafx_io::collections::write_pvd_steps(&refs, path)?;
         } else {
             aurafx_io::exodus_writer::write_exodus_steps(&refs, path)?;
         }
@@ -2139,5 +2169,19 @@ pub fn shows_no_geometry(filter_id: &str) -> bool {
             | "probe_location"
             | "ensemble_statistics"
             | "temporal_statistics_table"
+            | "resample_to_line"
+            | "plot_on_sorted_lines"
+            | "plot_on_intersection_curves"
+            | "multicorrelative_statistics"
+            | "contingency_statistics"
+            | "compute_quartiles"
+            | "annotate_time_filter"
+            | "annotate_global_data"
+            | "annotate_attribute_data"
+            | "annotate_selection"
+            | "environment_annotation"
+            | "python_annotation"
+            | "minkowski_functionals"
+            | "kernel_smoothing"
     )
 }

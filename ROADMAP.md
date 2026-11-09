@@ -79,16 +79,16 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26), ERDAS Imagine .img (iteration 51); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38), MapInfo .tab/.mif and Esri file geodatabases (iteration 50); other GDAL rasters, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML (iteration 35); OUTCAR todo.
 - [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32), FLASH and Enzo particles (iteration 42), Chombo particles and node-centered Chombo (iteration 43), 4-D Chombo (iteration 52).
-- [ ] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF, NIfTI.
-- [ ] Point clouds: LAS/LAZ (PDAL), PTS, H5Part.
-- [~] CAD: STEP, IGES, 3MF and `.sc` (read and written by the CAD environment, section 13, iteration 78); VRML, Alembic, USD, OpenVDB todo.
+- [~] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF (iteration 83); NIfTI todo.
+- [~] Point clouds: LAS/LAZ, H5Part (iteration 83); PTS todo.
+- [~] CAD: STEP, IGES, 3MF and `.sc` (read and written by the CAD environment, section 13, iteration 78); VRML 2.0, glTF, OFF (iteration 83); Alembic, USD, OpenVDB todo.
 - [ ] Every remaining reader in the catalog, tracked per entry in `docs/reference/format-matrix.md`.
 
 ### 1.3 Writers
-- [~] VTK XML (all dataset types, parallel pieces, `.pvd`), VTK legacy, VTKHDF (iteration 21; read by the reference reader since iteration 22).
+- [~] VTK XML (all dataset types; parallel pieces `.pvtu/.pvtp/.pvti/.pvts/.pvtr` and `.pvd` collections, iteration 83), VTK legacy, VTKHDF (iteration 21; read by the reference reader since iteration 22).
 - [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified with the reference reader), EnSight Gold and Xdmf 3 (iteration 22), CGNS/HDF5 (iteration 23), all verified with the reference reader; OpenVDB, GenericIO, Fides.
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
-- [~] Images: PNG (JPEG/TIFF/BMP/EXR todo), screenshot with resolution override and transparent background (done, iteration 16).
+- [~] Images: PNG, image stacks of volumes as PNG slices or one multi-page TIFF, MetaImage (iteration 83), screenshot with resolution override and transparent background (done, iteration 16), pictures of every view as laid out (iteration 83); JPEG/BMP/EXR todo.
 - [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
 - [~] Scene export: glTF (.glb), OBJ with vertex colors (iteration 16), X3D, VRML and SVG vector pictures (iteration 17); POV-Ray, PDF, WebGL/HTML interactive scene todo.
 - [ ] Extracts and Catalyst-style in-situ scripts.
@@ -166,7 +166,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 
 ### 3.2 Other views
 - [~] Line chart ★ (multiple series, log axes, styles, legends, markers, selection link), Bar chart, Point chart, XY bar chart, Histogram view, Box chart / Quartile chart, Plot matrix (scatter matrix), Parallel coordinates, Image chart, Comparative views (render/line chart), Slice view, Orthographic slice view, Spreadsheet view ★ (point/cell/field/row data, sort, filter, column visibility, precision, export CSV), Python view (matplotlib embedded), Spreadsheet of selection.
-- [ ] Several chart views at once, each plotting its own pipeline object (or following the selection), saved with the state and opened from menus, the Pipeline and Python; pictures and animations of every open view (3D views and charts) as laid out.
+- [x] Several chart views at once (iteration 83), each plotting its own pipeline object (or following the selection), saved with the state and opened from menus, the Pipeline and Python; pictures and animations of every open view (3D views and charts) as laid out.
 - [~] Layouts (split views, linked cameras, match view direction done): split horizontally/vertically, tabs, link cameras, link views, link selections, maximize, save/restore layouts, multiple windows/monitors.
 
 ### 3.3 Animation and time
@@ -352,17 +352,17 @@ noticed. Priority: **P1** next, **P2** after, **P3** when asked.
 |---|---|---|---|
 | P1 done (iterations 80, 82) | **Delaunay 2D and 3D** (points to triangles/tetrahedra, with alpha), **Decimate** (quadric), **Loop/Linear Subdivide**, **Curvature** (Gaussian/mean), **Linear and Rotational Extrusion**, **Ribbon**, **Reverse Sense** | `aurafx-filters/src/surface.rs`, `simplex.rs` | areas/volumes of a sphere sample against analytic; Decimate keeps volume within 2 % at 50 % |
 | P1 done (iteration 82) | **Iso Volume** (threshold on point data with interpolated cuts), **Extract Cells By Region** (implicit box/sphere/plane), **Extract Cells By Type**, **Clip Closed Surface** (capped clip) | `clip.rs`, `threshold.rs` | capped clip of a cube is watertight (Integrate Variables volume equals the half cube) |
-| P1 | **Point interpolation** (Gaussian/Shepard/linear kernels, SPH) from points to a grid or dataset, **Resample To Line**, **Plot On Sorted Lines**, **Plot On Intersection Curves** | `interp.rs`, `probe.rs` | interpolated field of a known polynomial within tolerance |
+| P1 done (iteration 83) | **Point interpolation** (Gaussian/Shepard/linear kernels, SPH) from points to a grid or dataset, **Resample To Line**, **Plot On Sorted Lines**, **Plot On Intersection Curves** | `interp.rs`, `probe.rs` | interpolated field of a known polynomial within tolerance |
 | P1 done (iteration 82) | **Table To Points / To Structured Grid**, **Transpose Table**, **Table FFT**, **Merge Vector Components**, **Point and Cell Ids**, **Generate Global Ids**, **Coordinates as array** | `attributes.rs` | round trips |
 | P1 done (iteration 82; Surface Flow and Surface Vectors too; Vortex Cores as the Q and lambda2 criteria of Compute Derivatives) | **Tensor Glyph**, **Tensor Principal Invariants**, **Yield Criteria** (von Mises, Tresca, principal), **Compute Derivatives** (strain, vorticity from vectors), **Surface Vectors/Tangents**, **Surface Flow**, **Vortex Cores** | `analysis.rs`, `glyph.rs` | invariants against NumPy on a random tensor field; vorticity of a rigid rotation |
-| P1 | **Evenly Spaced Streamlines 2D**, **Particle Path / Streak Line with injection over time** (expose the tracer's seeds-over-time option), **Temporal Cache / Force Time / Extract Time Steps / Generate Time Steps / Temporal Snap** | `streamlines.rs`, `temporal.rs` | known analytic flows |
-| P2 | **Statistics**: K-means, PCA, Multicorrelative, Contingency, Quartiles (box plots), Random Attributes | `analysis.rs` | against NumPy/scipy on a fixed sample |
-| P2 | **Annotate** filters (time, global data, attribute data, selection), **Environment Annotation**, **Python Annotation** (the overlay text exists; add the filters that write it) | `overlays.rs` in the app + an `annotate_*` family | screenshot tests |
-| P2 | **Ghost cells**, **Partitioned datasets** (read `.pvtu` pieces as partitions, Redistribute, D3 for the server's processes), **Overlapping Cells Detector**, **Validate Cells** | `aurafx-data/pieces.rs`, `aurafx-io/xml_vtk.rs` | the parallel server tests exist for pieces (`aurafx-server/tests`) |
-| P2 | **Youngs / Material Interface** reconstruction for volume-fraction fields, **AMR Dual Clip**, **AMR Fragment Integration** | `amr.rs` | fragment volumes of a known sphere |
-| P3 | Cosmology halo finders, SPH interpolators beyond the basic kernels, Minkowski, OT density map | later | |
+| P1 done (iteration 83; the tracer's seeds-over-time option was already there: Release again every N steps) | **Evenly Spaced Streamlines 2D**, **Particle Path / Streak Line with injection over time** (expose the tracer's seeds-over-time option), **Temporal Cache / Force Time / Extract Time Steps / Generate Time Steps / Temporal Snap** | `streamlines.rs`, `temporal.rs` | known analytic flows |
+| P2 done (iteration 83; also the Box plot chart style) | **Statistics**: K-means, PCA, Multicorrelative, Contingency, Quartiles (box plots), Random Attributes | `analysis.rs` | against NumPy/scipy on a fixed sample |
+| P2 done (iteration 83) | **Annotate** filters (time, global data, attribute data, selection), **Environment Annotation**, **Python Annotation** (the overlay text exists; add the filters that write it) | `overlays.rs` in the app + an `annotate_*` family | screenshot tests |
+| P2 done (iteration 83: Redistribute DataSet, Ghost Cells, Remove Ghost Information, `.pvtu` pieces as partitions) | **Ghost cells**, **Partitioned datasets** (read `.pvtu` pieces as partitions, Redistribute, D3 for the server's processes), **Overlapping Cells Detector**, **Validate Cells** | `aurafx-data/pieces.rs`, `aurafx-io/xml_vtk.rs` | the parallel server tests exist for pieces (`aurafx-server/tests`) |
+| P2 done (iteration 83) | **Youngs / Material Interface** reconstruction for volume-fraction fields, **AMR Dual Clip**, **AMR Fragment Integration** | `amr.rs` | fragment volumes of a known sphere |
+| P3 done (iteration 83: Halo Finder (friends of friends with SOD radius and mass), SPH cubic and Wendland kernels, Minkowski Functionals, Kernel Smoothing and Density Map) | Cosmology halo finders, SPH interpolators beyond the basic kernels, Minkowski, OT density map | `cosmology.rs`, `pointinterp.rs` | three clumps found with their counts; a ball's volume, area and mean curvature within 1, 2, 3 %, Euler characteristic 1 (torus 0); densities integrate to one |
 
-Readers and writers still missing (section 1 has the long list): **P1** DICOM/NRRD/MetaImage/MRC/OME-TIFF
+Readers and writers (iteration 83: all done but Silo and ADIOS2, see Status): **P1** DICOM/NRRD/MetaImage/MRC/OME-TIFF
 (medical and microscopy volumes; `aurafx-io/src/images.rs` already stacks images), LAS/LAZ
 point clouds, STEP/IGES (done with C6), glTF/VRML/OFF import, LS-DYNA d3plot, Fluent
 `.cas/.msh`, Nastran BDF; **P2** openPMD/ADIOS2 (HDF5 side first), Silo, H5Part, Nek5000, PLY
@@ -373,25 +373,25 @@ and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parall
 
 | Pri | Item | Where | Check |
 |---|---|---|---|
-| P1 | **Rotate Sample Reference Frame** and **Apply Transformation to Geometry** on volumes (the pipeline import skips both today), **Identify Sample / Isolate Largest Feature**, **Erode and Dilate Bad Data**, **Erode/Dilate by Coordination Number**, **Replace Element Attributes with Neighbor**, **Neighbor Orientation Correlation** and **Neighbor CI Correlation** (bad-data cleanup before segmentation) | `grain_grid.rs`, `features.rs`; map them in `pipeline_json.rs` | the AM Bench pipeline imports with fewer skipped steps; a seeded noisy map cleans to the known grains |
-| P1 done (iteration 82: hexagonal .ang grids; resampling rectilinear grids to image data not yet) | **Convert hexagonal EBSD grids to square**, **Resample rectilinear to image** | `ebsd.rs` (reader option) | a `.ang` on a hex grid against its square export |
-| P1 | **Find Neighborhoods**, **Find Largest Cross Sections**, **Find Feature Clustering (RDF)**, **Find Boundary Strength (m', F1)** and **Slip Transmission** metrics, **Find Twin Boundary Schmid Factors**, **Find C-axis locations / Feature Reference C-axis Misorientations** (HCP), **Identify Micro-Texture Regions** | `features.rs`, `mechanics.rs` | the AM orientation toolkit where it has the metric; otherwise analytic cases (two grains with a known misorientation) |
+| P1 done (iteration 83; the AM Bench pipeline maps 40 of its 71 steps, the rest are file reading and writing, array bookkeeping and the two-data-set alignment) | **Rotate Sample Reference Frame** and **Apply Transformation to Geometry** on volumes (the pipeline import skips both today), **Identify Sample / Isolate Largest Feature**, **Erode and Dilate Bad Data**, **Erode/Dilate by Coordination Number**, **Replace Element Attributes with Neighbor**, **Neighbor Orientation Correlation** and **Neighbor CI Correlation** (bad-data cleanup before segmentation) | `grain_grid.rs`, `features.rs`; map them in `pipeline_json.rs` | the AM Bench pipeline imports with fewer skipped steps; a seeded noisy map cleans to the known grains |
+| P1 done (iteration 82: hexagonal .ang grids; iteration 83: Resample Rectilinear To Image) | **Convert hexagonal EBSD grids to square**, **Resample rectilinear to image** | `ebsd.rs` (reader option) | a `.ang` on a hex grid against its square export |
+| P1 done (iteration 83) | **Find Neighborhoods**, **Find Largest Cross Sections**, **Find Feature Clustering (RDF)**, **Find Boundary Strength (m', F1)** and **Slip Transmission** metrics, **Find Twin Boundary Schmid Factors**, **Find C-axis locations / Feature Reference C-axis Misorientations** (HCP), **Identify Micro-Texture Regions** | `features.rs`, `mechanics.rs` | the AM orientation toolkit where it has the metric; otherwise analytic cases (two grains with a known misorientation) |
 | P1 done (iteration 82; DAMASK checked with its own Python package) | **Solver inputs for crystal-plasticity FFT codes**: DAMASK (`.vti` + material config), Los Alamos FFT texture file, **LAMMPS atoms from a polycrystal** (a lattice filled per grain with the grain's orientation) | `aurafx-pipeline/src/cases.rs`, `aurafx-io` | read back by the codes' own Python readers where installed, else format checks |
-| P2 | **Insert Transformation Phases**, **Adjust Volume**, **Generate Precipitate statistics**, **Find Surface-Area-to-Volume**, **Triangle dihedral angles / Feature Face Curvature**, **Write triangle/node files** | `synthetic.rs`, `grain_surface.rs` | |
-| P2 | **Goal statistics as a panel**: edit the size, shape, ODF, MDF and axis-ODF distributions with live plots and feed Pack Grains | `aurafx-app` panel + `synthetic.rs` | the packed volume's statistics match the panel's |
-| P2 | **Image filters on volumes**: median, Gaussian, Otsu threshold, binary morphology (the pipeline import skips them) | `aurafx-filters/src/images.rs` (new) | against scipy.ndimage on a small volume |
-| P3 | Pole figure images per phase as files, Nye on 2-D maps, EBSD indexing itself | later | |
+| P2 done (iteration 83) | **Insert Transformation Phases**, **Adjust Volume**, **Generate Precipitate statistics**, **Find Surface-Area-to-Volume**, **Triangle dihedral angles / Feature Face Curvature**, **Write triangle/node files** | `synthetic.rs`, `grain_surface.rs` | |
+| P2 done (iteration 83: size and shape with live plots over the packed volume's, orientations as a choice; MDF goals are matched by Match Crystallography) | **Goal statistics as a panel**: edit the size, shape, ODF, MDF and axis-ODF distributions with live plots and feed Pack Grains | `aurafx-app` panel + `synthetic.rs` | the packed volume's statistics match the panel's |
+| P2 done (iteration 83; also Point Sample Triangle Geometry, Crop Points, Iterative Closest Point, Set Origin and Spacing, Copy Feature Array to Cells) | **Image filters on volumes**: median, Gaussian, Otsu threshold, binary morphology (the pipeline import skips them) | `aurafx-filters/src/images.rs` (new) | against scipy.ndimage on a small volume |
+| P3 done but indexing (iteration 83: `save_pole_figures`, the Nye tensor on 2-D maps; indexing patterns needs pattern files and a reference indexer) | Pole figure images per phase as files, Nye on 2-D maps, EBSD indexing itself | later | |
 
 ### 14.3 Geometry and meshing (after sections 12 and 13)
 
 | Pri | Item | Where | Check |
 |---|---|---|---|
-| P1 done (iteration 82: plane, cylinder and body webcuts, imprint, merge; sheet and swept-curve webcuts not yet) | **Webcut** (plane, cylinder, sheet, sweep of a curve) to decompose bodies into sweepable blocks, **imprint and merge** (shared faces between touching bodies so their meshes conform) | `aurafx-mesh/src/model.rs` (commands `webcut`, `imprint`, `merge`), `overlay.rs` (shared interfaces exist for voxels) | two touching bricks meshed with one shared face: node count equals the union; Exodus side sets on the interface |
-| P1 | **Triangle meshing of arbitrary surfaces** (advancing front / Delaunay with sizing) and **quad paving** of planar faces, then **sweep** of paved faces into hexahedra (the sweep of structured quads exists) | `aurafx-mesh/src/pave.rs` (new), `structured.rs` | a plate with a hole paved and swept: Mesh Quality acceptable, hex count as expected |
-| P1 | **Sizing functions**: per-curve intervals and bias, per-face/body size, curvature-based size, size from a scalar field; **transition templates** for local hex refinement; **Winslow smoothing** (the "Later" line of M4) | `model.rs`, `improve.rs`, `hex.rs` | graded box: element counts per curve; refined region conforms |
-| P1 | **Nastran BDF** and **Fluent `.msh`** mesh writers; Exodus named blocks per body from CAD (C8) | `mesh_writers.rs` | read back by the readers of 14.1 |
+| P1 done (iteration 82: plane, cylinder and body webcuts, imprint, merge; iteration 83: sheet and swept-curve webcuts) | **Webcut** (plane, cylinder, sheet, sweep of a curve) to decompose bodies into sweepable blocks, **imprint and merge** (shared faces between touching bodies so their meshes conform) | `aurafx-mesh/src/model.rs` (commands `webcut`, `imprint`, `merge`), `overlay.rs` (shared interfaces exist for voxels) | two touching bricks meshed with one shared face: node count equals the union; Exodus side sets on the interface |
+| P1 done (iteration 83: Face Mesh, Remesh Surface; quads by pairing and splitting triangles, then Sweep Quads) | **Triangle meshing of arbitrary surfaces** (advancing front / Delaunay with sizing) and **quad paving** of planar faces, then **sweep** of paved faces into hexahedra (the sweep of structured quads exists) | `aurafx-mesh/src/pave.rs` (new), `structured.rs` | a plate with a hole paved and swept: Mesh Quality acceptable, hex count as expected |
+| P1 done but transition templates (iteration 83: intervals and bias per axis, sizes near curves, from a point array and from curvature, Winslow smoothing; hexahedra are refined locally by turning a region into tetrahedra) | **Sizing functions**: per-curve intervals and bias, per-face/body size, curvature-based size, size from a scalar field; **transition templates** for local hex refinement; **Winslow smoothing** (the "Later" line of M4) | `model.rs`, `improve.rs`, `hex.rs` | graded box: element counts per curve; refined region conforms |
+| P1 done (iteration 83; named blocks per body come through `import` in the geometry commands, each body its own block) | **Nastran BDF** and **Fluent `.msh`** mesh writers; Exodus named blocks per body from CAD (C8) | `mesh_writers.rs` | read back by the readers of 14.1 |
 | P2 | **Fillet and chamfer on picked curves/vertices** of implicit bodies (today whole-body), **loft between faces**, **thicken sheet bodies**, **sewing surfaces into volumes**, **healing/tolerant imprint** of imported STEP (C6/C7 give the B-rep versions) | `aurafx-mesh/src/implicit.rs`, C7 | |
-| P2 | **Pyramid transitions** hex-to-tet, **node and side sets by location or by expression**, **groups** of entities, **merge nodes / equivalence** with tolerance, **mesh scale/translate/rotate** commands | `model.rs`, `tet.rs` | |
+| P2 done but groups (iteration 83: Tetrahedra in a Region, Define Mesh Set, Merge Nodes; Transform keeps blocks and sets) | **Pyramid transitions** hex-to-tet, **node and side sets by location or by expression**, **groups** of entities, **merge nodes / equivalence** with tolerance, **mesh scale/translate/rotate** commands | `model.rs`, `tet.rs` | |
 | P3 | Sweep with multiple sources/targets, mapped hex of general 6-sided volumes, submapping | later | |
 
 ## Delivery phases
@@ -909,16 +909,37 @@ Asked next (2026-11-08): several chart views at once, each plotting its own pipe
 pictures and animations of all the open views (3D views and charts) as they are laid out, for
 presentations; then the rest of section 14, before the pull request that runs CI on this branch.
 
-Still open in section 14 (see each table): 14.1 point interpolation, Resample To Line, the
-sorted-line and intersection-curve plots, Evenly Spaced Streamlines 2D, seeds injected over
-time, the temporal utilities, the statistics, annotation, ghost-cell/partition and
-material-interface rows and the P3 row; the readers (DICOM, NRRD, MetaImage, MRC, OME-TIFF,
-LAS/LAZ, LS-DYNA d3plot, Fluent, Nastran; openPMD, Silo, H5Part, Nek5000) and writers (image
-stacks, MetaImage, `.pv*` pieces, `.pvd`); 14.2 the bad-data clean-up, feature metrics,
-resampling rectilinear grids, the P2 and P3 rows; 14.3 sheet and swept-curve webcuts, paving and
-sweeping, sizing, transition templates, Winslow smoothing, Nastran and Fluent mesh writers, the
-P2 and P3 rows. The older open items of sections 0 to 10 are unchanged. This branch's CAD work,
-C0 to C9, is finished.
+Done in iteration 83 (2026-11-09), the request above and section 14: several chart views at
+once, each bound to its own pipeline object (View › New Chart View, the Pipeline's Plot in a new
+chart view, `node.plot(...)`, `afx.chart_view`), saved in state files; pictures of all the views
+as laid out (3D views and charts, `afx.screenshot(views='all')`, File › Save Screenshot) and
+animations of them (`afx.save_animation(views='all')`, File › Animation), without the controls.
+14.1: point interpolation (Gaussian, Shepard, linear, Voronoi, SPH kernels onto volumes, planes,
+lines and data sets), Resample To Line, plots on sorted lines and intersection curves, evenly
+spaced 2-D streamlines, the temporal utilities, K-means, PCA, multicorrelative and contingency
+statistics, quartiles, random attributes, the annotation filters, Validate Cells, overlapping
+cells, redistribution into partitions, ghost cells, material interfaces, fragments, the AMR dual
+clip, halos, Minkowski functionals, kernel smoothing and density maps; the readers DICOM, NRRD,
+MetaImage, MRC, OME-TIFF and TIFF stacks, LAS/LAZ, H5Part, openPMD, Nek5000, LS-DYNA d3plot,
+Fluent and Nastran, glTF, VRML, OFF, and the writers for image stacks, MetaImage, `.pv*` pieces,
+`.pvd`, Fluent and Nastran, checked against ParaView 6.1.1 where it reads the format. 14.2: the
+bad-data clean-up filters, sample transforms, the feature metrics (neighbourhoods, cross
+sections, clustering, boundary strengths, twin Schmid factors, c-axis filters, micro-texture
+regions, surface area to volume, precipitate statistics), volume image filters checked against
+scipy, point sampling, cropping and Iterative Closest Point, transformation phases, Adjust
+Volume, triangle angles and boundary curvature, `.nodes`/`.triangles` files, the Goal
+Statistics panel, pole figure pictures per phase and the Nye tensor on 2-D maps; the AM Bench
+pipeline file maps 40 of its 71 steps. 14.3: sheet and swept-curve webcuts, Face Mesh
+(triangles or all quads on planar faces with holes, refined near them) and Sweep Quads,
+Remesh Surface (fixed size, a size array, curvature), intervals and bias per axis, Winslow
+smoothing, Define Mesh Set, Merge Nodes and Tetrahedra in a Region (pyramid transitions).
+
+Still open in section 14: the Silo and ADIOS2 readers (no Silo library or reference reader here),
+indexing EBSD patterns, all-hexahedral transition templates for local refinement (hexahedra are
+refined everywhere, or a region becomes tetrahedra), groups of entities, the 14.3 P2 row on
+implicit bodies (fillets on picked curves, lofts between faces, thickened sheets, sewing,
+healing; the B-rep kernel has fillets, lofts and drafts) and the 14.3 P3 row. The older open items
+of sections 0 to 10 are unchanged.
 
 ## Status (2026-11-05)
 

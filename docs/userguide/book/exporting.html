@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9be39550.js";
+            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -200,6 +200,20 @@ afx.screenshot("fig.svg")
 </code></pre>
 <p><code>afx.screenshot</code> returns only when the file is written, so a script can change the camera or
 the data between pictures.</p>
+<h3 id="all-views-in-one-picture"><a class="header" href="#all-views-in-one-picture">All views in one picture</a></h3>
+<p>For a slide or a report with several views side by side, choose <strong>Picture of › all views</strong> in
+the same dialog: every visible 3D view and chart view is saved in one PNG, each where it sits
+in the window, with tab bars, panels and menus left out and the charts’ controls hidden
+(<strong>keep the chart views’ controls</strong> keeps them). <strong>chart views</strong> saves only the charts. The
+background between the views is the window’s, or transparent. The picture has the window’s
+pixels, so a larger (or full-screen) window gives a larger picture. Only views whose tab is in
+front are in the picture.</p>
+<pre><code class="language-python">afx.screenshot("slide.png", views="all")            # every visible view, as laid out
+afx.screenshot("charts.png", views="charts")
+afx.screenshot("chart2.png", views="chart 2")       # one chart view ("chart" is the Charts panel)
+afx.screenshot("view2.png", views="view 2", transparent=True)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/all_views_picture.png" alt="Two 3D views and two chart views saved as one picture with views=‘all’"><span class="img-wrapper"><img src="images/all_views_picture.png" alt="Two 3D views and two chart views saved as one picture with views=‘all’"></span></label></p>
 <h2 id="scenes-for-other-programs"><a class="header" href="#scenes-for-other-programs">Scenes for other programs</a></h2>
 <p><strong>File › Export Scene…</strong> (<code>afx.export_scene("scene.glb")</code>) writes the visible objects, with
 their colors, as:</p>
@@ -218,7 +232,8 @@ their colors, as:</p>
 <p>Volumes are not exported (they are not geometry).</p>
 <h2 id="animations"><a class="header" href="#animations">Animations</a></h2>
 <p><strong>File › Animation…</strong> records the time steps, a turntable or the keyframes as <strong>GIF</strong>, <strong>MP4</strong>
-(<code>ffmpeg</code> on the PATH) or a folder of PNG frames; see
+(<code>ffmpeg</code> on the PATH) or a folder of PNG frames, of the active 3D view or of all views as laid
+out (<code>afx.save_animation("all.mp4", views="all")</code>); see
 <a href="time-animation.html">Time, charts and animation</a>.</p>
 <h2 id="saving-data"><a class="header" href="#saving-data">Saving data</a></h2>
 <p>Right-click an object › <strong>Save data…</strong>, or <code>node.save("out.vtu")</code>, writes its output; the

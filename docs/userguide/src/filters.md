@@ -261,6 +261,220 @@ pts = afx.load("probe.csv").table_to_points(x="X", y="Y", z="Z")
 spec = afx.load("signal.csv").table_fft(dt=0.001)
 ```
 
+## Scattered points onto grids and lines
+
+**Point Interpolator** (**Filters › Data Analysis**) carries the point arrays of scattered points
+(particles, probe measurements, a point cloud) onto other points. Each new value is a weighted mean
+of the nearest points:
+
+| Kernel | Weight of a neighbour at distance d |
+|---|---|
+| **Shepard** | 1 / dᵖ (the power p, 2 by default) |
+| **Gaussian** | exp(−(s·d/R)²), with the sharpness s and the search radius R |
+| **Linear** | the same for every neighbour (an average) |
+| **Nearest point** | the closest point's value only |
+| **SPH cubic**, **SPH quintic** | a smoothed-particle kernel of smoothing length h (support 2h); with *density* (and *mass*) arrays each particle counts with its volume, mass / density, otherwise the weights are scaled to add up to one |
+
+The neighbours are the **N closest** points or those within a **radius** (0 picks one from the
+points' spacing). Where no point is near, the result is a value of your choice or the nearest
+point's. Without a second input the values go onto a **Volume** (a grid over the points'
+bounds), a **Plane** across them or a **Line**; with a second input (Properties › Destination),
+onto that data's points, keeping its cells and arrays. `vtkValidPointMask` is 0 where nothing was
+near. A linear field sampled by 20 000 random points comes back within 2 % (Shepard, Gaussian) and
+SPH on a lattice of particles within 1 %.
+
+![Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel](images/point_interpolator.png)
+
+**Lines to plot** (all in **Filters › Data Analysis**, shown in the Charts panel):
+
+- **Resample To Line** samples a straight line at evenly spaced points, **at the cell boundaries**
+  (where the line enters and leaves each cell) or **at the cell centres** (once in the middle of
+  each cell it crosses), with `arc_length`.
+- **Plot On Sorted Lines** joins line segments (from Slice, Contour on a surface, Feature Edges)
+  into curves ordered from one end to the other, each with its `arc_length`, one block per curve.
+- **Plot On Intersection Curves** cuts a surface (a volume's outer surface) with a plane and gives
+  the curves, ordered, with the surface's arrays: a profile around a section of a body.
+
+A chart of data with several blocks draws one line per block (each against its own x array), named
+`block/array`.
+
+```python
+pts = afx.load("probes.csv").table_to_points()
+grid = pts.point_interpolator(kernel="Gaussian", output="Plane", axis="Z", nx=200, ny=200)
+onto = pts.point_interpolator(mesh, kernel="Shepard", n_closest=12)   # onto another mesh
+sph = particles.point_interpolator(kernel="SPH cubic", smoothing_length=0.02, density="rho", mass="m")
+prof = body.plot_on_intersection_curves(origin=(0, 0, 0.5), normal=(0, 0, 1))
+cells = mesh.resample_to_line(point1=(0, 0, 0), point2=(1, 0, 0), sampling="Cell boundaries")
+```
+
+**Evenly Spaced Streamlines 2D** fills the XY plane with streamlines of a vector field, evenly
+spread: each new line starts at the *separation* from the lines already there and stops where it
+comes closer than a fraction of it (or closes on itself), until no gap is left. There are no seeds
+to place; the field's z component is not used.
+
+![Evenly spaced streamlines of a vortex pair](images/evenly_spaced_streamlines.png)
+
+```python
+s = flow.evenly_spaced_streamlines_2d(vectors="V", separation=0.05)
+```
+
+## Statistics
+
+In **Filters › Data Analysis**; *variables* is a list of array names (`T, p`; `V` is a vector's
+magnitude, `V[1]` its second component), empty for every array with one value; *data* chooses the
+point or cell arrays (table columns for tables).
+
+- **K-Means** groups the points, cells or rows into K clusters by those values (k-means++ start,
+  repeated until nothing moves; *standardize* divides each variable by its spread first). It adds
+  `ClusterId` and `ClusterDistance`, and field data with each cluster's centre, size and the
+  within-cluster sum of squares.
+- **Principal Component Analysis** adds the projections `PCA 0`, `PCA 1`… (largest variance first)
+  and gives as field data the eigenvalues, the fraction of the variance each explains and the
+  components.
+- **Multicorrelative Statistics**: the means, covariance matrix and (Pearson) correlation matrix
+  as a table.
+- **Contingency Statistics** of two arrays: how often each pair of values occurs (real values are
+  put in bins), with joint and conditional probabilities; chi-square, its degrees of freedom and the
+  mutual information as field data.
+- **Compute Quartiles**: minimum, Q1, median, Q3, maximum, interquartile range and whisker ends per
+  variable. The chart style **Box plot** draws a box of every plotted array's values.
+- **Random Attributes** adds a random array (uniform between two values, scalars or vectors).
+- **Kernel Smoothing** gives a smooth estimate of an array's distribution (a density that
+  integrates to one) for the Charts panel; **Density Map** puts the joint density of two arrays on
+  an image, with the levels holding 50, 90 and 99 % of the samples.
+
+Three clusters of 200 points each are found exactly; PCA of a cloud stretched along (1, 1) gives
+its two variances within 3 %.
+
+![K-Means clusters of the Wavelet values and their positions, and a box plot of the arrays](images/statistics_filters.png)
+
+```python
+k = w.k_means(k=4, variables="RTData, Coordinates[0]")
+p = w.principal_component_analysis(variables="RTData, Coordinates[0], Coordinates[1]", keep=2)
+c = afx.chart_view(w.compute_quartiles(), y=["Q1"])
+w.plot("RTData", style="box")
+```
+
+## Text in the 3D view
+
+The **Annotation** filters write a line of text that every 3D view showing them draws in a
+corner of your choice, at a size of your choice (hide the filter to hide the text):
+
+- **Annotate Time Filter**: the time, in a format such as `Time: {:.3} s` (`{}` is the value,
+  `{:.3}` three decimals, `{:.2e}` an exponent, `{:.4g}` four significant digits), scaled and
+  shifted if you like.
+- **Annotate Global Data**: a global (field) value, such as an energy; one value per time step
+  shows the current step's.
+- **Annotate Attribute Data**: the value of an array at one point or cell, following the time steps.
+- **Annotate Selection**: on the output of Extract Selection, how many points are selected and the
+  first ones with their numbers and values.
+- **Environment Annotation**: the date and time, the user, the machine, the operating system, the
+  auraFX version.
+- **Python Annotation**: the result of a Python expression; the point and cell arrays are NumPy
+  arrays by name (the blocks of a multi-block joined), with `points`, `inputs`, `t` (the time) and
+  `step`, e.g. `f'max T = {T.max():.1f} K'`.
+
+![The time, a global value and a Python expression shown over an impact simulation](images/annotation_filters.png)
+
+```python
+c.annotate_time_filter(format="t = {:.2e} s", corner="upper right")
+c.annotate_global_data(array="KE", format="kinetic energy {:.3g} J")
+c.python_annotation(expression="f'max EQPS {EQPS.max():.3f}'", corner="lower left", size=20)
+```
+
+## Checking meshes
+
+- **Validate Cells** checks every cell: `ValidityState` is 0 for a good cell, otherwise the sum of
+  1 (wrong number of points), 2 (degenerate: no volume, area or length), 4 (inverted, turned inside
+  out), 8 (a face that is not flat), 16 (a polygon that is not convex), 32 (repeated points); field
+  data counts each problem. Threshold on `ValidityState` ≥ 1 to see the bad cells.
+- **Overlapping Cells Detector** counts, for each cell, the other cells that share volume with it
+  (or area, for surface cells in one plane): `NumberOfOverlapsPerCell`. Cells that only touch do
+  not count.
+
+![Validate Cells on a mesh with an inverted and a degenerate cell](images/mesh_checks.png)
+
+## Partitions and ghost cells
+
+Partitioned data is a multi-block whose blocks are the partitions: a `.pvtu`, `.pvtp`, `.pvts`,
+`.pvtr` or `.pvti` file opened with the reader option **Pieces › Partitions** (one block per piece
+file), or the output of Redistribute DataSet.
+
+- **Redistribute DataSet** splits a mesh into partitions of nearly equal cell counts, cutting it in
+  halves along its longest side again and again (64 cells into 3 partitions: 21, 21 and 22).
+- **Ghost Cells** gives each partition layers of the neighbouring partitions' cells that touch it,
+  marked in `vtkGhostType` (1 for a ghost cell, and for a point only ghost cells use), so that
+  filters that look at neighbours agree at partition borders.
+- **Remove Ghost Information** drops the ghost cells and the ghost arrays again.
+
+![A mesh redistributed into four partitions, each with one layer of ghost cells](images/partitions.png)
+
+```python
+parts = mesh.redistribute_dataset(partitions=8, ghost_layers=1)
+case = afx.load("run.pvtu"); case.set(pieces="Partitions")
+g = case.ghost_cells(layers=2)
+```
+
+## Volume fractions and fragments
+
+- **Material Interface** rebuilds the interfaces between materials from cell arrays of volume
+  fractions (one per material, 0 to 1): in every mixed cell a plane facing down the fraction's
+  gradient, placed so that the cell's material side holds exactly its fraction. One block of
+  interface polygons per material (lines on surface meshes) with `VolumeFraction`, and the
+  material's volume as field data. For a ball sampled on a 24³ grid the interface area is within
+  4 % of the sphere's and every interface point within a third of a cell of it.
+- **Fragment Integration** finds the fragments of a material: cells whose fraction (or any cell
+  array) is at least a threshold, joined through shared faces (across the levels of AMR data,
+  through touching boxes). The table gives each fragment's cell count, volume (fraction × cell
+  volume), centroid and the volume integrals of the other cell arrays; *Output › Cells* gives the
+  cells with `FragmentId`. Two balls come back as two fragments with their volumes within 1 %.
+- **AMR Dual Clip** clips AMR data by a cell array without cracks between levels: the levels' cell
+  centres are joined into one stitched mesh and the part above a value is kept.
+
+![The interface of a ball rebuilt from volume fractions, over the mixed cells](images/material_interface.png)
+
+## Halos and shape measures
+
+- **Halo Finder** finds halos in particles: particles closer than a *linking length* (a fraction of
+  the mean spacing, 0.2 by default) are friends, and friends of friends form one halo. It adds
+  `HaloId` (−1 outside halos) or gives a table of halos with their count, mass, centre of mass,
+  mean velocity, and `RadiusSOD` / `MassSOD`, the radius and mass inside which the mean density is
+  the *overdensity* (200) times the box's mean density.
+- **Minkowski Functionals** measures the region where an array is above a threshold, from its
+  closed boundary surface: volume, surface area, integrated mean curvature, Euler characteristic
+  (1 for a ball, 0 for a torus) and the normalised W0 to W3. A ball sampled on a 61³ grid comes
+  within 1 % (volume), 2 % (area) and 3 % (mean curvature) of the exact values.
+
+![Halos found in particles, colored by HaloId](images/halo_finder.png)
+
+```python
+h = particles.halo_finder(linking=0.2, min_members=20, mass="mass", velocity="v")
+table = particles.halo_finder(output="Halos")
+m = volume.minkowski_functionals(array="porosity", threshold=0.5)
+```
+
+## Point sets
+
+In **Filters › Geometry**:
+
+- **Point Sample Triangle Geometry** spreads a number of points over a surface at random (seeded),
+  each triangle getting points in proportion to its area.
+- **Crop Points** keeps the points inside a box, with their arrays.
+- **Iterative Closest Point** moves a point set (the first input) rigidly onto another (the
+  second, chosen in Properties): each round pairs every point with its nearest target point and
+  finds the rotation and translation that bring the pairs closest, until it stops improving. The
+  output is the moved points, with the 4 × 4 `Transform` (row by row) and the `RMSDistance` in
+  its field data; a cloud turned by 10° and moved comes back to within 10⁻⁶. It finds the
+  nearest fit from where the points start, so the two sets must already roughly overlap.
+
+```python
+target = afx.load("part.stl").point_sample_surface(samples=3000)
+moved = target.transform(rotate=[0, 20, 10], translate=[0.2, 0, 0])
+aligned = afx.iterative_closest_point(moved, target, iterations=100)
+```
+
+![Points sampled on a cone, a turned and moved copy (orange) and the copy moved back by Iterative Closest Point (blue, lying on the original)](images/point_alignment.png)
+
 ## From Python
 
 ```python

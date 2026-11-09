@@ -62,6 +62,10 @@ pub struct Model {
     pub mesh_requests: Vec<(u32, f64, usize)>,
     /// Meshing scheme per body when not automatic: structured, overlay or stairstep.
     pub mesh_schemes: BTreeMap<u32, String>,
+    /// Structured divisions per body (`intervals`, `bias`, `cluster` of `mesh body`): pieces
+    /// along the body's own x, y, z (a cylinder: around a quarter, across the radius, along the
+    /// height), largest over smallest piece per axis, and where the small pieces go.
+    pub mesh_divisions: BTreeMap<u32, (Vec<usize>, Vec<f64>, String)>,
     /// Element blocks: (id, name, bodies).
     pub user_blocks: Vec<(i32, String, Vec<u32>)>,
     /// Side sets and node sets: (id, name, faces).
@@ -266,6 +270,61 @@ impl Model {
             };
             let cyl = Shape::Cylinder { r, h: 1.0e9, faces: [face, face, face] };
             (Shape::Transform { inner: Box::new(cyl), rot, offset: center, scale: [1.0; 3] }, None)
+        } else if rest.has("sheet") {
+            // An open surface from a file: the side its normals point away from keeps the id.
+            let path = rest.text("sheet").ok_or_else(|| anyhow!("webcut body N with sheet 'surface.stl'"))?;
+            let mesh = read_surface(std::path::Path::new(&path))?;
+            (Shape::Sheet { mesh: Arc::new(mesh), face }, None)
+        } else if rest.has("sweep") || rest.has("curve") {
+            // A curve in the xy plane (an outline's points, not closed) swept along a direction,
+            // and continued past its ends, so that it crosses the bodies.
+            let oid = rest.ids("outline").first().copied().ok_or_else(|| anyhow!("webcut body N with sweep outline M [direction x y z]"))?;
+            let o = self.outlines.get(&oid).ok_or_else(|| anyhow!("there is no outline {oid}"))?;
+            let pts: Vec<[f64; 2]> = o.points().to_vec();
+            if pts.len() < 2 {
+                bail!("outline {oid} needs at least two points to cut with");
+            }
+            let dv = rest.nums("direction");
+            let d = if dv.len() == 3 { [dv[0], dv[1], dv[2]] } else { [0.0, 0.0, 1.0] };
+            let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            if dl < 1e-12 {
+                bail!("the sweep direction is zero");
+            }
+            let d = d.map(|x| x / dl);
+            let mut size = 1.0f64;
+            for id in &ids {
+                if let Some(b) = self.bodies.get(id) {
+                    let (lo, hi) = b.shape.bounds();
+                    for k in 0..3 {
+                        if lo[k].is_finite() && hi[k].is_finite() {
+                            size = size.max(hi[k].abs()).max(lo[k].abs()).max(hi[k] - lo[k]);
+                        }
+                    }
+                }
+            }
+            let big = 10.0 * size;
+            let unit2 = |a: [f64; 2], b: [f64; 2]| {
+                let (x, y) = (b[0] - a[0], b[1] - a[1]);
+                let l = (x * x + y * y).sqrt().max(1e-300);
+                [x / l, y / l]
+            };
+            let (t0, t1) = (unit2(pts[1], pts[0]), unit2(pts[pts.len() - 2], pts[pts.len() - 1]));
+            let mut line = vec![[pts[0][0] + big * t0[0], pts[0][1] + big * t0[1]]];
+            line.extend(pts.iter().copied());
+            line.push([pts[pts.len() - 1][0] + big * t1[0], pts[pts.len() - 1][1] + big * t1[1]]);
+            let mut vs = Vec::new();
+            for q in &line {
+                for s in [-big, big] {
+                    vs.push([q[0] + s * d[0], q[1] + s * d[1], s * d[2]]);
+                }
+            }
+            let mut tris = Vec::new();
+            for i in 0..line.len() as u32 - 1 {
+                let (a0, a1, b0, b1) = (2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3);
+                tris.push([a0, b0, b1]);
+                tris.push([a0, b1, a1]);
+            }
+            (Shape::Sheet { mesh: Arc::new(TriMesh::new(&vs, &tris)?), face }, None)
         } else if rest.has("body") {
             let tid = rest.ids("body").first().copied().ok_or_else(|| anyhow!("webcut body N with body M"))?;
             let t = self.bodies.get(&tid).ok_or_else(|| anyhow!("there is no body {tid}"))?;
@@ -684,9 +743,23 @@ impl Model {
                     Some(s) => bail!("unknown scheme {s} (auto, structured, overlay, stairstep)"),
                     None => "auto".into(),
                 };
+                let intervals: Vec<usize> = a.nums("intervals").into_iter().map(|x| x.max(1.0) as usize).collect();
+                let bias: Vec<f64> = a.nums("bias");
+                if bias.iter().any(|b| *b < 1.0) {
+                    bail!("bias is the largest piece over the smallest: 1 or more");
+                }
+                let cluster = a.text("cluster").map(|s| s.to_ascii_lowercase()).unwrap_or_else(|| "start".into());
+                if !["start", "end", "both", "none"].contains(&cluster.as_str()) {
+                    bail!("cluster start, end or both");
+                }
                 for id in ids {
                     if !self.bodies.contains_key(&id) {
                         bail!("there is no body {id}");
+                    }
+                    if intervals.is_empty() && bias.is_empty() {
+                        self.mesh_divisions.remove(&id);
+                    } else {
+                        self.mesh_divisions.insert(id, (intervals.clone(), bias.clone(), cluster.clone()));
                     }
                     self.mesh_requests.retain(|r| r.0 != id);
                     self.mesh_requests.push((id, size, npe));
@@ -811,6 +884,11 @@ impl Model {
         };
         self.outlines.insert(id, o);
         Ok(())
+    }
+
+    /// An outline made by `outline N ...` commands.
+    pub fn outline_points(&self, id: u32) -> Option<Vec<[f64; 2]>> {
+        self.outlines.get(&id).map(|o| o.points().to_vec())
     }
 
     /// The bodies with their face ids, for listings.

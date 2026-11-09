@@ -1,4 +1,5 @@
-//! File › Save Screenshot: size, transparent background, then the file.
+//! File › Save Screenshot: the active 3D view (size, transparent background) or every open
+//! view as laid out (3D views and charts, `capture`), then the file.
 
 use crate::app::State;
 use aurafx_pipeline::session::ScreenshotRequest;
@@ -11,6 +12,10 @@ pub struct ScreenshotDialog {
     keep_aspect: bool,
     transparent: bool,
     no_overlays: bool,
+    /// What the picture shows: 0 the active 3D view, 1 every view as laid out, 2 the chart views.
+    pub which: u8,
+    /// Keep the chart views' controls in a picture of several views.
+    controls: bool,
 }
 
 impl ScreenshotDialog {
@@ -31,9 +36,24 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     let view = state.viewport.size();
     let mut open = true;
     let mut save = false;
+    let n_views = state.capture.pane_rects.iter().filter(|(p, _)| crate::capture::is_view(*p)).count();
     egui::Window::new("Save Screenshot").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
         let d = &mut state.screenshot_dialog;
         let aspect = view.0.max(1) as f64 / view.1.max(1) as f64;
+        ui.horizontal(|ui| {
+            ui.label("Picture of");
+            ui.radio_value(&mut d.which, 0, "the active 3D view");
+            ui.radio_value(&mut d.which, 1, format!("all views ({n_views})")).on_hover_text("Every visible 3D view and chart view, as they are laid out in the window");
+            ui.radio_value(&mut d.which, 2, "chart views");
+        });
+        if d.which != 0 {
+            ui.weak("The views are cut out of the window and placed as they are laid out; the picture has the window's pixels (a larger window gives a larger picture).");
+            ui.checkbox(&mut d.transparent, "transparent background between the views");
+            ui.checkbox(&mut d.controls, "keep the chart views' controls");
+            ui.separator();
+            save = ui.button("Save…").clicked();
+            return;
+        }
         egui::Grid::new("shot").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
             ui.label("Size");
             ui.horizontal(|ui| {
@@ -88,6 +108,15 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
         save = ui.button("Save…").clicked();
     });
     state.screenshot_dialog.open = open;
+    if save && state.screenshot_dialog.which != 0 {
+        if let Some(path) = crate::dialogs::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx-views.png").save_file() {
+            let d = &state.screenshot_dialog;
+            let views = if d.which == 1 { crate::capture::Views::All } else { crate::capture::Views::Charts };
+            state.capture.request(crate::capture::Request { path, views, transparent: d.transparent, controls: d.controls, done: crate::capture::Done::Toast });
+            state.screenshot_dialog.open = false;
+        }
+        return;
+    }
     if save {
         if let Some(path) = crate::dialogs::FileDialog::new()
             .add_filter("PNG image", &["png"])

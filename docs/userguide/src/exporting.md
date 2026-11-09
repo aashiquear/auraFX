@@ -27,6 +27,25 @@ afx.screenshot("fig.svg")
 `afx.screenshot` returns only when the file is written, so a script can change the camera or
 the data between pictures.
 
+### All views in one picture
+
+For a slide or a report with several views side by side, choose **Picture of › all views** in
+the same dialog: every visible 3D view and chart view is saved in one PNG, each where it sits
+in the window, with tab bars, panels and menus left out and the charts' controls hidden
+(**keep the chart views' controls** keeps them). **chart views** saves only the charts. The
+background between the views is the window's, or transparent. The picture has the window's
+pixels, so a larger (or full-screen) window gives a larger picture. Only views whose tab is in
+front are in the picture.
+
+```python
+afx.screenshot("slide.png", views="all")            # every visible view, as laid out
+afx.screenshot("charts.png", views="charts")
+afx.screenshot("chart2.png", views="chart 2")       # one chart view ("chart" is the Charts panel)
+afx.screenshot("view2.png", views="view 2", transparent=True)
+```
+
+![Two 3D views and two chart views saved as one picture with views='all'](images/all_views_picture.png)
+
 ## Scenes for other programs
 
 **File › Export Scene…** (`afx.export_scene("scene.glb")`) writes the visible objects, with
@@ -43,7 +62,8 @@ Volumes are not exported (they are not geometry).
 ## Animations
 
 **File › Animation…** records the time steps, a turntable or the keyframes as **GIF**, **MP4**
-(`ffmpeg` on the PATH) or a folder of PNG frames; see
+(`ffmpeg` on the PATH) or a folder of PNG frames, of the active 3D view or of all views as laid
+out (`afx.save_animation("all.mp4", views="all")`); see
 [Time, charts and animation](time-animation.md).
 
 ## Saving data

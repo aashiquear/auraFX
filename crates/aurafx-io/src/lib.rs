@@ -10,7 +10,9 @@ pub mod cellgrid;
 pub mod cgns;
 pub mod cgns_writer;
 pub mod chombo;
+pub mod collections;
 pub mod csv;
+pub mod d3plot;
 pub mod dream3d_writer;
 pub mod ebsd;
 pub mod ebsd_h5;
@@ -23,22 +25,28 @@ pub mod flash;
 pub mod hdf5w;
 pub mod images;
 pub mod lammps;
+pub mod las;
 pub mod legacy_vtk;
 pub mod mesh_writers;
 pub mod molecular;
 pub mod mpas;
+pub mod nek5000;
 pub mod netcdf3;
 pub mod netcdf_cf;
 pub mod openfoam;
+pub mod particles_h5;
 pub mod plot3d;
 pub mod rasters;
+pub mod scenes;
 pub mod series;
+pub mod solver_meshes;
 pub mod spparks;
 pub mod sqlite;
 pub mod stl;
 pub mod surfaces;
 pub mod tecplot;
 pub mod vectors;
+pub mod volumes;
 pub mod vtkhdf;
 pub mod writers;
 pub mod xdmf;
@@ -80,6 +88,16 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["stl"], "Stereolithography"),
         (&["ply"], "PLY surface"),
         (&["obj"], "Wavefront OBJ"),
+        (&["off"], "Object File Format (OFF, with colors)"),
+        (&["las", "laz"], "LAS / LAZ point clouds (lidar)"),
+        (&["bdf", "nas", "bulk", "dat"], "Nastran bulk data"),
+        (&["h5part"], "H5Part particles"),
+        (&["nek5000"], "Nek5000 results (.nek5000, or a data file name0.f00001)"),
+        (&["d3plot"], "LS-DYNA results (d3plot and its family files)"),
+        (&["h5", "hdf5"], "openPMD (HDF5) meshes and particles"),
+        (&["msh", "cas"], "Fluent mesh and case files"),
+        (&["gltf", "glb"], "glTF 2.0 scenes"),
+        (&["wrl", "vrml", "wrz"], "VRML 2.0 scenes"),
         (&["vtkhdf", "hdf"], "VTKHDF"),
         (&["case", "encas"], "EnSight Gold"),
         (&["tec", "tp", "dat", "plt"], "Tecplot (ASCII and binary)"),
@@ -92,6 +110,11 @@ pub fn supported_formats() -> Vec<(&'static [&'static str], &'static str)> {
         (&["cml"], "Chemical Markup Language"),
         (&["vasp", "poscar"], "VASP (POSCAR, CONTCAR, CHGCAR, LOCPOT by name)"),
         (&["png", "jpg", "jpeg", "bmp", "tif", "tiff"], "Images (TIFF stacks as volumes)"),
+        (&["nrrd", "nhdr"], "NRRD volumes"),
+        (&["mhd", "mha"], "MetaImage volumes"),
+        (&["mrc", "map", "rec", "st", "ccp4"], "MRC / CCP4 maps (cryo-EM, tomography)"),
+        (&["dcm", "dicom"], "DICOM series (a file, or the folder of a series)"),
+        (&["ome.tif", "ome.tiff"], "OME-TIFF microscopy images"),
         (&["tif", "tiff", "asc", "img"], "GIS rasters (GeoTIFF, Esri ASCII grid, ERDAS Imagine)"),
         (&["ang", "ctf", "h5ebsd", "dream3d"], "EBSD maps and microstructures (TSL/EDAX .ang, Oxford .ctf, .h5ebsd, EDAX and Bruker .h5, .dream3d)"),
         (&["spparks", "sites"], "SPPARKS site files"),
@@ -153,7 +176,12 @@ fn ext_of(path: &Path) -> String {
 
 /// Single-step formats whose numbered files (`run_0001.vtu`, `run_0002.vtu`, ...) open as a
 /// time series when the file's name ends in digits and has such siblings.
-const NUMBERED_SERIES_EXTS: &[&str] = &["vtk", "vtu", "vtp", "vti", "vtr", "vts", "vtm", "vtkhdf", "stl", "ply", "obj", "csv", "xyz", "plt", "dat"];
+/// (Numbered pictures open as a series of 2-D images; a wildcard such as `img_*.png` stacks them
+/// into one volume instead.)
+const NUMBERED_SERIES_EXTS: &[&str] = &[
+    "vtk", "vtu", "vtp", "vti", "vtr", "vts", "vtm", "vtkhdf", "stl", "ply", "obj", "csv", "xyz", "plt", "dat", "png", "jpg", "jpeg", "bmp", "nrrd", "mha",
+    "mhd", "mrc", "off", "gltf", "glb", "wrl", "las", "laz", "bdf", "nas", "cas",
+];
 
 /// Open a file by extension. A single-step file whose name ends in digits opens with its
 /// numbered siblings as a time series (the numbers are the time values).
@@ -191,6 +219,10 @@ pub fn read_file_single(path: impl AsRef<Path>) -> Result<Loaded> {
     if vectors::gdb_dir(path).is_some() {
         return Ok(Loaded::Static(Arc::new(vectors::read(path)?)));
     }
+    // A folder of DICOM slices, or a DICOM file without an extension.
+    if (path.is_dir() && volumes::dir_has_dicom(path)) || (path.is_file() && ext.is_empty() && volumes::is_dicom(path)) {
+        return Ok(Loaded::Static(Arc::new(volumes::read_dicom(path)?)));
+    }
     // Enzo outputs by their hierarchy (or boundary) file; FLASH files by content (their names
     // rarely have an extension).
     if enzo::is_enzo(path) {
@@ -198,6 +230,15 @@ pub fn read_file_single(path: impl AsRef<Path>) -> Result<Loaded> {
     }
     if ebsd_h5::is_ebsd_h5(path) && ext_of(path) != "dream3d" {
         return Ok(Loaded::Static(Arc::new(ebsd_h5::read(path)?)));
+    }
+    if d3plot::is_d3plot(path) {
+        return d3plot::read(path);
+    }
+    if particles_h5::is_openpmd(path) {
+        return particles_h5::read_openpmd(path);
+    }
+    if particles_h5::is_h5part(path) {
+        return particles_h5::read_h5part(path);
     }
     if chombo::is_chombo(path) {
         return Ok(Loaded::Static(Arc::new(chombo::read(path)?)));
@@ -216,7 +257,12 @@ pub fn read_file_single(path: impl AsRef<Path>) -> Result<Loaded> {
     }
     let loaded = match ext.as_str() {
         "e" | "exo" | "ex2" | "exii" | "g" | "gen" | "ex2v2" => exodus::open(path)?,
+        "tif" | "tiff" if volumes::is_ome_tiff(path) => volumes::read_ome_tiff(path)?,
         "tif" | "tiff" if rasters::is_geotiff(path) => Loaded::Static(Arc::new(rasters::read_geotiff(path)?)),
+        "nrrd" | "nhdr" => Loaded::Static(Arc::new(volumes::read_nrrd(path)?)),
+        "mhd" | "mha" => Loaded::Static(Arc::new(volumes::read_metaimage(path)?)),
+        "mrc" | "map" | "rec" | "st" | "ccp4" | "mrcs" => Loaded::Static(Arc::new(volumes::read_mrc(path)?)),
+        "dcm" | "dicom" => Loaded::Static(Arc::new(volumes::read_dicom(path)?)),
         "asc" => Loaded::Static(Arc::new(rasters::read_ascii_grid(path)?)),
         "ang" => Loaded::Static(Arc::new(ebsd::read_ang(path)?)),
         "ctf" => Loaded::Static(Arc::new(ebsd::read_ctf(path)?)),
@@ -237,6 +283,17 @@ pub fn read_file_single(path: impl AsRef<Path>) -> Result<Loaded> {
         "stl" => Loaded::Static(Arc::new(stl::read(path)?)),
         "ply" => Loaded::Static(Arc::new(surfaces::read_ply(path)?)),
         "obj" => Loaded::Static(Arc::new(surfaces::read_obj(path)?)),
+        "off" => Loaded::Static(Arc::new(scenes::read_off(path)?)),
+        "las" | "laz" => Loaded::Static(Arc::new(las::read(path)?)),
+        "nek5000" => nek5000::read(path)?,
+        _ if nek5000::is_nek_data(path) => nek5000::read(path)?,
+        "bdf" | "nas" | "bulk" => Loaded::Static(Arc::new(solver_meshes::read_nastran(path)?)),
+        "dat" if solver_meshes::is_nastran(path) => Loaded::Static(Arc::new(solver_meshes::read_nastran(path)?)),
+        "cas" => Loaded::Static(Arc::new(solver_meshes::read_fluent(path)?)),
+        "msh" if solver_meshes::is_fluent(path) => Loaded::Static(Arc::new(solver_meshes::read_fluent(path)?)),
+        "msh" => bail!("{}: only Fluent .msh files are read (auraFX writes Gmsh .msh files)", path.display()),
+        "gltf" | "glb" => Loaded::Static(Arc::new(scenes::read_gltf(path)?)),
+        "wrl" | "vrml" | "wrz" => Loaded::Static(Arc::new(scenes::read_vrml(path)?)),
         "xyz" if plot3d::is_binary_grid(path) => Loaded::Static(Arc::new(plot3d::read(path, None)?)),
         "xyz" => match molecular::read_xyz(path) {
             Ok(l) => l,
@@ -341,6 +398,13 @@ pub fn reader_options(path: impl AsRef<Path>) -> Vec<ReaderOption> {
         "shp" | "geojson" | "kml" | "kmz" | "gpkg" | "fgb" | "gml" | "tab" | "mif" => vectors::options(path),
         "hierarchy" | "boundary" => enzo::options(path),
         "ctf" => ebsd::options(path),
+        "pvtu" | "pvtp" | "pvts" | "pvtr" | "pvti" => vec![ReaderOption::new(
+            "pieces",
+            "Pieces",
+            ReaderOptionKind::Choice(vec!["Merged".into(), "Partitions".into()]),
+            "Merged",
+            "Merged: one mesh. Partitions: one block per piece file, for Ghost Cells and other work in partitions.",
+        )],
         "dream3d" | "h5ebsd" => ebsd_h5::options(path),
         "h5" | "hdf5" if ebsd_h5::is_ebsd_h5(path) => ebsd_h5::options(path),
         "json" if vectors::is_geojson(path) => vectors::options(path),

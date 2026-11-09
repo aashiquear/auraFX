@@ -370,6 +370,212 @@ pub fn sweep(ds: &DataSet, direction: [f64; 3], distance: f64, layers: usize, ra
     Ok(m.to_dataset())
 }
 
+/// Sizing for the surface meshers: a base size limited to [min, max], refined near curves, from
+/// a point array (the size at each point), and from curvature (a chord tolerance).
+pub struct SurfaceSizing<'a> {
+    pub size: f64,
+    pub min: f64,
+    pub max: f64,
+    pub near: Vec<(Vec<[f64; 3]>, f64, f64)>,
+    pub field: Option<(&'a DataSet, String)>,
+    pub tolerance: f64,
+}
+
+fn build_sizing(s: &SurfaceSizing, reference: Option<(&[[f64; 3]], &[[u32; 3]])>) -> Result<aurafx_mesh::pave::Sizing> {
+    let mut z = aurafx_mesh::pave::Sizing::uniform(s.size);
+    z.min = s.min;
+    z.max = if s.max > 0.0 { s.max } else { f64::INFINITY };
+    for (pts, h0, g) in &s.near {
+        if !pts.is_empty() {
+            z.refine_near(pts.clone(), *h0, *g);
+        }
+    }
+    if let Some((ds, name)) = &s.field {
+        let pts: Vec<[f64; 3]> = ds.points().map(|p| (0..p.len()).map(|i| p.get(i)).collect()).unwrap_or_default();
+        let a = ds.point_data().and_then(|d| d.get(name)).ok_or_else(|| anyhow!("no point array {name} for the size"))?;
+        z.from_field(&pts, (0..a.len()).map(|i| a.get(i, 0)).collect());
+        if s.size <= 0.0 {
+            z.base = 0.0;
+        }
+    }
+    if s.tolerance > 0.0 {
+        if let Some((p, t)) = reference {
+            z.from_curvature(p, aurafx_mesh::pave::node_curvature(p, t), s.tolerance);
+        }
+    }
+    if z.base <= 0.0 && z.field.is_none() {
+        bail!("give a size above 0 (or a size array)");
+    }
+    if z.base <= 0.0 {
+        z.base = f64::INFINITY;
+    }
+    Ok(z)
+}
+
+fn surface_out(pts: &[[f64; 3]], polys: Vec<Vec<u32>>) -> PolyData {
+    let mut pd = PolyData { points: Points::new_f64(pts.iter().flatten().copied().collect()), ..Default::default() };
+    for c in polys {
+        let ty = if c.len() == 3 { CellType::Triangle } else { CellType::Quad };
+        pd.polys.push(ty, &c);
+    }
+    pd
+}
+
+fn quality_arrays(pd: &mut PolyData) {
+    let mut q = Vec::new();
+    for (_, c) in pd.polys.iter() {
+        let p: Vec<[f64; 3]> = c.iter().map(|&i| pd.points.get(i as usize)).collect();
+        q.push(if p.len() == 4 {
+            aurafx_mesh::pave::quad_scaled_jacobian([p[0], p[1], p[2], p[3]])
+        } else {
+            // A triangle's smallest angle over 60 degrees.
+            let ang = |a: [f64; 3], b: [f64; 3], c: [f64; 3]| {
+                let (u, v) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+                let d = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+                let l = ((u[0] * u[0] + u[1] * u[1] + u[2] * u[2]) * (v[0] * v[0] + v[1] * v[1] + v[2] * v[2])).sqrt().max(1e-300);
+                (d / l).clamp(-1.0, 1.0).acos().to_degrees()
+            };
+            ang(p[0], p[1], p[2]).min(ang(p[1], p[2], p[0])).min(ang(p[2], p[0], p[1])) / 60.0
+        });
+    }
+    let worst = q.iter().copied().fold(f64::INFINITY, f64::min);
+    pd.cell_data.insert(Array::scalars_f64("Quality", q));
+    pd.field_data.insert(Array::scalars_f64("MinQuality", vec![worst]));
+}
+
+pub const FACE_TRIANGLES: &str = "Triangles";
+pub const FACE_QUADS: &str = "Quadrilaterals";
+
+/// A planar face from outline commands meshed at a size: outline `outer` with the outlines
+/// `holes` cut out, triangles or all quadrilaterals (the size is then the quads' size), refined
+/// near the holes when `near` is above 0. `intervals` (one per loop, 0 = from the size) fixes
+/// how many pieces each loop is divided into. Cell array `Quality` (quads: scaled Jacobian,
+/// triangles: smallest angle over 60 degrees), point array `BoundaryLoop` (0 outer, 1.. holes,
+/// -1 inside).
+#[allow(clippy::too_many_arguments)]
+pub fn face_mesh(
+    commands: &str,
+    outer: u32,
+    holes: &[u32],
+    sizing: &SurfaceSizing,
+    near: f64,
+    growth: f64,
+    intervals: &[usize],
+    element: &str,
+) -> Result<DataSet> {
+    let mut m = aurafx_mesh::Model::new();
+    m.run(commands)?;
+    let mut loops = vec![m.outline_points(outer).ok_or_else(|| anyhow!("there is no outline {outer}"))?];
+    for h in holes {
+        loops.push(m.outline_points(*h).ok_or_else(|| anyhow!("there is no outline {h}"))?);
+    }
+    let quads = element == FACE_QUADS;
+    let mut s = SurfaceSizing {
+        size: sizing.size,
+        min: sizing.min,
+        max: sizing.max,
+        near: sizing.near.clone(),
+        field: sizing.field.as_ref().map(|(d, n)| (*d, n.clone())),
+        tolerance: 0.0,
+    };
+    if near > 0.0 {
+        for l in &loops[1..] {
+            s.near.push((l.iter().map(|p| [p[0], p[1], 0.0]).collect(), near, growth.max(0.0)));
+        }
+    }
+    let mut z = build_sizing(&s, None)?;
+    if quads {
+        // Triangles of twice the size split into quads of the size.
+        z.scale = 2.0;
+    }
+    let iv: Vec<usize> = intervals.iter().map(|&n| if quads { n.div_ceil(2) } else { n }).collect();
+    let (pts, tris, on_loop) = aurafx_mesh::pave::mesh_planar_face(&loops, &z, &iv, 4)?;
+    let mut pd = if quads {
+        let ls = loops.clone();
+        let snap = move |x: [f64; 3]| {
+            let mut best = (f64::INFINITY, x);
+            for l in &ls {
+                for i in 0..l.len() {
+                    let (a, b) = (l[i], l[(i + 1) % l.len()]);
+                    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+                    let l2 = dx * dx + dy * dy;
+                    let t = if l2 > 0.0 { (((x[0] - a[0]) * dx + (x[1] - a[1]) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                    let c = [a[0] + t * dx, a[1] + t * dy, 0.0];
+                    let d = (c[0] - x[0]).powi(2) + (c[1] - x[1]).powi(2);
+                    if d < best.0 {
+                        best = (d, c);
+                    }
+                }
+            }
+            best.1
+        };
+        let (mut qp, q) = aurafx_mesh::pave::quads_from_triangles(&pts, &tris, &snap, &|x| x);
+        aurafx_mesh::pave::smooth_quads(&mut qp, &q, &[], &|x| x, 3);
+        surface_out(&qp, q.iter().map(|c| c.to_vec()).collect())
+    } else {
+        let mut pd = surface_out(&pts, tris.iter().map(|c| c.to_vec()).collect());
+        pd.point_data.insert(Array::new("BoundaryLoop", 1, ArrayData::I32(on_loop)));
+        pd
+    };
+    quality_arrays(&mut pd);
+    Ok(DataSet::PolyData(pd))
+}
+
+/// Remesh a triangle surface at a size (see [`SurfaceSizing`]): sharp edges (turning by more than
+/// `feature_deg`) and open boundaries are kept; triangles or all quadrilaterals.
+pub fn remesh(ds: &DataSet, sizing: &SurfaceSizing, feature_deg: f64, element: &str, iterations: usize) -> Result<DataSet> {
+    let pd = match ds {
+        DataSet::PolyData(p) => p.clone(),
+        other => crate::surface::extract_surface(other)?,
+    };
+    let pts: Vec<[f64; 3]> = (0..pd.points.len()).map(|i| pd.points.get(i)).collect();
+    let mut tris = Vec::new();
+    for (_, c) in pd.polys.iter() {
+        for k in 1..c.len().saturating_sub(1) {
+            tris.push([c[0], c[k], c[k + 1]]);
+        }
+    }
+    if tris.is_empty() {
+        bail!("the input has no polygons to remesh");
+    }
+    let quads = element == FACE_QUADS;
+    let mut s = SurfaceSizing {
+        size: sizing.size,
+        min: sizing.min,
+        max: sizing.max,
+        near: sizing.near.clone(),
+        field: sizing.field.as_ref().map(|(d, n)| (*d, n.clone())),
+        tolerance: sizing.tolerance,
+    };
+    if s.size <= 0.0 && s.field.is_none() {
+        // The input's mean edge length.
+        let mut sum = 0.0;
+        for t in &tris {
+            for k in 0..3 {
+                let (a, b) = (pts[t[k] as usize], pts[t[(k + 1) % 3] as usize]);
+                sum += ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            }
+        }
+        s.size = sum / (3 * tris.len()) as f64;
+    }
+    let mut z = build_sizing(&s, Some((&pts, &tris)))?;
+    if quads {
+        z.scale = 2.0;
+    }
+    let (p, t) = aurafx_mesh::pave::remesh_surface(&pts, &tris, &z, feature_deg, iterations)?;
+    let mut out = if quads {
+        let reference = aurafx_mesh::TriMesh::new(&pts, &tris)?;
+        let proj = |x: [f64; 3]| reference.closest_point(x).0;
+        let (mut qp, q) = aurafx_mesh::pave::quads_from_triangles(&p, &t, &|x| x, &proj);
+        aurafx_mesh::pave::smooth_quads(&mut qp, &q, &[], &proj, 2);
+        surface_out(&qp, q.iter().map(|c| c.to_vec()).collect())
+    } else {
+        surface_out(&p, t.iter().map(|c| c.to_vec()).collect())
+    };
+    quality_arrays(&mut out);
+    Ok(DataSet::PolyData(out))
+}
+
 /// The hexahedral mesh of the bodies named by `mesh body` commands.
 pub fn geometry_mesh(commands: &str) -> Result<DataSet> {
     let model = aurafx_mesh::Model::from_commands(commands, None)?;

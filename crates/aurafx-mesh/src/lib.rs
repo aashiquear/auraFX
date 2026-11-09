@@ -9,6 +9,7 @@ pub mod inclusions;
 pub mod model;
 pub mod outline;
 pub mod overlay;
+pub mod pave;
 pub mod quality;
 pub mod shape;
 pub mod specimens;

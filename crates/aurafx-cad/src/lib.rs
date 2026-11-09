@@ -41,7 +41,7 @@ pub use document::{
 pub use expr::{eval, eval_const, eval_map, identifiers, unit_factor, ExprError};
 pub use file::{CadFile, FileError, FORMAT_VERSION};
 pub use kernel::{Evaluated, EvaluatedBody, EvaluatedFace, FaceKind, Kernel, KernelChoice};
-pub use sketch::{Constraint, Dim, Entity, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
+pub use sketch::{Constraint, Dim, Entity, PlaneFrame, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
 pub use templates::templates;
 
 /// Errors of the document and its kernels.

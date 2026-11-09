@@ -430,7 +430,7 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
         Shape::Hole { kind, diameter, depth } => hole(b, f, pl, op, name, kind, *diameter, *depth)?,
         Shape::SketchExtrude { sketch, depth, end, draft_deg, top_edge, bottom_edge, reverse } => {
             let _ = (top_edge, bottom_edge);
-            let (basis, org) = sketch.plane.frame(sketch.offset);
+            let (basis, org) = sketch.placement_frame();
             let frame = Frame { o: pl.at(org), x: pl.r * basis.x_axis, y: pl.r * basis.y_axis };
             let s = b.draw_sketch(&frame, &SketchShape::Sketch(sketch))?;
             let d = depth.abs();
@@ -444,7 +444,7 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             b.solid("solid.extrude", a)?;
         }
         Shape::SketchRevolve { sketch, angle_deg } => {
-            let (basis, org) = sketch.plane.frame(sketch.offset);
+            let (basis, org) = sketch.placement_frame();
             let frame = Frame { o: pl.at(org), x: pl.r * basis.x_axis, y: pl.r * basis.y_axis };
             let s = b.draw_sketch(&frame, &SketchShape::Sketch(sketch))?;
             b.solid(
@@ -686,7 +686,7 @@ fn emit_feature_unblended(b: &mut Build, f: &Feature, pl: Pl, name: &str, body_m
         }
     }
     if let Shape::SketchExtrude { sketch, depth, end, reverse, top_edge, bottom_edge, .. } = &f.shape {
-        let (basis, org) = sketch.plane.frame(sketch.offset);
+        let (basis, org) = sketch.placement_frame();
         let (n, o) = (pl.r * (basis * DVec3::Z), pl.at(org));
         let d = depth.abs();
         let (z0, z1) = match end {
@@ -1132,6 +1132,36 @@ mod tests {
         // The exact kernel also gives a distance: inside the plate is negative, outside positive.
         let dist = b.distance.as_ref().unwrap();
         assert!(dist([-15.0, -10.0, 5.0]) < 0.0 && dist([50.0, 0.0, 5.0]) > 0.0);
+    }
+
+    #[test]
+    fn a_sketch_on_a_tilted_reference_plane_extrudes_along_its_normal() {
+        // A plane 20 above the top plane, turned 30 degrees about its x axis; a 20 x 10 rectangle
+        // on it extruded 5: volume 1000 in both kernels, and the centre moved along the normal.
+        let mut d = Document::new("tilt");
+        apply_op(&mut d, "plane", &json!({"name": "Tilted", "from": "XY", "offset": 20, "angle": 30, "about": "x"})).unwrap();
+        apply_op(
+            &mut d,
+            "sketch_extrude",
+            &json!({"name": "Block", "depth": 5, "sketch": {"plane": "Tilted", "items": [{"rectangle": {"center": [0, 0], "w": 20, "h": 10}}]}}),
+        )
+        .unwrap();
+        let b = eval(&d);
+        assert!(close(b.volume(), 1000.0, 1e-6), "{}", b.volume());
+        let i = ImplicitKernel::new(96).evaluate(&d).unwrap();
+        assert!(close(i.volume(), 1000.0, 0.02), "{}", i.volume());
+        // The normal of the turned plane: (0, -sin 30, cos 30); the block's centre is 2.5 along it.
+        let mp = b.mass_properties(1.0);
+        let (s30, c30) = (0.5, 3f64.sqrt() / 2.0);
+        let want = [0.0, -2.5 * s30, 20.0 + 2.5 * c30];
+        assert!((0..3).all(|k| (mp.centroid[k] - want[k]).abs() < 1e-6), "{:?} vs {want:?}", mp.centroid);
+        // Three points, and a plane by origin and normal.
+        apply_op(&mut d, "plane", &json!({"name": "P3", "points": [[0, 0, 0], [1, 0, 0], [0, 1, 1]]})).unwrap();
+        let n = d.planes.iter().find(|p| p.name == "P3").unwrap().frame.basis().z_axis;
+        assert!((n.y + n.z).abs() < 1e-12 && n.z > 0.0 && (n.length() - 1.0).abs() < 1e-12, "{n:?}");
+        assert!(apply_op(&mut d, "plane", &json!({"points": [[0, 0, 0], [1, 0, 0], [2, 0, 0]]})).is_err());
+        apply_op(&mut d, "remove_plane", &json!({"name": "P3"})).unwrap();
+        assert_eq!(d.planes.len(), 1);
     }
 
     #[test]

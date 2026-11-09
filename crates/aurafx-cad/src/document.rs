@@ -429,6 +429,16 @@ impl Feature {
     }
 }
 
+/// A named plane to sketch on (made by offset, angle or three points), kept with the part.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RefPlane {
+    pub name: String,
+    pub frame: crate::sketch::PlaneFrame,
+    /// How it was made, for display ("Top offset 20", "through 3 points").
+    #[serde(default)]
+    pub how: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Document {
     pub name: String,
@@ -447,6 +457,9 @@ pub struct Document {
     /// Parts placed beside this one (an assembly): each keeps its own document.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub components: Vec<ComponentRef>,
+    /// Reference planes to sketch on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planes: Vec<RefPlane>,
 }
 
 impl Document {

@@ -89,12 +89,12 @@ impl FeatureFaces {
             }
             Shape::Extrude { sketch, .. } => prism(sketch.clone(), DMat3::IDENTITY, DVec3::ZERO),
             Shape::SketchExtrude { sketch, .. } => {
-                let (rot, origin) = sketch.plane.frame(sketch.offset);
+                let (rot, origin) = sketch.placement_frame();
                 prism(sketch.entity_paths(), rot, origin)
             }
             Shape::Revolve { profile, .. } => revolve(profile.clone(), DMat3::IDENTITY, DVec3::ZERO, true),
             Shape::SketchRevolve { sketch, .. } => {
-                let (rot, origin) = sketch.plane.frame(sketch.offset);
+                let (rot, origin) = sketch.placement_frame();
                 revolve(sketch.entity_paths(), rot, origin, false)
             }
             Shape::Sweep { .. }

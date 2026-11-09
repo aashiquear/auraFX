@@ -2225,6 +2225,19 @@ class _CadApi:
         """The overlap volume with another CAD Model node placed at `at` (and rotated by `rotate` degrees)."""
         return _cad_interference(self._node, other._node if hasattr(other, "_node") else other, tuple(at), tuple(rotate), resolution)
     # more edge, face and body operations
+    def plane(self, name=None, from_plane="XY", offset=0, angle=0, about="x", points=None, origin=None, normal=None, x_axis=None):
+        """A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference
+        plane moved by offset and turned by angle about its x or y axis; or through three points;
+        or by origin and normal. Sketch on it with sketch(plane=name)."""
+        a = {"from": from_plane, "offset": offset, "angle": angle, "about": about}
+        if points is not None: a = {"points": [list(p) for p in points]}
+        elif normal is not None:
+            a = {"origin": list(origin or (0, 0, 0)), "normal": list(normal)}
+            if x_axis is not None: a["x_axis"] = list(x_axis)
+        if name: a["name"] = name
+        return self.edit("plane", a)
+    def remove_plane(self, name):
+        return self.edit("remove_plane", name=name)
     def mirror_about(self, origin, normal, name=None):
         """Mirror the part so far about a plane, e.g. a flat face: origin is a point on it (or a face name
         from faces()), normal its direction. The reflection is joined to the part."""
@@ -2334,6 +2347,20 @@ class _CadApi:
         spec = {"plane": plane, "offset": offset}
         if items is not None: spec["items"] = items
         _cad_app_command("cad_sketch_new " + _json.dumps(spec))
+    def sketch_on_face(self):
+        """Open the face picker to start a sketch on a flat face of the part (in the window)."""
+        _cad_app_command("cad_pick sketch")
+    def plane_form(self):
+        """Open the New reference plane form in the window."""
+        _cad_app_command("cad_plane_form")
+    def sketch_cursor(self, x, y, line_from=None):
+        """For pictures: where the sketch canvas takes the cursor to be (sketch units) when the mouse is
+        elsewhere, optionally drawing a line from point line_from, so snaps and guides show."""
+        _cad_app_command("cad_sketch_cursor %g %g%s" % (x, y, "" if line_from is None else " line %d" % line_from))
+    def sketch_dim_edit(self, index="first"):
+        """Open the value editor of the sketch's dimension number index (as a double-click does);
+        "first": the first dimension."""
+        _cad_app_command("cad_sketch_dim_edit %s" % index)
     def sketch_edit(self, feature):
         """Open the sketch canvas on the sketch of an extruded or revolved feature."""
         _cad_app_command("cad_sketch_edit " + feature)

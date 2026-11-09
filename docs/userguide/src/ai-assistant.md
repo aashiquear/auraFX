@@ -17,7 +17,7 @@ data itself. The description is rebuilt for every message.
 ## Running the code it writes
 
 Code appears in a block with a **Run code** button; nothing runs until you press it, unless
-**auto-run code** is ticked. With **agent mode** on, the assistant runs its code itself, looks
+**auto-run code** is ticked. With **agent mode** on (the default), the assistant runs its code itself, looks
 at the result (values, errors, the pipeline) and keeps going until the task is done, so
 "find where the plate yields and plot it" becomes several steps without you in between.
 
@@ -69,6 +69,10 @@ Choose the provider and model in the panel's drop-downs or in **Settings**:
 | **Ollama** (local or cloud models) | the server URL from `OLLAMA_HOST` or Settings; the model list comes from the server |
 | **Anthropic** | set `ANTHROPIC_API_KEY` or paste a key in Settings |
 | **OpenAI-compatible** (OpenAI, OpenRouter, Groq, vLLM, LM Studio…) | the base URL and key in Settings |
+
+No model is chosen at first: the model list beside the provider shows `<no model>` until you
+pick one, and the choice is kept for the next start. With `<no model>`, messages are not sent:
+pick a model first.
 
 Answers stream as they are produced. The suggestion buttons under the welcome text are good
 first questions for a new file.

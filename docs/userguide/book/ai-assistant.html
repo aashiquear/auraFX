@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
+            window.path_to_searchindex_js = "searchindex-37608fda.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -190,7 +190,7 @@ with ranges, bounds, cell types and time steps, plus the last error. It never re
 data itself. The description is rebuilt for every message.</p>
 <h2 id="running-the-code-it-writes"><a class="header" href="#running-the-code-it-writes">Running the code it writes</a></h2>
 <p>Code appears in a block with a <strong>Run code</strong> button; nothing runs until you press it, unless
-<strong>auto-run code</strong> is ticked. With <strong>agent mode</strong> on, the assistant runs its code itself, looks
+<strong>auto-run code</strong> is ticked. With <strong>agent mode</strong> on (the default), the assistant runs its code itself, looks
 at the result (values, errors, the pipeline) and keeps going until the task is done, so
 “find where the plate yields and plot it” becomes several steps without you in between.</p>
 <pre><code class="language-python">afx.ask("make an isosurface at the mean temperature")
@@ -237,6 +237,9 @@ face operations (patterns on a face, draft, mirror).</p>
 </tbody>
 </table>
 </div>
+<p>No model is chosen at first: the model list beside the provider shows <code>&lt;no model&gt;</code> until you
+pick one, and the choice is kept for the next start. With <code>&lt;no model&gt;</code>, messages are not sent:
+pick a model first.</p>
 <p>Answers stream as they are produced. The suggestion buttons under the welcome text are good
 first questions for a new file.</p>
 

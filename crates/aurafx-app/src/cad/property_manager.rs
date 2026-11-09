@@ -185,6 +185,10 @@ pub fn property_manager_ui(state: &mut State, ui: &mut egui::Ui) {
         super::pick::ui(state, ui);
         return;
     }
+    if state.cad.plane_form.is_some() {
+        super::planes::form_ui(state, ui);
+        return;
+    }
     if super::sketching(state) {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| super::sketch::props_ui(state, ui));
         return;
@@ -222,10 +226,7 @@ fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
             for (i, f) in s.faces.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{i}  {}  ({}, {} mm²)", f.name, f.kind, num_text(f.area))).small());
-                    if f.kind == "plane"
-                        && super::sketch::plane_for_face(f.centroid, f.direction).is_some()
-                        && ui.small_button("Sketch here").on_hover_text("Start a sketch on this flat face").clicked()
-                    {
+                    if f.kind == "plane" && ui.small_button("Sketch here").on_hover_text("Start a sketch on this flat face").clicked() {
                         sketch_on = Some(f.clone());
                     }
                 });
@@ -233,6 +234,7 @@ fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
         });
     }
     start_face_sketch(state, sketch_on);
+    super::planes::list_ui(state, ui);
 }
 
 fn start_face_sketch(state: &mut State, face: Option<aurafx_pipeline::CadFace>) {

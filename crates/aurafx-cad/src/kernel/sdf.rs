@@ -286,12 +286,12 @@ pub fn shape(s: &Shape) -> Sdf {
                 EdgeTreatment::None => EdgeTreatment::None,
             };
             let prism = Sdf::Prism { profile: Profile2::new(&sketch.profiles()), z0, z1, draft, top: clamp_edge(top_edge), bottom: clamp_edge(bottom_edge) };
-            let (rot, origin) = sketch.plane.frame(sketch.offset);
+            let (rot, origin) = sketch.placement_frame();
             Sdf::Frame { inner: Box::new(prism), rot, origin }
         }
         Shape::SketchRevolve { sketch, angle_deg } => {
             let rev = Sdf::RevolveProfile { profile: Profile2::new(&sketch.profiles()), angle: angle_deg.to_radians().clamp(0.0, TAU) };
-            let (rot, origin) = sketch.plane.frame(sketch.offset);
+            let (rot, origin) = sketch.placement_frame();
             // Revolve space (axis Z) → sketch local (axis = local y): Rx(−90°).
             Sdf::Frame { inner: Box::new(rev), rot: rot * DMat3::from_rotation_x(-PI / 2.0), origin }
         }

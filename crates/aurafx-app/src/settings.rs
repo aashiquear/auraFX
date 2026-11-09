@@ -49,7 +49,7 @@ impl Default for Settings {
             dark_theme: true,
             ui_scale: 1.0,
             auto_run_ai_code: false,
-            ai_agent_mode: false,
+            ai_agent_mode: true,
             show_orientation_axes: true,
             default_colormap: "Viridis".into(),
             hosts: Vec::new(),

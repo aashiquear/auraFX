@@ -161,11 +161,41 @@ e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs 
 ## Sketching
 
 A sketch is a drawing on a plane that a feature extrudes or revolves. Start one from the
-ribbon's **Sketch** tab: **Top (XY)**, **Front (XZ)** or **Right (YZ)**, or **Top of the part**
-(the plane of the highest face, to add a boss or cut a pocket). To sketch on a flat face, select
-no feature, open *Faces* in the PropertyManager and press **Sketch here** next to a face whose
-normal points along x, y or z. To change an existing feature's sketch, right-click it in the
-FeatureManager and choose **Edit sketch…**, or press **Edit sketch…** in its properties.
+ribbon's **Sketch** tab:
+
+- **Top (XY)**, **Front (XZ)** or **Right (YZ)**, or **Top of the part** (the plane of the
+  highest face, to add a boss or cut a pocket).
+- **A face…** opens the face picker: click any flat face of the part in the 3D view (or tick it
+  in the list) and press **Apply**. Slanted faces work too: the sketch lies on the face, its x
+  axis along the world's x (or y) laid flat on it. With no feature selected, *Faces* in the
+  PropertyManager also has **Sketch here** next to each flat face.
+- A **reference plane** (each one has a button in the tab), made with **Plane…**.
+
+To change an existing feature's sketch, right-click it in the FeatureManager and choose **Edit
+sketch…**, or press **Edit sketch…** in its properties.
+
+### Reference planes
+
+**Plane…** opens a form in the PropertyManager that makes a named plane, kept with the part:
+
+- **From a plane**: Top, Front, Right or another reference plane, moved by an **Offset** along its
+  normal and turned by an **Angle** about its own x or y axis.
+- **From a face**: a flat face of the part, moved and turned the same way.
+- **Through 3 points**: the normal follows the right-hand rule from point 1 to 2 to 3, and the
+  sketch's x axis runs from point 1 to point 2.
+
+The planes show as dashed squares with their names in the 3D view, and are listed under
+*Reference planes* in the PropertyManager (no feature selected) with **Sketch** and **×**
+(remove; sketches already drawn on a plane keep their place). A sketch on a plane 20 above the
+top plane, turned 30° about its x axis, extrudes along the turned normal in both kernels.
+
+```python
+m.cad.plane(name="Tilted", from_plane="XY", offset=20, angle=30, about="x")
+m.cad.plane(name="P", points=[(0, 0, 0), (10, 0, 0), (0, 10, 5)])
+m.cad.extrude(m.cad.sketch(plane="Tilted").rectangle(20, 10), depth=5)
+```
+
+![A block on a reference plane turned 30°, drawn as a dashed square named Tilted, with the New reference plane form](images/cad_planes.png)
 
 The canvas takes the place of the 3D view while a sketch is open:
 
@@ -173,16 +203,30 @@ The canvas takes the place of the 3D view while a sketch is open:
 
 - **Draw** with the tools in the ribbon: *Line* (connected lines; right-click ends the chain),
   *Rectangle* (two corners), *Circle* (center, then a point on it), *Arc* (center, start,
-  end), *Spline*, *Point*. New points snap to existing ones (which joins shapes) and to a grid
-  (set in the PropertyManager). A line drawn nearly horizontal or vertical becomes so.
+  end), *Spline*, *Point*. A line drawn nearly horizontal or vertical becomes so.
+- **Snap** (the ribbon's toggle) places new points on what is under the cursor, shown by an
+  orange mark and its name: existing **points** (which joins shapes), **centers** of circles and
+  arcs, **midpoints** of lines, **quadrants** of circles, **intersections**, the nearest point
+  **on curves**, and the **grid**. While drawing, dashed **guide lines** show when the cursor
+  lines up horizontally or vertically with a point, also one far away or the last point of the
+  shape, and the point lands on that line. Each kind is switched on or off under *Snap* in the
+  PropertyManager, with the grid step; hold `Ctrl` to place a point freely. A point placed on a
+  midpoint, a curve or an intersection is constrained there (midpoint, on line, on circle).
 - **Select** shapes and points by clicking (Shift adds); drag a point to move it. Right or
   middle mouse drag pans, the wheel zooms, `Esc` ends a chain, `Del` deletes.
 - **Constrain** the selection with the ribbon: horizontal, vertical, parallel, perpendicular,
   equal, tangent, concentric, coincident, midpoint, on line, on circle, symmetric, fix.
-  **Dimension** it: length, radius, diameter, distance (also horizontal and vertical) and angle.
-- A dimension starts at the current size. Edit it in the **Constraints** list in the
-  PropertyManager: type a number, or an expression of the part's dimensions (`width / 2`,
-  `3 in`), and the sketch follows the dimension from then on.
+  **Dimension** it: *Length* of a line, *Radius*, *Diameter*, *Distance* between two points (also
+  *Horizontal distance* and *Vertical distance*), *Distance to line* (a point and a line),
+  *Distance between lines* (two parallel lines) and *Angle* between two lines.
+- A dimension starts at the current size, with its value open for typing: type a number, or an
+  expression of the part's dimensions (`width / 2`, `3 in`), and press `Enter`; the sketch follows
+  the dimension from then on. Dimensions are drawn with extension lines and arrows (an arc for
+  an angle, a leader for a radius or diameter). **Drag a label** to move it where it reads best,
+  and **double-click** it to change the value. The **Constraints** list in the PropertyManager
+  edits the same values.
+
+![Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension's value open for typing](images/cad_snap.png)
 - The **solver runs after every change**. Shapes are **blue** while the sketch can still move
   (the status says how many degrees of freedom are left), **white or black** when it is fully
   defined, and **red** when constraints conflict (remove one). *Construction* turns the
@@ -409,8 +453,8 @@ Face names carry through: an extracted set or a boundary layer can name `Bore si
 - The kernel used here describes the part as a distance field. It never fails on a hard
   combination of features, but edges are not exact lines: the faces it reports are labelled
   regions of the surface, and the same labels come back after every rebuild.
-- Sketches start on the three principal planes or on a flat face whose normal is along x, y or z;
-  a face at another angle can not be sketched on yet (a pattern on a face does follow any flat face).
+- Sketches start on the principal planes, on reference planes and on flat faces; a curved face
+  cannot be sketched on.
 - Components are placed rigidly, by position and turn; there are no mates or motion. A component
   is edited in place from Python (`component_op`); to model it with the sketch canvas, build it as
   its own CAD Model and insert the file.

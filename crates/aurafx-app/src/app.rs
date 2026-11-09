@@ -1870,6 +1870,7 @@ impl eframe::App for AuraApp {
                             "draft" => crate::cad::PickKind::Draft,
                             "mirror" => crate::cad::PickKind::MirrorFace,
                             "pattern" => crate::cad::PickKind::PatternFace,
+                            "sketch" => crate::cad::PickKind::SketchFace,
                             _ => crate::cad::PickKind::Fillet,
                         };
                         crate::cad::open_picker(&mut self.state, kind);
@@ -1895,8 +1896,13 @@ impl eframe::App for AuraApp {
                 "cad_sketch_new" => {
                     if crate::cad::editing(&self.state) {
                         let spec: serde_json::Value = serde_json::from_str(arg).unwrap_or_default();
+                        let named = spec.get("plane").and_then(|p| p.as_str()).and_then(|n| {
+                            self.state.session.lock().cad_edit.as_ref().and_then(|e| e.document.planes.iter().find(|p| p.name.eq_ignore_ascii_case(n)).cloned())
+                        });
                         if spec.get("items").is_some() {
                             crate::cad::sketch_from_spec(&mut self.state, &spec);
+                        } else if let Some(p) = named {
+                            crate::cad::sketch_on_frame(&mut self.state, p.frame, Some(p.name), false);
                         } else {
                             let plane = match spec.get("plane").and_then(|p| p.as_str()).unwrap_or("XY").to_uppercase().as_str() {
                                 "XZ" => aurafx_cad::SketchPlane::XZ,
@@ -1905,6 +1911,38 @@ impl eframe::App for AuraApp {
                             };
                             crate::cad::sketch_new(&mut self.state, plane, spec.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0), false);
                         }
+                    }
+                }
+                // "cad_sketch_cursor <x> <y> [line <point>]": for the guide's pictures, where the cursor
+                // is on the sketch (sketch units) when the mouse is not over it, optionally drawing a
+                // line from a point; "cad_sketch_dim_edit <i>": the value editor of dimension i;
+                // "cad_plane_form": the New reference plane form.
+                "cad_sketch_cursor" => {
+                    let w: Vec<&str> = arg.split_whitespace().collect();
+                    if let (Some(e), Some(x), Some(y)) =
+                        (self.state.cad.sketch.as_mut(), w.first().and_then(|v| v.parse().ok()), w.get(1).and_then(|v| v.parse().ok()))
+                    {
+                        e.demo_cursor = Some(glam::DVec2::new(x, y));
+                        if w.get(2) == Some(&"line") {
+                            e.tool = crate::cad::SketchTool::Line;
+                            e.set_chain(w.get(3).and_then(|v| v.parse().ok()));
+                        }
+                    }
+                }
+                "cad_sketch_dim_edit" => {
+                    let first = self.state.cad.sketch.as_mut().and_then(|e| e.sketch.constraints.iter_mut().position(|c| c.dim_mut().is_some()));
+                    let idx = if arg.trim() == "first" { first.ok_or(()) } else { arg.trim().parse::<usize>().map_err(|_| ()) };
+                    if let (Some(e), Ok(i)) = (self.state.cad.sketch.as_mut(), idx) {
+                        let cur =
+                            e.sketch.constraints.get_mut(i).and_then(|c| c.dim_mut()).map(|d| d.expr.clone().unwrap_or_else(|| crate::cad::num_text(d.value)));
+                        if let Some(t) = cur {
+                            e.dim_edit = Some((i, t));
+                        }
+                    }
+                }
+                "cad_plane_form" => {
+                    if crate::cad::editing(&self.state) {
+                        crate::cad::open_plane_form(&mut self.state);
                     }
                 }
                 // "cad_sketch_edit <feature>": open the sketch canvas on a feature's sketch.

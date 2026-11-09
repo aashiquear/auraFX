@@ -20,12 +20,14 @@ pub enum PickKind {
     MirrorFace,
     /// Lay holes or bosses out on the chosen flat face.
     PatternFace,
+    /// Start a sketch on the chosen flat face.
+    SketchFace,
 }
 
 impl PickKind {
     /// One face is chosen (a radio list), not several.
     fn single(self) -> bool {
-        matches!(self, PickKind::MirrorFace | PickKind::PatternFace)
+        matches!(self, PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace)
     }
     fn faces(self) -> bool {
         !matches!(self, PickKind::Fillet | PickKind::Chamfer)
@@ -86,10 +88,10 @@ pub fn open(state: &mut State, kind: PickKind) {
                     .collect()
             })
             .map_err(|e| format!("{e}")),
-        PickKind::Shell | PickKind::Draft | PickKind::MirrorFace | PickKind::PatternFace => {
+        PickKind::Shell | PickKind::Draft | PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace => {
             aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 48, true)
                 .map(|ev| {
-                    let flat_only = matches!(kind, PickKind::MirrorFace | PickKind::PatternFace);
+                    let flat_only = matches!(kind, PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace);
                     ev.faces()
                         .filter(|(_, f)| !flat_only || f.kind == aurafx_cad::FaceKind::Plane)
                         .filter_map(|(_, f)| {
@@ -129,11 +131,12 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
         PickKind::Draft => "Draft: choose the side faces to taper (they stay fixed where the part meets the bottom plane)",
         PickKind::MirrorFace => "Mirror: choose the flat face to reflect the part about",
         PickKind::PatternFace => "Pattern: choose the flat face to lay holes or bosses out on",
+        PickKind::SketchFace => "Sketch: choose the flat face to draw on",
     };
     ui.label(RichText::new(title).strong());
     ui.label(RichText::new("Click the part in the 3D view to choose (click again to un-choose), or tick the list.").weak().small());
     match p.kind {
-        PickKind::MirrorFace => {}
+        PickKind::MirrorFace | PickKind::SketchFace => {}
         PickKind::PatternFace => {
             let f = &mut p.form;
             ui.horizontal(|ui| {
@@ -246,6 +249,10 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
             PickKind::Fillet => op(state, "edge_blend", json!({"edges": picks, "size": size})),
             PickKind::Chamfer => op(state, "edge_blend", json!({"edges": picks, "size": size, "chamfer": true})),
             PickKind::Shell => op(state, "shell_faces", json!({"faces": picks, "thickness": size})),
+            PickKind::SketchFace => {
+                super::sketch::begin_on_face_at(state, picks[0], face_dir, &face_name);
+                Default::default()
+            }
         };
     } else if cancel {
         state.cad.pick = None;

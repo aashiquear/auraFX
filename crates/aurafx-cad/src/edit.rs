@@ -9,7 +9,7 @@
 use crate::document::*;
 use crate::expr;
 use crate::path::shapes;
-use crate::sketch::{Constraint, Dim, Entity, Sketch, SketchPlane};
+use crate::sketch::{Constraint, Dim, Entity, PlaneFrame, Sketch, SketchPlane};
 use crate::{CadError, Id};
 use glam::DVec2;
 use serde_json::{json, Value};
@@ -33,7 +33,7 @@ fn num(doc: &Document, v: &Value) -> Result<(f64, Option<String>), CadError> {
 
 fn dim(doc: &Document, v: &Value) -> Result<Dim, CadError> {
     let (x, e) = num(doc, v)?;
-    Ok(Dim { value: x, expr: e })
+    Ok(Dim { value: x, expr: e, at: None })
 }
 
 fn vec3(v: Option<&Value>, default: [f64; 3]) -> [f64; 3] {
@@ -194,13 +194,78 @@ fn plane_of(v: Option<&Value>) -> Result<SketchPlane, CadError> {
     }
 }
 
+fn vec3_of(v: Option<&Value>) -> Option<[f64; 3]> {
+    let a = v?.as_array()?;
+    (a.len() == 3).then(|| [a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0), a[2].as_f64().unwrap_or(0.0)])
+}
+
+/// `{"origin": [x, y, z], "normal": [..], "x_axis": [..] (optional)}` as a plane frame.
+fn frame_of(v: &Value) -> Result<PlaneFrame, CadError> {
+    let o = vec3_of(v.get("origin")).unwrap_or([0.0; 3]);
+    let n = vec3_of(v.get("normal")).ok_or_else(|| CadError::Edit("a plane needs \"normal\": [x, y, z]".into()))?;
+    PlaneFrame::new(o, n, vec3_of(v.get("x_axis"))).ok_or_else(|| CadError::Edit("the plane's normal is zero".into()))
+}
+
+/// A reference plane from `plane` arguments: `{"name", "from": "XY"|"XZ"|"YZ"|<plane>, "offset",
+/// "angle", "about": "x"|"y"}`, `{"points": [[..], [..], [..]]}` or `{"origin", "normal", "x_axis"}`.
+pub fn ref_plane_of(doc: &Document, args: &Value) -> Result<RefPlane, CadError> {
+    let num = |k: &str| args.get(k).and_then(|x| x.as_f64()).unwrap_or(0.0);
+    let (frame, how) = if let Some(pts) = args.get("points").and_then(|p| p.as_array()) {
+        let p: Vec<[f64; 3]> = pts.iter().filter_map(|x| vec3_of(Some(x))).collect();
+        if p.len() != 3 {
+            return bad("\"points\" takes three points [x, y, z]");
+        }
+        (PlaneFrame::through(p[0], p[1], p[2]).ok_or_else(|| CadError::Edit("the three points are on one line".into()))?, "through 3 points".to_string())
+    } else if args.get("normal").is_some() {
+        (frame_of(args)?, "by origin and normal".to_string())
+    } else {
+        let from = args.get("from").and_then(|f| f.as_str()).unwrap_or("XY");
+        let (off, ang) = (num("offset"), num("angle"));
+        let about_x = args.get("about").and_then(|a| a.as_str()).map(|a| a.eq_ignore_ascii_case("x")).unwrap_or(true);
+        let base = match doc.planes.iter().find(|p| p.name.eq_ignore_ascii_case(from)) {
+            Some(rp) => {
+                // Turn about the reference plane's own x or y axis, through its moved origin.
+                let r = rp.frame.basis();
+                let moved = rp.frame.offset(off);
+                let axis = if about_x { r.x_axis } else { r.y_axis };
+                let q = glam::DQuat::from_axis_angle(axis, ang.to_radians());
+                PlaneFrame { origin: moved.origin, x_axis: (q * r.x_axis).to_array(), normal: (q * r.z_axis).to_array() }
+            }
+            None => PlaneFrame::from_principal(plane_of(Some(&json!(from)))?, off, ang, about_x),
+        };
+        let mut how = from.to_string();
+        if off != 0.0 {
+            how += &format!(" offset {off}");
+        }
+        if ang != 0.0 {
+            how += &format!(" turned {ang}° about its {}", if about_x { "x" } else { "y" });
+        }
+        (base, how)
+    };
+    let name = match args.get("name").and_then(|n| n.as_str()).filter(|n| !n.trim().is_empty()) {
+        Some(n) => n.to_string(),
+        None => (1..).map(|k| format!("Plane {k}")).find(|n| !doc.planes.iter().any(|p| &p.name == n)).unwrap(),
+    };
+    let how = args.get("how").and_then(|h| h.as_str()).map(str::to_string).unwrap_or(how);
+    Ok(RefPlane { name, frame, how })
+}
+
 /// A sketch from its description:
 /// `{"plane": "XY", "offset": 0, "items": [{"rectangle": {"corner": [0, 0], "w": "width", "h": 20}},
 /// {"circle": {"center": [5, 5], "r": 2}}, {"polygon": [[0, 0], [10, 0], [5, 8]]}]}`.
 /// Rectangles and circles come fully dimensioned (with the expressions as dimensions), polygons
 /// as free lines.
 pub fn sketch_from_spec(doc: &Document, spec: &Value) -> Result<Sketch, CadError> {
-    let mut s = Sketch::new(plane_of(spec.get("plane"))?);
+    // The plane: XY/XZ/YZ (Top/Front/Right), a reference plane's name, or {"origin", "normal", "x_axis"}.
+    let pv = spec.get("plane");
+    let mut s = match pv {
+        Some(Value::Object(_)) => Sketch::new(SketchPlane::XY).on_frame(frame_of(pv.unwrap())?, None),
+        Some(Value::String(n)) if doc.planes.iter().any(|p| p.name.eq_ignore_ascii_case(n)) => {
+            let rp = doc.planes.iter().find(|p| p.name.eq_ignore_ascii_case(n)).unwrap();
+            Sketch::new(SketchPlane::XY).on_frame(rp.frame, Some(rp.name.clone()))
+        }
+        _ => Sketch::new(plane_of(pv)?),
+    };
     s.offset = spec.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0);
     let items = spec.get("items").and_then(|i| i.as_array()).ok_or_else(|| CadError::Edit("a sketch needs \"items\": [...]".into()))?;
     for item in items {
@@ -720,6 +785,27 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             doc.configurations.push(Configuration { name: name.into(), overrides });
             Ok(json!({}))
         }
+        "plane" => {
+            let rp = ref_plane_of(doc, args)?;
+            if ["XY", "XZ", "YZ", "TOP", "FRONT", "RIGHT"].contains(&rp.name.to_uppercase().as_str()) {
+                return bad(format!("'{}' is the name of a principal plane", rp.name));
+            }
+            let name = rp.name.clone();
+            match doc.planes.iter_mut().find(|p| p.name == name) {
+                Some(p) => *p = rp,
+                None => doc.planes.push(rp),
+            }
+            Ok(json!({"name": name}))
+        }
+        "remove_plane" => {
+            let name = args.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let n0 = doc.planes.len();
+            doc.planes.retain(|p| p.name != name);
+            if doc.planes.len() == n0 {
+                return bad(format!("no plane '{name}'"));
+            }
+            Ok(json!({}))
+        }
         "activate" => {
             let name = args.get("name").and_then(|n| n.as_str()).map(str::to_string);
             if let Some(n) = &name {
@@ -731,7 +817,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(json!({}))
         }
         other => bad(format!(
-            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, mirror_plane, draft, face_pattern, combine, component_add, component_move, component_remove, component_visible, component_rename, component_op, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, activate)"
+            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, mirror_plane, draft, face_pattern, combine, component_add, component_move, component_remove, component_visible, component_rename, component_op, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, activate, plane, remove_plane)"
         )),
     }
 }

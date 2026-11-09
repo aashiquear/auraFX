@@ -8,9 +8,12 @@
 mod conflicts;
 mod feature_manager;
 mod pick;
+mod planes;
 mod property_manager;
 mod ribbon;
 mod sketch;
+mod sketch_dims;
+mod sketch_snap;
 mod timeline;
 
 use crate::app::{LayoutAction, Pane, State};
@@ -22,6 +25,13 @@ use serde_json::{json, Value};
 pub use conflicts::hold_banner;
 pub use feature_manager::feature_manager_ui;
 pub use pick::{click as pick_click, draw_overlay as pick_overlay, open as open_picker, picking, PickKind};
+pub use planes::draw_overlay as planes_overlay;
+pub use sketch::{begin_on_frame as sketch_on_frame, Tool as SketchTool};
+
+/// Open the New reference plane form.
+pub fn open_plane_form(state: &mut State) {
+    state.cad.plane_form = Some(planes::PlaneForm::default());
+}
 pub use property_manager::property_manager_ui;
 pub use ribbon::{check_fit, ribbon_ui};
 pub use sketch::{begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, canvas_ui as sketch_canvas_ui, sketching};
@@ -80,6 +90,8 @@ pub struct CadUi {
     pub sketch: Option<sketch::SketchEdit>,
     /// The edge or face picker of the Modify tab.
     pub pick: Option<pick::Pick>,
+    /// The New reference plane form.
+    pub plane_form: Option<planes::PlaneForm>,
     /// The component selected in the FeatureManager (by name).
     pub component: Option<String>,
     /// The overlaps found by the last "Check fit": the two parts and the volume in mm³.
@@ -105,6 +117,7 @@ impl Default for CadUi {
             rerun_now: true,
             sketch: None,
             pick: None,
+            plane_form: None,
             component: None,
             fit: None,
         }

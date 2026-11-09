@@ -8,6 +8,9 @@ use egui::RichText;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::sync::mpsc::Receiver;
 
+/// The model list's entry when no model is chosen (the shipped default).
+pub const NO_MODEL: &str = "<no model>";
+
 pub struct Assistant {
     pub messages: Vec<ChatMessage>,
     pub input: String,
@@ -103,11 +106,7 @@ impl Assistant {
                     Ok(m) => {
                         tracing::info!("AI: {} models available from {:?}", m.len(), self.cfg.provider);
                         self.models = m;
-                        if self.cfg.model.is_empty() {
-                            if let Some(first) = self.models.first() {
-                                self.cfg.model = first.clone();
-                            }
-                        }
+                        // No model is chosen for the user: the list stays at <no model> until they pick one.
                     }
                     Err(e) => {
                         tracing::warn!("AI: listing models failed: {e:#}");
@@ -187,14 +186,13 @@ impl Assistant {
             return;
         }
         self.error = None;
-        if self.cfg.model.is_empty() && self.cfg.provider == ProviderKind::Ollama {
-            match self.models.first() {
-                Some(m) => self.cfg.model = m.clone(),
-                None => {
-                    self.error = Some("No model selected. Pick one in the model list (or check the Ollama URL in Settings).".into());
-                    return;
-                }
-            }
+        if self.cfg.model.is_empty() {
+            self.error = Some(if self.models.is_empty() && self.cfg.provider == ProviderKind::Ollama {
+                "No model selected, and none is listed: check the Ollama URL in Settings, then pick a model in the model list.".into()
+            } else {
+                "No model selected: pick one in the model list beside the provider.".into()
+            });
+            return;
         }
         let mut m = ChatMessage::new(Role::User, text);
         m.images = images;
@@ -265,8 +263,9 @@ impl Assistant {
             ui.label("Model");
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("model")
-                    .selected_text(if self.cfg.model.is_empty() { "(default)".to_string() } else { self.cfg.model.clone() })
+                    .selected_text(if self.cfg.model.is_empty() { NO_MODEL.to_string() } else { self.cfg.model.clone() })
                     .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.cfg.model, String::new(), NO_MODEL);
                         for m in self.models.clone() {
                             ui.selectable_value(&mut self.cfg.model, m.clone(), m);
                         }
@@ -416,10 +415,16 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             state.settings.ai = a.cfg.clone();
             a.refresh_models();
         }
-        let model_label = if a.cfg.model.is_empty() { a.cfg.model_or_default() } else { a.cfg.model.clone() };
+        let model_label = if a.cfg.model.is_empty() { NO_MODEL.to_string() } else { a.cfg.model.clone() };
         let before_model = a.cfg.model.clone();
         egui::ComboBox::from_id_salt("asst_model").selected_text(model_label).width(160.0).show_ui(ui, |ui| {
-            for m in a.models.clone() {
+            ui.selectable_value(&mut a.cfg.model, String::new(), NO_MODEL);
+            let mut listed = a.models.clone();
+            // Cloud providers: their usual model is offered even when the list is empty.
+            if a.cfg.provider != ProviderKind::Ollama && !listed.contains(&a.cfg.model_or_default()) {
+                listed.insert(0, a.cfg.model_or_default());
+            }
+            for m in listed {
                 ui.selectable_value(&mut a.cfg.model, m.clone(), m);
             }
             if a.models.is_empty() {

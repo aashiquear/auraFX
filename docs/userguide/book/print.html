@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5982bd4e.js";
+            window.path_to_searchindex_js = "searchindex-37608fda.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -1341,7 +1341,7 @@ with ranges, bounds, cell types and time steps, plus the last error. It never re
 data itself. The description is rebuilt for every message.</p>
 <h2 id="running-the-code-it-writes"><a class="header" href="#running-the-code-it-writes">Running the code it writes</a></h2>
 <p>Code appears in a block with a <strong>Run code</strong> button; nothing runs until you press it, unless
-<strong>auto-run code</strong> is ticked. With <strong>agent mode</strong> on, the assistant runs its code itself, looks
+<strong>auto-run code</strong> is ticked. With <strong>agent mode</strong> on (the default), the assistant runs its code itself, looks
 at the result (values, errors, the pipeline) and keeps going until the task is done, so
 “find where the plate yields and plot it” becomes several steps without you in between.</p>
 <pre><code class="language-python">afx.ask("make an isosurface at the mean temperature")
@@ -1388,6 +1388,9 @@ face operations (patterns on a face, draft, mirror).</p>
 </tbody>
 </table>
 </div>
+<p>No model is chosen at first: the model list beside the provider shows <code>&lt;no model&gt;</code> until you
+pick one, and the choice is kept for the next start. With <code>&lt;no model&gt;</code>, messages are not sent:
+pick a model first.</p>
 <p>Answers stream as they are produced. The suggestion buttons under the welcome text are good
 first questions for a new file.</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -4169,26 +4172,66 @@ e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs 
 </code></pre>
 <h2 id="sketching"><a class="header" href="#sketching">Sketching</a></h2>
 <p>A sketch is a drawing on a plane that a feature extrudes or revolves. Start one from the
-ribbon’s <strong>Sketch</strong> tab: <strong>Top (XY)</strong>, <strong>Front (XZ)</strong> or <strong>Right (YZ)</strong>, or <strong>Top of the part</strong>
-(the plane of the highest face, to add a boss or cut a pocket). To sketch on a flat face, select
-no feature, open <em>Faces</em> in the PropertyManager and press <strong>Sketch here</strong> next to a face whose
-normal points along x, y or z. To change an existing feature’s sketch, right-click it in the
-FeatureManager and choose <strong>Edit sketch…</strong>, or press <strong>Edit sketch…</strong> in its properties.</p>
+ribbon’s <strong>Sketch</strong> tab:</p>
+<ul>
+<li><strong>Top (XY)</strong>, <strong>Front (XZ)</strong> or <strong>Right (YZ)</strong>, or <strong>Top of the part</strong> (the plane of the
+highest face, to add a boss or cut a pocket).</li>
+<li><strong>A face…</strong> opens the face picker: click any flat face of the part in the 3D view (or tick it
+in the list) and press <strong>Apply</strong>. Slanted faces work too: the sketch lies on the face, its x
+axis along the world’s x (or y) laid flat on it. With no feature selected, <em>Faces</em> in the
+PropertyManager also has <strong>Sketch here</strong> next to each flat face.</li>
+<li>A <strong>reference plane</strong> (each one has a button in the tab), made with <strong>Plane…</strong>.</li>
+</ul>
+<p>To change an existing feature’s sketch, right-click it in the FeatureManager and choose <strong>Edit
+sketch…</strong>, or press <strong>Edit sketch…</strong> in its properties.</p>
+<h3 id="reference-planes"><a class="header" href="#reference-planes">Reference planes</a></h3>
+<p><strong>Plane…</strong> opens a form in the PropertyManager that makes a named plane, kept with the part:</p>
+<ul>
+<li><strong>From a plane</strong>: Top, Front, Right or another reference plane, moved by an <strong>Offset</strong> along its
+normal and turned by an <strong>Angle</strong> about its own x or y axis.</li>
+<li><strong>From a face</strong>: a flat face of the part, moved and turned the same way.</li>
+<li><strong>Through 3 points</strong>: the normal follows the right-hand rule from point 1 to 2 to 3, and the
+sketch’s x axis runs from point 1 to point 2.</li>
+</ul>
+<p>The planes show as dashed squares with their names in the 3D view, and are listed under
+<em>Reference planes</em> in the PropertyManager (no feature selected) with <strong>Sketch</strong> and <strong>×</strong>
+(remove; sketches already drawn on a plane keep their place). A sketch on a plane 20 above the
+top plane, turned 30° about its x axis, extrudes along the turned normal in both kernels.</p>
+<pre><code class="language-python">m.cad.plane(name="Tilted", from_plane="XY", offset=20, angle=30, about="x")
+m.cad.plane(name="P", points=[(0, 0, 0), (10, 0, 0), (0, 10, 5)])
+m.cad.extrude(m.cad.sketch(plane="Tilted").rectangle(20, 10), depth=5)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_planes.png" alt="A block on a reference plane turned 30°, drawn as a dashed square named Tilted, with the New reference plane form"><span class="img-wrapper"><img src="images/cad_planes.png" alt="A block on a reference plane turned 30°, drawn as a dashed square named Tilted, with the New reference plane form"></span></label></p>
 <p>The canvas takes the place of the 3D view while a sketch is open:</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sketch.png" alt="The sketch canvas on the L-bracket: its outline with the dimensions from the part’s own dimensions (length, height, t), the status “Fully defined” and the constraint list"><span class="img-wrapper"><img src="images/cad_sketch.png" alt="The sketch canvas on the L-bracket: its outline with the dimensions from the part’s own dimensions (length, height, t), the status “Fully defined” and the constraint list"></span></label></p>
 <ul>
 <li><strong>Draw</strong> with the tools in the ribbon: <em>Line</em> (connected lines; right-click ends the chain),
 <em>Rectangle</em> (two corners), <em>Circle</em> (center, then a point on it), <em>Arc</em> (center, start,
-end), <em>Spline</em>, <em>Point</em>. New points snap to existing ones (which joins shapes) and to a grid
-(set in the PropertyManager). A line drawn nearly horizontal or vertical becomes so.</li>
+end), <em>Spline</em>, <em>Point</em>. A line drawn nearly horizontal or vertical becomes so.</li>
+<li><strong>Snap</strong> (the ribbon’s toggle) places new points on what is under the cursor, shown by an
+orange mark and its name: existing <strong>points</strong> (which joins shapes), <strong>centers</strong> of circles and
+arcs, <strong>midpoints</strong> of lines, <strong>quadrants</strong> of circles, <strong>intersections</strong>, the nearest point
+<strong>on curves</strong>, and the <strong>grid</strong>. While drawing, dashed <strong>guide lines</strong> show when the cursor
+lines up horizontally or vertically with a point, also one far away or the last point of the
+shape, and the point lands on that line. Each kind is switched on or off under <em>Snap</em> in the
+PropertyManager, with the grid step; hold <code>Ctrl</code> to place a point freely. A point placed on a
+midpoint, a curve or an intersection is constrained there (midpoint, on line, on circle).</li>
 <li><strong>Select</strong> shapes and points by clicking (Shift adds); drag a point to move it. Right or
 middle mouse drag pans, the wheel zooms, <code>Esc</code> ends a chain, <code>Del</code> deletes.</li>
 <li><strong>Constrain</strong> the selection with the ribbon: horizontal, vertical, parallel, perpendicular,
 equal, tangent, concentric, coincident, midpoint, on line, on circle, symmetric, fix.
-<strong>Dimension</strong> it: length, radius, diameter, distance (also horizontal and vertical) and angle.</li>
-<li>A dimension starts at the current size. Edit it in the <strong>Constraints</strong> list in the
-PropertyManager: type a number, or an expression of the part’s dimensions (<code>width / 2</code>,
-<code>3 in</code>), and the sketch follows the dimension from then on.</li>
+<strong>Dimension</strong> it: <em>Length</em> of a line, <em>Radius</em>, <em>Diameter</em>, <em>Distance</em> between two points (also
+<em>Horizontal distance</em> and <em>Vertical distance</em>), <em>Distance to line</em> (a point and a line),
+<em>Distance between lines</em> (two parallel lines) and <em>Angle</em> between two lines.</li>
+<li>A dimension starts at the current size, with its value open for typing: type a number, or an
+expression of the part’s dimensions (<code>width / 2</code>, <code>3 in</code>), and press <code>Enter</code>; the sketch follows
+the dimension from then on. Dimensions are drawn with extension lines and arrows (an arc for
+an angle, a leader for a radius or diameter). <strong>Drag a label</strong> to move it where it reads best,
+and <strong>double-click</strong> it to change the value. The <strong>Constraints</strong> list in the PropertyManager
+edits the same values.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_snap.png" alt="Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension’s value open for typing"><span class="img-wrapper"><img src="images/cad_snap.png" alt="Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension’s value open for typing"></span></label></p>
+<ul>
 <li>The <strong>solver runs after every change</strong>. Shapes are <strong>blue</strong> while the sketch can still move
 (the status says how many degrees of freedom are left), <strong>white or black</strong> when it is fully
 defined, and <strong>red</strong> when constraints conflict (remove one). <em>Construction</em> turns the
@@ -4383,8 +4426,8 @@ Face names carry through: an extracted set or a boundary layer can name <code>Bo
 <li>The kernel used here describes the part as a distance field. It never fails on a hard
 combination of features, but edges are not exact lines: the faces it reports are labelled
 regions of the surface, and the same labels come back after every rebuild.</li>
-<li>Sketches start on the three principal planes or on a flat face whose normal is along x, y or z;
-a face at another angle can not be sketched on yet (a pattern on a face does follow any flat face).</li>
+<li>Sketches start on the principal planes, on reference planes and on flat faces; a curved face
+cannot be sketched on.</li>
 <li>Components are placed rigidly, by position and turn; there are no mates or motion. A component
 is edited in place from Python (<code>component_op</code>); to model it with the sketch canvas, build it as
 its own CAD Model and insert the file.</li>

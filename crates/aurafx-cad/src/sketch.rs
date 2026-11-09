@@ -80,6 +80,63 @@ impl SketchPlane {
     }
 }
 
+/// A plane anywhere: an origin, the direction of the sketch's x axis in it and its normal
+/// (the y axis is normal × x). Used for sketches on slanted faces and on reference planes.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PlaneFrame {
+    pub origin: [f64; 3],
+    pub x_axis: [f64; 3],
+    pub normal: [f64; 3],
+}
+
+impl PlaneFrame {
+    /// A frame from an origin and a normal; the x axis is the given direction made
+    /// perpendicular to the normal (world x, or world y when x is along the normal, if none).
+    pub fn new(origin: [f64; 3], normal: [f64; 3], x_hint: Option<[f64; 3]>) -> Option<PlaneFrame> {
+        let n = DVec3::from_array(normal);
+        if n.length() < 1e-12 {
+            return None;
+        }
+        let n = n.normalize();
+        let pick = |v: DVec3| {
+            let v = v - n * v.dot(n);
+            (v.length() > 1e-6).then(|| v.normalize())
+        };
+        let x = x_hint.and_then(|h| pick(DVec3::from_array(h))).or_else(|| pick(DVec3::X)).or_else(|| pick(DVec3::Y))?;
+        Some(PlaneFrame { origin, x_axis: x.to_array(), normal: n.to_array() })
+    }
+    /// The plane through three points (normal by the right-hand rule a → b → c; x along a → b).
+    pub fn through(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<PlaneFrame> {
+        let (a3, b3, c3) = (DVec3::from_array(a), DVec3::from_array(b), DVec3::from_array(c));
+        let n = (b3 - a3).cross(c3 - a3);
+        if n.length() < 1e-12 * (b3 - a3).length().max(1.0).powi(2) {
+            return None;
+        }
+        Self::new(a, n.to_array(), Some((b3 - a3).to_array()))
+    }
+    /// A principal plane moved `offset` along its normal, then turned `angle` degrees about its
+    /// own local x (`about_x`) or y axis.
+    pub fn from_principal(plane: SketchPlane, offset: f64, angle_deg: f64, about_x: bool) -> PlaneFrame {
+        let (r, t) = plane.frame(offset);
+        let axis = if about_x { r.x_axis } else { r.y_axis };
+        let q = DQuat::from_axis_angle(axis, angle_deg.to_radians());
+        PlaneFrame { origin: t.to_array(), x_axis: (q * r.x_axis).to_array(), normal: (q * r.z_axis).to_array() }
+    }
+    /// Local → world rotation (columns: x, y, normal), made orthonormal.
+    pub fn basis(&self) -> DMat3 {
+        let n = DVec3::from_array(self.normal).normalize_or(DVec3::Z);
+        let x = DVec3::from_array(self.x_axis);
+        let x = (x - n * x.dot(n)).normalize_or(n.any_orthonormal_vector());
+        DMat3::from_cols(x, n.cross(x), n)
+    }
+    /// The same plane moved `offset` along its normal.
+    pub fn offset(&self, offset: f64) -> PlaneFrame {
+        let n = self.basis().z_axis;
+        let o = DVec3::from_array(self.origin) + n * offset;
+        PlaneFrame { origin: o.to_array(), ..*self }
+    }
+}
+
 /// Sketch geometry. Points are referenced by index into [`Sketch::points`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -149,15 +206,18 @@ pub struct Dim {
     pub value: f64,
     #[serde(default)]
     pub expr: Option<String>,
+    /// Where the label sits, as an offset from its usual place (sketch units); None: the usual place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<[f64; 2]>,
 }
 
 impl Dim {
     pub fn new(value: f64) -> Self {
-        Self { value, expr: None }
+        Self { value, expr: None, at: None }
     }
     /// Expression-driven dimension (value filled in by [`Sketch::solve_with`]).
     pub fn expr(expr: impl Into<String>) -> Self {
-        Self { value: 0.0, expr: Some(expr.into()) }
+        Self { value: 0.0, expr: Some(expr.into()), at: None }
     }
 }
 
@@ -197,6 +257,9 @@ pub enum Constraint {
     PointOnCircle(usize, usize),
     /// Point at the midpoint of a line.
     Midpoint(usize, usize),
+    /// The perpendicular distance from a point to a line (also between parallel lines, through
+    /// an end of one).
+    PointLineDistance(usize, usize, Dim),
     /// Points `p` and `q` symmetric about a line.
     Symmetric(usize, usize, usize),
     Fix(usize),
@@ -211,7 +274,8 @@ impl Constraint {
             | Constraint::Length(_, d)
             | Constraint::Radius(_, d)
             | Constraint::Diameter(_, d)
-            | Constraint::Angle(_, _, d) => Some(d),
+            | Constraint::Angle(_, _, d)
+            | Constraint::PointLineDistance(_, _, d) => Some(d),
             _ => None,
         }
     }
@@ -223,7 +287,8 @@ impl Constraint {
             | Constraint::Length(_, d)
             | Constraint::Radius(_, d)
             | Constraint::Diameter(_, d)
-            | Constraint::Angle(_, _, d) => Some(d),
+            | Constraint::Angle(_, _, d)
+            | Constraint::PointLineDistance(_, _, d) => Some(d),
             _ => None,
         }
     }
@@ -264,6 +329,12 @@ pub struct Sketch {
     /// Plane offset along its normal (mm).
     #[serde(default)]
     pub offset: f64,
+    /// A plane anywhere (a slanted face, a reference plane): replaces `plane` when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<PlaneFrame>,
+    /// The name of the reference plane or face the sketch was started on (for display).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane_name: Option<String>,
 }
 
 /// Residual tolerance (mm) for convergence.
@@ -277,6 +348,35 @@ impl Sketch {
         self.plane = plane;
         self.offset = offset;
         self
+    }
+    /// The sketch on a plane anywhere.
+    pub fn on_frame(mut self, frame: PlaneFrame, name: Option<String>) -> Self {
+        self.frame = Some(frame);
+        self.plane_name = name;
+        self
+    }
+    /// Rotation (columns: local x, local y, normal) and origin of the sketch plane, offset included.
+    pub fn placement_frame(&self) -> (DMat3, DVec3) {
+        match &self.frame {
+            Some(f) => {
+                let r = f.basis();
+                (r, DVec3::from_array(f.origin) + r.z_axis * self.offset)
+            }
+            None => self.plane.frame(self.offset),
+        }
+    }
+    /// Sketch-local point → world.
+    pub fn to_world(&self, p: DVec2) -> DVec3 {
+        let (r, t) = self.placement_frame();
+        r * p.extend(0.0) + t
+    }
+    /// A short name of the plane the sketch is on.
+    pub fn plane_label(&self) -> String {
+        match (&self.plane_name, &self.frame) {
+            (Some(n), _) => n.clone(),
+            (None, Some(_)) => "a custom plane".into(),
+            (None, None) => format!("the {:?} plane", self.plane),
+        }
     }
 
     // ---- builders -------------------------------------------------------------------------
@@ -798,6 +898,10 @@ impl<'a> Ctx<'a> {
                         let (a, b) = self.line(x, *e)?;
                         let d = self.p(x, *p)? - (a + b) * 0.5;
                         out.extend([d.x, d.y]);
+                    }
+                    Constraint::PointLineDistance(p, e, d) => {
+                        let (a, b) = self.line(x, *e)?;
+                        out.push(dir(a, b).perp_dot(self.p(x, *p)? - a).abs() - d.value);
                     }
                     Constraint::Symmetric(p, q, e) => {
                         let (a, b) = self.line(x, *e)?;

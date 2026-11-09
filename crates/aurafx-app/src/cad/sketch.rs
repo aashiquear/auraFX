@@ -9,7 +9,7 @@
 
 use super::{expr_field, num_text, op};
 use crate::app::State;
-use aurafx_cad::sketch::{Constraint, Dim, Entity, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
+use aurafx_cad::sketch::{Constraint, Dim, Entity, PlaneFrame, SPoint, Sketch, SketchPlane, SolveReport, SolveStatus};
 use aurafx_cad::{BooleanOp, Id};
 use egui::{Color32, Pos2, RichText, Stroke};
 use glam::DVec2;
@@ -47,6 +47,22 @@ pub struct SketchEdit {
     pub reverse: bool,
     pub error: Option<String>,
     pub snap_grid: f64,
+    /// Which snaps are on.
+    pub snaps: super::sketch_snap::Snaps,
+    /// A dimension whose label is being dragged.
+    dim_drag: Option<usize>,
+    /// A dimension being typed into (its constraint and the text).
+    pub dim_edit: Option<(usize, String)>,
+    /// Where the cursor is taken to be when the mouse is not over the canvas (sketch units; for
+    /// scripted pictures).
+    pub demo_cursor: Option<DVec2>,
+}
+
+impl SketchEdit {
+    /// Continue a line chain from point `p`.
+    pub fn set_chain(&mut self, p: Option<usize>) {
+        self.chain = p.filter(|i| *i < self.sketch.points.len());
+    }
 }
 
 impl SketchEdit {
@@ -69,6 +85,10 @@ impl SketchEdit {
             reverse: false,
             error: None,
             snap_grid: 0.5,
+            snaps: Default::default(),
+            dim_drag: None,
+            dim_edit: None,
+            demo_cursor: None,
         }
     }
 }
@@ -105,12 +125,32 @@ pub fn plane_for_face(centroid: [f64; 3], direction: [f64; 3]) -> Option<(Sketch
     Some((plane, offset, reverse))
 }
 
-/// Sketch on a flat face of the last build (when its normal is along an axis).
-pub fn begin_on_face(state: &mut State, face: &aurafx_pipeline::CadFace) {
-    match plane_for_face(face.centroid, face.direction) {
+/// A new sketch on a plane anywhere (a reference plane or a slanted face).
+pub fn begin_on_frame(state: &mut State, frame: PlaneFrame, name: Option<String>, reverse: bool) {
+    state.cad.tab = super::RibbonTab::Sketch;
+    let sk = Sketch::new(SketchPlane::XY).on_frame(frame, name);
+    let mut e = SketchEdit::new(None, sk);
+    e.reverse = reverse;
+    state.cad.sketch = Some(e);
+    solve(state);
+}
+
+/// Sketch on a flat face given by a point on it and its outward direction: on the matching
+/// principal plane when the normal is along x, y or z, otherwise on the face's own plane (x
+/// along world x, or y, laid flat on it), named after the face.
+pub fn begin_on_face_at(state: &mut State, point: [f64; 3], direction: [f64; 3], name: &str) {
+    match plane_for_face(point, direction) {
         Some((plane, offset, reverse)) => begin_new(state, plane, offset, reverse),
-        None => state.toast("Sketches start on flat faces whose normal is along x, y or z".to_string(), true),
+        None => match PlaneFrame::new(point, direction, None) {
+            Some(f) => begin_on_frame(state, f, Some(name.to_string()), false),
+            None => state.toast("That face has no direction".to_string(), true),
+        },
     }
+}
+
+/// Sketch on a flat face of the last build.
+pub fn begin_on_face(state: &mut State, face: &aurafx_pipeline::CadFace) {
+    begin_on_face_at(state, face.centroid, face.direction, &face.name);
 }
 
 /// Edit the sketch of an extruded or revolved feature.
@@ -207,6 +247,11 @@ fn arc_pts(c: DVec2, s: DVec2, e: DVec2) -> Vec<DVec2> {
     (0..=32).map(|k| c + DVec2::from_angle(a0 + (a1 - a0) * k as f64 / 32.0) * r).collect()
 }
 
+/// The flattened points of a shape and whether it is closed.
+pub fn entity_points(sk: &Sketch, e: &Entity) -> (Vec<DVec2>, bool) {
+    entity_pts(sk, e)
+}
+
 fn entity_pts(sk: &Sketch, e: &Entity) -> (Vec<DVec2>, bool) {
     let p = |i: usize| sk.points.get(i).map(|q| q.pos()).unwrap_or_default();
     match e {
@@ -254,6 +299,7 @@ fn remap(c: &Constraint, em: &dyn Fn(usize) -> Option<usize>, pm: &dyn Fn(usize)
         Horizontal(e) => Horizontal(em(*e)?),
         Vertical(e) => Vertical(em(*e)?),
         Distance(p, q, d) => Distance(pm(*p)?, pm(*q)?, d.clone()),
+        PointLineDistance(p, e, d) => PointLineDistance(pm(*p)?, em(*e)?, d.clone()),
         HorizontalDistance(p, q, d) => HorizontalDistance(pm(*p)?, pm(*q)?, d.clone()),
         VerticalDistance(p, q, d) => VerticalDistance(pm(*p)?, pm(*q)?, d.clone()),
         Length(e, d) => Length(em(*e)?, d.clone()),
@@ -415,6 +461,9 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
             e.center = (lo + hi) * 0.5;
             e.scale = ((rect.width() as f64 / (hi.x - lo.x)).min(rect.height() as f64 / (hi.y - lo.y)) * 0.8).max(0.1) as f32;
         }
+        if e.demo_cursor.is_some() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
+            e.demo_cursor = None;
+        }
         if resp.dragged_by(egui::PointerButton::Secondary) || resp.dragged_by(egui::PointerButton::Middle) {
             let d = resp.drag_delta();
             e.center -= DVec2::new(d.x as f64, -d.y as f64) / e.scale as f64;
@@ -489,7 +538,7 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
             painter.circle_filled(s, 3.0, col);
         }
     }
-    // Constraint glyphs and dimensions.
+    // Constraint glyphs; dimensions are drawn with their lines and labels.
     let mid = |en: usize| -> DVec2 {
         match sk.entities.get(en) {
             Some(Entity::Line { a, b, .. }) => (sk.point(*a) + sk.point(*b)) * 0.5,
@@ -499,9 +548,6 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
         }
     };
     let gcolr = Color32::from_rgb(30, 150, 90);
-    let dim_text = |d: &Dim, prefix: &str, suffix: &str| {
-        format!("{prefix}{}{suffix}{}", num_text(d.value), d.expr.as_ref().map(|x| format!(" = {x}")).unwrap_or_default())
-    };
     let mut used: Vec<(Pos2, u32)> = Vec::new();
     for c in &sk.constraints {
         let (at, txt) = match c {
@@ -513,13 +559,6 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
             Constraint::Tangent(a, _) => (mid(*a), "T".into()),
             Constraint::Concentric(a, _) => (mid(*a), "◎".into()),
             Constraint::Fix(p) => (sk.point(*p), "fix".into()),
-            Constraint::Length(e, d) => (mid(*e), dim_text(d, "", "")),
-            Constraint::Radius(e, d) => (mid(*e), dim_text(d, "R", "")),
-            Constraint::Diameter(e, d) => (mid(*e), dim_text(d, "⌀", "")),
-            Constraint::Angle(a, _, d) => (mid(*a), dim_text(d, "∠", "°")),
-            Constraint::Distance(p, q, d) | Constraint::HorizontalDistance(p, q, d) | Constraint::VerticalDistance(p, q, d) => {
-                ((sk.point(*p) + sk.point(*q)) * 0.5, dim_text(d, "", ""))
-            }
             _ => continue,
         };
         let s = to_s(at);
@@ -534,6 +573,13 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         };
         painter.text(s + egui::vec2(6.0, -6.0 + 15.0 * k as f32), egui::Align2::LEFT_BOTTOM, txt, egui::FontId::proportional(12.0), gcolr);
+    }
+    let dims = super::sketch_dims::all(sk, 22.0 / scale as f64);
+    let hover_dim = resp.hover_pos().and_then(|h| super::sketch_dims::under(&dims, &to_s, h));
+    let label_bg = ui.visuals().extreme_bg_color;
+    for g in &dims {
+        let hl = hover_dim == Some(g.index) || e.dim_drag == Some(g.index);
+        super::sketch_dims::draw(&painter, g, &to_s, gcolr, label_bg, hl);
     }
     // Status.
     let (status, col) = match (&e.report, &e.error) {
@@ -550,13 +596,14 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
     painter.text(
         rect.left_bottom() + egui::vec2(10.0, -8.0),
         egui::Align2::LEFT_BOTTOM,
-        format!("Sketch on the {:?} plane · click draws or selects · right or middle drag pans · wheel zooms · Esc ends a chain · Del deletes", e.sketch.plane),
+        format!("Sketch on {} · click draws or selects · right or middle drag pans · wheel zooms · Esc ends a chain · Del deletes", e.sketch.plane_label()),
         egui::FontId::proportional(11.0),
         ui.visuals().weak_text_color(),
     );
 
     // ---- interaction
-    let hover = resp.hover_pos();
+    // A scripted cursor (for pictures) wins until the mouse moves.
+    let hover = e.demo_cursor.map(to_s).or(resp.hover_pos());
     let pick_point = |sk: &Sketch, s: Pos2| -> Option<usize> {
         sk.points
             .iter()
@@ -590,8 +637,81 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
     let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
     let del = ui.input(|i| i.key_pressed(egui::Key::Delete)) && !ui.ctx().egui_wants_keyboard_input();
     let grid = e.snap_grid.max(1e-6);
-    let snap = |w: DVec2| DVec2::new((w.x / grid).round() * grid, (w.y / grid).round() * grid);
+    // Where the cursor lands (Ctrl held: no snapping).
+    let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
+    let anchor_pt = e.chain.or_else(|| e.pending.first().copied()).map(|a| e.sketch.point(a));
+    let snaps = super::sketch_snap::Snaps { on: e.snaps.on && !ctrl, ..e.snaps };
+    let snapped = hover.map(|h| super::sketch_snap::snap(&e.sketch, to_w(h), 10.0 / scale as f64, grid, anchor_pt, e.drag, &snaps));
+    let drawing = matches!(tool, Tool::Line | Tool::Rect | Tool::Circle | Tool::Arc | Tool::Spline | Tool::Point) || e.drag.is_some();
+    if let (Some(sn), true) = (&snapped, drawing && hover_dim.is_none()) {
+        let gst = Stroke::new(1.0, Color32::from_rgb(0, 170, 190));
+        for (a, b) in &sn.guides {
+            painter.extend(egui::Shape::dashed_line(&[to_s(*a), to_s(*b)], gst, 4.0, 4.0));
+        }
+        let sp = to_s(sn.pos);
+        let mc = Color32::from_rgb(255, 140, 0);
+        use super::sketch_snap::SnapKind as K;
+        match sn.kind {
+            K::Point(_) => {
+                painter.rect_stroke(egui::Rect::from_center_size(sp, egui::vec2(11.0, 11.0)), 0.0, Stroke::new(1.6, mc), egui::StrokeKind::Middle);
+            }
+            K::Center(_) => {
+                painter.circle_stroke(sp, 6.0, Stroke::new(1.6, mc));
+                painter.circle_filled(sp, 1.5, mc);
+            }
+            K::Midpoint(_) => {
+                painter.add(egui::Shape::closed_line(
+                    vec![sp + egui::vec2(0.0, -7.0), sp + egui::vec2(6.0, 4.0), sp + egui::vec2(-6.0, 4.0)],
+                    Stroke::new(1.6, mc),
+                ));
+            }
+            K::Quadrant(_) => {
+                painter.add(egui::Shape::closed_line(
+                    vec![sp + egui::vec2(0.0, -6.0), sp + egui::vec2(6.0, 0.0), sp + egui::vec2(0.0, 6.0), sp + egui::vec2(-6.0, 0.0)],
+                    Stroke::new(1.6, mc),
+                ));
+            }
+            K::Intersection(..) => {
+                painter.line_segment([sp + egui::vec2(-5.0, -5.0), sp + egui::vec2(5.0, 5.0)], Stroke::new(1.8, mc));
+                painter.line_segment([sp + egui::vec2(-5.0, 5.0), sp + egui::vec2(5.0, -5.0)], Stroke::new(1.8, mc));
+            }
+            K::OnCurve(_) => {
+                painter.circle_stroke(sp, 4.0, Stroke::new(1.4, mc));
+            }
+            K::Guide(..) | K::Grid => {
+                painter.line_segment([sp + egui::vec2(-4.0, 0.0), sp + egui::vec2(4.0, 0.0)], Stroke::new(1.0, mc));
+                painter.line_segment([sp + egui::vec2(0.0, -4.0), sp + egui::vec2(0.0, 4.0)], Stroke::new(1.0, mc));
+            }
+            K::Free => {}
+        }
+        let lab = sn.kind.label();
+        if !lab.is_empty() {
+            painter.text(sp + egui::vec2(9.0, 9.0), egui::Align2::LEFT_TOP, lab, egui::FontId::proportional(11.0), mc);
+        }
+    }
+    let snap = |w: DVec2| snapped.as_ref().map(|s| s.pos).unwrap_or(DVec2::new((w.x / grid).round() * grid, (w.y / grid).round() * grid));
     let e = state.cad.sketch.as_mut().unwrap();
+    // Dimension labels: drag to move them, double-click to type a value (in any tool).
+    let mut on_label = hover_dim.is_some();
+    if let Some(i) = hover_dim {
+        if resp.double_clicked() {
+            let cur =
+                e.sketch.constraints.get_mut(i).and_then(|c| c.dim_mut()).map(|d| d.expr.clone().unwrap_or_else(|| num_text(d.value))).unwrap_or_default();
+            e.dim_edit = Some((i, cur));
+        } else if resp.drag_started_by(egui::PointerButton::Primary) {
+            e.dim_drag = Some(i);
+        }
+    }
+    if let Some(i) = e.dim_drag {
+        on_label = true;
+        if resp.dragged_by(egui::PointerButton::Primary) {
+            let d = resp.drag_delta();
+            super::sketch_dims::move_label(&mut e.sketch, i, DVec2::new(d.x as f64, -d.y as f64) / scale as f64);
+        }
+        if resp.drag_stopped() {
+            e.dim_drag = None;
+        }
+    }
     if esc {
         if e.chain.is_some() || !e.pending.is_empty() {
             e.chain = None;
@@ -605,12 +725,25 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
         changed = true;
     }
     let get_or_add = |e: &mut SketchEdit, s: Pos2| -> usize {
-        if let Some(i) = pick_point(&e.sketch, s) {
-            return i;
+        use super::sketch_snap::SnapKind as K;
+        match snapped.as_ref().map(|x| x.kind) {
+            Some(K::Point(i) | K::Center(i)) => return i,
+            Some(K::Free) | None => {
+                if let Some(i) = pick_point(&e.sketch, s) {
+                    return i;
+                }
+            }
+            _ => {}
         }
         let w = snap(to_w(s));
         e.sketch.points.push(SPoint::new(w.x, w.y));
-        e.sketch.points.len() - 1
+        let i = e.sketch.points.len() - 1;
+        if let Some(k) = snapped.as_ref().map(|x| x.kind) {
+            for c in super::sketch_snap::constraints_for(&e.sketch, i, k) {
+                e.sketch.constrain(c);
+            }
+        }
+        i
     };
     // The rubber band of the shape being drawn.
     if let Some(h) = hover {
@@ -639,14 +772,15 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
             );
         }
     }
-    match tool {
-        Tool::Select => {
+    match if on_label { None } else { Some(tool) } {
+        None => {}
+        Some(Tool::Select) => {
             if resp.drag_started_by(egui::PointerButton::Primary) {
                 e.drag = hover.and_then(|s| pick_point(&e.sketch, s)).filter(|i| !e.sketch.points[*i].fixed);
             }
             if let (Some(i), Some(h)) = (e.drag, hover) {
                 if resp.dragged_by(egui::PointerButton::Primary) {
-                    let w = to_w(h);
+                    let w = if ctrl { to_w(h) } else { snap(to_w(h)) };
                     e.sketch.points[i].x = w.x;
                     e.sketch.points[i].y = w.y;
                     changed = true;
@@ -679,13 +813,13 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
             }
         }
-        Tool::Point => {
+        Some(Tool::Point) => {
             if let (true, Some(s)) = (resp.clicked(), hover) {
                 get_or_add(e, s);
                 changed = true;
             }
         }
-        Tool::Line => {
+        Some(Tool::Line) => {
             if resp.secondary_clicked() {
                 e.chain = None;
             }
@@ -707,7 +841,7 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                 e.chain = if closes { None } else { Some(p) };
             }
         }
-        Tool::Rect => {
+        Some(Tool::Rect) => {
             if let (true, Some(s)) = (resp.clicked(), hover) {
                 let p = get_or_add(e, s);
                 if let Some(a) = e.pending.pop() {
@@ -727,7 +861,7 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
             }
         }
-        Tool::Circle => {
+        Some(Tool::Circle) => {
             if let (true, Some(s)) = (resp.clicked(), hover) {
                 if let Some(c) = e.pending.pop() {
                     let r = (snap(to_w(s)) - e.sketch.point(c)).length().max(0.1);
@@ -739,12 +873,12 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
             }
         }
-        Tool::Arc => {
+        Some(Tool::Arc) => {
             if let (true, Some(s)) = (resp.clicked(), hover) {
                 if e.pending.len() == 2 {
                     let (c, st) = (e.pending[0], e.pending[1]);
                     let r = (e.sketch.point(st) - e.sketch.point(c)).length();
-                    let dir = (to_w(s) - e.sketch.point(c)).normalize_or_zero();
+                    let dir = (snap(to_w(s)) - e.sketch.point(c)).normalize_or_zero();
                     let end = pick_point(&e.sketch, s).unwrap_or_else(|| {
                         let q = e.sketch.point(c) + dir * r;
                         e.sketch.add_point(q.x, q.y)
@@ -758,7 +892,7 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
             }
         }
-        Tool::Spline => {
+        Some(Tool::Spline) => {
             if let (true, Some(s)) = (resp.clicked(), hover) {
                 let p = get_or_add(e, s);
                 e.pending.push(p);
@@ -773,6 +907,34 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                 e.sketch.add_spline(ctrl, closed);
                 changed = true;
             }
+        }
+    }
+    // The value editor of a double-clicked dimension: a number or an expression; Enter sets it.
+    if let Some((i, mut text)) = e.dim_edit.take() {
+        let at = dims.iter().find(|g| g.index == i).map(|g| to_s(g.label)).unwrap_or(rect.center());
+        let mut keep = true;
+        egui::Area::new(ui.scope_id().with(("sketch dim edit", i))).fixed_pos(at - egui::vec2(50.0, 12.0)).order(egui::Order::Foreground).show(
+            ui.ctx(),
+            |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(100.0).hint_text("value or expression"));
+                    if !r.has_focus() && !r.lost_focus() {
+                        r.request_focus();
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if super::sketch_dims::set_from_text(&mut e.sketch, i, &text) {
+                            changed = true;
+                        }
+                        keep = false;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) || r.lost_focus() {
+                        keep = false;
+                    }
+                    ui.label(RichText::new("Enter sets it · Esc cancels").weak().small());
+                });
+            },
+        );
+        if keep {
+            e.dim_edit = Some((i, text));
         }
     }
     if changed {
@@ -801,6 +963,9 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
             e.pending.clear();
         }
     }
+    ui.separator();
+    ui.toggle_value(&mut e.snaps.on, crate::icons::with("Snap"))
+        .on_hover_text("Snap to points, centres, midpoints, quadrants, intersections, curves, guide lines and the grid (choose which in the properties; hold Ctrl to place freely)");
     ui.separator();
     ui.label(RichText::new(format!("Constrain ({} pt, {} shape):", e.sel_pts.len(), e.sel_ents.len())).weak().small());
     let sk = &e.sketch;
@@ -847,13 +1012,36 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
     b(ui, pts.len() == 2 && ents.is_empty(), "Vertical distance", "The vertical distance between two points", &|| {
         vec![Constraint::VerticalDistance(pts[0], pts[1], Dim::new((sk.point(pts[0]).y - sk.point(pts[1]).y).abs()))]
     });
+    b(ui, pts.len() == 1 && lines.len() == 1 && ents.len() == 1, "Distance to line", "The distance from a point to a line", &|| {
+        let (a, bb) = match sk.entities[lines[0]] {
+            Entity::Line { a, b, .. } => (sk.point(a), sk.point(b)),
+            _ => (DVec2::ZERO, DVec2::X),
+        };
+        let d = (bb - a).normalize_or(DVec2::X).perp_dot(sk.point(pts[0]) - a).abs();
+        vec![Constraint::PointLineDistance(pts[0], lines[0], Dim::new(d))]
+    });
+    b(ui, lines.len() == 2 && ents.len() == 2 && pts.is_empty(), "Distance between lines", "The distance between two parallel lines", &|| {
+        let (p0, a, bb) = match (&sk.entities[lines[0]], &sk.entities[lines[1]]) {
+            (Entity::Line { a: p0, .. }, Entity::Line { a, b, .. }) => (*p0, sk.point(*a), sk.point(*b)),
+            _ => return vec![],
+        };
+        let d = (bb - a).normalize_or(DVec2::X).perp_dot(sk.point(p0) - a).abs();
+        vec![Constraint::PointLineDistance(p0, lines[1], Dim::new(d))]
+    });
     b(ui, lines.len() == 2 && ents.len() == 2, "Angle", "The angle between two lines", &|| {
         vec![Constraint::Angle(lines[0], lines[1], Dim::new(line_dir(sk, lines[0]).dot(line_dir(sk, lines[1])).clamp(-1.0, 1.0).acos().to_degrees()))]
     });
     let mut changed = false;
     if !add.is_empty() {
+        let one_dim = add.len() == 1 && add[0].clone().dim_mut().is_some();
         for c in add {
             e.sketch.constrain(c);
+        }
+        // A new dimension opens its value for typing.
+        if one_dim {
+            let i = e.sketch.constraints.len() - 1;
+            let cur = e.sketch.constraints[i].dim_mut().map(|d| num_text(d.value)).unwrap_or_default();
+            e.dim_edit = Some((i, cur));
         }
         e.sel_pts.clear();
         e.sel_ents.clear();
@@ -902,12 +1090,12 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label("Plane");
-        if e.feature.is_none() {
+        if e.feature.is_none() && e.sketch.frame.is_none() {
             for (pl, l) in [(SketchPlane::XY, "Top (XY)"), (SketchPlane::XZ, "Front (XZ)"), (SketchPlane::YZ, "Right (YZ)")] {
                 changed |= ui.selectable_value(&mut e.sketch.plane, pl, l).changed();
             }
         } else {
-            ui.label(format!("{:?}", e.sketch.plane));
+            ui.label(e.sketch.plane_label());
         }
     });
     ui.horizontal(|ui| {
@@ -917,6 +1105,21 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
         ui.label("Grid");
         ui.add(egui::DragValue::new(&mut e.snap_grid).speed(0.05).range(0.01..=50.0).suffix(" mm"));
     });
+    ui.horizontal_wrapped(|ui| {
+        let sn = &mut e.snaps;
+        ui.checkbox(&mut sn.on, RichText::new("Snap:").strong()).on_hover_text("All snapping (Ctrl held places freely)");
+        ui.add_enabled_ui(sn.on, |ui| {
+            ui.checkbox(&mut sn.points, "points");
+            ui.checkbox(&mut sn.centers, "centers");
+            ui.checkbox(&mut sn.midpoints, "midpoints");
+            ui.checkbox(&mut sn.quadrants, "quadrants");
+            ui.checkbox(&mut sn.intersections, "intersections");
+            ui.checkbox(&mut sn.curves, "on curves");
+            ui.checkbox(&mut sn.guides, "guide lines").on_hover_text("Dashed horizontal and vertical lines through points, also far away");
+            ui.checkbox(&mut sn.grid, "grid");
+        });
+    });
+    ui.label(RichText::new("Dimensions: drag a label to move it, double-click it to type a value or an expression.").weak().small());
     // The status.
     if let Some(r) = &e.report {
         ui.label(

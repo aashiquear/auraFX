@@ -155,6 +155,18 @@ fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool
     if has_part && button(ui, "Top of the part", "Draw on the plane of the top of the part, to add a boss or cut a pocket") {
         super::sketch_new(state, aurafx_cad::SketchPlane::XY, at[2], false);
     }
+    if has_part && button(ui, "A face…", "Choose any flat face of the part (click it in the 3D view) and draw on it") {
+        super::pick::open(state, super::PickKind::SketchFace);
+    }
+    let planes = state.session.lock().cad_edit.as_ref().map(|e| e.document.planes.clone()).unwrap_or_default();
+    for p in planes {
+        if button(ui, &p.name, &format!("Draw on the reference plane {} ({})", p.name, p.how)) {
+            super::sketch::begin_on_frame(state, p.frame, Some(p.name.clone()), false);
+        }
+    }
+    if button(ui, "Plane…", "Make a reference plane to sketch on: moved or turned from a plane or a face, or through three points") {
+        state.cad.plane_form = Some(super::planes::PlaneForm::default());
+    }
     ui.separator();
     ui.label(RichText::new("or add a ready shape (edit its dimensions on the right):").weak().small());
     let off = if has_part { at[2] } else { 0.0 };

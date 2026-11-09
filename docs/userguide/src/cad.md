@@ -53,7 +53,7 @@ adds a new part and opens it), from **Edit in CAD…** (right-click a CAD Model 
 or the button at the top of its Properties), or from Python with `part.edit_cad()`. While it
 is open:
 
-- the toolbar becomes the **ribbon** with tabs *Sketch*, *Features*, *Modify*, *Inspect*,
+- the toolbar becomes the **ribbon** (every button with an icon and its name) with tabs *Sketch*, *Features*, *Modify*, *Inspect*,
   *Assemble* and *Files* (Alt+1 to Alt+6). Each button adds a feature with sensible sizes at
   the top of the part; you then set its numbers in the PropertyManager. *Inspect* reads the part
   (volume, surface, size, center, mass for a density, the area of a cross-section); *Assemble*

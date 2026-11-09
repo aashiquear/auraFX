@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
+            window.path_to_searchindex_js = "searchindex-455524ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -192,7 +192,7 @@ building synthetic microstructures come in later releases.</p>
 <tr><th>Format</th><th>Extension</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td>TSL/EDAX</td><td><code>.ang</code></td><td>square grids; hexagonal grids are not read yet</td></tr>
+<tr><td>TSL/EDAX</td><td><code>.ang</code></td><td>square grids, and hexagonal grids (resampled, see below)</td></tr>
 <tr><td>Oxford</td><td><code>.ctf</code></td><td>angles in degrees in the file, converted to radians</td></tr>
 <tr><td>EBSD stacks</td><td><code>.h5ebsd</code></td><td>serial sections from TSL or Oxford (HKL) maps, read as one volume</td></tr>
 <tr><td>EDAX OIM HDF5</td><td><code>.h5</code></td><td>square-grid scans; choose the scan with the <strong>Scan</strong> reader option</td></tr>
@@ -214,6 +214,12 @@ file adds <code>Image Quality</code>, <code>Confidence Index</code>, <code>SEM S
 <code>CrystalStructures</code> holds the crystal class of each phase (see the numbers below),
 <code>MaterialName</code> its name and <code>LatticeConstants</code> a, b, c, α, β, γ.</li>
 </ul>
+<p><strong>Hexagonal grids.</strong> A <code>.ang</code> scan on a hexagonal grid (rows of <code>NCOLS_ODD</code> and <code>NCOLS_EVEN</code>
+points, every other row shifted by half a step) is read on a square grid whose cells are the
+scan’s x step: each square cell takes every value of the scan point nearest to it. The field
+array <code>ResampledFromHexGrid</code> says so and gives both grids, so the map’s filters (segmentation,
+IPF colors, pole figures) work on it as on any square map.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/ebsd_hex_grid.png" alt="A hexagonal-grid scan of seven nickel grains read on a square grid, colored by IPF along z"><span class="img-wrapper"><img src="images/ebsd_hex_grid.png" alt="A hexagonal-grid scan of seven nickel grains read on a square grid, colored by IPF along z"></span></label></p>
 <p>A single-phase <code>.ang</code> scan writes phase 0 for every point. auraFX counts those points as
 phase 1, unless their confidence index is negative.</p>
 <p>An <code>.h5ebsd</code> stack becomes one volume with a cell layer per slice, the slices <code>Z Resolution</code>
@@ -880,8 +886,8 @@ Misorientation) as KAM / (step · b).</li>
 </code></pre>
 <h2 id="limits"><a class="header" href="#limits">Limits</a></h2>
 <ul>
-<li>Hexagonal-grid <code>.ang</code> and EDAX files, Oxford <code>.h5oina</code> files, and <code>.dream3d</code> neighbor lists
-are not read yet.</li>
+<li>Hexagonal-grid EDAX <code>.h5</code> files, Oxford <code>.h5oina</code> files, and <code>.dream3d</code> neighbor lists are not
+read yet (hexagonal <code>.ang</code> files are, resampled on a square grid).</li>
 <li>Cubochoric vectors are not among the representations.</li>
 <li>Neighbor lists (each feature’s neighbours and shared areas) are not kept as arrays; Feature
 Boundaries holds the same information face by face.</li>

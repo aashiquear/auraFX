@@ -1,6 +1,7 @@
 //! Pipeline browser, properties, information, log and spreadsheet panels.
 
 use crate::app::State;
+use crate::menus::MenuExt;
 use aurafx_filters::{Association, ParamKind, ParamSpec, ParamValue};
 use aurafx_pipeline::{ColorBy, LogLevel, NodeId, Representation};
 use egui::RichText;
@@ -198,7 +199,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.separator();
                     let views = state.view_ids();
                     if views.len() > 1 {
-                        ui.menu_button(format!("{} Move to view", crate::icons::ARROW_SQUARE_OUT), |ui| {
+                        ui.scroll_menu(format!("{} Move to view", crate::icons::ARROW_SQUARE_OUT), |ui| {
                             ui.label(RichText::new("Show it there, hide it everywhere else").weak().small());
                             for &v in &views {
                                 if ui.button(crate::views::view_title(v)).clicked() {
@@ -207,7 +208,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                                 }
                             }
                         });
-                        ui.menu_button(format!("{} Show in views", crate::icons::EYE), |ui| {
+                        ui.scroll_menu(format!("{} Show in views", crate::icons::EYE), |ui| {
                             for &v in &views {
                                 let mut on = state.shown_in(v, r.id);
                                 if ui.checkbox(&mut on, crate::views::view_title(v)).changed() {
@@ -216,7 +217,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                             }
                         });
                     }
-                    ui.menu_button(format!("{} Move to new view", crate::icons::SQUARE_SPLIT_HORIZONTAL), |ui| {
+                    ui.scroll_menu(format!("{} Move to new view", crate::icons::SQUARE_SPLIT_HORIZONTAL), |ui| {
                         ui.label(RichText::new("Opens a 3D view with only this object").weak().small());
                         let from = state.active_view;
                         if ui.button(format!("{} Side by side", crate::icons::SQUARE_SPLIT_HORIZONTAL)).clicked() {
@@ -230,22 +231,17 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                     });
                     ui.separator();
                     if r.selected && multi_sel.len() >= 2 {
-                        ui.menu_button(format!("{} Combine {} selected", crate::icons::PLUS, multi_sel.len()), |ui| {
-                            for f in aurafx_filters::registry().iter().filter(|f| f.multi.is_some_and(|m| m.max.is_none_or(|x| x >= multi_sel.len()))) {
-                                if ui.button(f.label).on_hover_text(f.description).clicked() {
-                                    state.add_filter(f.id);
-                                    ui.close();
-                                }
+                        ui.scroll_menu(format!("{} Combine {} selected", crate::icons::PLUS, multi_sel.len()), |ui| {
+                            let n = multi_sel.len();
+                            if let Some(id) = crate::menus::filter_menu(ui, |f| f.multi.is_some_and(|m| m.max.is_none_or(|x| x >= n))) {
+                                state.add_filter(id);
                             }
                         });
                     }
-                    ui.menu_button("Add filter", |ui| {
-                        for f in aurafx_filters::registry().iter().filter(|f| !f.is_source) {
-                            if ui.button(f.label).clicked() {
-                                state.session.lock().active = Some(r.id);
-                                state.add_filter(f.id);
-                                ui.close();
-                            }
+                    ui.scroll_menu("Add filter", |ui| {
+                        if let Some(id) = crate::menus::filter_menu(ui, |_| true) {
+                            state.session.lock().active = Some(r.id);
+                            state.add_filter(id);
                         }
                     });
                     if ui.button("Re-run").clicked() {
@@ -358,7 +354,7 @@ fn text_param(ui: &mut egui::Ui, node: NodeId, key: &str, value: &str, kind: Tex
     None
 }
 
-fn param_widget(
+pub(crate) fn param_widget(
     state: &mut State,
     ui: &mut egui::Ui,
     id: NodeId,

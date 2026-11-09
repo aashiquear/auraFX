@@ -85,6 +85,10 @@ straight edges, then `arc 1`, `fillet 1`, `circle`, `spline 1`. Extrusions add `
 | `unite body 1 2 3` | one body (numbered as the first) from several |
 | `subtract body 2 3 from body 1` | removes bodies 2 and 3 from body 1 (add `keep` to keep them) |
 | `intersect body 1 2` | the common part |
+| `webcut body 1 with plane xplane offset 0.3` | cuts body 1 in two along a plane (`xplane`, `yplane`, `zplane`, or `normal 1 1 0`, at `offset` along the normal): the part on the side the normal points away from keeps the number, the rest is a new body, both sharing the face `webcut 1` |
+| `webcut body 1 with cylinder radius 0.4 axis z center 0 0 0` | cuts a core out of the body (the core keeps the number); `with body 3` cuts with another body's shape |
+| `imprint body 1 2` (or `imprint all`) | touching bodies are meshed with one element size (the smallest asked for), so their meshes meet node to node on the faces they share |
+| `merge body 1 2` (or `merge all`) | the bodies' meshes share the nodes of their common faces (with one size, as imprint); meshing stops with a message if they cannot meet node to node there (bodies offset by part of a cell) |
 | `copy body 1` | a copy as a new body |
 | `delete body 2` | removes a body |
 | `body 1 name 'bracket'` | names a body |
@@ -92,6 +96,15 @@ straight edges, then `arc 1`, `fillet 1`, `circle`, `spline 1`. Extrusions add `
 
 A face keeps its name through booleans, so the faces of a hole are still `cylinder 2 side`
 after the cylinder is subtracted, unless you rename them.
+
+**Webcuts make blocks you can sweep.** A brick cut along one of its own axes (even moved or
+turned) gives two bricks, so both stay structured, and their meshes meet node to node on the cut,
+which becomes an internal surface with a side set of its own. Cut a long part into a coarse and a
+fine region this way and imprint them so the sizes agree. Other cuts (a slanted plane, a cylinder,
+another body) make general pieces, meshed together on one overlay grid. When a plane runs exactly
+through a row of grid-cell centres, the overlay gives those cells to the first body.
+
+![A brick webcut by a plane into two structured bricks and a cored brick webcut by a cylinder, meshed and colored by block, with the cut surfaces as interface side sets](images/geometry_webcut.png)
 
 ### Meshing bodies
 
@@ -110,7 +123,8 @@ Bricks become structured boxes, and cylinders become an O-grid disk swept along 
 each moved, turned and scaled like its body. Every geometry face also becomes a side set
 named after it, such as `brick 1 x+` or `cylinder 2 side`. With HEX20 or HEX27 elements, the
 new nodes on a cylinder's side lie on the exact surface. Bodies meshed together are welded
-where their nodes coincide.
+where their nodes coincide, and the faces between two bodies' elements form a side set and a
+node set named `interface <body> - <body>` (for structured and overlay bodies alike).
 
 Every other body (spheres, booleans, outlines, sweeps, imported surfaces) is meshed on an
 overlay grid; see [Overlay meshing](#overlay-meshing) below.

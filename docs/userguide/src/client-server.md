@@ -24,21 +24,31 @@ brought over. The server keeps results, so changing one filter only re-runs that
 
 ## Setting up a host
 
-1. Make sure `ssh yourhost` works without a password prompt.
-2. Put `aurafx-server` on the host: **File › Open on Server… › Install server** copies the one
-   shipped with the app to `~/.local/bin` (Linux hosts of the same architecture; the packages
-   run on glibc 2.35 or newer), or build it there with `cargo build --release -p aurafx-server`,
-   or point `AURAFX_SERVER` at it in the host's setup lines.
-3. **Check server** shows its version and GPU.
+Everything is in one window: **Remote › Open data on another machine…** (also **File › Open on
+Server…**). It walks through four steps:
 
-Hosts come from the Simulations panel and from `~/.ssh/config`. "This computer" runs the
-server locally, which is handy for trying it out.
+1. **The machine.** Pick it, or open **Add a machine** and type its SSH target (`user@machine`
+   or an alias from `~/.ssh/config`; the aliases found there are offered as buttons), with a port,
+   key file or jump host if needed. `ssh machine` must work without a password prompt. Machines
+   added here are also the Simulations panel's, and the other way round. "This computer" runs the
+   server locally, which is handy for trying it out.
+2. **aurafx-server on it.** **Check server** shows its version and GPU; **Install server** copies
+   the one shipped with the app to `~/.local/bin` (Linux hosts of the same architecture; the
+   packages run on glibc 2.35 or newer). You can also build it there with
+   `cargo build --release -p aurafx-server`, or point `AURAFX_SERVER` at it in the host's setup lines.
+3. **Where the picture is drawn.** *Auto* brings the geometry here unless even its surface is too
+   big to send; *On the server* renders it with the server's GPU and sends only pictures (the 3D
+   view on this computer shows them, merged with local objects by depth; picking does not work on
+   them); *On this computer* always brings the geometry. Each object keeps the choice, and
+   **Properties › Display › Draw on** changes it later.
+4. **Open a file.** Browse to it and double-click, or select it and press **Open on …**.
+
+![The Remote window: the machine with Add a machine, the server check, where the picture is drawn, and the file browser](images/remote_window.png)
 
 ## Opening files
 
-**File › Open on Server…**: pick the host, browse to the file, double-click it. A cloud icon
-marks objects that run on a server; hover it, or look at the top of Properties, to see what
-was transferred and how long the server took.
+A cloud icon marks objects that run on a server; hover it, or look at the top of Properties, to
+see what was transferred and how long the server took. From Python:
 
 ```python
 d = afx.load("/scratch/run42/out.e", host="cluster")   # a Simulations host, ssh alias or user@machine

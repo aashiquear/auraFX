@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
+            window.path_to_searchindex_js = "searchindex-455524ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -196,6 +196,21 @@ at the result (values, errors, the pipeline) and keeps going until the task is d
 <pre><code class="language-python">afx.ask("make an isosurface at the mean temperature")
 afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 </code></pre>
+<p><strong>Showing it the view.</strong> Tick the camera box next to <strong>Send</strong> and a picture of the 3D view goes with
+the message, for models that see images (Claude, GPT-4o, and Ollama models such as llava, gemma or
+qwen-vl): ask “what stands out in this picture?” or “is this mesh refined enough near the hole?”.
+From Python: <code>afx.ask("describe the view", view=True)</code>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/assistant_view.png" alt="The assistant with the camera box ticked: the question is sent with a picture of the 3D view"><span class="img-wrapper"><img src="images/assistant_view.png" alt="The assistant with the camera box ticked: the question is sent with a picture of the 3D view"></span></label></p>
+<p><strong>Describe a filter.</strong> <strong>Filters › Describe a filter…</strong> (also in the command palette) takes a
+sentence about what you want to see in the selected object, such as “regions where the von Mises
+stress is above 300 MPa” or “the vortex cores of the flow”; the assistant adds the filters that show
+it (in agent mode, so it looks at the arrays and ranges first), and its steps appear in the
+Assistant panel.</p>
+<p><strong>Privacy.</strong> In the assistant’s settings: <strong>Local only</strong> sends nothing off your network (only an
+Ollama server at a local or private address, and no cloud models; anything else is refused with the
+reason), and <strong>Hide file paths</strong> replaces your home folder with <code>~</code> and full paths with file names
+in what is sent. The data itself is never sent, only the pipeline’s description (names, arrays,
+ranges) and the results of code the assistant runs.</p>
 <p>A script can wait for the assistant and read what it said: <code>afx.assistant_status()</code> returns
 <code>{"busy", "agent", "messages", "last", "error"}</code> (an answer is arriving, agent mode is iterating,
 the number of messages, the last answer, the last error).</p>

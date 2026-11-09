@@ -26,6 +26,25 @@ afx.ask("make an isosurface at the mean temperature")
 afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 ```
 
+**Showing it the view.** Tick the camera box next to **Send** and a picture of the 3D view goes with
+the message, for models that see images (Claude, GPT-4o, and Ollama models such as llava, gemma or
+qwen-vl): ask "what stands out in this picture?" or "is this mesh refined enough near the hole?".
+From Python: `afx.ask("describe the view", view=True)`.
+
+![The assistant with the camera box ticked: the question is sent with a picture of the 3D view](images/assistant_view.png)
+
+**Describe a filter.** **Filters › Describe a filter…** (also in the command palette) takes a
+sentence about what you want to see in the selected object, such as "regions where the von Mises
+stress is above 300 MPa" or "the vortex cores of the flow"; the assistant adds the filters that show
+it (in agent mode, so it looks at the arrays and ranges first), and its steps appear in the
+Assistant panel.
+
+**Privacy.** In the assistant's settings: **Local only** sends nothing off your network (only an
+Ollama server at a local or private address, and no cloud models; anything else is refused with the
+reason), and **Hide file paths** replaces your home folder with `~` and full paths with file names
+in what is sent. The data itself is never sent, only the pipeline's description (names, arrays,
+ranges) and the results of code the assistant runs.
+
 A script can wait for the assistant and read what it said: `afx.assistant_status()` returns
 `{"busy", "agent", "messages", "last", "error"}` (an answer is arriving, agent mode is iterating,
 the number of messages, the last answer, the last error).

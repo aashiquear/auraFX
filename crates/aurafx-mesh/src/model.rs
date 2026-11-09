@@ -67,6 +67,13 @@ pub struct Model {
     /// Side sets and node sets: (id, name, faces).
     pub user_sidesets: Vec<(i32, String, Vec<FaceId>)>,
     pub user_nodesets: Vec<(i32, String, Vec<FaceId>)>,
+    /// Groups of bodies imprinted together (`imprint`): meshed with one element size, with a side
+    /// set on each shared face.
+    pub imprints: Vec<Vec<u32>>,
+    /// Groups of bodies merged (`merge`): their meshes must meet node to node on shared faces.
+    pub merges: Vec<Vec<u32>>,
+    /// Webcuts made so far (numbers the cut faces).
+    webcuts: u32,
 }
 
 /// Split a command into words, keeping quoted text together.
@@ -201,6 +208,84 @@ impl Model {
         let shape = shape(self, id);
         self.bodies.insert(id, Body { id, name: format!("{kind} {id}"), shape, history: History::Leaf(desc) });
         id
+    }
+
+    /// `webcut body N with plane xplane|yplane|zplane [offset d]`, `with plane normal x y z [offset d]`,
+    /// `with cylinder radius r [axis x|y|z] [center x y z]` or `with body M`: the body is cut in two
+    /// (the part on the plane's negative side, inside the cylinder or inside body M keeps the id; the
+    /// rest is a new body), both sharing the cut face `webcut K`. A brick cut along one of its own
+    /// axes gives two bricks, so both stay structured (sweepable).
+    fn webcut(&mut self, a: &Args) -> Result<()> {
+        let w = a.pos("with").ok_or_else(|| anyhow!("webcut body N with plane xplane offset 0 (or with cylinder radius r, with body M)"))?;
+        let ids = Args { w: a.w[..w].to_vec() }.ids("body");
+        let ids = ids_or_err(ids)?;
+        let rest = Args { w: a.w[w..].to_vec() };
+        self.webcuts += 1;
+        let k = self.webcuts;
+        let face = self.face(format!("webcut {k}"));
+        // The tool: a shape whose inside is the part that keeps the body's id.
+        let (tool, plane): (Shape, Option<(V3, f64)>) = if rest.has("plane") {
+            let mut n = if rest.has("xplane") {
+                [1.0, 0.0, 0.0]
+            } else if rest.has("yplane") {
+                [0.0, 1.0, 0.0]
+            } else if rest.has("zplane") {
+                [0.0, 0.0, 1.0]
+            } else {
+                let v = rest.nums("normal");
+                if v.len() != 3 {
+                    bail!("webcut ... with plane xplane|yplane|zplane, or with plane normal x y z");
+                }
+                [v[0], v[1], v[2]]
+            };
+            let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if l < 1e-12 {
+                bail!("the plane's normal is zero");
+            }
+            n = n.map(|x| x / l);
+            let d = rest.num("offset")?.unwrap_or(0.0);
+            (Shape::HalfSpace { normal: n, offset: d, face }, Some((n, d)))
+        } else if rest.has("cylinder") {
+            let r = rest.need("radius")?;
+            positive(&[r])?;
+            let axis = match rest.text("axis").as_deref() {
+                Some("x") => [1.0, 0.0, 0.0],
+                Some("y") => [0.0, 1.0, 0.0],
+                Some("z") | None => [0.0, 0.0, 1.0],
+                Some(o) => bail!("axis is x, y or z, not {o}"),
+            };
+            let c = rest.nums("center");
+            let center = if c.len() == 3 { [c[0], c[1], c[2]] } else { [0.0; 3] };
+            // A cylinder long enough to cross any body, turned from z onto the axis.
+            let rot = if axis[2] == 1.0 {
+                rotation([0.0, 0.0, 1.0], 0.0)
+            } else if axis[0] == 1.0 {
+                rotation([0.0, 1.0, 0.0], 90.0)
+            } else {
+                rotation([1.0, 0.0, 0.0], -90.0)
+            };
+            let cyl = Shape::Cylinder { r, h: 1.0e9, faces: [face, face, face] };
+            (Shape::Transform { inner: Box::new(cyl), rot, offset: center, scale: [1.0; 3] }, None)
+        } else if rest.has("body") {
+            let tid = rest.ids("body").first().copied().ok_or_else(|| anyhow!("webcut body N with body M"))?;
+            let t = self.bodies.get(&tid).ok_or_else(|| anyhow!("there is no body {tid}"))?;
+            (t.shape.clone(), None)
+        } else {
+            bail!("webcut body N with plane xplane|yplane|zplane [offset d], with plane normal x y z [offset d], with cylinder radius r, or with body M");
+        };
+        for id in ids {
+            let b = self.bodies.get(&id).cloned().ok_or_else(|| anyhow!("there is no body {id}"))?;
+            let (inner, outer) = match plane.and_then(|(n, d)| split_brick(&b.shape, n, d, face)) {
+                Some(pair) => pair,
+                None => (Shape::Intersect(vec![b.shape.clone(), tool.clone()]), Shape::Subtract(Box::new(b.shape.clone()), Box::new(tool.clone()))),
+            };
+            let nid = self.next_body;
+            self.next_body += 1;
+            let desc = format!("webcut {k} of body {id}");
+            self.bodies.insert(id, Body { id, name: b.name.clone(), shape: inner, history: History::Op(desc.clone(), vec![b.history.clone()]) });
+            self.bodies.insert(nid, Body { id: nid, name: format!("{} cut {k}", b.name), shape: outer, history: History::Op(desc, vec![b.history]) });
+        }
+        Ok(())
     }
 
     fn take(&mut self, id: u32) -> Result<Body> {
@@ -546,6 +631,23 @@ impl Model {
                 kids.extend(hist);
                 b.history = History::Op("subtract".into(), kids);
             }
+            "webcut" => self.webcut(&a)?,
+            "imprint" | "merge" => {
+                let ids = if a.has("all") { self.bodies.keys().copied().collect() } else { a.ids("body") };
+                if ids.len() < 2 {
+                    bail!("{verb} body A B ... (or {verb} all): at least two bodies");
+                }
+                for id in &ids {
+                    if !self.bodies.contains_key(id) {
+                        bail!("there is no body {id}");
+                    }
+                }
+                if verb == "imprint" {
+                    self.imprints.push(ids);
+                } else {
+                    self.merges.push(ids);
+                }
+            }
             "copy" => {
                 for id in ids_or_err(a.ids("body"))? {
                     let b = self.bodies.get(&id).cloned().ok_or_else(|| anyhow!("there is no body {id}"))?;
@@ -799,4 +901,64 @@ pub fn surface_mesh(ds: &aurafx_data::DataSet) -> Result<TriMesh> {
         }
     }
     TriMesh::new(&pts, &tris)
+}
+
+/// A brick (under moves, turns and scales) cut by the plane n·p = d along one of its own axes: the
+/// two bricks, each placed in the original's frame, the low one first (the side n points away from).
+fn split_brick(shape: &Shape, n: V3, d: f64, cut: FaceId) -> Option<(Shape, Shape)> {
+    // The chain of transforms over a brick, outermost first.
+    let mut chain: Vec<([[f64; 3]; 3], V3, V3)> = Vec::new();
+    let mut s = shape;
+    loop {
+        match s {
+            Shape::Transform { inner, rot, offset, scale } => {
+                chain.push((*rot, *offset, *scale));
+                s = inner;
+            }
+            Shape::Brick { .. } => break,
+            _ => return None,
+        }
+    }
+    let Shape::Brick { half, faces } = s else { return None };
+    // World = R S local + t, composed from the outermost transform inward.
+    let (mut m, mut t) = ([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [0.0f64; 3]);
+    for (rot, off, sc) in &chain {
+        let a: [[f64; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| rot[i][j] * sc[j]));
+        let nt: V3 = std::array::from_fn(|i| t[i] + (0..3).map(|k| m[i][k] * off[k]).sum::<f64>());
+        let nm: [[f64; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| m[i][k] * a[k][j]).sum()));
+        m = nm;
+        t = nt;
+    }
+    // The plane in the brick's own coordinates: (Mᵀ n)·l = d - n·t.
+    let nl: V3 = std::array::from_fn(|j| (0..3).map(|i| m[i][j] * n[i]).sum());
+    let dl = d - (0..3).map(|i| n[i] * t[i]).sum::<f64>();
+    let len = (nl[0] * nl[0] + nl[1] * nl[1] + nl[2] * nl[2]).sqrt();
+    let ax = (0..3).max_by(|a, b| nl[*a].abs().total_cmp(&nl[*b].abs()))?;
+    if (0..3).any(|j| j != ax && nl[j].abs() > 1e-9 * len) {
+        return None;
+    }
+    let c = dl / nl[ax];
+    if c <= -half[ax] + 1e-12 * half[ax] || c >= half[ax] - 1e-12 * half[ax] {
+        return None;
+    }
+    let piece = |lo: f64, hi: f64, low_side: bool| -> Shape {
+        let mut h = *half;
+        h[ax] = (hi - lo) / 2.0;
+        let mut f = *faces;
+        // The cut face replaces the face the cut stands in for.
+        f[2 * ax + usize::from(low_side)] = cut;
+        let mut off = [0.0; 3];
+        off[ax] = (lo + hi) / 2.0;
+        let brick = Shape::Transform { inner: Box::new(Shape::Brick { half: h, faces: f }), rot: rotation([0.0, 0.0, 1.0], 0.0), offset: off, scale: [1.0; 3] };
+        // Back inside the original chain of transforms.
+        chain.iter().rev().fold(brick, |acc, (rot, off, sc)| Shape::Transform { inner: Box::new(acc), rot: *rot, offset: *off, scale: *sc })
+    };
+    let low = piece(-half[ax], c, true);
+    let high = piece(c, half[ax], false);
+    // Which piece is on the side n points away from (n·p < d)?
+    if nl[ax] > 0.0 {
+        Some((low, high))
+    } else {
+        Some((high, low))
+    }
 }

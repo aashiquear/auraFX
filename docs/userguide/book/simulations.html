@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
+            window.path_to_searchindex_js = "searchindex-455524ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -188,7 +188,7 @@
 <tr><th>Field</th><th>Meaning</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Template</strong></td><td>LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below)</td></tr>
+<tr><td><strong>Template</strong></td><td>LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, DAMASK, FFT texture file, LAMMPS polycrystal, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below)</td></tr>
 <tr><td><strong>Run on</strong></td><td>this computer, or a remote machine from the SSH list; <strong>via Slurm</strong> submits with <code>sbatch</code> there (partition, time and extra <code>#SBATCH</code> lines appear)</td></tr>
 <tr><td><strong>Name</strong>, <strong>Working directory</strong></td><td>where the run lives; a remote directory when running over SSH</td></tr>
 <tr><td><strong>Program</strong>, <strong>Input</strong>, <strong>MPI processes</strong></td><td>the command line is assembled from these and shown below, editable</td></tr>
@@ -203,7 +203,7 @@
 and buttons to cancel, open the results or the folder, and resubmit. Files a running solver
 writes can be opened while it runs; auraFX reloads them as they change (live reload).</p>
 <h2 id="simulation-cases-from-the-pipeline"><a class="header" href="#simulation-cases-from-the-pipeline">Simulation cases from the pipeline</a></h2>
-<p>Three templates write their input files from the data selected in the pipeline, then run the
+<p>Six templates write their input files from the data selected in the pipeline, then run the
 solver:</p>
 <div class="table-wrapper">
 <table>
@@ -214,6 +214,9 @@ solver:</p>
 <tr><td><strong>MOOSE polycrystal</strong></td><td>a grain mesh (from <a href="geometry.html#grains-on-meshes">Assign Grains</a>, or Overlay Mesh of a microstructure)</td><td><code>mesh.e</code> (one block per grain, block id = grain id), <code>grain_euler.txt</code> (each block’s Euler angles, read with <code>PropertyReadFile</code>), <code>grains.tex</code> (the same orientations for <code>EulerAngleFileReader</code>), <code>slip_systems.txt</code>, <code>polycrystal.i</code></td></tr>
 <tr><td><strong>SPPARKS grain growth</strong></td><td>a microstructure volume with <code>FeatureIds</code></td><td><code>grains.spparks</code> (the site file), <code>in.potts</code> (a Potts-model run that reads it)</td></tr>
 <tr><td><strong>PINNACLE crystal plasticity</strong></td><td>a grain mesh</td><td><code>mesh.e</code>, <code>orientations_points.csv</code> (each element’s centre with its grain and Euler angles), <code>case.i</code></td></tr>
+<tr><td><strong>DAMASK crystal plasticity (grid)</strong></td><td>a microstructure volume with <code>FeatureIds</code> and orientations</td><td><code>grid.vti</code> (cell array <code>material</code> = grain id − 1), <code>material.yaml</code> (the phase from the material table, then one material per grain with its mean orientation as a quaternion), <code>load.yaml</code> (a strain rate along the axis, the other normal stresses free)</td></tr>
+<tr><td><strong>FFT texture file</strong></td><td>a microstructure volume</td><td><code>micro.txt</code>: one line per voxel, x fastest: φ1 Φ φ2 (Bunge, degrees), x y z (voxel indices from 1), grain id, phase id; <code>micro_README.txt</code> with the grid size</td></tr>
+<tr><td><strong>LAMMPS polycrystal</strong></td><td>a microstructure volume</td><td><code>atoms.data</code> (every grain filled with the material’s FCC or BCC lattice turned to the grain’s orientation; of two atoms closer than half the nearest-neighbour distance across a boundary one is removed; periodic box), <code>atom_grains.txt</code> and <code>atoms.dump</code> (each atom’s grain), <code>in.lammps</code> (relax, then heat and hold)</td></tr>
 </tbody>
 </table>
 </div>
@@ -228,7 +231,14 @@ Only cubic materials (FCC, BCC) are offered.</li>
 lower side when the mesh names them. Box Mesh, Plate Mesh, Dog-bone Mesh and the Geometry
 source name their faces this way.</li>
 <li>For SPPARKS: <strong>Monte Carlo steps</strong> and <strong>temperature</strong>.</li>
+<li>For LAMMPS: the lattice constant comes from the material’s Burgers vector (a = b√2 for FCC,
+2b/√3 for BCC; 4.05 Å for aluminium), and the volume’s longest side holds about 40 lattice
+cells unless <code>angstrom_per_unit</code> says how many ångström one unit of the volume is. The
+potential file named in <code>in.lammps</code> (<code>Al.eam.alloy</code> and so on) is yours to provide.</li>
 </ul>
+<p>A DAMASK case written this way was checked with DAMASK’s own Python package: it loads the grid
+and the load case, finds the material file complete and valid, and its own conversion of the
+grains’ Euler angles gives the same quaternions.</p>
 <p><strong>Run</strong> writes the files and starts the job. For a remote machine they are written to a local
 folder and uploaded to the working directory there. With <strong>open when done</strong>, the results open
 when the run ends, named after the run:</p>
@@ -236,8 +246,12 @@ when the run ends, named after the run:</p>
 <li>MOOSE: <code>polycrystal_out.e</code>, with one block per grain.</li>
 <li>SPPARKS: <code>dump.potts</code>, each snapshot a volume with <code>FeatureIds</code>.</li>
 <li>PINNACLE: <code>solver/fields.pvd</code>, the field snapshots as a time series.</li>
+<li>DAMASK: <code>grid_load.hdf5</code> (DAMASK’s result file; post-process it with DAMASK’s tools).</li>
+<li>LAMMPS: <code>dump.lammpstrj</code>, the atoms over time.</li>
 </ul>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/simulation_case.png" alt="The Simulations panel set to write a PINNACLE case from a grain mesh"><span class="img-wrapper"><img src="images/simulation_case.png" alt="The Simulations panel set to write a PINNACLE case from a grain mesh"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/damask_case.png" alt="The Simulations panel on the DAMASK template with a Voronoi microstructure of 40 grains selected"><span class="img-wrapper"><img src="images/damask_case.png" alt="The Simulations panel on the DAMASK template with a Voronoi microstructure of 40 grains selected"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/lammps_polycrystal.png" alt="A LAMMPS polycrystal of six aluminium grains filled from a Voronoi microstructure, the atoms colored by grain"><span class="img-wrapper"><img src="images/lammps_polycrystal.png" alt="A LAMMPS polycrystal of six aluminium grains filled from a Voronoi microstructure, the atoms colored by grain"></span></label></p>
 <p>The input files are a starting point. Edit them for the material’s hardening and slip
 parameters, the boundary conditions and the solver settings before production runs.</p>
 <pre><code class="language-python">poly = afx.plate_mesh().assign_grains(grains=30, blocks=True)
@@ -246,10 +260,15 @@ case = afx.simulation_case(poly, "moose", "~/runs/plate", material="Copper", axi
 print(case["command"], case["files"])
 jid = afx.run_case(poly, "pinnacle", "/data/runs/plate", strain=0.02, steps=40, wait=True)
 jid = afx.run_case(volume, "spparks", "~/gg", host="cluster", np=16, mc_steps=500)
+v = afx.voronoi_grains(cells=[64, 64, 64], grains=200, periodic=True)
+afx.simulation_case(v, "damask", "~/runs/damask", material="Copper", strain=0.05, steps=100)
+afx.simulation_case(v, "fft", "~/runs/fft")
+afx.simulation_case(v, "lammps", "~/runs/md", material="Aluminium", angstrom_per_unit=5)
 </code></pre>
 <p><code>run_case</code> takes <code>host</code>, <code>exe</code> (the solver program), <code>np</code>, <code>slurm</code>, <code>auto_load</code> and <code>wait</code> as
 <code>afx.submit</code> does, plus the case options: <code>material</code>, <code>axis</code>, <code>strain</code>, <code>steps</code>, <code>end_time</code>,
-<code>fixed</code> and <code>loaded</code> (other set names), <code>mc_steps</code>, <code>temperature</code>, <code>dump_every</code>, <code>seed</code>.</p>
+<code>fixed</code> and <code>loaded</code> (other set names), <code>mc_steps</code>, <code>temperature</code>, <code>dump_every</code>, <code>seed</code>, and for
+LAMMPS <code>lattice_constant</code> (Å) and <code>angstrom_per_unit</code>.</p>
 <p><strong>Grains on the results.</strong> MOOSE keeps the grain blocks. A PINNACLE result has no grain
 array, but every element sits on its own point of <code>orientations_points.csv</code>, so Assign Grains
 (nearest point) gives the grains back exactly. Statistics per grain then come from the arrays:</p>

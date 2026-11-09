@@ -12,11 +12,7 @@ fn ollama_stream() {
         "- [1] \"wavelet.vti\" (VTI), visible, ACTIVE\n    Image Data: 9261 points\n    point arrays:\n      RTData (Float32 x 1, range 37 .. 277)",
         "- slice: Cut the data with a plane [type, origin, normal]",
     );
-    let rx = stream_chat(
-        cfg,
-        sys,
-        vec![ChatMessage { role: Role::User, content: "Slice the active dataset along z and color it by RTData. Reply with code only.".into() }],
-    );
+    let rx = stream_chat(cfg, sys, vec![ChatMessage::new(Role::User, "Slice the active dataset along z and color it by RTData. Reply with code only.")]);
     let mut text = String::new();
     for ev in rx {
         match ev {

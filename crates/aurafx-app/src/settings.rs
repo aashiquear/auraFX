@@ -34,6 +34,8 @@ pub struct Settings {
     pub lighting: aurafx_pipeline::Lighting,
     /// Show the custom lights as handles in the 3D views (drag to aim them).
     pub show_light_widgets: bool,
+    /// Adding a source opens a window to insert it with its standard settings or change them first.
+    pub ask_source_settings: bool,
 }
 
 impl Default for Settings {
@@ -57,6 +59,7 @@ impl Default for Settings {
             threads: 0,
             lighting: Default::default(),
             show_light_widgets: true,
+            ask_source_settings: true,
         }
     }
 }

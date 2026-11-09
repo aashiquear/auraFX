@@ -537,3 +537,17 @@ fn cad_model_keeps_its_document_and_overrides_in_state_files_and_undo() {
     assert!(s.cad_document(r).unwrap_err().to_string().contains("not a CAD Model"));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Adding a child hides every node above it; a table or chart result leaves its parents shown.
+#[test]
+fn a_new_child_hides_all_its_parents() {
+    let mut s = Session::new();
+    let src = s.add_source("sphere").unwrap();
+    let a = s.add_filter("elevation", src).unwrap();
+    s.nodes.get_mut(&src).unwrap().visible = true; // the user turned the source back on
+    let b = s.add_filter("shrink", a).unwrap();
+    assert!(!s.nodes[&src].visible && !s.nodes[&a].visible && s.nodes[&b].visible);
+    s.nodes.get_mut(&b).unwrap().visible = true;
+    let _h = s.add_filter("histogram", b).unwrap();
+    assert!(s.nodes[&b].visible, "a chart result keeps its parent shown");
+}

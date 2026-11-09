@@ -162,6 +162,11 @@ impl FilterDef {
         if label == q {
             return 1000;
         }
+        // A keyword that is exactly the query (Contour lists "iso") beats a label that only starts
+        // with it (Iso Volume).
+        if self.keywords.iter().any(|k| *k == q) {
+            return 600;
+        }
         if label.starts_with(&q) {
             return 500;
         }
@@ -675,6 +680,110 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "iso_volume",
+            label: "Iso Volume",
+            category: "Data",
+            description: "The part of the data where a point scalar lies between two values, cut through the cells at those values (so the result's outer faces follow the value surfaces, not the cells).",
+            keywords: &["isovolume", "band", "range", "between", "value range", "clip by scalar", "interval"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Scalars"),
+                s("component", "Component", ""),
+                f("lower", "Lower", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).help("Empty: a quarter of the way up the range"),
+                f("upper", "Upper", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).help("Empty: three quarters of the way up the range"),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (a, n) = array_or_default(d, p, "array", false)?;
+                    let attrs = if a == Association::Points { d.point_data() } else { d.cell_data() };
+                    let arr = attrs.and_then(|x| x.get(&n)).ok_or_else(|| anyhow!("no array {n}"))?;
+                    let (lo0, hi0) = whole_range(arr, comp(p), a, p);
+                    let lo = Some(p.f64("lower", f64::NAN)).filter(|v| !v.is_nan()).unwrap_or(lo0 + 0.25 * (hi0 - lo0));
+                    let hi = Some(p.f64("upper", f64::NAN)).filter(|v| !v.is_nan()).unwrap_or(lo0 + 0.75 * (hi0 - lo0));
+                    Ok(DataSet::UnstructuredGrid(crate::extract::iso_volume(d, a, &n, comp(p), lo, hi)?))
+                })
+            },
+        },
+        FilterDef {
+            id: "extract_cells_by_region",
+            label: "Extract Cells By Region",
+            category: "Data",
+            description: "Whole cells inside a half-space (the side a plane's normal points to), a box or a sphere: those with all their points inside, or those the region's boundary crosses too. Cells are kept whole, not cut.",
+            keywords: &["region", "box", "sphere", "half space", "select cells", "crop", "subset", "inside"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("region", "Region", &["Box", "Sphere", "Plane"], "Box"),
+                choice("mode", "Cells kept", &["All points inside", "Crossing the boundary too"], "All points inside"),
+                v3("origin", "Center / plane point", [f64::NAN; 3]),
+                v3("normal", "Plane normal", [1.0, 0.0, 0.0]),
+                f("radius", "Sphere radius", f64::NAN, 0.0, f64::INFINITY).help("Empty: a quarter of the data's size"),
+                v3("box_min", "Box min", [f64::NAN; 3]),
+                v3("box_max", "Box max", [f64::NAN; 3]),
+                b("invert", "Outside instead", false),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let bb = whole_bounds(ds, p);
+                let origin = p.vec3("origin", [f64::NAN; 3]);
+                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center_p(ds, p) } else { origin };
+                let region = match p.str("region").as_str() {
+                    "Sphere" => crate::extract::Region::Sphere { center: origin, radius: Some(p.f64("radius", f64::NAN)).filter(|r| !r.is_nan()).unwrap_or(0.25 * bb.diagonal()) },
+                    "Plane" => crate::extract::Region::Plane { origin, normal: p.vec3("normal", [1.0, 0.0, 0.0]) },
+                    _ => {
+                        let (mut lo, mut hi) = (p.vec3("box_min", [f64::NAN; 3]), p.vec3("box_max", [f64::NAN; 3]));
+                        if lo.iter().chain(hi.iter()).any(|v| v.is_nan()) {
+                            let (c, sz) = (bb.center(), bb.size());
+                            lo = std::array::from_fn(|k| c[k] - 0.25 * sz[k]);
+                            hi = std::array::from_fn(|k| c[k] + 0.25 * sz[k]);
+                        }
+                        crate::extract::Region::Box { min: lo, max: hi }
+                    }
+                };
+                let mode = if p.str("mode").starts_with("Crossing") { crate::extract::RegionMode::Intersecting } else { crate::extract::RegionMode::AllInside };
+                per_leaf(ds, &|d| Ok(DataSet::UnstructuredGrid(crate::extract::cells_by_region(d, &region, mode, p.bool("invert", false))?)))
+            },
+        },
+        FilterDef {
+            id: "extract_cells_by_type",
+            label: "Extract Cells By Type",
+            category: "Data",
+            description: "Whole cells of the types named (Tetra, Hexahedron, Wedge, Pyramid, Triangle, Quad, Line, Vertex, quadratic types…) or of a dimension (3D, 2D, 1D, 0D).",
+            keywords: &["cell type", "element type", "hexahedra", "tetrahedra", "surface cells", "volume cells", "filter cells"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("types", "Types", "3D").help("Names or dimensions, separated by commas: Hexahedron, Tetra or 3D, 2D"),
+                b("invert", "All but these", false),
+            ],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::extract::cells_by_type(d, &p.str("types"), p.bool("invert", false))?))),
+        },
+        FilterDef {
+            id: "clip_closed_surface",
+            label: "Clip Closed Surface",
+            category: "Geometry",
+            description: "Cut a closed surface with a plane and close the cut with a flat cap, so the result is still a closed surface (watertight; holes in the cut, such as the inside of a ring, stay open in the cap).",
+            keywords: &["capped clip", "cap", "close", "watertight", "cut solid", "section"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![v3("origin", "Plane point", [f64::NAN; 3]), v3("normal", "Normal (the side kept)", [1.0, 0.0, 0.0]), b("invert", "Keep the other side", false)],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let origin = p.vec3("origin", [f64::NAN; 3]);
+                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center_p(ds, p) } else { origin };
+                per_leaf(ds, &|d| Ok(DataSet::PolyData(crate::extract::clip_closed_surface(d, origin, p.vec3("normal", [1.0, 0.0, 0.0]), p.bool("invert", false))?)))
+            },
+        },
+        FilterDef {
             id: "calculator",
             label: "Calculator",
             category: "Common",
@@ -927,6 +1036,246 @@ fn build() -> Vec<FilterDef> {
                     crate::analysis::gradient(d, &n)
                 })
             },
+        },
+        FilterDef {
+            id: "compute_derivatives",
+            label: "Compute Derivatives",
+            category: "Data",
+            description: "Derivatives of a vector field at the points: its gradient (dv_i/dx_j, 9 components), strain rate, vorticity (curl), divergence, and the vortex criteria Q (positive where rotation beats strain) and lambda2 (negative in a vortex core).",
+            keywords: &["vorticity", "curl", "strain rate", "divergence", "jacobian", "velocity gradient", "q criterion", "lambda2", "vortex cores"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![ParamSpec::new("array", "Vectors", ParamKind::Array { scalar_only: false, vector_only: true }, ParamValue::Array { assoc: Association::Points, name: String::new() })],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", true)?;
+                    crate::tensors::compute_derivatives(d, &n)
+                })
+            },
+        },
+        FilterDef {
+            id: "tensor_principal_invariants",
+            label: "Tensor Principal Invariants",
+            category: "Data",
+            description: "Principal values (largest first), principal directions and the invariants I1, I2, I3, J2, J3 of a symmetric tensor array (6 components XX YY ZZ XY YZ XZ, or 9).",
+            keywords: &["eigenvalues", "principal stress", "principal strain", "eigenvectors", "invariants", "stress tensor"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Tensor")],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (a, n) = array_or_default(d, p, "array", false)?;
+                    crate::tensors::principal_invariants(d, a, &n)
+                })
+            },
+        },
+        FilterDef {
+            id: "yield_criteria",
+            label: "Yield Criteria",
+            category: "Data",
+            description: "From a stress tensor array (6 or 9 components): von Mises and Tresca equivalent stresses, the largest principal stress, the pressure and the stress triaxiality.",
+            keywords: &["von mises", "tresca", "equivalent stress", "principal stress", "triaxiality", "pressure", "failure"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Stress tensor")],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (a, n) = array_or_default(d, p, "array", false)?;
+                    crate::tensors::yield_criteria(d, a, &n)
+                })
+            },
+        },
+        FilterDef {
+            id: "tensor_glyph",
+            label: "Tensor Glyph",
+            category: "Geometry",
+            description: "An ellipsoid at points of a tensor field, its axes along the principal directions and as long as the principal values (absolute) times a scale; colored by the largest principal value.",
+            keywords: &["tensor", "ellipsoid", "stress glyph", "principal directions", "glyph"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Tensor"),
+                f("scale", "Scale", 1.0, 0.0, 1e12),
+                i("stride", "Every n-th point", 1, 1, 1_000_000),
+                i("resolution", "Ellipsoid resolution", 16, 6, 128).advanced(),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", false)?;
+                    Ok(DataSet::PolyData(crate::tensors::tensor_glyph(d, &n, p.f64("scale", 1.0), p.i64("stride", 1) as usize, p.i64("resolution", 16) as usize)?))
+                })
+            },
+        },
+        FilterDef {
+            id: "surface_vectors",
+            label: "Surface Vectors",
+            category: "Data",
+            description: "A vector field on a surface made tangent to it (its normal part removed), or only its normal part kept.",
+            keywords: &["tangent", "project vectors", "normal component", "surface flow lines"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                ParamSpec::new("array", "Vectors", ParamKind::Array { scalar_only: false, vector_only: true }, ParamValue::Array { assoc: Association::Points, name: String::new() }),
+                choice("keep", "Keep", &["Tangent part", "Normal part"], "Tangent part"),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", true)?;
+                    crate::tensors::surface_vectors(d, &n, p.str("keep") == "Normal part")
+                })
+            },
+        },
+        FilterDef {
+            id: "surface_flow",
+            label: "Surface Flow",
+            category: "Data",
+            description: "The flux of a vector field through a surface (the integral of v·n over its area), as a one-row table with the flow and the area.",
+            keywords: &["flux", "flow rate", "integral", "surface integral", "mass flow"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![ParamSpec::new("array", "Vectors", ParamKind::Array { scalar_only: false, vector_only: true }, ParamValue::Array { assoc: Association::Points, name: String::new() })],
+            apply: |input, p| {
+                let d = input.unwrap();
+                let (_, n) = array_or_default(d, p, "array", true)?;
+                Ok(DataSet::Table(crate::tensors::surface_flow(d, &n)?))
+            },
+        },
+        FilterDef {
+            id: "table_to_points",
+            label: "Table To Points",
+            category: "Data",
+            description: "The rows of a table as points: three columns give x, y and z (by default the columns named x, y, z, else the first three numeric ones); every column becomes point data.",
+            keywords: &["csv to points", "point cloud", "table", "spreadsheet", "xyz"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("x", "X column", ""), s("y", "Y column", ""), s("z", "Z column", ""), b("two_d", "2D (z = 0)", false)],
+            apply: |input, p| {
+                let (x, y, z) = (p.str("x"), p.str("y"), p.str("z"));
+                Ok(DataSet::PolyData(crate::tables::table_to_points(input.unwrap(), [&x, &y, &z], p.bool("two_d", false))?))
+            },
+        },
+        FilterDef {
+            id: "table_to_structured_grid",
+            label: "Table To Structured Grid",
+            category: "Data",
+            description: "The rows of a table as the points of a structured grid of the given dimensions (x fastest), positions from three columns.",
+            keywords: &["csv to grid", "table", "structured", "curvilinear"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![ParamSpec::new("dims", "Dimensions", ParamKind::Floats, ParamValue::Floats(vec![1.0, 1.0, 1.0])), s("x", "X column", ""), s("y", "Y column", ""), s("z", "Z column", "")],
+            apply: |input, p| {
+                let d = p.floats("dims");
+                let dims = [0, 1, 2].map(|k| d.get(k).copied().unwrap_or(1.0).max(1.0) as usize);
+                let (x, y, z) = (p.str("x"), p.str("y"), p.str("z"));
+                Ok(DataSet::StructuredGrid(crate::tables::table_to_structured_grid(input.unwrap(), [&x, &y, &z], dims)?))
+            },
+        },
+        FilterDef {
+            id: "transpose_table",
+            label: "Transpose Table",
+            category: "Data",
+            description: "Rows become columns: each numeric column becomes a row, named in the column Column.",
+            keywords: &["transpose", "table", "swap rows columns", "pivot"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| Ok(DataSet::Table(crate::tables::transpose(input.unwrap())?)),
+        },
+        FilterDef {
+            id: "table_fft",
+            label: "Table FFT",
+            category: "Data",
+            description: "The discrete Fourier transform of every numeric column of a table (complex, and its magnitude), with the frequency of each row when a time step is given.",
+            keywords: &["fft", "fourier", "spectrum", "frequency", "signal"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("dt", "Time step (0: no frequency column)", 0.0, 0.0, 1e12)],
+            apply: |input, p| Ok(DataSet::Table(crate::tables::table_fft(input.unwrap(), p.f64("dt", 0.0))?)),
+        },
+        FilterDef {
+            id: "merge_vector_components",
+            label: "Merge Vector Components",
+            category: "Data",
+            description: "Three scalar arrays (points, cells or table columns) combined into one vector array.",
+            keywords: &["combine", "vector", "components", "xyz arrays", "join arrays"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("attribute", "Attribute", &["Points", "Cells"], "Points"),
+                s("x", "X array", ""),
+                s("y", "Y array", ""),
+                s("z", "Z array", ""),
+                s("result", "Result", "vector"),
+            ],
+            apply: |input, p| {
+                let assoc = if p.str("attribute") == "Cells" { Association::Cells } else { Association::Points };
+                let (x, y, z) = (p.str("x"), p.str("y"), p.str("z"));
+                if x.is_empty() || y.is_empty() || z.is_empty() {
+                    anyhow::bail!("name the three scalar arrays to merge");
+                }
+                per_leaf(input.unwrap(), &|d| crate::tables::merge_vector_components(d, assoc, [&x, &y, &z], &p.str("result")))
+            },
+        },
+        FilterDef {
+            id: "point_and_cell_ids",
+            label: "Point And Cell Ids",
+            category: "Data",
+            description: "Adds PointIds and CellIds: the index of every point and cell.",
+            keywords: &["ids", "index", "numbering", "element number", "node number"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &crate::tables::point_and_cell_ids),
+        },
+        FilterDef {
+            id: "generate_global_ids",
+            label: "Generate Global Ids",
+            category: "Data",
+            description: "Adds GlobalPointIds and GlobalCellIds, unique over every block of a multiblock; points that coincide share one id.",
+            keywords: &["global ids", "unique ids", "numbering", "blocks"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| crate::tables::global_ids(input.unwrap()),
+        },
+        FilterDef {
+            id: "coordinates",
+            label: "Coordinates",
+            category: "Data",
+            description: "Adds the point positions as a 3-component point array Coordinates (to color or compute by position).",
+            keywords: &["positions", "xyz", "points as array", "coordinates"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &crate::tables::coordinates),
         },
         FilterDef {
             id: "extract_selection",
@@ -2266,6 +2615,19 @@ fn build() -> Vec<FilterDef> {
             apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::delaunay_2d(d, p.f64("alpha", 0.0))?))),
         },
         FilterDef {
+            id: "delaunay_3d",
+            label: "Delaunay 3D",
+            category: "Geometry",
+            description: "Join points into tetrahedra so that no point lies inside the sphere through another tetrahedron's corners, filling their convex hull. An alpha value drops the large tetrahedra, leaving concavities and gaps.",
+            keywords: &["tetrahedralize points", "tet mesh from points", "point cloud to volume", "alpha shape", "convex hull"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("alpha", "Alpha (0: none)", 0.0, 0.0, 1e12).help("Drops tetrahedra whose sphere has a larger radius than this.")],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::delaunay3d::delaunay_3d(d, p.f64("alpha", 0.0))?))),
+        },
+        FilterDef {
             id: "triangulate",
             label: "Triangulate",
             category: "Geometry",
@@ -2552,7 +2914,7 @@ fn build() -> Vec<FilterDef> {
         },
         FilterDef {
             id: "spatio_temporal_harmonics_grid",
-            label: "Spatio Temporal Harmonics",
+            label: "Spatio Temporal Harmonics Grid",
             category: "Sources",
             description: "Image volume of travelling sine waves with its own time steps (animated test data).",
             keywords: &["waves", "sine", "harmonics", "synthetic", "test data", "animation", "time steps", "uniform grid"],

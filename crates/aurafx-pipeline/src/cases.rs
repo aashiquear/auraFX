@@ -6,6 +6,8 @@
 //!   per block, read by `PropertyReadFile`; `grains.tex` for `EulerAngleFileReader`), the slip
 //!   systems and a crystal-plasticity input file pulling the mesh along an axis.
 //! - SPPARKS grain growth: a microstructure volume as a site file and a Potts-model input.
+//! - DAMASK, an FFT texture file and LAMMPS atoms of a polycrystal, from a microstructure volume:
+//!   see `cases_micro.rs`.
 //! - PINNACLE crystal plasticity: the grain mesh as an Exodus file, an orientation point file
 //!   (element centres with their grain and Euler angles) and an input deck.
 
@@ -14,7 +16,7 @@ use aurafx_data::*;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-pub const SOLVERS: [&str; 3] = ["moose", "spparks", "pinnacle"];
+pub const SOLVERS: [&str; 6] = ["moose", "spparks", "pinnacle", "damask", "fft", "lammps"];
 
 #[derive(Debug, Clone)]
 pub struct CaseOptions {
@@ -34,6 +36,10 @@ pub struct CaseOptions {
     pub temperature: f64,
     pub dump_every: f64,
     pub seed: u64,
+    /// LAMMPS polycrystal: the lattice constant in Å (0: from the material's Burgers vector) and the
+    /// Å per unit of the volume's coordinates (0: its longest side holds about 40 lattice cells).
+    pub lattice_constant: f64,
+    pub angstrom_per_unit: f64,
 }
 
 impl Default for CaseOptions {
@@ -50,6 +56,8 @@ impl Default for CaseOptions {
             temperature: 0.0,
             dump_every: 10.0,
             seed: 12345,
+            lattice_constant: 0.0,
+            angstrom_per_unit: 0.0,
         }
     }
 }
@@ -66,7 +74,7 @@ pub struct Case {
     pub outputs: String,
 }
 
-fn material(name: &str) -> Result<&'static aurafx_crystal::mechanics::Material> {
+pub(crate) fn material(name: &str) -> Result<&'static aurafx_crystal::mechanics::Material> {
     aurafx_crystal::mechanics::MATERIALS
         .iter()
         .find(|m| m.name.eq_ignore_ascii_case(name) || m.name.to_ascii_lowercase().starts_with(&name.to_ascii_lowercase()))
@@ -163,7 +171,7 @@ fn write(folder: &Path, name: &str, text: &str, files: &mut Vec<PathBuf>) -> Res
     Ok(())
 }
 
-/// Write the case for `solver` ("moose", "spparks" or "pinnacle") from `ds` into `folder`.
+/// Write the case for `solver` ("moose", "spparks", "pinnacle", "damask", "fft" or "lammps") from `ds` into `folder`.
 pub fn write_case(ds: &DataSet, solver: &str, folder: &Path, o: &CaseOptions) -> Result<Case> {
     std::fs::create_dir_all(folder)?;
     let mut files = Vec::new();
@@ -369,6 +377,9 @@ run             {steps}\n",
                 outputs: "solver/fields.pvd".into(),
             })
         }
-        s => bail!("unknown solver {s}: one of moose, spparks, pinnacle"),
+        "damask" => super::cases_micro::write_damask(ds, folder, material(&o.material)?, o),
+        "fft" => super::cases_micro::write_fft(ds, folder),
+        "lammps" | "lammps_polycrystal" => super::cases_micro::write_lammps(ds, folder, material(&o.material)?, o),
+        s => bail!("unknown solver {s}: one of moose, spparks, pinnacle, damask, fft, lammps"),
     }
 }

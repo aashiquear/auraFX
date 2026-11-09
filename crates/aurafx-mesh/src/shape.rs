@@ -96,6 +96,13 @@ pub enum Shape {
     Union(Vec<Shape>),
     Intersect(Vec<Shape>),
     Subtract(Box<Shape>, Box<Shape>),
+    /// The side of a plane its normal points away from: n·p <= offset (`normal` of unit length).
+    /// Used by `webcut`; never a body on its own.
+    HalfSpace {
+        normal: V3,
+        offset: f64,
+        face: FaceId,
+    },
 }
 
 fn len2(a: f64, b: f64) -> f64 {
@@ -365,6 +372,7 @@ impl Shape {
                 let (d, f) = inner.eval(l);
                 (d * scale[0].min(scale[1]).min(scale[2]), f)
             }
+            Shape::HalfSpace { normal, offset, face } => (normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2] - offset, *face),
             Shape::Union(v) => v.iter().map(|s| s.eval(p)).min_by(|a, b| a.0.total_cmp(&b.0)).unwrap_or((f64::INFINITY, 0)),
             Shape::Intersect(v) => v.iter().map(|s| s.eval(p)).max_by(|a, b| a.0.total_cmp(&b.0)).unwrap_or((f64::INFINITY, 0)),
             Shape::Subtract(a, b) => {
@@ -449,6 +457,7 @@ impl Shape {
                 (std::array::from_fn(|k| a[k].max(c[k])), std::array::from_fn(|k| b[k].min(d[k])))
             }),
             Shape::Subtract(a, _) => a.bounds(),
+            Shape::HalfSpace { .. } => ([f64::NEG_INFINITY; 3], [f64::INFINITY; 3]),
         }
     }
 
@@ -483,6 +492,11 @@ impl Shape {
             }
             Shape::Transform { inner, .. } => inner.collect_faces(out),
             Shape::Union(v) | Shape::Intersect(v) => v.iter().for_each(|s| s.collect_faces(out)),
+            Shape::HalfSpace { face, .. } => {
+                if !out.contains(face) {
+                    out.push(*face);
+                }
+            }
             Shape::Subtract(a, b) => {
                 a.collect_faces(out);
                 b.collect_faces(out);

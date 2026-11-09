@@ -81,8 +81,28 @@ slice through the center, a contour at the middle value) and appears below its i
 Pipeline. Change its parameters in Properties; they apply as you type. **Re-run** forces a
 recomputation and **Reset to defaults** restores the defaults.
 
+When a filter is added, every object above it in the Pipeline is **hidden**, so the view shows
+the new result alone; click an object's eye to show it again. Filters whose result is a table or a
+chart (Histogram, Plot Over Line, the statistics) leave their input shown.
+
 Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.
+
+## Adding a source
+
+The **Sources** menu makes data without a file: shapes, synthetic fields, meshes, CAD parts.
+Picking one opens a small window that lists its standard settings (a sphere's radius and
+resolution, a mesh's sizes, a CAD Model's 40 × 30 × 8 mm plate) with two choices:
+
+- **Insert with these settings** adds it as it is.
+- **Change settings first…** shows its basic settings to edit before it is added (for a CAD
+  Model, the starter part, a template or the plate with its width, depth and thickness). The other
+  settings are in Properties afterwards.
+
+Tick **Don't ask again** to insert sources straight away; **Settings › Ask before adding a
+source** turns the window back on. Sources added from Python (`afx.sphere(radius=2)`) never ask.
+
+![Adding a source: the standard settings of a Columnar Mesh, and the button to change them first](images/source_dialog.png)
 
 ## Saving your work
 
@@ -98,5 +118,8 @@ or the Delete key; the objects below it go too.
 
 - **Help › Keyboard shortcuts** and **Help › Python API cheat sheet** open inside the app.
 - The command palette (Ctrl+K) finds filters, sources and actions by name.
+- Menus with many entries (the Sources menu, a category of filters) scroll with the mouse wheel
+  when they are taller than the window. Each filter appears once, under its category; the
+  Pipeline's right-click **Add filter** has the same categories.
 - The AI assistant answers questions about the loaded data and the app (see
   [AI assistant](ai-assistant.md)).

@@ -1114,11 +1114,12 @@ fn simulation_template(name: String) {
     app_command(format!("sim_template {name}"));
 }
 
-/// Send a request to the AI assistant panel. With agent=True it runs its code and iterates.
+/// Send a request to the AI assistant panel. With agent=True it runs its code and iterates; with
+/// view=True a picture of the 3D view goes with it (for models that see images).
 #[pyfunction]
-#[pyo3(signature = (text, agent=false))]
-fn ask(text: String, agent: bool) {
-    app_command(format!("ask{} {text}", if agent { "-agent" } else { "" }));
+#[pyo3(signature = (text, agent=false, view=false))]
+fn ask(text: String, agent: bool, view: bool) {
+    app_command(format!("ask{}{} {text}", if agent { "-agent" } else { "" }, if view { "-view" } else { "" }));
 }
 
 /// The assistant panel's state: busy (an answer is arriving), agent (agent mode is iterating), the
@@ -1726,7 +1727,7 @@ fn _cad_component_interference(node: PyRef<PyNode>, resolution: f64) -> PyResult
 /// Send a command to the app's window (the Apply button's dialog).
 #[pyfunction]
 fn _cad_app_command(cmd: String) {
-    session().lock().app_commands.push(cmd);
+    app_command(cmd);
 }
 
 /// Let the nodes held back by a postponed re-run run.
@@ -2232,9 +2233,11 @@ fn case_options(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<aurafx_pipeline:
                 "temperature" => o.temperature = v.extract()?,
                 "dump_every" => o.dump_every = v.extract()?,
                 "seed" => o.seed = v.extract()?,
+                "lattice_constant" => o.lattice_constant = v.extract()?,
+                "angstrom_per_unit" => o.angstrom_per_unit = v.extract()?,
                 k => {
                     return Err(PyValueError::new_err(format!(
-                        "unknown case option {k}: material, axis, strain, steps, end_time, fixed, loaded, mc_steps, temperature, dump_every, seed"
+                        "unknown case option {k}: material, axis, strain, steps, end_time, fixed, loaded, mc_steps, temperature, dump_every, seed, lattice_constant, angstrom_per_unit"
                     )))
                 }
             }

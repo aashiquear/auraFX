@@ -58,3 +58,4 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "p
 directories = "6"
 toml = "1"
 image = { version = "0.25", default-features = false, features = ["png", "gif"] }
+base64 = "0.22"

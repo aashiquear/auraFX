@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
+            window.path_to_searchindex_js = "searchindex-455524ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -341,6 +341,78 @@ ball = afx.sphere(theta=6, phi=5).subdivide(scheme="Loop", levels=3).curvature(k
 sheet = line.linear_extrusion(vector=(1, 0, 0))
 tin = points.delaunay_2d(alpha=0.5)
 light = sphere_surface.decimate(reduction=0.5)
+</code></pre>
+<h2 id="extracting-parts-and-making-tetrahedra"><a class="header" href="#extracting-parts-and-making-tetrahedra">Extracting parts and making tetrahedra</a></h2>
+<ul>
+<li><strong>Iso Volume</strong> (<strong>Filters › Data Analysis</strong>) keeps the part where a point scalar lies between a
+<em>Lower</em> and an <em>Upper</em> value. It cuts through the cells where the scalar reaches those values,
+so the result’s outer faces are the two value surfaces, not cell faces. Of a field that grows
+linearly along x, the part between a quarter and three quarters is exactly half the box.</li>
+<li><strong>Extract Cells By Region</strong> keeps <strong>whole</strong> cells (nothing is cut) inside a <em>Box</em>, a <em>Sphere</em> or a
+half-space (the side a <em>Plane</em>’s normal points to). <em>All points inside</em> keeps the cells entirely
+in the region; <em>Crossing the boundary too</em> also keeps those the region’s surface passes through.
+<em>Outside instead</em> keeps the rest.</li>
+<li><strong>Extract Cells By Type</strong> keeps whole cells by type: <em>Types</em> lists VTK names (<code>Hexahedron</code>,
+<code>Tetra</code>, <code>Wedge</code>, <code>Pyramid</code>, <code>Triangle</code>, <code>Quad</code>, <code>Line</code>, <code>Vertex</code>, quadratic types…) or
+dimensions (<code>3D</code>, <code>2D</code>, <code>1D</code>, <code>0D</code>), separated by commas; <em>All but these</em> inverts it.</li>
+<li><strong>Clip Closed Surface</strong> (<strong>Filters › Geometry</strong>) cuts a closed surface with a plane, keeps the side
+its <em>Normal</em> points to, and closes the cut with a flat cap, so the result is still a closed
+(watertight) surface: its volume can be measured, it can be meshed. A cut through a ring leaves the
+hole open in the cap. The cap’s triangles have the cell array <code>Cap</code> = 1.</li>
+<li><strong>Delaunay 3D</strong> joins a dataset’s points into tetrahedra so that no point lies inside the sphere
+through another tetrahedron’s corners, filling the points’ convex hull (a regular grid of points
+is handled too). An <em>Alpha</em> radius drops the tetrahedra whose sphere is larger, leaving
+concavities and gaps between separate clusters.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/extract_filters.png" alt="Iso Volume of the Wavelet field, a sphere closed by Clip Closed Surface, the cells of a box mesh inside a sphere, and Delaunay 3D tetrahedra of a point cloud"><span class="img-wrapper"><img src="images/extract_filters.png" alt="Iso Volume of the Wavelet field, a sphere closed by Clip Closed Surface, the cells of a box mesh inside a sphere, and Delaunay 3D tetrahedra of a point cloud"></span></label></p>
+<pre><code class="language-python">band = data.iso_volume(array="T", lower=300, upper=400)
+core = mesh.extract_cells_by_region(region="Sphere", origin=(0, 0, 0), radius=2, mode="Crossing the boundary too")
+hexes = mesh.extract_cells_by_type(types="Hexahedron")
+half = closed_surface.clip_closed_surface(origin=(0, 0, 0), normal=(0, 0, 1))
+tets = points.delaunay_3d(alpha=0.0)
+</code></pre>
+<h2 id="tensors-derivatives-and-tables"><a class="header" href="#tensors-derivatives-and-tables">Tensors, derivatives and tables</a></h2>
+<p><strong>Fields of vectors and tensors</strong> (<strong>Filters › Data Analysis</strong>):</p>
+<ul>
+<li><strong>Compute Derivatives</strong> of a point vector field (a velocity, a displacement) adds its
+gradient <code>&lt;name&gt;_gradient</code> (9 components, dv_i/dx_j), the strain rate <code>&lt;name&gt;_strain_rate</code>
+(6 components), the vorticity <code>&lt;name&gt;_vorticity</code> (the curl), the divergence, and two vortex
+criteria: <code>Q_criterion</code> (positive where rotation beats strain; an isosurface of a positive value
+outlines vortex cores) and <code>lambda2</code> (negative inside a core). For a rigid rotation the vorticity
+is twice the angular velocity and the strain is zero.</li>
+<li><strong>Tensor Principal Invariants</strong> of a symmetric tensor array (6 components XX YY ZZ XY YZ XZ, or
+9 row by row): the principal values (largest first), the three principal directions, and the
+invariants I1, I2, I3 and J2, J3 of the deviator.</li>
+<li><strong>Yield Criteria</strong> of a stress tensor array: <code>von_Mises</code>, <code>Tresca</code> (σ1 − σ3), <code>max_principal</code>,
+<code>pressure</code> (minus the mean stress) and <code>triaxiality</code> (mean over von Mises). A uniaxial stress σ
+gives von Mises and Tresca σ; a pure shear τ gives √3 τ and 2τ.</li>
+<li><strong>Tensor Glyph</strong> draws an ellipsoid at points (every n-th), its axes along the principal
+directions and as long as the principal values times a scale, colored by the largest one.</li>
+<li><strong>Surface Vectors</strong> makes a vector field on a surface tangent to it (or keeps its normal part);
+<strong>Surface Flow</strong> gives the flux ∫ v·n dA through a surface and its area, as a one-row table.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/tensor_filters.png" alt="A vortex built with the Calculator on the Wavelet grid: an isosurface of its Q criterion colored by vorticity, and strain-rate ellipsoids from Tensor Glyph on a slice"><span class="img-wrapper"><img src="images/tensor_filters.png" alt="A vortex built with the Calculator on the Wavelet grid: an isosurface of its Q criterion colored by vorticity, and strain-rate ellipsoids from Tensor Glyph on a slice"></span></label></p>
+<p><strong>Tables and bookkeeping arrays:</strong></p>
+<ul>
+<li><strong>Table To Points</strong> turns the rows of a table (a CSV file) into points: the columns named x, y, z,
+or chosen ones (or the first three numeric columns) give the positions, every column becomes point
+data; <em>2D</em> puts z at 0. <strong>Table To Structured Grid</strong> does the same into a structured grid of given
+dimensions (x fastest).</li>
+<li><strong>Transpose Table</strong> swaps rows and columns (numeric columns; the column <code>Column</code> names the old
+columns). <strong>Table FFT</strong> gives the discrete Fourier transform of every numeric column, as
+<code>&lt;name&gt;_fft</code> (real and imaginary) and <code>&lt;name&gt;_magnitude</code>, for any number of rows, and a
+<code>Frequency</code> column when you give the time step.</li>
+<li><strong>Merge Vector Components</strong> joins three scalar arrays into a vector. <strong>Point And Cell Ids</strong> adds
+<code>PointIds</code> and <code>CellIds</code>; <strong>Generate Global Ids</strong> adds ids unique over all the blocks of a
+multiblock (coinciding points share one); <strong>Coordinates</strong> adds the positions as an array.</li>
+</ul>
+<pre><code class="language-python">d = flow.compute_derivatives(array="velocity")      # velocity_vorticity, Q_criterion, lambda2, ...
+cores = d.contour(array="Q_criterion", values=[0.3])
+s = result.yield_criteria(array="stress")            # von_Mises, Tresca, max_principal, pressure, triaxiality
+p = result.tensor_principal_invariants(array="stress")
+g = slice_.tensor_glyph(array="stress", scale=0.01, stride=10)
+pts = afx.load("probe.csv").table_to_points(x="X", y="Y", z="Z")
+spec = afx.load("signal.csv").table_fft(dt=0.001)
 </code></pre>
 <h2 id="from-python"><a class="header" href="#from-python">From Python</a></h2>
 <pre><code class="language-python">afx.filters()                 # every filter with its parameters

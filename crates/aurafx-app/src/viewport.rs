@@ -2,6 +2,7 @@
 //! camera interaction and paints overlays (scalar bar, orientation axes).
 
 use crate::app::State;
+use crate::menus::MenuExt;
 use aurafx_filters::Association;
 use aurafx_pipeline::session::{CameraRequest, ScreenshotRequest};
 use aurafx_pipeline::{colormap, DisplayProps, NodeId};
@@ -989,7 +990,7 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
                 if ui.small_button(icons::ROWS).on_hover_text("Split: add a 3D view below").clicked() {
                     state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true, only: None });
                 }
-                ui.menu_button(icons::CUBE, |ui| {
+                ui.scroll_menu(icons::CUBE, |ui| {
                     ui.label(egui::RichText::new("Look from").weak());
                     for (label, dir, up) in crate::views::VIEW_DIRECTIONS {
                         if ui.button(*label).clicked() {

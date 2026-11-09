@@ -3,6 +3,7 @@
 
 use crate::app::State;
 use crate::icons;
+use crate::menus::MenuExt;
 use aurafx_data::DataSet;
 use egui::RichText;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
@@ -81,7 +82,7 @@ pub fn charts_ui(state: &mut State, ui: &mut egui::Ui) {
                 }
             });
             ui.label(RichText::new("Y").strong());
-            ui.menu_button(format!("{} arrays", cs.selected.len()), |ui| {
+            ui.scroll_menu(format!("{} arrays", cs.selected.len()), |ui| {
                 for (n, _) in &cols {
                     let mut on = cs.selected.contains(n);
                     if ui.checkbox(&mut on, n).changed() {

@@ -2,6 +2,7 @@
 
 use crate::assistant::Assistant;
 use crate::console::Console;
+use crate::menus::MenuExt;
 use crate::palette::Palette;
 use crate::settings::Settings;
 use crate::viewport::Viewport;
@@ -128,6 +129,8 @@ pub struct State {
     pub layout_actions: Vec<LayoutAction>,
     /// The CAD environment's interface state.
     pub cad: crate::cad::CadUi,
+    /// The window that inserts a source with its standard settings or changed ones.
+    pub source_dialog: Option<crate::source_dialog::SourceDialog>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +382,7 @@ impl AuraApp {
             open_panes: Pane::ALL.to_vec(),
             layout_actions: Vec::new(),
             cad: Default::default(),
+            source_dialog: None,
         };
         // Scripts see that an app with a 3D view is running before the first frame.
         state.session.lock().view_ids = vec![0];
@@ -751,7 +755,7 @@ impl State {
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.add(egui::Image::new(egui::include_image!("../../../assets/icons/aurafx-32.png")).fit_to_exact_size(egui::vec2(20.0, 20.0)));
-            ui.menu_button("File", |ui| {
+            ui.scroll_menu("File", |ui| {
                 if ui.button("Open…    Ctrl+O").clicked() {
                     ui.close();
                     self.open_file_dialog();
@@ -791,7 +795,7 @@ impl State {
                     ui.close();
                     self.load_state(last);
                 }
-                ui.menu_button("Open Sample Data", |ui| {
+                ui.scroll_menu("Open Sample Data", |ui| {
                     if ui.button("Heated disk in a flow (Exodus)").on_hover_text("The disk_out_ref sample: a heated disk in a flow, with temperature, pressure and velocity").clicked() {
                         ui.close();
                         self.open_sample("disk_out_ref.ex2");
@@ -813,7 +817,7 @@ impl State {
                         self.add_filter("sphere");
                     }
                 });
-                ui.menu_button("Open Recent", |ui| {
+                ui.scroll_menu("Open Recent", |ui| {
                     if self.settings.recent_files.is_empty() {
                         ui.label("No recent files");
                     }
@@ -875,7 +879,7 @@ impl State {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
-            ui.menu_button("Edit", |ui| {
+            ui.scroll_menu("Edit", |ui| {
                 let (ul, rl) = {
                     let s = self.session.lock();
                     (s.undo_label().map(|l| l.to_string()), s.redo_label().map(|l| l.to_string()))
@@ -913,41 +917,30 @@ impl State {
                     self.show_settings = true;
                 }
             });
-            ui.menu_button("Sources", |ui| {
-                for f in aurafx_filters::registry().iter().filter(|f| f.is_source) {
-                    let label = if f.id == "cad_model" { format!("{}…", f.label) } else { f.label.to_string() };
-                    if ui.button(label).on_hover_text(f.description).clicked() {
-                        ui.close();
-                        self.add_filter(f.id);
-                        // A new CAD Model opens the CAD environment on it.
-                        if f.id == "cad_model" {
-                            crate::cad::enter_active(self);
-                        }
-                    }
+            ui.scroll_menu("Sources", |ui| {
+                if let Some(id) = crate::menus::source_menu(ui) {
+                    crate::source_dialog::insert_source(self, id);
                 }
             });
             if crate::cad::editing(self) {
-                ui.menu_button(RichText::new("CAD").color(crate::theme::ACCENT), |ui| crate::cad::menu_ui(self, ui));
+                ui.scroll_menu(RichText::new("CAD").color(crate::theme::ACCENT), |ui| crate::cad::menu_ui(self, ui));
             }
-            ui.menu_button("Filters", |ui| {
-                let mut cats: Vec<&str> = aurafx_filters::registry().iter().filter(|f| !f.is_source).map(|f| f.category).collect();
-                cats.dedup();
-                for cat in cats {
-                    ui.menu_button(cat, |ui| {
-                        for f in aurafx_filters::registry().iter().filter(|f| !f.is_source && f.category == cat) {
-                            if ui.button(f.label).on_hover_text(f.description).clicked() {
-                                ui.close();
-                                self.add_filter(f.id);
-                            }
-                        }
-                        if cat == "Temporal" {
-                            ui.separator();
-                            if ui.button("Plot Over Time…").on_hover_text("Open the Charts panel's over-time tools").clicked() {
-                                ui.close();
-                                self.layout_actions.push(LayoutAction::Show(Pane::Charts));
-                            }
-                        }
-                    });
+            ui.scroll_menu("Filters", |ui| {
+                if let Some(id) = crate::menus::filter_menu(ui, |_| true) {
+                    self.add_filter(id);
+                }
+                ui.separator();
+                if ui
+                    .button(format!("{} Describe a filter…", crate::icons::SPARKLE))
+                    .on_hover_text("Say in words what you want to see; the assistant adds the filters that show it")
+                    .clicked()
+                {
+                    ui.close();
+                    self.assistant.describe_open = true;
+                }
+                if ui.button("Plot Over Time…").on_hover_text("Open the Charts panel's over-time tools").clicked() {
+                    ui.close();
+                    self.layout_actions.push(LayoutAction::Show(Pane::Charts));
                 }
                 ui.separator();
                 if ui.button("Search…    Ctrl+K").clicked() {
@@ -955,7 +948,7 @@ impl State {
                     self.palette.open = true;
                 }
             });
-            ui.menu_button("View", |ui| {
+            ui.scroll_menu("View", |ui| {
                 if ui.button("Reset camera    R").clicked() {
                     ui.close();
                     self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
@@ -977,7 +970,7 @@ impl State {
                 ui.separator();
                 ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
                 ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
-                ui.menu_button(format!("{} Lighting", crate::icons::CIRCLE_HALF), |ui| {
+                ui.scroll_menu(format!("{} Lighting", crate::icons::CIRCLE_HALF), |ui| {
                     crate::lighting_ui::lighting_ui(ui, &mut self.settings.lighting);
                     if !self.settings.lighting.lights.is_empty() {
                         ui.checkbox(&mut self.settings.show_light_widgets, "Show lights in the view").on_hover_text("Drag the sun handles to aim the lights");
@@ -994,7 +987,7 @@ impl State {
                         s.show_time_label = t;
                     }
                 }
-                ui.menu_button("Annotations", |ui| {
+                ui.scroll_menu("Annotations", |ui| {
                     let id = ui.make_persistent_id("new_note");
                     let mut text: String = ui.data_mut(|d| d.get_temp(id)).unwrap_or_default();
                     ui.horizontal(|ui| {
@@ -1048,7 +1041,7 @@ impl State {
                     }
                 });
             });
-            ui.menu_button("Windows", |ui| {
+            ui.scroll_menu("Windows", |ui| {
                 for p in Pane::ALL {
                     let mut open = self.open_panes.contains(&p);
                     if ui.checkbox(&mut open, format!("{} {}", p.icon(), p.title())).clicked() {
@@ -1099,14 +1092,28 @@ impl State {
                     ui.close();
                 }
             });
-            ui.menu_button("Simulate", |ui| {
+            ui.scroll_menu("Simulate", |ui| {
                 if ui.button("Run a simulation…").clicked() {
                     ui.close();
                     self.status = "Use the Simulations panel to configure and run a job.".into();
                 }
                 ui.label(RichText::new("Templates: LAMMPS, MOOSE, OpenFOAM, Python, custom").weak());
             });
-            ui.menu_button("Help", |ui| {
+            ui.scroll_menu("Remote", |ui| {
+                if ui
+                    .button(format!("{} Open data on another machine…", crate::icons::CLOUD))
+                    .on_hover_text("Add a machine, install aurafx-server there, choose where the picture is drawn, and open a file on it")
+                    .clicked()
+                {
+                    ui.close();
+                    self.server.open = true;
+                }
+                if ui.button(format!("{} Machines and jobs…", crate::icons::DESKTOP_TOWER)).on_hover_text("The Simulations panel: machines, jobs, files").clicked() {
+                    ui.close();
+                    self.layout_actions.push(LayoutAction::Show(Pane::Jobs));
+                }
+            });
+            ui.scroll_menu("Help", |ui| {
                 if ui.button("Keyboard shortcuts").clicked() {
                     ui.close();
                     self.show_shortcuts = true;
@@ -1149,7 +1156,7 @@ impl State {
                 ("Glyph", "glyph", "Arrows at points"),
                 ("Warp", "warp_by_vector", "Deform by vectors"),
             ] {
-                if ui.button(label).on_hover_text(tip).clicked() {
+                if ui.button(crate::icons::with(label)).on_hover_text(tip).clicked() {
                     self.add_filter(id);
                 }
             }
@@ -1163,7 +1170,7 @@ impl State {
                 ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
                 ("Iso", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
             ] {
-                if ui.small_button(label).clicked() {
+                if ui.small_button(crate::icons::with(label)).on_hover_text(format!("Look from {label}")).clicked() {
                     self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
                 }
             }
@@ -1320,6 +1327,8 @@ impl State {
                     crate::theme::apply(ctx, self.settings.theme, self.settings.ui_scale);
                 }
             });
+            ui.checkbox(&mut self.settings.ask_source_settings, "Ask before adding a source")
+                .on_hover_text("Adding a source opens a window to insert it with its standard settings or change them first");
             ui.separator();
             ui.heading("Performance");
             ui.horizontal(|ui| {
@@ -1603,6 +1612,12 @@ impl eframe::App for AuraApp {
         }
 
         crate::cad::tick(st, ctx);
+        crate::source_dialog::window(st, ctx);
+        crate::assistant::describe_window(st, ctx);
+        {
+            let session = st.session.clone();
+            st.assistant.tick_view(&session);
+        }
         let cad_open = crate::cad::editing(st);
         egui::Panel::top("menu").show(root_ui, |ui| st.menu_bar(ui));
         egui::Panel::top("toolbar").show(root_ui, |ui| {
@@ -1669,6 +1684,24 @@ impl eframe::App for AuraApp {
                 "show" if arg.eq_ignore_ascii_case("animation") => {
                     self.state.anim_dialog.open = true;
                     self.state.anim_dialog.mode = crate::animation::AnimMode::Keyframes;
+                }
+                "show" if arg.trim().eq_ignore_ascii_case("remote") => self.state.server.open = true,
+                // "assistant_view_on": tick the assistant's camera box (for the guide's picture).
+                "assistant_view_on" => {
+                    self.state.assistant.include_view = true;
+                    self.state.assistant.input = "What stands out in this view?".into();
+                }
+                // "remote_window <folder>": the Remote window, browsing that folder.
+                "remote_window" => {
+                    self.state.server.path = arg.trim().to_string();
+                    self.state.server.entries.clear();
+                    self.state.server.open = true;
+                }
+                // "source_dialog <id>": the window that adds a source (its standard or changed settings).
+                "source_dialog" => {
+                    if let Some(def) = aurafx_filters::find(arg.trim()).filter(|d| d.is_source) {
+                        self.state.source_dialog = crate::source_dialog::SourceDialog::new(def.id);
+                    }
                 }
                 "show" => {
                     if let Some(p) = find(arg) {
@@ -1789,15 +1822,20 @@ impl eframe::App for AuraApp {
                         self.state.pending_activate = Some(id);
                     }
                 }
-                "ask" | "ask-agent" => {
+                "ask" | "ask-agent" | "ask-view" | "ask-agent-view" => {
                     tracing::info!("AI: {verb} from a script: {:.60}", arg);
                     let desc = self.state.session.lock().describe();
-                    if verb == "ask-agent" {
+                    if verb.starts_with("ask-agent") {
                         self.state.settings.ai_agent_mode = true;
                         self.state.assistant.agent_active = true;
                         self.state.assistant.reset_agent_steps();
                     }
-                    self.state.assistant.send(arg.to_string(), desc);
+                    if verb.ends_with("-view") {
+                        let session = self.state.session.clone();
+                        self.state.assistant.send_with_view(arg.to_string(), desc, &session);
+                    } else {
+                        self.state.assistant.send(arg.to_string(), desc);
+                    }
                     self.state.layout_actions.push(LayoutAction::Show(Pane::Assistant));
                 }
                 _ => tracing::warn!("unknown app command {c:?}"),

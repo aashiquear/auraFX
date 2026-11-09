@@ -4,8 +4,7 @@
 //! name to expression) so a dimension changes and the pipeline re-runs without any editing.
 
 use anyhow::{anyhow, bail, Result};
-use aurafx_cad::kernel::implicit::ImplicitKernel;
-use aurafx_cad::{CadFile, Document, Evaluated, Kernel};
+use aurafx_cad::{CadFile, Document, Evaluated};
 use aurafx_data::*;
 use rayon::prelude::*;
 

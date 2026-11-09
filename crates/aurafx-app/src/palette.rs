@@ -72,6 +72,7 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
         ("Light theme", "appearance bright white", |s| s.session.lock().app_commands.push("theme light".into())),
         ("Dark theme", "appearance night black", |s| s.session.lock().app_commands.push("theme dark".into())),
         ("Settings", "preferences ai python theme", |s| s.show_settings = true),
+        ("Describe a filter…", "ai natural language words assistant make filter", |s| s.assistant.describe_open = true),
         ("Ask the AI assistant", "chat help", |s| s.assistant.focus_input = true),
         ("Python quick reference", "help api cheat sheet", |s| s.console.show_help = true),
         ("Keyboard shortcuts", "help keys", |s| s.show_shortcuts = true),
@@ -179,7 +180,11 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
         match &items[i].1 {
             Item::Filter(f) => {
                 let id = f.id;
-                state.add_filter(id);
+                if f.is_source {
+                    crate::source_dialog::insert_source(state, id);
+                } else {
+                    state.add_filter(id);
+                }
             }
             Item::Action(_, f) => f(state),
         }

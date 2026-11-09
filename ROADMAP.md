@@ -223,10 +223,10 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Context awareness: the model sees pipeline state, selected dataset summaries (arrays, ranges, bounds, time steps), camera, recent errors and logs, without uploading raw data unless asked.
 - [~] Tools the model can call (agent mode acts through generated Python): load file, add filter, set property, color by, take screenshot (and view it), run Python, read a chart's data, search docs, run a simulation job.
 - [~] Modes: "Explain", "Do it for me" (agentic with confirmation per step), "Write a script", "Debug this error".
-- [ ] Natural-language filter creation ("show me regions where von Mises stress > 300 MPa").
+- [x] Natural-language filter creation (iteration 82: Filters › Describe a filter…) ("show me regions where von Mises stress > 300 MPa").
 - [ ] Anomaly and feature detection helpers (outliers in fields, mesh quality problems, time-series change points).
-- [ ] Prompt templates and user-defined skills; privacy controls (local-only mode, redaction).
-- [ ] Vision: send rendered frames to multimodal models for interpretation.
+- [~] Prompt templates and user-defined skills; privacy controls (iteration 82: local-only mode and path redaction done; prompt templates and skills not yet) (local-only mode, redaction).
+- [x] Vision: send rendered frames to multimodal models for interpretation (iteration 82: the camera box next to Send, `afx.ask(..., view=True)`; Ollama, Anthropic and OpenAI formats).
 
 ---
 
@@ -238,7 +238,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Python pipeline runs: define a pipeline in Python (pre -> run -> post), run as a job, auto-load outputs when done.
 - [x] Parameter sweeps and ensembles with a results table and comparative views.
 - [~] Remote executor over SSH: connect (key, agent, password, jump hosts, 2FA prompts), remote file browser, sync inputs/outputs (rsync-style), run under nohup/tmux, Slurm/PBS/LSF submission and queue monitoring, reconnect to running jobs.
-- [ ] Remote rendering/data server mode: run `aurafx-server` on the GPU box, stream geometry or images to the local client.
+- [x] Remote rendering/data server mode (done in iterations 10 to 13; iteration 82 made it one guided window, Remote › Open data on another machine…): run `aurafx-server` on the GPU box, stream geometry or images to the local client.
 - [x] Watch folders: auto-refresh when the solver writes a new step.
 
 ---
@@ -349,11 +349,11 @@ noticed. Priority: **P1** next, **P2** after, **P3** when asked.
 
 | Pri | Item | Where | Check |
 |---|---|---|---|
-| P1 | **Delaunay 2D and 3D** (points to triangles/tetrahedra, with alpha), **Decimate** (quadric), **Loop/Linear Subdivide**, **Curvature** (Gaussian/mean), **Linear and Rotational Extrusion**, **Ribbon**, **Reverse Sense** | `aurafx-filters/src/surface.rs`, `simplex.rs` | areas/volumes of a sphere sample against analytic; Decimate keeps volume within 2 % at 50 % |
-| P1 | **Iso Volume** (threshold on point data with interpolated cuts), **Extract Cells By Region** (implicit box/sphere/plane), **Extract Cells By Type**, **Clip Closed Surface** (capped clip) | `clip.rs`, `threshold.rs` | capped clip of a cube is watertight (Integrate Variables volume equals the half cube) |
+| P1 done (iterations 80, 82) | **Delaunay 2D and 3D** (points to triangles/tetrahedra, with alpha), **Decimate** (quadric), **Loop/Linear Subdivide**, **Curvature** (Gaussian/mean), **Linear and Rotational Extrusion**, **Ribbon**, **Reverse Sense** | `aurafx-filters/src/surface.rs`, `simplex.rs` | areas/volumes of a sphere sample against analytic; Decimate keeps volume within 2 % at 50 % |
+| P1 done (iteration 82) | **Iso Volume** (threshold on point data with interpolated cuts), **Extract Cells By Region** (implicit box/sphere/plane), **Extract Cells By Type**, **Clip Closed Surface** (capped clip) | `clip.rs`, `threshold.rs` | capped clip of a cube is watertight (Integrate Variables volume equals the half cube) |
 | P1 | **Point interpolation** (Gaussian/Shepard/linear kernels, SPH) from points to a grid or dataset, **Resample To Line**, **Plot On Sorted Lines**, **Plot On Intersection Curves** | `interp.rs`, `probe.rs` | interpolated field of a known polynomial within tolerance |
-| P1 | **Table To Points / To Structured Grid**, **Transpose Table**, **Table FFT**, **Merge Vector Components**, **Point and Cell Ids**, **Generate Global Ids**, **Coordinates as array** | `attributes.rs` | round trips |
-| P1 | **Tensor Glyph**, **Tensor Principal Invariants**, **Yield Criteria** (von Mises, Tresca, principal), **Compute Derivatives** (strain, vorticity from vectors), **Surface Vectors/Tangents**, **Surface Flow**, **Vortex Cores** | `analysis.rs`, `glyph.rs` | invariants against NumPy on a random tensor field; vorticity of a rigid rotation |
+| P1 done (iteration 82) | **Table To Points / To Structured Grid**, **Transpose Table**, **Table FFT**, **Merge Vector Components**, **Point and Cell Ids**, **Generate Global Ids**, **Coordinates as array** | `attributes.rs` | round trips |
+| P1 done (iteration 82; Surface Flow and Surface Vectors too; Vortex Cores as the Q and lambda2 criteria of Compute Derivatives) | **Tensor Glyph**, **Tensor Principal Invariants**, **Yield Criteria** (von Mises, Tresca, principal), **Compute Derivatives** (strain, vorticity from vectors), **Surface Vectors/Tangents**, **Surface Flow**, **Vortex Cores** | `analysis.rs`, `glyph.rs` | invariants against NumPy on a random tensor field; vorticity of a rigid rotation |
 | P1 | **Evenly Spaced Streamlines 2D**, **Particle Path / Streak Line with injection over time** (expose the tracer's seeds-over-time option), **Temporal Cache / Force Time / Extract Time Steps / Generate Time Steps / Temporal Snap** | `streamlines.rs`, `temporal.rs` | known analytic flows |
 | P2 | **Statistics**: K-means, PCA, Multicorrelative, Contingency, Quartiles (box plots), Random Attributes | `analysis.rs` | against NumPy/scipy on a fixed sample |
 | P2 | **Annotate** filters (time, global data, attribute data, selection), **Environment Annotation**, **Python Annotation** (the overlay text exists; add the filters that write it) | `overlays.rs` in the app + an `annotate_*` family | screenshot tests |
@@ -373,9 +373,9 @@ and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parall
 | Pri | Item | Where | Check |
 |---|---|---|---|
 | P1 | **Rotate Sample Reference Frame** and **Apply Transformation to Geometry** on volumes (the pipeline import skips both today), **Identify Sample / Isolate Largest Feature**, **Erode and Dilate Bad Data**, **Erode/Dilate by Coordination Number**, **Replace Element Attributes with Neighbor**, **Neighbor Orientation Correlation** and **Neighbor CI Correlation** (bad-data cleanup before segmentation) | `grain_grid.rs`, `features.rs`; map them in `pipeline_json.rs` | the AM Bench pipeline imports with fewer skipped steps; a seeded noisy map cleans to the known grains |
-| P1 | **Convert hexagonal EBSD grids to square**, **Resample rectilinear to image** | `ebsd.rs` (reader option) | a `.ang` on a hex grid against its square export |
+| P1 done (iteration 82: hexagonal .ang grids; resampling rectilinear grids to image data not yet) | **Convert hexagonal EBSD grids to square**, **Resample rectilinear to image** | `ebsd.rs` (reader option) | a `.ang` on a hex grid against its square export |
 | P1 | **Find Neighborhoods**, **Find Largest Cross Sections**, **Find Feature Clustering (RDF)**, **Find Boundary Strength (m', F1)** and **Slip Transmission** metrics, **Find Twin Boundary Schmid Factors**, **Find C-axis locations / Feature Reference C-axis Misorientations** (HCP), **Identify Micro-Texture Regions** | `features.rs`, `mechanics.rs` | the AM orientation toolkit where it has the metric; otherwise analytic cases (two grains with a known misorientation) |
-| P1 | **Solver inputs for crystal-plasticity FFT codes**: DAMASK (`.vti` + material config), Los Alamos FFT texture file, **LAMMPS atoms from a polycrystal** (a lattice filled per grain with the grain's orientation) | `aurafx-pipeline/src/cases.rs`, `aurafx-io` | read back by the codes' own Python readers where installed, else format checks |
+| P1 done (iteration 82; DAMASK checked with its own Python package) | **Solver inputs for crystal-plasticity FFT codes**: DAMASK (`.vti` + material config), Los Alamos FFT texture file, **LAMMPS atoms from a polycrystal** (a lattice filled per grain with the grain's orientation) | `aurafx-pipeline/src/cases.rs`, `aurafx-io` | read back by the codes' own Python readers where installed, else format checks |
 | P2 | **Insert Transformation Phases**, **Adjust Volume**, **Generate Precipitate statistics**, **Find Surface-Area-to-Volume**, **Triangle dihedral angles / Feature Face Curvature**, **Write triangle/node files** | `synthetic.rs`, `grain_surface.rs` | |
 | P2 | **Goal statistics as a panel**: edit the size, shape, ODF, MDF and axis-ODF distributions with live plots and feed Pack Grains | `aurafx-app` panel + `synthetic.rs` | the packed volume's statistics match the panel's |
 | P2 | **Image filters on volumes**: median, Gaussian, Otsu threshold, binary morphology (the pipeline import skips them) | `aurafx-filters/src/images.rs` (new) | against scipy.ndimage on a small volume |
@@ -385,7 +385,7 @@ and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parall
 
 | Pri | Item | Where | Check |
 |---|---|---|---|
-| P1 | **Webcut** (plane, cylinder, sheet, sweep of a curve) to decompose bodies into sweepable blocks, **imprint and merge** (shared faces between touching bodies so their meshes conform) | `aurafx-mesh/src/model.rs` (commands `webcut`, `imprint`, `merge`), `overlay.rs` (shared interfaces exist for voxels) | two touching bricks meshed with one shared face: node count equals the union; Exodus side sets on the interface |
+| P1 done (iteration 82: plane, cylinder and body webcuts, imprint, merge; sheet and swept-curve webcuts not yet) | **Webcut** (plane, cylinder, sheet, sweep of a curve) to decompose bodies into sweepable blocks, **imprint and merge** (shared faces between touching bodies so their meshes conform) | `aurafx-mesh/src/model.rs` (commands `webcut`, `imprint`, `merge`), `overlay.rs` (shared interfaces exist for voxels) | two touching bricks meshed with one shared face: node count equals the union; Exodus side sets on the interface |
 | P1 | **Triangle meshing of arbitrary surfaces** (advancing front / Delaunay with sizing) and **quad paving** of planar faces, then **sweep** of paved faces into hexahedra (the sweep of structured quads exists) | `aurafx-mesh/src/pave.rs` (new), `structured.rs` | a plate with a hole paved and swept: Mesh Quality acceptable, hex count as expected |
 | P1 | **Sizing functions**: per-curve intervals and bias, per-face/body size, curvature-based size, size from a scalar field; **transition templates** for local hex refinement; **Winslow smoothing** (the "Later" line of M4) | `model.rs`, `improve.rs`, `hex.rs` | graded box: element counts per curve; refined region conforms |
 | P1 | **Nastran BDF** and **Fluent `.msh`** mesh writers; Exodus named blocks per body from CAD (C8) | `mesh_writers.rs` | read back by the readers of 14.1 |
@@ -851,6 +851,43 @@ aarch64-linux-android -p aurafx-cad` passes; the committed tree builds offline f
 (not installed here) and the installers (`packaging/`). Guide: CAD modeling › Assemblies; Edges,
 faces and measures; Kernels, STEP and other files; Inspect and templates (`cad_assembly`,
 `cad_face_ops`, `cad_inspect`, `cad_templates`).
+
+Done in iteration 82 (clean-up, then the five recommended items): the Filters menu listed a
+category once per run of its filters in the registry (an adjacent-only dedup), so filters appeared
+several times; every menu that lists filters now comes from one builder (`aurafx-app/src/menus.rs`)
+that lists each category once, the Pipeline's right-click Add filter has the same categories, and a
+test checks that categories and labels are unique (the source "Spatio Temporal Harmonics" became
+"… Grid"). Every menu scrolls when it is taller than the window (`MenuExt::scroll_menu`). Every
+ribbon button, tab and sketch tool, and the main toolbar, has an icon beside its name (one
+label-to-icon table, Phosphor 2.1.1 codepoints checked against the bundled font; a test checks the
+ribbon labels). Adding a source opens a window with its standard settings and the choice to insert
+or change them first (for a CAD Model: a template, or the plate's width, depth, thickness); "Don't
+ask again" and Settings › Ask before adding a source. A new child now hides every node above it
+(tables and charts excepted). The remote setup is one guided window (Remote menu and File › Open on
+Server…): add a machine (SSH target, port, key, jump host; ~/.ssh/config aliases), check or install
+aurafx-server, choose where the picture is drawn (here, on the server, auto), open a file. All 101
+guide pictures were regenerated (the toolbar icons show in every window). Then: (1) solver inputs from
+a microstructure volume, DAMASK (grid.vti, material.yaml with one material per grain as a DAMASK
+quaternion, load.yaml; loaded by DAMASK's own Python package: complete, valid, same quaternions), an
+FFT texture file, and LAMMPS atoms of a polycrystal (each grain filled with the FCC/BCC lattice at its
+orientation, overlaps removed across boundaries; atom count, minimum distance and <110> neighbour
+directions checked); hexagonal-grid .ang files read on a square grid by nearest point (checked
+against brute force; `testdata/ebsd/hex_grains.ang`). (2) Iso Volume, Extract Cells By Region and By
+Type, Clip Closed Surface (watertight caps with holes, oriented outward; cube and torus checked
+exactly), Delaunay 3D (Bowyer–Watson with a symbolic vertex at infinity and an in-sphere determinant;
+empty spheres, hull volume, a degenerate grid's volume and surface checked). (3) webcut (plane,
+cylinder, body; a brick cut along its own axis stays two structured bricks), imprint and merge, and
+interface side and node sets between any two bodies' elements. (4) Compute Derivatives (gradient,
+strain rate, vorticity, divergence, Q, lambda2), Tensor Principal Invariants, Yield Criteria, Tensor
+Glyph, Surface Vectors, Surface Flow, Table To Points / Structured Grid, Transpose Table, Table FFT
+(Bluestein for any length), Merge Vector Components, Point And Cell Ids, Generate Global Ids,
+Coordinates. (5) the assistant: a picture of the 3D view with a message (all three providers'
+formats), local-only mode and path redaction, Filters › Describe a filter…; and the CI's first run
+through a pull request. Bugs found on the way: a script's command to an idle window waited for a
+frame (fixed earlier this iteration), a search for "iso" now still finds Contour first. Guide:
+Getting started (Adding a source, hidden parents, scrolling menus); Data on another machine;
+Simulations (DAMASK, FFT, LAMMPS); Grains (hexagonal grids); Geometry (webcut, imprint, merge);
+Filters (Extracting parts and making tetrahedra; Tensors, derivatives and tables); AI assistant.
 
 Not started: the rest of section 14 (the prioritized gaps against the reference programs: Delaunay 3D, Iso Volume and the other row-2 items; the point-interpolation, table, tensor and
 temporal rows; readers such as DICOM, NRRD and LAS;

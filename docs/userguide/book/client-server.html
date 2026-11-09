@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
+            window.path_to_searchindex_js = "searchindex-455524ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -203,20 +203,29 @@ temporal filters and so on) run there too. What comes back:</p>
 (Programmable Filter, Python Calculator) and plugin filters run on this computer, on the data
 brought over. The server keeps results, so changing one filter only re-runs that filter there.</p>
 <h2 id="setting-up-a-host"><a class="header" href="#setting-up-a-host">Setting up a host</a></h2>
+<p>Everything is in one window: <strong>Remote › Open data on another machine…</strong> (also <strong>File › Open on
+Server…</strong>). It walks through four steps:</p>
 <ol>
-<li>Make sure <code>ssh yourhost</code> works without a password prompt.</li>
-<li>Put <code>aurafx-server</code> on the host: <strong>File › Open on Server… › Install server</strong> copies the one
-shipped with the app to <code>~/.local/bin</code> (Linux hosts of the same architecture; the packages
-run on glibc 2.35 or newer), or build it there with <code>cargo build --release -p aurafx-server</code>,
-or point <code>AURAFX_SERVER</code> at it in the host’s setup lines.</li>
-<li><strong>Check server</strong> shows its version and GPU.</li>
+<li><strong>The machine.</strong> Pick it, or open <strong>Add a machine</strong> and type its SSH target (<code>user@machine</code>
+or an alias from <code>~/.ssh/config</code>; the aliases found there are offered as buttons), with a port,
+key file or jump host if needed. <code>ssh machine</code> must work without a password prompt. Machines
+added here are also the Simulations panel’s, and the other way round. “This computer” runs the
+server locally, which is handy for trying it out.</li>
+<li><strong>aurafx-server on it.</strong> <strong>Check server</strong> shows its version and GPU; <strong>Install server</strong> copies
+the one shipped with the app to <code>~/.local/bin</code> (Linux hosts of the same architecture; the
+packages run on glibc 2.35 or newer). You can also build it there with
+<code>cargo build --release -p aurafx-server</code>, or point <code>AURAFX_SERVER</code> at it in the host’s setup lines.</li>
+<li><strong>Where the picture is drawn.</strong> <em>Auto</em> brings the geometry here unless even its surface is too
+big to send; <em>On the server</em> renders it with the server’s GPU and sends only pictures (the 3D
+view on this computer shows them, merged with local objects by depth; picking does not work on
+them); <em>On this computer</em> always brings the geometry. Each object keeps the choice, and
+<strong>Properties › Display › Draw on</strong> changes it later.</li>
+<li><strong>Open a file.</strong> Browse to it and double-click, or select it and press <strong>Open on …</strong>.</li>
 </ol>
-<p>Hosts come from the Simulations panel and from <code>~/.ssh/config</code>. “This computer” runs the
-server locally, which is handy for trying it out.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/remote_window.png" alt="The Remote window: the machine with Add a machine, the server check, where the picture is drawn, and the file browser"><span class="img-wrapper"><img src="images/remote_window.png" alt="The Remote window: the machine with Add a machine, the server check, where the picture is drawn, and the file browser"></span></label></p>
 <h2 id="opening-files"><a class="header" href="#opening-files">Opening files</a></h2>
-<p><strong>File › Open on Server…</strong>: pick the host, browse to the file, double-click it. A cloud icon
-marks objects that run on a server; hover it, or look at the top of Properties, to see what
-was transferred and how long the server took.</p>
+<p>A cloud icon marks objects that run on a server; hover it, or look at the top of Properties, to
+see what was transferred and how long the server took. From Python:</p>
 <pre><code class="language-python">d = afx.load("/scratch/run42/out.e", host="cluster")   # a Simulations host, ssh alias or user@machine
 d = afx.load("ssh://cluster/scratch/run42/out.e")       # the same
 s = d.slice(normal=(0, 0, 1))                            # runs on the server

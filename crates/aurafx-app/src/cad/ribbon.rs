@@ -4,6 +4,7 @@
 
 use super::{editing, op, RibbonTab};
 use crate::app::State;
+use crate::menus::MenuExt;
 use egui::RichText;
 use serde_json::{json, Value};
 
@@ -37,7 +38,7 @@ fn selected_name(state: &State) -> Option<String> {
 }
 
 fn button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
-    ui.button(label).on_hover_text(tip).clicked()
+    ui.button(crate::icons::with(label)).on_hover_text(tip).clicked()
 }
 
 pub fn ribbon_ui(state: &mut State, ui: &mut egui::Ui) {
@@ -51,15 +52,19 @@ pub fn ribbon_ui(state: &mut State, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("{} CAD", crate::icons::CUBE)).strong().color(crate::theme::ACCENT));
         for t in RibbonTab::ALL {
-            if ui.selectable_label(state.cad.tab == t, t.label()).clicked() {
+            if ui.selectable_label(state.cad.tab == t, crate::icons::with(t.label())).clicked() {
                 state.cad.tab = t;
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Discard").on_hover_text("Leave the CAD environment; the part is as it was (Esc)").clicked() {
+            if ui.button(crate::icons::with("Discard")).on_hover_text("Leave the CAD environment; the part is as it was (Esc)").clicked() {
                 super::discard(state);
             }
-            if ui.add_enabled(can_apply, egui::Button::new("Apply, keep editing")).on_hover_text("Hand the part to the pipeline and stay here").clicked() {
+            if ui
+                .add_enabled(can_apply, egui::Button::new(crate::icons::with("Apply, keep editing")))
+                .on_hover_text("Hand the part to the pipeline and stay here")
+                .clicked()
+            {
                 super::apply(state, true);
             }
             let apply = egui::Button::new(RichText::new(format!("{} Apply", crate::icons::CHECK_CIRCLE)).strong());
@@ -271,7 +276,7 @@ fn inspect_tab(state: &mut State, ui: &mut egui::Ui) {
     ui.separator();
     ui.label("section at z");
     ui.add(egui::DragValue::new(&mut state.cad.section_z).speed(0.1).suffix(" mm"));
-    if ui.button("Measure").on_hover_text("The area of the part's cross-section at that height").clicked() {
+    if ui.button(crate::icons::with("Measure")).on_hover_text("The area of the part's cross-section at that height").clicked() {
         let doc = state.session.lock().cad_edit.as_ref().map(|e| e.document_to_build());
         state.cad.section_area =
             doc.and_then(|d| d.resolved().ok()).map(|d| d.section_area_at_z(state.cad.section_z, (s.bounds.1[0] - s.bounds.0[0]).max(1.0) / 200.0));
@@ -335,7 +340,7 @@ pub fn check_fit(state: &mut State) {
 }
 
 fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
-    ui.menu_button("Insert part", |ui| part_menu(state, ui, "component_add", json!({"at": [0, 0, 0]})))
+    ui.scroll_menu(crate::icons::with("Insert part"), |ui| part_menu(state, ui, "component_add", json!({"at": [0, 0, 0]})))
         .response
         .on_hover_text("Place another part beside this one: a template, a blank part or a CAD file. It keeps its own features; move it in the FeatureManager.");
     for (label, how, tip) in [
@@ -343,12 +348,12 @@ fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
         ("Cut with part", "subtract", "Remove another part's volume from this one"),
         ("Keep common part", "intersect", "Keep only where this part and another overlap"),
     ] {
-        ui.menu_button(label, |ui| part_menu(state, ui, "combine", json!({"op": how}))).response.on_hover_text(tip);
+        ui.scroll_menu(crate::icons::with(label), |ui| part_menu(state, ui, "combine", json!({"op": how}))).response.on_hover_text(tip);
     }
     ui.separator();
     let has = state.session.lock().cad_edit.as_ref().is_some_and(|e| e.document.components.len() + usize::from(!e.document.features.is_empty()) > 1);
     if ui
-        .add_enabled(has, egui::Button::new("Check fit"))
+        .add_enabled(has, egui::Button::new(crate::icons::with("Check fit")))
         .on_hover_text("Find the parts that overlap, with the overlap volume (the parts of the assembly, two at a time)")
         .clicked()
     {
@@ -366,7 +371,7 @@ fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
 }
 
 fn files_tab(state: &mut State, ui: &mut egui::Ui) {
-    ui.menu_button("New from template", |ui| {
+    ui.scroll_menu(crate::icons::with("New from template"), |ui| {
         for (title, _) in aurafx_cad::templates() {
             if ui.button(title).clicked() {
                 ui.close();

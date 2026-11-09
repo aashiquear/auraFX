@@ -182,6 +182,85 @@ tin = points.delaunay_2d(alpha=0.5)
 light = sphere_surface.decimate(reduction=0.5)
 ```
 
+## Extracting parts and making tetrahedra
+
+- **Iso Volume** (**Filters › Data Analysis**) keeps the part where a point scalar lies between a
+  *Lower* and an *Upper* value. It cuts through the cells where the scalar reaches those values,
+  so the result's outer faces are the two value surfaces, not cell faces. Of a field that grows
+  linearly along x, the part between a quarter and three quarters is exactly half the box.
+- **Extract Cells By Region** keeps **whole** cells (nothing is cut) inside a *Box*, a *Sphere* or a
+  half-space (the side a *Plane*'s normal points to). *All points inside* keeps the cells entirely
+  in the region; *Crossing the boundary too* also keeps those the region's surface passes through.
+  *Outside instead* keeps the rest.
+- **Extract Cells By Type** keeps whole cells by type: *Types* lists VTK names (`Hexahedron`,
+  `Tetra`, `Wedge`, `Pyramid`, `Triangle`, `Quad`, `Line`, `Vertex`, quadratic types…) or
+  dimensions (`3D`, `2D`, `1D`, `0D`), separated by commas; *All but these* inverts it.
+- **Clip Closed Surface** (**Filters › Geometry**) cuts a closed surface with a plane, keeps the side
+  its *Normal* points to, and closes the cut with a flat cap, so the result is still a closed
+  (watertight) surface: its volume can be measured, it can be meshed. A cut through a ring leaves the
+  hole open in the cap. The cap's triangles have the cell array `Cap` = 1.
+- **Delaunay 3D** joins a dataset's points into tetrahedra so that no point lies inside the sphere
+  through another tetrahedron's corners, filling the points' convex hull (a regular grid of points
+  is handled too). An *Alpha* radius drops the tetrahedra whose sphere is larger, leaving
+  concavities and gaps between separate clusters.
+
+![Iso Volume of the Wavelet field, a sphere closed by Clip Closed Surface, the cells of a box mesh inside a sphere, and Delaunay 3D tetrahedra of a point cloud](images/extract_filters.png)
+
+```python
+band = data.iso_volume(array="T", lower=300, upper=400)
+core = mesh.extract_cells_by_region(region="Sphere", origin=(0, 0, 0), radius=2, mode="Crossing the boundary too")
+hexes = mesh.extract_cells_by_type(types="Hexahedron")
+half = closed_surface.clip_closed_surface(origin=(0, 0, 0), normal=(0, 0, 1))
+tets = points.delaunay_3d(alpha=0.0)
+```
+
+## Tensors, derivatives and tables
+
+**Fields of vectors and tensors** (**Filters › Data Analysis**):
+
+- **Compute Derivatives** of a point vector field (a velocity, a displacement) adds its
+  gradient `<name>_gradient` (9 components, dv_i/dx_j), the strain rate `<name>_strain_rate`
+  (6 components), the vorticity `<name>_vorticity` (the curl), the divergence, and two vortex
+  criteria: `Q_criterion` (positive where rotation beats strain; an isosurface of a positive value
+  outlines vortex cores) and `lambda2` (negative inside a core). For a rigid rotation the vorticity
+  is twice the angular velocity and the strain is zero.
+- **Tensor Principal Invariants** of a symmetric tensor array (6 components XX YY ZZ XY YZ XZ, or
+  9 row by row): the principal values (largest first), the three principal directions, and the
+  invariants I1, I2, I3 and J2, J3 of the deviator.
+- **Yield Criteria** of a stress tensor array: `von_Mises`, `Tresca` (σ1 − σ3), `max_principal`,
+  `pressure` (minus the mean stress) and `triaxiality` (mean over von Mises). A uniaxial stress σ
+  gives von Mises and Tresca σ; a pure shear τ gives √3 τ and 2τ.
+- **Tensor Glyph** draws an ellipsoid at points (every n-th), its axes along the principal
+  directions and as long as the principal values times a scale, colored by the largest one.
+- **Surface Vectors** makes a vector field on a surface tangent to it (or keeps its normal part);
+  **Surface Flow** gives the flux ∫ v·n dA through a surface and its area, as a one-row table.
+
+![A vortex built with the Calculator on the Wavelet grid: an isosurface of its Q criterion colored by vorticity, and strain-rate ellipsoids from Tensor Glyph on a slice](images/tensor_filters.png)
+
+**Tables and bookkeeping arrays:**
+
+- **Table To Points** turns the rows of a table (a CSV file) into points: the columns named x, y, z,
+  or chosen ones (or the first three numeric columns) give the positions, every column becomes point
+  data; *2D* puts z at 0. **Table To Structured Grid** does the same into a structured grid of given
+  dimensions (x fastest).
+- **Transpose Table** swaps rows and columns (numeric columns; the column `Column` names the old
+  columns). **Table FFT** gives the discrete Fourier transform of every numeric column, as
+  `<name>_fft` (real and imaginary) and `<name>_magnitude`, for any number of rows, and a
+  `Frequency` column when you give the time step.
+- **Merge Vector Components** joins three scalar arrays into a vector. **Point And Cell Ids** adds
+  `PointIds` and `CellIds`; **Generate Global Ids** adds ids unique over all the blocks of a
+  multiblock (coinciding points share one); **Coordinates** adds the positions as an array.
+
+```python
+d = flow.compute_derivatives(array="velocity")      # velocity_vorticity, Q_criterion, lambda2, ...
+cores = d.contour(array="Q_criterion", values=[0.3])
+s = result.yield_criteria(array="stress")            # von_Mises, Tresca, max_principal, pressure, triaxiality
+p = result.tensor_principal_invariants(array="stress")
+g = slice_.tensor_glyph(array="stress", scale=0.01, stride=10)
+pts = afx.load("probe.csv").table_to_points(x="X", y="Y", z="Z")
+spec = afx.load("signal.csv").table_fft(dt=0.001)
+```
+
 ## From Python
 
 ```python

@@ -795,7 +795,7 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
         (Tool::Spline, "Spline", "Click control points; double-click or Enter finishes"),
         (Tool::Point, "Point", "Place a point"),
     ] {
-        if ui.selectable_label(e.tool == t, l).on_hover_text(tip).clicked() {
+        if ui.selectable_label(e.tool == t, crate::icons::with(l)).on_hover_text(tip).clicked() {
             e.tool = t;
             e.chain = None;
             e.pending.clear();
@@ -809,7 +809,7 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
     let rounds: Vec<usize> = ents.iter().copied().filter(|i| is_round(sk, *i)).collect();
     let mut add: Vec<Constraint> = Vec::new();
     let mut b = |ui: &mut egui::Ui, ok: bool, label: &str, tip: &str, c: &dyn Fn() -> Vec<Constraint>| {
-        if ui.add_enabled(ok, egui::Button::new(label)).on_hover_text(tip).clicked() {
+        if ui.add_enabled(ok, egui::Button::new(crate::icons::with(label))).on_hover_text(tip).clicked() {
             add.extend(c());
         }
     };
@@ -861,7 +861,7 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
     }
     ui.separator();
     if ui
-        .add_enabled(!e.sel_ents.is_empty(), egui::Button::new("Construction"))
+        .add_enabled(!e.sel_ents.is_empty(), egui::Button::new(crate::icons::with("Construction")))
         .on_hover_text("Toggle construction geometry (not part of the outline)")
         .clicked()
     {
@@ -873,7 +873,11 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
         }
         changed = true;
     }
-    if ui.add_enabled(!e.sel_ents.is_empty() || !e.sel_pts.is_empty(), egui::Button::new("Delete")).on_hover_text("Delete the selection (Del)").clicked() {
+    if ui
+        .add_enabled(!e.sel_ents.is_empty() || !e.sel_pts.is_empty(), egui::Button::new(crate::icons::with("Delete")))
+        .on_hover_text("Delete the selection (Del)")
+        .clicked()
+    {
         delete_selection(e);
         changed = true;
     }
@@ -980,15 +984,21 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
     let (mut extrude, mut revolve, mut apply, mut cancel_it) = (false, false, false, false);
     ui.horizontal(|ui| {
         if editing {
-            if ui.add_enabled(outlines > 0, egui::Button::new(RichText::new("Apply sketch").strong())).clicked() {
+            if ui.add_enabled(outlines > 0, egui::Button::new(RichText::new(crate::icons::with("Apply sketch")).strong())).clicked() {
                 apply = true;
             }
         } else {
-            if ui.add_enabled(outlines > 0, egui::Button::new(RichText::new(if e.op == BooleanOp::Cut { "Cut" } else { "Extrude" }).strong())).clicked() {
+            if ui
+                .add_enabled(
+                    outlines > 0,
+                    egui::Button::new(RichText::new(crate::icons::with(if e.op == BooleanOp::Cut { "Cut" } else { "Extrude" })).strong()),
+                )
+                .clicked()
+            {
                 extrude = true;
             }
             if ui
-                .add_enabled(outlines > 0, egui::Button::new("Revolve"))
+                .add_enabled(outlines > 0, egui::Button::new(crate::icons::with("Revolve")))
                 .on_hover_text("About the sketch's vertical axis; x is the radius (draw on the Front plane with x ≥ 0)")
                 .clicked()
             {

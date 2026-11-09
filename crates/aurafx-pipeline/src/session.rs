@@ -680,6 +680,22 @@ impl Session {
         Ok(id)
     }
 
+    /// Hide these nodes and every node above them (inputs of inputs, extra inputs too).
+    pub fn hide_ancestors(&mut self, from: &[NodeId]) {
+        let mut todo: Vec<NodeId> = from.to_vec();
+        let mut seen = std::collections::HashSet::new();
+        while let Some(n) = todo.pop() {
+            if !seen.insert(n) {
+                continue;
+            }
+            if let Some(node) = self.nodes.get_mut(&n) {
+                node.visible = false;
+                todo.extend(node.input);
+                todo.extend(node.extra_inputs.iter().copied());
+            }
+        }
+    }
+
     pub fn add_filter(&mut self, filter_id: &str, input: NodeId) -> Result<NodeId> {
         let def = aurafx_filters::find(filter_id).ok_or_else(|| anyhow!("unknown filter {filter_id}"))?;
         if def.is_source {
@@ -718,30 +734,10 @@ impl Session {
             remote: None,
             fetch_full: false,
         };
-        // ParaView-style: hide the input when adding a filter that replaces its look.
-        if matches!(
-            def.id,
-            "slice"
-                | "clip"
-                | "contour"
-                | "threshold"
-                | "extract_surface"
-                | "tessellate"
-                | "warp_by_vector"
-                | "warp_by_scalar"
-                | "transform"
-                | "calculator"
-                | "cell_data_to_point_data"
-                | "point_data_to_cell_data"
-                | "merge_blocks"
-                | "temporal_interpolator"
-                | "temporal_shift_scale"
-                | "temporal_array_operator"
-                | "temporal_statistics"
-        ) {
-            if let Some(n) = self.nodes.get_mut(&input) {
-                n.visible = false;
-            }
+        // A new child takes over the view: every node above it is hidden (the user turns one back on with
+        // its eye). Filters whose result is a table or a chart draw nothing, so their parents stay shown.
+        if !shows_no_geometry(def.id) {
+            self.hide_ancestors(&[input]);
         }
         self.nodes.insert(id, node);
         self.active = Some(id);
@@ -845,13 +841,9 @@ impl Session {
                 self.remove_node(id);
                 return Err(e);
             }
-            // Appending replaces the look of its inputs, as in ParaView.
-            if matches!(filter_id, "append_datasets" | "append_geometry" | "append_attributes") {
-                for i in inputs {
-                    if let Some(n) = self.nodes.get_mut(i) {
-                        n.visible = false;
-                    }
-                }
+            // The new child takes over the view from all the nodes above it.
+            if !shows_no_geometry(filter_id) {
+                self.hide_ancestors(inputs);
             }
             let names: Vec<String> = inputs.iter().map(|e| self.py_var(*e)).collect();
             self.trace.truncate(trace_len);
@@ -2133,4 +2125,19 @@ pub fn py_str(s: &str) -> String {
         out.push('\'');
         out
     }
+}
+
+/// Filters whose result is read as a table or a chart, not drawn in the 3D view: adding one leaves
+/// its parents shown.
+pub fn shows_no_geometry(filter_id: &str) -> bool {
+    matches!(
+        filter_id,
+        "histogram"
+            | "plot_over_line"
+            | "descriptive_statistics"
+            | "integrate_variables"
+            | "probe_location"
+            | "ensemble_statistics"
+            | "temporal_statistics_table"
+    )
 }

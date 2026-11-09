@@ -13,7 +13,7 @@ Open a map with **File › Open** or `afx.load("scan.ang")`.
 
 | Format | Extension | Notes |
 |---|---|---|
-| TSL/EDAX | `.ang` | square grids; hexagonal grids are not read yet |
+| TSL/EDAX | `.ang` | square grids, and hexagonal grids (resampled, see below) |
 | Oxford | `.ctf` | angles in degrees in the file, converted to radians |
 | EBSD stacks | `.h5ebsd` | serial sections from TSL or Oxford (HKL) maps, read as one volume |
 | EDAX OIM HDF5 | `.h5` | square-grid scans; choose the scan with the **Scan** reader option |
@@ -33,6 +33,14 @@ A map becomes image data with one cell per measured point, the cells centered on
 - **Field data:** one entry per phase, entry 0 standing for "not indexed".
   `CrystalStructures` holds the crystal class of each phase (see the numbers below),
   `MaterialName` its name and `LatticeConstants` a, b, c, α, β, γ.
+
+**Hexagonal grids.** A `.ang` scan on a hexagonal grid (rows of `NCOLS_ODD` and `NCOLS_EVEN`
+points, every other row shifted by half a step) is read on a square grid whose cells are the
+scan's x step: each square cell takes every value of the scan point nearest to it. The field
+array `ResampledFromHexGrid` says so and gives both grids, so the map's filters (segmentation,
+IPF colors, pole figures) work on it as on any square map.
+
+![A hexagonal-grid scan of seven nickel grains read on a square grid, colored by IPF along z](images/ebsd_hex_grid.png)
 
 A single-phase `.ang` scan writes phase 0 for every point. auraFX counts those points as
 phase 1, unless their confidence index is negative.
@@ -811,8 +819,8 @@ g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
 
 ## Limits
 
-- Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
-  are not read yet.
+- Hexagonal-grid EDAX `.h5` files, Oxford `.h5oina` files, and `.dream3d` neighbor lists are not
+  read yet (hexagonal `.ang` files are, resampled on a square grid).
 - Cubochoric vectors are not among the representations.
 - Neighbor lists (each feature's neighbours and shared areas) are not kept as arrays; Feature
   Boundaries holds the same information face by face.

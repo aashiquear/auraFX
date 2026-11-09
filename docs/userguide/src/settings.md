@@ -7,6 +7,7 @@
 | Setting | Meaning |
 |---|---|
 | **Theme** | dark, light or system; the 3D background per theme |
+| **Ask before adding a source** | adding a source opens a window to insert it with its standard settings or change them first (on by default) |
 | **UI scale** | enlarges the whole interface |
 | **Orientation axes**, **Time label** | shown in the 3D views |
 | **Filter threads** | cores used by the parallel filters (0 = all); takes effect at the next start; `AURAFX_THREADS` overrides it |

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-94ac9ba6.js";
+            window.path_to_searchindex_js = "searchindex-455524ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a8fafe43.js"></script>
@@ -266,6 +266,10 @@ straight edges, then <code>arc 1</code>, <code>fillet 1</code>, <code>circle</co
 <tr><td><code>unite body 1 2 3</code></td><td>one body (numbered as the first) from several</td></tr>
 <tr><td><code>subtract body 2 3 from body 1</code></td><td>removes bodies 2 and 3 from body 1 (add <code>keep</code> to keep them)</td></tr>
 <tr><td><code>intersect body 1 2</code></td><td>the common part</td></tr>
+<tr><td><code>webcut body 1 with plane xplane offset 0.3</code></td><td>cuts body 1 in two along a plane (<code>xplane</code>, <code>yplane</code>, <code>zplane</code>, or <code>normal 1 1 0</code>, at <code>offset</code> along the normal): the part on the side the normal points away from keeps the number, the rest is a new body, both sharing the face <code>webcut 1</code></td></tr>
+<tr><td><code>webcut body 1 with cylinder radius 0.4 axis z center 0 0 0</code></td><td>cuts a core out of the body (the core keeps the number); <code>with body 3</code> cuts with another body’s shape</td></tr>
+<tr><td><code>imprint body 1 2</code> (or <code>imprint all</code>)</td><td>touching bodies are meshed with one element size (the smallest asked for), so their meshes meet node to node on the faces they share</td></tr>
+<tr><td><code>merge body 1 2</code> (or <code>merge all</code>)</td><td>the bodies’ meshes share the nodes of their common faces (with one size, as imprint); meshing stops with a message if they cannot meet node to node there (bodies offset by part of a cell)</td></tr>
 <tr><td><code>copy body 1</code></td><td>a copy as a new body</td></tr>
 <tr><td><code>delete body 2</code></td><td>removes a body</td></tr>
 <tr><td><code>body 1 name 'bracket'</code></td><td>names a body</td></tr>
@@ -275,6 +279,13 @@ straight edges, then <code>arc 1</code>, <code>fillet 1</code>, <code>circle</co
 </div>
 <p>A face keeps its name through booleans, so the faces of a hole are still <code>cylinder 2 side</code>
 after the cylinder is subtracted, unless you rename them.</p>
+<p><strong>Webcuts make blocks you can sweep.</strong> A brick cut along one of its own axes (even moved or
+turned) gives two bricks, so both stay structured, and their meshes meet node to node on the cut,
+which becomes an internal surface with a side set of its own. Cut a long part into a coarse and a
+fine region this way and imprint them so the sizes agree. Other cuts (a slanted plane, a cylinder,
+another body) make general pieces, meshed together on one overlay grid. When a plane runs exactly
+through a row of grid-cell centres, the overlay gives those cells to the first body.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_webcut.png" alt="A brick webcut by a plane into two structured bricks and a cored brick webcut by a cylinder, meshed and colored by block, with the cut surfaces as interface side sets"><span class="img-wrapper"><img src="images/geometry_webcut.png" alt="A brick webcut by a plane into two structured bricks and a cored brick webcut by a cylinder, meshed and colored by block, with the cut surfaces as interface side sets"></span></label></p>
 <h3 id="meshing-bodies"><a class="header" href="#meshing-bodies">Meshing bodies</a></h3>
 <p>These commands make a hexahedral mesh, shown when the Geometry source’s <strong>Output</strong> is
 <em>Hex mesh</em>:</p>
@@ -296,7 +307,8 @@ after the cylinder is subtracted, unless you rename them.</p>
 each moved, turned and scaled like its body. Every geometry face also becomes a side set
 named after it, such as <code>brick 1 x+</code> or <code>cylinder 2 side</code>. With HEX20 or HEX27 elements, the
 new nodes on a cylinder’s side lie on the exact surface. Bodies meshed together are welded
-where their nodes coincide.</p>
+where their nodes coincide, and the faces between two bodies’ elements form a side set and a
+node set named <code>interface &lt;body&gt; - &lt;body&gt;</code> (for structured and overlay bodies alike).</p>
 <p>Every other body (spheres, booleans, outlines, sweeps, imported surfaces) is meshed on an
 overlay grid; see <a href="#overlay-meshing">Overlay meshing</a> below.</p>
 <ul>

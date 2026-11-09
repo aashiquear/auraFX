@@ -28,6 +28,14 @@ pub struct Assistant {
     agent_results: Vec<String>,
     agent_continue: bool,
     pub agent_active: bool,
+    /// Send a picture of the 3D view with the next message.
+    pub include_view: bool,
+    /// A message waiting for its picture of the view: the screenshot's id and file, the text and the
+    /// pipeline description.
+    pending_view: Option<(u64, std::path::PathBuf, String, String)>,
+    /// The "Describe a filter" window: open, and its text.
+    pub describe_open: bool,
+    pub describe_text: String,
 }
 
 impl Assistant {
@@ -63,6 +71,10 @@ impl Assistant {
             agent_results: Vec::new(),
             agent_continue: false,
             agent_active: false,
+            include_view: false,
+            pending_view: None,
+            describe_open: false,
+            describe_text: String::new(),
         };
         a.refresh_models();
         a
@@ -121,13 +133,55 @@ impl Assistant {
         }
         if done {
             if !self.partial.is_empty() {
-                self.messages.push(ChatMessage { role: Role::Assistant, content: std::mem::take(&mut self.partial) });
+                self.messages.push(ChatMessage::new(Role::Assistant, std::mem::take(&mut self.partial)));
             }
             self.stream = None;
         }
     }
 
     pub fn send(&mut self, text: String, pipeline: String) {
+        self.send_with_images(text, pipeline, Vec::new());
+    }
+
+    /// Ask for a picture of the active 3D view and send the message with it once it is taken.
+    pub fn send_with_view(&mut self, text: String, pipeline: String, session: &aurafx_pipeline::SharedSession) {
+        if self.stream.is_some() || self.pending_view.is_some() {
+            tracing::warn!("AI: request dropped (an answer is still arriving)");
+            return;
+        }
+        let id =
+            0x5649_0000_0000 + (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(1) & 0xffff_ffff);
+        let path = std::env::temp_dir().join(format!("aurafx_assistant_view_{}_{id}.png", std::process::id()));
+        session.lock().screenshot_request =
+            Some(aurafx_pipeline::session::ScreenshotRequest { path: path.clone(), size: Some((960, 0)), transparent: false, id, overlays: true });
+        self.pending_view = Some((id, path, text, pipeline));
+    }
+
+    /// Every frame: when the picture of the view is ready, send the message waiting for it.
+    pub fn tick_view(&mut self, session: &aurafx_pipeline::SharedSession) {
+        let Some((id, _, _, _)) = &self.pending_view else { return };
+        let id = *id;
+        let result = {
+            let mut s = session.lock();
+            s.screenshot_results.iter().position(|r| r.0 == id).map(|k| s.screenshot_results.remove(k).1)
+        };
+        let Some(result) = result else { return };
+        let (_, path, text, pipeline) = self.pending_view.take().unwrap();
+        let images = match result.and_then(|_| std::fs::read(&path).map_err(|e| e.to_string())) {
+            Ok(bytes) => {
+                use base64::Engine;
+                vec![base64::engine::general_purpose::STANDARD.encode(bytes)]
+            }
+            Err(e) => {
+                self.error = Some(format!("the picture of the view could not be taken ({e}); sent without it"));
+                Vec::new()
+            }
+        };
+        let _ = std::fs::remove_file(&path);
+        self.send_with_images(text, pipeline, images);
+    }
+
+    pub fn send_with_images(&mut self, text: String, pipeline: String, images: Vec<String>) {
         if text.trim().is_empty() || self.stream.is_some() {
             tracing::warn!("AI: request dropped ({})", if text.trim().is_empty() { "empty" } else { "an answer is still arriving" });
             return;
@@ -142,7 +196,9 @@ impl Assistant {
                 }
             }
         }
-        self.messages.push(ChatMessage { role: Role::User, content: text });
+        let mut m = ChatMessage::new(Role::User, text);
+        m.images = images;
+        self.messages.push(m);
         let catalog: String = aurafx_filters::registry()
             .iter()
             .map(|f| format!("- {}: {} [{}]", f.id, f.description, f.params.iter().map(|p| p.key.as_str()).collect::<Vec<_>>().join(", ")))
@@ -162,7 +218,7 @@ impl Assistant {
         self.agent_results.clear();
         if self.stream.take().is_some() && !self.partial.is_empty() {
             let text = std::mem::take(&mut self.partial);
-            self.messages.push(ChatMessage { role: Role::Assistant, content: format!("{text}\n\n*(stopped)*") });
+            self.messages.push(ChatMessage::new(Role::Assistant, format!("{text}\n\n*(stopped)*")));
         }
     }
 
@@ -250,6 +306,16 @@ impl Assistant {
             ui.label("Temperature");
             ui.add(egui::Slider::new(&mut self.cfg.temperature, 0.0..=1.5));
             ui.end_row();
+            ui.label("Privacy");
+            ui.vertical(|ui| {
+                ui.checkbox(&mut self.cfg.local_only, "Local only").on_hover_text(
+                    "Send nothing off this computer's network: only Ollama at a local or private address, and no cloud models",
+                );
+                ui.checkbox(&mut self.cfg.redact_paths, "Hide file paths").on_hover_text(
+                    "Replace your home folder with ~ and full file paths with their file names in what is sent (the assistant then names files without their folders)",
+                );
+            });
+            ui.end_row();
             ui.label("Auto-run code");
             ui.checkbox(&mut settings.auto_run_ai_code, "Run Python blocks from the assistant automatically")
                 .on_hover_text("Off by default: review code before running it.");
@@ -280,6 +346,59 @@ fn cfg_eq(a: &AiConfig, o: &AiConfig) -> bool {
         && a.anthropic_url == o.anthropic_url
         && a.max_tokens == o.max_tokens
         && a.temperature == o.temperature
+        && a.local_only == o.local_only
+        && a.redact_paths == o.redact_paths
+}
+
+/// The "Describe a filter" window: a sentence about what to see becomes a filter (or a short chain)
+/// on the selected object, made by the assistant in agent mode.
+pub fn describe_window(state: &mut State, ctx: &egui::Context) {
+    if !state.assistant.describe_open {
+        return;
+    }
+    let active = {
+        let s = state.session.lock();
+        s.active.and_then(|id| s.nodes.get(&id).map(|n| n.name.clone()))
+    };
+    let mut open = true;
+    let mut go = false;
+    egui::Window::new(format!("{} Describe a filter", crate::icons::SPARKLE)).open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+        match &active {
+            Some(n) => ui.label(format!("Say what you want to see in \"{n}\"; the assistant adds the filters that show it.")),
+            None => ui.label(RichText::new("Select an object in the Pipeline first.").color(crate::theme::ERROR)),
+        };
+        let r = ui.add(
+            egui::TextEdit::multiline(&mut state.assistant.describe_text)
+                .desired_rows(2)
+                .desired_width(f32::INFINITY)
+                .hint_text("regions where the von Mises stress is above 300 MPa\nthe vortex cores of the flow\na slice through the hottest point"),
+        );
+        let enter = r.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        ui.horizontal(|ui| {
+            let ok = active.is_some() && !state.assistant.describe_text.trim().is_empty() && !state.assistant.is_streaming();
+            go = (ui.add_enabled(ok, egui::Button::new(RichText::new(format!("{} Make it", crate::icons::SPARKLE)).strong())).clicked() || enter) && ok;
+            ui.label(RichText::new("uses the assistant's model; the steps show in the Assistant panel").weak().small());
+        });
+    });
+    if go {
+        let want = std::mem::take(&mut state.assistant.describe_text);
+        let name = active.unwrap_or_default();
+        let text = format!(
+            "Add filters to the object \"{name}\" (afx.active()) that show this: {}. Use the afx filter calls on that node (one filter, or a short chain), \
+             choose the arrays and values from its data (look at its arrays and ranges first when you need them), color the result sensibly, \
+             then say in one sentence what the result shows.",
+            want.trim()
+        );
+        let desc = state.session.lock().describe();
+        state.settings.ai_agent_mode = true;
+        state.assistant.agent_active = true;
+        state.assistant.reset_agent_steps();
+        state.assistant.send(text, desc);
+        state.layout_actions.push(crate::app::LayoutAction::Show(crate::app::Pane::Assistant));
+        state.assistant.describe_open = false;
+    } else if !open {
+        state.assistant.describe_open = false;
+    }
 }
 
 pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
@@ -415,6 +534,8 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             let t = std::mem::take(&mut state.assistant.input);
             send_text = Some(t);
         }
+        ui.checkbox(&mut state.assistant.include_view, format!("{} view", crate::icons::CAMERA))
+            .on_hover_text("Send a picture of the 3D view with the message, for models that see images (llava, gemma, qwen-vl, Claude, GPT-4o…)");
         ui.checkbox(&mut state.settings.ai_agent_mode, "agent mode").on_hover_text(
             "Do it for me: the assistant's code runs automatically and the results go back to it, so it can continue or fix errors (up to 8 steps)",
         );
@@ -436,7 +557,12 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             state.assistant.agent_active = true;
             state.assistant.agent_steps = 0;
         }
-        state.assistant.send(t, desc);
+        if state.assistant.include_view {
+            let session = state.session.clone();
+            state.assistant.send_with_view(t, desc, &session);
+        } else {
+            state.assistant.send(t, desc);
+        }
     }
     // Agent mode: run new code blocks, then send the results back.
     if state.settings.ai_agent_mode && !state.assistant.is_streaming() {

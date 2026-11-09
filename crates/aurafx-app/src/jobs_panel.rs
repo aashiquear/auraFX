@@ -767,7 +767,7 @@ fn shell_home(p: &str) -> String {
     }
 }
 
-fn ssh_config_hosts() -> Vec<String> {
+pub(crate) fn ssh_config_hosts() -> Vec<String> {
     let Some(home) = std::env::var_os("HOME") else { return vec![] };
     let Ok(text) = std::fs::read_to_string(std::path::Path::new(&home).join(".ssh/config")) else { return vec![] };
     text.lines()

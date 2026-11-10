@@ -153,7 +153,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 - [x] Camera: perspective/orthographic, trackball/terrain/joystick styles, reset/fit, standard views (+X,-X,...), isometric, roll, zoom to box, zoom to data, camera undo/redo, saved camera links.
 - [x] Surface rendering with flat/Gouraud/PBR shading; backface handling.
 - [x] Scalar coloring with color maps (ColorBrewer, viridis family, the classic preset gallery, imported `.json/.xml`), range modes (auto, custom, time-wide), log scale, discrete, NaN/above/below colors, opacity transfer functions, per-component or magnitude, categorical.
-- [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture.
+- [~] Representations: Surface, Surface With Edges, Wireframe, Points, Outline, Feature Edges, Point Gaussian (splats: sphere, gaussian, custom shader), 3D Glyphs, Volume, Slice (image), Slice (unstructured), Multi-slice, Orthographic slice, Molecule (ball/stick/VDW), Hyper Tree Grid, Cell Grid, Polar axes, Data labels, Selection highlight, Texture. (3D Glyphs: iteration 88, instanced.)
 - [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
 - [x] Lighting (iterations 14–15): light kit, custom lights (camera-relative or fixed, colored), shadows, screen-space ambient occlusion, Eye-Dome Lighting, ACES/Reinhard tone mapping and exposure, MSAA + FXAA, order-independent transparency. Light widgets done in iteration 16. Not done: TAA. Original list: key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
 - [x] Surface LIC and ray tracing (Rust path tracer, iteration 15); environment maps as light and background, materials (metallic, roughness, specular) in Properties, GPU path tracing (iteration 16).
@@ -162,7 +162,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 - [~] Selection: by click/rubber band/polygon on points/cells/blocks, through-frustum, by query (`field > value`, nearest, etc.), grow/shrink, invert, hover tooltips and interactive labels, "Find Data" panel.
 - [~] Picking tools: point probe, coordinate readout, interactive cell/point info.
 - [ ] Stereo (anaglyph, crystal eyes, interlaced, side-by-side), VR (OpenXR) later.
-- [ ] Huge data: LOD, frustum/occlusion culling, instanced glyphs, GPU-resident meshes, mesh streaming, remote render with image streaming.
+- [~] Huge data: LOD, frustum/occlusion culling, instanced glyphs, GPU-resident meshes, mesh streaming, remote render with image streaming. (GPU-resident meshes and server pictures done; iteration 88: frustum culling by runs of triangles, a coarse copy drawn while the camera moves, instanced 3D Glyphs; occlusion culling and mesh streaming todo.)
 
 ### 3.2 Other views
 - [~] Line chart ★ (multiple series, log axes, styles, legends, markers, selection link), Bar chart, Point chart, XY bar chart, Histogram view, Box chart / Quartile chart, Plot matrix (scatter matrix), Parallel coordinates, Image chart, Comparative views (render/line chart), Slice view, Orthographic slice view, Spreadsheet view ★ (point/cell/field/row data, sort, filter, column visibility, precision, export CSV), Python view (matplotlib embedded), Spreadsheet of selection.
@@ -958,7 +958,8 @@ generated filter reference and a benchmarks page, keyboard shortcuts and accessi
 surface writers, saved assistant prompts (85); the Jupyter kernel and the Notebook panel, MPI
 and Slurm launchers for parallel servers, Rust plugins (the `aurafx-plugin` crate) and Python
 plugin panels (86); units on arrays (87); ghost layers between server processes and files
-streamed in pieces, GPU help for Slice and Contour (88). Still open in sections 0 to 10, by
+streamed in pieces, GPU help for Slice and Contour, 3D Glyphs, culling and coarse surfaces
+while moving (88). Still open in sections 0 to 10, by
 priority: piece readers for more formats, more GPU filters, localization, collaboration, in-situ
 coupling, VR and stereo, POV-Ray and HTML scene export, and the remaining catalog filters.
 

@@ -2,6 +2,7 @@
 
 pub mod camera;
 pub mod env;
+pub mod lod;
 pub mod raytrace;
 pub mod raytrace_gpu;
 pub mod renderer;

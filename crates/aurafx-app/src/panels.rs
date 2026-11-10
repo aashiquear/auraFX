@@ -967,6 +967,44 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
 
+                if d.representation == Representation::Glyphs {
+                    let vectors: Vec<String> = own.iter().filter(|(a, _, c)| *a == Association::Points && *c == 3).map(|(_, n, _)| n.clone()).collect();
+                    let point_arrays: Vec<String> = own.iter().filter(|(a, _, _)| *a == Association::Points).map(|(_, n, _)| n.clone()).collect();
+                    ui.label("Glyph");
+                    egui::ComboBox::from_id_salt("glyph shape").selected_text(d.glyph_shape.label()).show_ui(ui, |ui| {
+                        for g in aurafx_pipeline::GlyphShape::ALL {
+                            ui.selectable_value(&mut d.glyph_shape, g, g.label());
+                        }
+                    });
+                    ui.end_row();
+                    let pick = |ui: &mut egui::Ui, id: &str, v: &mut String, opts: &[String], none: &str| {
+                        egui::ComboBox::from_id_salt(id).selected_text(if v.is_empty() { none.to_string() } else { v.clone() }).show_ui(ui, |ui| {
+                            ui.selectable_value(v, String::new(), none);
+                            for o in opts {
+                                ui.selectable_value(v, o.clone(), o);
+                            }
+                        });
+                    };
+                    ui.label("Orient by");
+                    pick(ui, "glyph orient", &mut d.glyph_orient, &vectors, "(along x)");
+                    ui.end_row();
+                    ui.label("Size by");
+                    pick(ui, "glyph scale", &mut d.glyph_scale_by, &point_arrays, "(all the same)");
+                    ui.end_row();
+                    ui.label("Size");
+                    let mut auto = d.glyph_scale <= 0.0;
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut auto, "automatic").changed() {
+                            d.glyph_scale = if auto { 0.0 } else { 1.0 };
+                        }
+                        if !auto {
+                            ui.add(egui::DragValue::new(&mut d.glyph_scale).speed(0.01).range(1e-9..=f32::MAX));
+                        }
+                    })
+                    .response
+                    .on_hover_text("The length of the largest glyph; automatic: about the spacing of the points.");
+                    ui.end_row();
+                }
                 if d.representation == Representation::Molecule {
                     ui.label("Style");
                     egui::ComboBox::from_id_salt("molecule style").selected_text(d.molecule_style.label()).show_ui(ui, |ui| {

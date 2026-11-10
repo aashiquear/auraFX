@@ -29,6 +29,10 @@ pub struct Viewport {
     renderer: Option<Renderer>,
     pub camera: Camera,
     pub settings: RenderSettings,
+    /// The camera as last drawn, and when it last changed (very big surfaces are drawn coarse
+    /// while it moves).
+    last_camera: String,
+    camera_moved: Option<Instant>,
     texture: Option<egui::TextureId>,
     meshes: HashMap<NodeId, CachedMesh>,
     /// Axes grid geometry per object: (bounds + far-face key, mesh).
@@ -104,7 +108,7 @@ const GRID_NODE_ID_BASE: NodeId = 1 << 62;
 
 fn display_key(d: &DisplayProps) -> String {
     format!(
-        "{:?}|{:?}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+        "{:?}|{:?}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}|{:?}|{}|{}|{}",
         d.representation,
         d.color_by,
         d.range,
@@ -115,7 +119,11 @@ fn display_key(d: &DisplayProps) -> String {
         d.atom_scale,
         d.bond_radius,
         d.bond_orders,
-        d.colormap == aurafx_pipeline::colormap::ELEMENTS
+        d.colormap == aurafx_pipeline::colormap::ELEMENTS,
+        d.glyph_shape,
+        d.glyph_orient,
+        d.glyph_scale_by,
+        d.glyph_scale
     )
 }
 
@@ -136,6 +144,8 @@ impl Viewport {
             renderer,
             camera: Camera::default(),
             settings: RenderSettings { background, ..Default::default() },
+            last_camera: String::new(),
+            camera_moved: None,
             texture: None,
             meshes: HashMap::new(),
             grid_meshes: HashMap::new(),
@@ -730,6 +740,18 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     };
     if state.viewport.renderer.is_some() {
         let vp = &mut state.viewport;
+        // The camera moved within the last moment: draw very big surfaces coarse, and come
+        // back for a full picture when it stops.
+        let key = format!("{:?}", vp.camera);
+        if key != vp.last_camera {
+            vp.last_camera = key;
+            vp.camera_moved = Some(Instant::now());
+        }
+        let moving = vp.camera_moved.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(180));
+        vp.settings.interacting = moving;
+        if moving {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+        }
         let r = vp.renderer.as_mut().unwrap();
         let mut recreated = r.resize(w, h);
         r.set_layers(&layers);
@@ -814,6 +836,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 // Render once more at the asked size (traced at that size when ray tracing).
                 let mut settings = vp.settings.clone();
                 settings.transparent = req.transparent;
+                settings.interacting = false;
                 let mut shot_layers = remote.clone();
                 let mut shot_draws = Some(draws.clone());
                 if settings.lighting.ray_tracing {

@@ -94,6 +94,33 @@ Large structures (crystals, MD snapshots) draw fastest as **Points** with **sphe
 Molecule representation builds geometry for every atom, which is fine up to a few hundred
 thousand atoms.
 
+## 3D Glyphs
+
+The **3D Glyphs** representation draws a shape at every point: an arrow, a cone, a sphere or a
+cube, turned along a vector array (**Orient by**) and sized by an array (**Size by**: the
+largest value gets the **Size**; automatic is about the spacing of the points), colored like
+any other representation. The GPU draws the one shape once per point, so a million arrows take
+32 MB instead of several gigabytes as geometry, and changing the size or array is immediate.
+The **Glyph** filter makes the same arrows as real geometry, to save or to cut further.
+Glyphs are not picked and cast no shadows.
+
+```python
+g = afx.wavelet().gradient(array="RTData")
+g.set(representation="3D Glyphs", glyph_shape="arrow", glyph_orient="RTData_gradient",
+      glyph_scale_by="RTData_gradient", color_by="RTData")
+```
+
+![Arrows along the gradient of the wavelet, sized by its magnitude and colored by the value](images/glyphs_3d.png)
+
+## Big surfaces
+
+Surfaces are cut into runs of 16 000 triangles with their bounds; runs outside the view are
+not drawn, so zooming into a big surface is fast. A surface of more than a million triangles
+also gets a coarse copy (about 400 000 triangles, made in the background), drawn while the
+camera moves; the whole surface is drawn again as soon as it stops. Pictures and animations
+are always made from the whole surface. On a laptop GPU, a surface of 15.5 million triangles
+took 110 ms per frame in full, 35 ms while moving and 2 ms zoomed in.
+
 ## Curved cells
 
 ![A Lagrange annulus drawn with its curvature](images/curved_cells_view.png)

@@ -199,6 +199,22 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_str().map(str::to_string);
                 s.set_display(id, |d| d.lic_vectors = v);
             }
+            "glyph_shape" if !is_param => {
+                let g = val
+                    .as_str()
+                    .and_then(aurafx_pipeline::GlyphShape::parse)
+                    .ok_or_else(|| PyValueError::new_err("glyph_shape: 'arrow', 'cone', 'sphere' or 'cube'"))?;
+                s.set_display(id, |d| d.glyph_shape = g);
+            }
+            "glyph_orient" | "glyph_scale_by" if !is_param => {
+                let v = val.as_str().unwrap_or("").to_string();
+                let k = key.clone();
+                s.set_display(id, |d| if k == "glyph_orient" { d.glyph_orient = v } else { d.glyph_scale_by = v });
+            }
+            "glyph_scale" if !is_param => {
+                let v = val.as_f64().unwrap_or(0.0).max(0.0) as f32;
+                s.set_display(id, |d| d.glyph_scale = v);
+            }
             "lic_strength" => {
                 let v = val.as_f64().unwrap_or(0.8).clamp(0.0, 1.0) as f32;
                 s.set_display(id, |d| d.lic_strength = v);

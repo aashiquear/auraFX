@@ -180,6 +180,8 @@ impl RayTracing {
                         textured: m.textured,
                         direct_rgb: m.direct_rgb,
                         edges: m.edges.clone(),
+                        // Glyphs are not traced: they stay drawn by the rasterizer.
+                        glyphs: m.glyphs.clone(),
                     })
                 })
                 .clone();

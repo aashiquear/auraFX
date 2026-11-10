@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b78dfc0f.js";
+            window.path_to_searchindex_js = "searchindex-7148813c.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -1297,6 +1297,26 @@ bonds were verified on a test molecule with each tolerance setting.</p>
 <p>Large structures (crystals, MD snapshots) draw fastest as <strong>Points</strong> with <strong>spheres</strong>. The
 Molecule representation builds geometry for every atom, which is fine up to a few hundred
 thousand atoms.</p>
+<h2 id="3d-glyphs"><a class="header" href="#3d-glyphs">3D Glyphs</a></h2>
+<p>The <strong>3D Glyphs</strong> representation draws a shape at every point: an arrow, a cone, a sphere or a
+cube, turned along a vector array (<strong>Orient by</strong>) and sized by an array (<strong>Size by</strong>: the
+largest value gets the <strong>Size</strong>; automatic is about the spacing of the points), colored like
+any other representation. The GPU draws the one shape once per point, so a million arrows take
+32 MB instead of several gigabytes as geometry, and changing the size or array is immediate.
+The <strong>Glyph</strong> filter makes the same arrows as real geometry, to save or to cut further.
+Glyphs are not picked and cast no shadows.</p>
+<pre><code class="language-python">g = afx.wavelet().gradient(array="RTData")
+g.set(representation="3D Glyphs", glyph_shape="arrow", glyph_orient="RTData_gradient",
+      glyph_scale_by="RTData_gradient", color_by="RTData")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/glyphs_3d.png" alt="Arrows along the gradient of the wavelet, sized by its magnitude and colored by the value"><span class="img-wrapper"><img src="images/glyphs_3d.png" alt="Arrows along the gradient of the wavelet, sized by its magnitude and colored by the value"></span></label></p>
+<h2 id="big-surfaces"><a class="header" href="#big-surfaces">Big surfaces</a></h2>
+<p>Surfaces are cut into runs of 16 000 triangles with their bounds; runs outside the view are
+not drawn, so zooming into a big surface is fast. A surface of more than a million triangles
+also gets a coarse copy (about 400 000 triangles, made in the background), drawn while the
+camera moves; the whole surface is drawn again as soon as it stops. Pictures and animations
+are always made from the whole surface. On a laptop GPU, a surface of 15.5 million triangles
+took 110 ms per frame in full, 35 ms while moving and 2 ms zoomed in.</p>
 <h2 id="curved-cells"><a class="header" href="#curved-cells">Curved cells</a></h2>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/curved_cells_view.png" alt="A Lagrange annulus drawn with its curvature"><span class="img-wrapper"><img src="images/curved_cells_view.png" alt="A Lagrange annulus drawn with its curvature"></span></label></p>
 <p>Quadratic cells and Lagrange or Bezier cells of any order (VTK types 68–80, with rational

@@ -18,6 +18,34 @@ pub enum Representation {
     /// Atoms as spheres and bonds as cylinders (molecules: points with atomic numbers, bonds
     /// as lines).
     Molecule,
+    /// A shape (arrow, cone, sphere, cube) at every point, turned along a vector array and
+    /// sized by an array; drawn by the GPU from one copy of the shape.
+    Glyphs,
+}
+
+/// The shape the 3D Glyphs representation draws at each point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum GlyphShape {
+    #[default]
+    Arrow,
+    Cone,
+    Sphere,
+    Cube,
+}
+
+impl GlyphShape {
+    pub const ALL: [GlyphShape; 4] = [GlyphShape::Arrow, GlyphShape::Cone, GlyphShape::Sphere, GlyphShape::Cube];
+    pub fn label(self) -> &'static str {
+        match self {
+            GlyphShape::Arrow => "Arrow",
+            GlyphShape::Cone => "Cone",
+            GlyphShape::Sphere => "Sphere",
+            GlyphShape::Cube => "Cube",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|g| g.label().eq_ignore_ascii_case(s.trim()))
+    }
 }
 
 /// How the Molecule representation draws atoms and bonds.
@@ -48,7 +76,7 @@ impl MoleculeStyle {
 }
 
 impl Representation {
-    pub const ALL: [Representation; 8] = [
+    pub const ALL: [Representation; 9] = [
         Representation::Surface,
         Representation::SurfaceWithEdges,
         Representation::Wireframe,
@@ -57,6 +85,7 @@ impl Representation {
         Representation::Volume,
         Representation::SurfaceLic,
         Representation::Molecule,
+        Representation::Glyphs,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -68,11 +97,12 @@ impl Representation {
             Representation::Volume => "Volume",
             Representation::SurfaceLic => "Surface LIC",
             Representation::Molecule => "Molecule",
+            Representation::Glyphs => "3D Glyphs",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
         let l = s.to_ascii_lowercase().replace(['_', '-'], " ");
-        Self::ALL.into_iter().find(|r| r.label().to_ascii_lowercase() == l)
+        Self::ALL.into_iter().find(|r| r.label().to_ascii_lowercase() == l || (l == "glyphs" && *r == Representation::Glyphs))
     }
 }
 
@@ -139,6 +169,13 @@ pub struct DisplayProps {
     /// Molecule representation: style, atom size factor (of the van der Waals radius, ball and
     /// stick), bond radius (Å) and bond orders drawn as parallel cylinders.
     pub molecule_style: MoleculeStyle,
+    /// 3D Glyphs: the shape, the vector array that turns it ("" = along x), the array that sizes
+    /// it ("" = all the same size) and the size of the largest (0 = from the data's size and
+    /// number of points).
+    pub glyph_shape: GlyphShape,
+    pub glyph_orient: String,
+    pub glyph_scale_by: String,
+    pub glyph_scale: f32,
     pub atom_scale: f32,
     pub bond_radius: f32,
     pub bond_orders: bool,
@@ -192,6 +229,10 @@ impl Default for DisplayProps {
             lic_vectors: None,
             texture: None,
             molecule_style: MoleculeStyle::BallAndStick,
+            glyph_shape: GlyphShape::Arrow,
+            glyph_orient: String::new(),
+            glyph_scale_by: String::new(),
+            glyph_scale: 0.0,
             atom_scale: 0.3,
             bond_radius: 0.075,
             bond_orders: true,

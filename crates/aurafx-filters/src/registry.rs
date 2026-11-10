@@ -4461,6 +4461,55 @@ fn build() -> Vec<FilterDef> {
             apply: |input, _| crate::micro_extra::feature_face_curvature(input.unwrap()),
         },
         FilterDef {
+            id: "find_outliers",
+            label: "Find Outliers",
+            category: "Data",
+            description: "Points or cells whose value stands out from the rest of the array (a vector by its length): a robust z-score from the median and the median absolute deviation, a z-score, or the interquartile fences. Gives OutlierScore and Outlier (1 or 0), and the count as field data; Threshold on Outlier keeps them.",
+            keywords: &["outliers", "anomaly", "anomalies", "spikes", "bad values", "z-score", "mad", "iqr", "detect"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Array"),
+                choice("method", "Method", &[crate::anomaly::ROBUST, crate::anomaly::ZSCORE, crate::anomaly::IQR], crate::anomaly::ROBUST),
+                f("threshold", "Threshold", 3.5, 0.0, 1000.0).help("Robust z-score and z-score: how many deviations away (3.5 is usual); fences: how many IQRs past the quartiles (1.5 mild, 3 extreme)."),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (assoc, name) = array_or_default(ds, p, "array", false)?;
+                crate::anomaly::find_outliers(ds, assoc, &name, &p.str("method"), p.f64("threshold", 3.5))
+            },
+        },
+        FilterDef {
+            id: "find_change_points",
+            label: "Find Change Points",
+            category: "Data",
+            description: "Where a table column (a value over time, along a line) changes its level: splits that lower the squared error by more than Penalty times the noise variance. Adds ChangePoint (1 on the first row of each new level) and SegmentMean columns, and the change rows (and x values) as field data.",
+            keywords: &["change point", "change points", "step", "jump", "regime change", "time series", "segmentation", "anomaly"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("column", "Column", ""),
+                s("x_column", "x column (for the field data)", "Time"),
+                f("penalty", "Penalty", 25.0, 0.0, 1e9).help("Higher finds fewer changes; about 2 ln(n) to 10 ln(n) for n rows."),
+                i("min_size", "Shortest segment (rows)", 3, 1, 1_000_000),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let mut col = p.str("column");
+                if col.is_empty() {
+                    // The first numeric column after the x column.
+                    if let DataSet::Table(t) = ds {
+                        col = t.columns.iter().find(|a| a.name != p.str("x_column") && a.ncomp == 1).map(|a| a.name.clone()).unwrap_or_default();
+                    }
+                }
+                crate::anomaly::find_change_points(ds, &col, &p.str("x_column"), p.f64("penalty", 25.0), p.i64("min_size", 3).max(1) as usize)
+            },
+        },
+        FilterDef {
             id: "fill_bad_data",
             label: "Fill Bad Data",
             category: "Grains",

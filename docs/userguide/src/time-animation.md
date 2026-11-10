@@ -104,8 +104,8 @@ smooth = case.temporal_interpolator(interval=0.01).temporal_snap_to_time_step(mo
 | **Orbit 360°** | the camera turning once around the data (choose the number of frames) |
 | **Keyframes** | the keyframe timeline described below |
 
-Pick the frame rate and the format: **GIF**, **MP4** (needs `ffmpeg` on the PATH) or a folder
-of **PNG frames**. Frames are captured at the 3D view's size, with the legend, labels and
+Pick the frame rate and the format: **GIF**, **MP4** or **WebM** (VP9, smaller and plays in web
+pages; both need `ffmpeg` on the PATH) or a folder of **PNG frames** (`afx.save_animation("turn.webm")`). Frames are captured at the 3D view's size, with the legend, labels and
 annotations.
 
 **Record › all views** records every visible 3D view and chart view in each frame, placed as

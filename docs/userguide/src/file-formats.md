@@ -37,8 +37,8 @@ and value ranges on the same files. The comparisons are listed in the verificati
 | SPPARKS sites | `.spparks`, `.sites`; lattice text dumps (`id i1 x y z`) | a site file without a `Sites` section (a lattice filling its box) and a dump of every site of a lattice open as a volume with `FeatureIds` (from `i1`); a site file with coordinates opens as points |
 | Surfaces | `.stl .ply .obj`, `.off` | OFF also with point colors (`COFF`) and face colors |
 | Scenes | glTF 2.0 `.gltf .glb`, VRML 2.0 `.wrl` | triangles, lines and points of every placed mesh (moved by its nodes or transforms), normals, vertex colors; a block per mesh; see below |
-| Medical and microscopy volumes | NRRD `.nrrd .nhdr`, MetaImage `.mhd .mha`, MRC `.mrc .map .rec`, DICOM `.dcm` (or the folder of a series), OME-TIFF `.ome.tif` | image data at the file's spacing, origin and orientation; see below |
-| Point clouds (lidar) | LAS `.las`, LAZ `.laz` | LAS 1.0 to 1.4, point formats 0 to 10, with intensity, returns, classification, scan angle, GPS time and colors; see below |
+| Medical and microscopy volumes | NRRD `.nrrd .nhdr`, MetaImage `.mhd .mha`, MRC `.mrc .map .rec`, DICOM `.dcm` (or the folder of a series), NIfTI `.nii .nii.gz .hdr`, OME-TIFF `.ome.tif` | image data at the file's spacing, origin and orientation; see below |
+| Point clouds (lidar) | LAS `.las`, LAZ `.laz`, PTS `.pts` | LAS 1.0 to 1.4, point formats 0 to 10, with intensity, returns, classification, scan angle, GPS time and colors; see below |
 | Particles on HDF5 | H5Part `.h5part`, openPMD `.h5` | time steps of particles; openPMD meshes as image data and a block per particle species; see below |
 | Nek5000 | `.nek5000` (or a data file `name0.f00001`) | spectral elements as hexahedra (quadrilaterals in 2-D), velocity, pressure, temperature, passive scalars, time steps |
 | LS-DYNA | `d3plot` and its family files | solids, shells, beams; states with moving nodes, velocities, accelerations, stresses, plastic strain, beam resultants; see below |
@@ -56,6 +56,7 @@ Numbered files (`run_0001.vtu`, `frame_0001.png`, `scan_0001.las`…) open as a 
 | **MetaImage** (`.mha`, `.mhd` + `.raw`/`.zraw`) | every element type, zlib-compressed data, `Offset`, `ElementSpacing`, `TransformMatrix`, channels. The array is `MetaImage` |
 | **MRC / CCP4** (`.mrc`, `.map`, `.rec`, `.st`) | cryo-EM maps and tomograms: modes 0 (int8), 1 (int16), 2 (float32), 6 (uint16), 12 (float16); the voxel size from the cell and sample counts; the origin; the axis order of the file (columns, rows, sections) put back to x, y, z |
 | **DICOM** (`.dcm`, extension-less files, or a folder) | a file opens its whole series (the files of its folder with the same series id), ordered along the slice normal; spacing from Pixel Spacing and the distance between slices, position and orientation from the patient coordinates; values rescaled by slope and intercept (Hounsfield units for CT). A folder opens its largest series. Compressed (JPEG) files are not read: save them uncompressed |
+| **NIfTI** (`.nii`, `.nii.gz`, or a `.hdr` with its `.img`) | NIfTI-1 and NIfTI-2, either byte order; the values as `NIFTI`, scaled by the header's slope and intercept; a 4th (time) and 5th (vector) dimension become components; placed by the sform, else the qform, else the voxel sizes. |
 | **OME-TIFF** (`.ome.tif`) | the planes in the order the OME-XML gives (Z, channels, times), the physical pixel sizes, one array per channel named after it, times as time steps |
 
 Axes that a file swaps or reverses (rows of a DICOM picture running down, a NRRD space direction
@@ -71,6 +72,8 @@ cells = afx.load("cells.ome.tif")          # DAPI, GFP... arrays; time steps
 
 ![A CT-like volume read from a DICOM series, sliced and volume-rendered](images/medical_volumes.png)
 
+![A small NIfTI volume colored by its values, placed by its sform (x reversed, y and z swapped)](images/nifti_volume.png)
+
 ### Point clouds
 
 **LAS** and **LAZ** files (lidar) open as points with the arrays `Intensity`, `ReturnNumber`,
@@ -78,6 +81,8 @@ cells = afx.load("cells.ome.tif")          # DAPI, GFP... arrays; time steps
 (degrees), `UserData`, `PointSourceId`, `GpsTime` and `Color` (drawn as its own colors), at real
 coordinates (scaled and offset). LAZ (compressed LAS) is read too. Point Gaussian or Eye-Dome
 Lighting (View › Lighting) suit large clouds; Threshold on `Classification` keeps one class.
+
+**PTS** files (`.pts`, a count line then `x y z intensity r g b` per point, several scans one after another) open as points with `Intensity`, `Colors` and, for several scans, `ScanId`.
 
 ![20 000 lidar points colored by classification, with Eye-Dome Lighting](images/lidar_points.png)
 

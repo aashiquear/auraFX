@@ -17,6 +17,7 @@ pub enum AnimMode {
 pub enum AnimFormat {
     Gif,
     Mp4,
+    Webm,
     Png,
 }
 
@@ -114,11 +115,12 @@ impl State {
     pub fn start_animation_mode(&mut self, out: PathBuf, fps: f32, mode: AnimMode, orbit_frames: usize, layout: Option<crate::capture::Views>) {
         let format = match out.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) {
             Some(e) if e == "mp4" => AnimFormat::Mp4,
+            Some(e) if e == "webm" => AnimFormat::Webm,
             Some(e) if e == "png" => AnimFormat::Png,
             _ => AnimFormat::Gif,
         };
-        if format == AnimFormat::Mp4 && !ffmpeg_available() {
-            self.toast("MP4 needs ffmpeg on the PATH; choose GIF or PNG frames instead", true);
+        if matches!(format, AnimFormat::Mp4 | AnimFormat::Webm) && !ffmpeg_available() {
+            self.toast("MP4 and WebM need ffmpeg on the PATH; choose GIF or PNG frames instead", true);
             return;
         }
         let ntimes = self.session.lock().times.len();
@@ -272,10 +274,17 @@ impl State {
             AnimFormat::Png => {
                 self.toast(format!("Saved {} frames to {}", job.total, job.dir.display()), false);
             }
-            AnimFormat::Gif | AnimFormat::Mp4 => {
+            AnimFormat::Gif | AnimFormat::Mp4 | AnimFormat::Webm => {
                 let tx = self.anim_done_tx.clone();
                 let fps = job.fps;
-                self.status = format!("Encoding {}…", if job.format == AnimFormat::Mp4 { "MP4" } else { "GIF" });
+                self.status = format!(
+                    "Encoding {}…",
+                    match job.format {
+                        AnimFormat::Mp4 => "MP4",
+                        AnimFormat::Webm => "WebM",
+                        _ => "GIF",
+                    }
+                );
                 std::thread::spawn(move || {
                     let r = encode_frames(&job.dir, job.total, &out, fps);
                     let _ = std::fs::remove_dir_all(&job.dir);
@@ -303,20 +312,29 @@ impl State {
     }
 }
 
-/// Encode `dir/frame_00000.png`... into `out` (GIF, or MP4 with ffmpeg).
+/// The ffmpeg arguments that encode a video of this extension (MP4: H.264; WebM: VP9).
+pub fn video_codec_args(ext: &str) -> Option<Vec<&'static str>> {
+    match ext.to_ascii_lowercase().as_str() {
+        "mp4" => Some(vec!["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p"]),
+        "webm" => Some(vec!["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-pix_fmt", "yuv420p"]),
+        _ => None,
+    }
+}
+
+/// Encode `dir/frame_00000.png`... into `out` (GIF, or MP4 or WebM with ffmpeg).
 pub fn encode_frames(dir: &std::path::Path, total: usize, out: &std::path::Path, fps: f32) -> Result<(), String> {
-    let mp4 = out.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("mp4"));
-    if !mp4 {
+    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+    let Some(codec) = video_codec_args(&ext) else {
         let frames: Vec<PathBuf> = (0..total).map(|i| dir.join(format!("frame_{i:05}.png"))).collect();
         return encode_gif(&frames, out, fps).map_err(|e| format!("{e:#}"));
-    }
+    };
     if !ffmpeg_available() {
-        return Err("MP4 needs ffmpeg on the PATH".into());
+        return Err(format!("{} needs ffmpeg on the PATH", ext.to_uppercase()));
     }
     let st = std::process::Command::new("ffmpeg")
         .args(["-y", "-loglevel", "error", "-framerate", &fps.to_string(), "-i"])
         .arg(dir.join("frame_%05d.png"))
-        .args(["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .args(codec)
         .arg(out)
         .status();
     match st {
@@ -389,6 +407,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
                 let ff = ffmpeg_available();
                 ui.add_enabled_ui(ff, |ui| {
                     ui.radio_value(&mut d.format, AnimFormat::Mp4, "MP4").on_disabled_hover_text("Install ffmpeg to export MP4");
+                    ui.radio_value(&mut d.format, AnimFormat::Webm, "WebM").on_disabled_hover_text("Install ffmpeg to export WebM");
                 });
                 ui.radio_value(&mut d.format, AnimFormat::Png, "PNG frames");
             });
@@ -413,6 +432,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
             let (ext, label) = match d.format {
                 AnimFormat::Gif => ("gif", "Animated GIF"),
                 AnimFormat::Mp4 => ("mp4", "MP4 video"),
+                AnimFormat::Webm => ("webm", "WebM video (VP9, for web pages)"),
                 AnimFormat::Png => ("png", "PNG frames (a folder is created)"),
             };
             if let Some(p) = crate::dialogs::FileDialog::new().add_filter(label, &[ext]).set_file_name(format!("animation.{ext}")).save_file() {

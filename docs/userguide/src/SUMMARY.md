@@ -36,3 +36,5 @@
 # Reference
 
 - [Settings and keyboard shortcuts](settings.md)
+- [Filter reference](filter-reference.md)
+- [Benchmarks](benchmarks.md)

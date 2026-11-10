@@ -1590,8 +1590,8 @@ fn save_animation(
     }
     let out = std::path::PathBuf::from(&path);
     let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "gif" | "mp4" | "png") {
-        return Err(PyValueError::new_err("save_animation writes .gif, .mp4 or .png (a folder of frames)"));
+    if !matches!(ext.as_str(), "gif" | "mp4" | "webm" | "png") {
+        return Err(PyValueError::new_err("save_animation writes .gif, .mp4, .webm or .png (a folder of frames)"));
     }
     let (n, saved, time_index) = {
         let s = session().lock();

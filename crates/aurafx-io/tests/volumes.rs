@@ -106,3 +106,51 @@ fn ome_tiff() {
         }
     }
 }
+
+fn nifti_value(ds: &aurafx_data::DataSet, p: [f64; 3], c: usize) -> f64 {
+    let aurafx_data::DataSet::ImageData(im) = ds else { panic!("not image data") };
+    let a = im.point_data.get("NIFTI").unwrap();
+    let ijk: Vec<usize> = (0..3).map(|k| ((p[k] - im.origin[k]) / im.spacing[k]).round() as usize).collect();
+    let d = im.dims();
+    a.get(ijk[0] + d[0] * (ijk[1] + d[1] * ijk[2]), c)
+}
+
+#[test]
+fn nifti_sform_qform_scaling_vectors_and_pairs() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/volumes");
+    // sform: x = 30 - 2 i, y = 1.5 k, z = 3 j + 4; values 2 (i + 10 j + 100 k) - 5.
+    let h = aurafx_io::volumes::read_nifti(&dir.join("head.nii.gz")).unwrap();
+    let aurafx_data::DataSet::ImageData(im) = &h else { panic!() };
+    assert_eq!(im.dims(), [6, 4, 5]);
+    assert_eq!((im.origin, im.spacing), ([20.0, 0.0, 4.0], [2.0, 1.5, 3.0]));
+    for (i, j, k) in [(0, 0, 0), (5, 4, 3), (2, 1, 3)] {
+        let p = [30.0 - 2.0 * i as f64, 1.5 * k as f64, 3.0 * j as f64 + 4.0];
+        assert_eq!(nifti_value(&h, p, 0), 2.0 * (i + 10 * j + 100 * k) as f64 - 5.0, "{i} {j} {k}");
+    }
+    // NIfTI-2 with three components from the 5th dimension.
+    let v = aurafx_io::volumes::read_nifti(&dir.join("vectors.nii")).unwrap();
+    let aurafx_data::DataSet::ImageData(vm) = &v else { panic!() };
+    assert_eq!((vm.dims(), vm.spacing), ([4, 3, 2], [0.5, 0.5, 1.0]));
+    assert_eq!(vm.point_data.get("NIFTI").unwrap().ncomp, 3);
+    assert_eq!(nifti_value(&v, [1.5, 1.0, 1.0], 2), (2 + 3 + 20 + 100) as f64);
+    // A big-endian .hdr/.img pair with a qform turning 90 degrees about z, offset (10, 0, 0).
+    let p = aurafx_io::read_file(dir.join("pair.hdr")).unwrap();
+    let aurafx_io::Loaded::Static(p) = p else { panic!() };
+    let aurafx_data::DataSet::ImageData(pm) = &*p else { panic!() };
+    assert_eq!((pm.dims(), pm.origin), ([2, 3, 2], [8.0, 0.0, 0.0]));
+    for (i, j, k) in [(0, 0, 0), (2, 1, 1), (1, 0, 1)] {
+        let w = [10.0 - 2.0 * j as f64, 2.0 * i as f64, 2.0 * k as f64];
+        assert_eq!(nifti_value(&p, w, 0), (1 + i + 3 * j + 6 * k) as f64, "{i} {j} {k}");
+    }
+}
+
+#[test]
+fn pts_scans_with_intensity_and_colours() {
+    let f = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/lidar/scan.pts");
+    let aurafx_io::Loaded::Static(d) = aurafx_io::read_file(&f).unwrap() else { panic!() };
+    assert_eq!(d.n_points(), 5);
+    let pd = d.point_data().unwrap();
+    assert_eq!(pd.get("Intensity").unwrap().get(4, 0), 50.0);
+    assert_eq!(pd.get("Colors").unwrap().get(3, 2), 30.0);
+    assert_eq!((0..5).map(|i| pd.get("ScanId").unwrap().get(i, 0)).collect::<Vec<_>>(), vec![0.0, 0.0, 0.0, 1.0, 1.0]);
+}

@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5f60c4e3.js";
+            window.path_to_searchindex_js = "searchindex-5bc7a23a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-a8fafe43.js"></script>
+        <script src="toc-8e704b6d.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -498,6 +498,29 @@ p = w.principal_component_analysis(variables="RTData, Coordinates[0], Coordinate
 c = afx.chart_view(w.compute_quartiles(), y=["Q1"])
 w.plot("RTData", style="box")
 </code></pre>
+<h2 id="outliers-and-change-points"><a class="header" href="#outliers-and-change-points">Outliers and change points</a></h2>
+<p>In <strong>Filters › Data Analysis</strong>:</p>
+<ul>
+<li><strong>Find Outliers</strong> marks the points or cells of an array whose value stands out (a vector by its
+length): <strong>Robust z-score</strong> (0.6745 × the distance from the median over the median absolute
+deviation, past <strong>Threshold</strong>, 3.5 by default), <strong>z-score</strong> (from the mean and standard
+deviation), or <strong>Interquartile fences</strong> (past the quartiles by Threshold × the interquartile
+range: 1.5 mild, 3 extreme). It adds <code>OutlierScore</code> and <code>Outlier</code> (1 or 0), and the count as
+<code>Outliers</code> in the field data; Threshold on <code>Outlier</code> keeps them. A value that is not a number
+counts as an outlier.</li>
+<li><strong>Find Change Points</strong> finds where a table column changes its level, such as a value over time
+from Plot Data Over Time: it splits the series where that lowers the squared error by more than
+<strong>Penalty</strong> times the series’ noise (estimated from successive differences), segments at least
+<strong>Shortest segment</strong> rows long. It adds <code>ChangePoint</code> (1 on the first row of each new level)
+and <code>SegmentMean</code>, and the change rows and their x values (<code>ChangeAt</code>) as field data. Levels
+0, 5 and 2 with noise of 0.3 come back as changes at rows 40 and 75; a flat noisy series gives
+none.</li>
+</ul>
+<p>Mesh problems are found with <strong>Mesh Quality</strong> and <strong>Validate Cells</strong>.</p>
+<pre><code class="language-python">o = data.find_outliers(array="T", method="Robust z-score (median, MAD)", threshold=3.5)
+cp = data.plot_data_over_time().find_change_points(column="max(T)", penalty=25)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/find_outliers.png" alt="A wavelet with a few spoiled values: the cells around the outliers found, colored by their score, over a translucent slice"><span class="img-wrapper"><img src="images/find_outliers.png" alt="A wavelet with a few spoiled values: the cells around the outliers found, colored by their score, over a translucent slice"></span></label></p>
 <h2 id="text-in-the-3d-view"><a class="header" href="#text-in-the-3d-view">Text in the 3D view</a></h2>
 <p>The <strong>Annotation</strong> filters write a line of text that every 3D view showing them draws in a
 corner of your choice, at a size of your choice (hide the filter to hide the text):</p>

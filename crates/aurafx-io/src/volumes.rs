@@ -163,7 +163,8 @@ pub(crate) fn align_axes(im: &mut ImageData) {
     let mut used = [false; 3];
     for k in 0..3 {
         let col = [d[k], d[3 + k], d[6 + k]];
-        let Some(a) = (0..3).find(|&a| (col[a].abs() - 1.0).abs() < 1e-9 && (0..3).all(|b| b == a || col[b].abs() < 1e-9)) else { return };
+        // (to 1e-6: headers in single precision, such as a NIfTI quaternion, round 0 and 1 by about 1e-8)
+        let Some(a) = (0..3).find(|&a| (col[a].abs() - 1.0).abs() < 1e-6 && (0..3).all(|b| b == a || col[b].abs() < 1e-6)) else { return };
         if used[a] {
             return;
         }
@@ -1046,4 +1047,215 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+// ------------------------------------------------------------------ NIfTI
+
+/// NIfTI-1 and NIfTI-2 (`.nii`, `.nii.gz`, or a `.hdr` with its `.img`): the voxel values as point
+/// data `NIFTI` (the 4th and 5th dimensions, time and vector, as components), scaled by
+/// `scl_slope`/`scl_inter`, placed by the sform (else the qform, else the voxel sizes); grids whose
+/// axes are the space axes swapped or reversed are reordered to run along +x, +y, +z.
+pub fn read_nifti(path: &Path) -> Result<DataSet> {
+    let raw = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let name = path.to_string_lossy().to_ascii_lowercase();
+    let bytes = if name.ends_with(".gz") { inflate(&raw, true)? } else { raw };
+    if bytes.len() < 348 {
+        bail!("{}: too short for a NIfTI header", path.display());
+    }
+    let i32_at = |b: &[u8], o: usize, le: bool| {
+        let a: [u8; 4] = b[o..o + 4].try_into().unwrap();
+        if le {
+            i32::from_le_bytes(a)
+        } else {
+            i32::from_be_bytes(a)
+        }
+    };
+    // The header size says the version and the byte order.
+    let (v2, le) = match (i32_at(&bytes, 0, true), i32_at(&bytes, 0, false)) {
+        (348, _) => (false, true),
+        (_, 348) => (false, false),
+        (540, _) => (true, true),
+        (_, 540) => (true, false),
+        _ => bail!("{}: not a NIfTI file (header size {})", path.display(), i32_at(&bytes, 0, true)),
+    };
+    let rd = |o: usize, n: usize| -> &[u8] { &bytes[o..o + n] };
+    let i16_ = |o: usize| {
+        let a: [u8; 2] = rd(o, 2).try_into().unwrap();
+        if le {
+            i16::from_le_bytes(a) as i64
+        } else {
+            i16::from_be_bytes(a) as i64
+        }
+    };
+    let i32_ = |o: usize| i32_at(&bytes, o, le) as i64;
+    let i64_ = |o: usize| {
+        let a: [u8; 8] = rd(o, 8).try_into().unwrap();
+        if le {
+            i64::from_le_bytes(a)
+        } else {
+            i64::from_be_bytes(a)
+        }
+    };
+    let f32_ = |o: usize| {
+        let a: [u8; 4] = rd(o, 4).try_into().unwrap();
+        (if le { f32::from_le_bytes(a) } else { f32::from_be_bytes(a) }) as f64
+    };
+    let f64_ = |o: usize| {
+        let a: [u8; 8] = rd(o, 8).try_into().unwrap();
+        if le {
+            f64::from_le_bytes(a)
+        } else {
+            f64::from_be_bytes(a)
+        }
+    };
+    if v2 && bytes.len() < 540 {
+        bail!("{}: too short for a NIfTI-2 header", path.display());
+    }
+    let dim: Vec<i64> = (0..8).map(|k| if v2 { i64_(16 + 8 * k) } else { i16_(40 + 2 * k) }).collect();
+    let datatype = if v2 { i16_(12) } else { i16_(70) };
+    let pixdim: Vec<f64> = (0..8).map(|k| if v2 { f64_(104 + 8 * k) } else { f32_(76 + 4 * k) }).collect();
+    let vox_offset = if v2 { i64_(168) as f64 } else { f32_(108) };
+    let (slope, inter) = if v2 { (f64_(176), f64_(184)) } else { (f32_(112), f32_(116)) };
+    let (qcode, scode) = if v2 { (i32_(344), i32_(348)) } else { (i16_(252), i16_(254)) };
+    let q = |k: usize| if v2 { f64_(352 + 8 * k) } else { f32_(256 + 4 * k) };
+    let srow = |r: usize, c: usize| if v2 { f64_(400 + 32 * r + 8 * c) } else { f32_(280 + 16 * r + 4 * c) };
+    let magic_at = if v2 { 4 } else { 344 };
+    let single = &bytes[magic_at..magic_at + 3] == b"n+1" || &bytes[magic_at..magic_at + 3] == b"n+2";
+    let nd = dim[0].clamp(1, 7) as usize;
+    let d = |k: usize| if k <= nd { dim[k].max(1) as usize } else { 1 };
+    let (nx, ny, nz) = (d(1), d(2), d(3));
+    let ncomp = d(4) * d(5) * d(6) * d(7);
+    let (ty, per) = match datatype {
+        2 => (Ty::U8, 1),
+        4 => (Ty::I16, 1),
+        8 => (Ty::I32, 1),
+        16 => (Ty::F32, 1),
+        64 => (Ty::F64, 1),
+        256 => (Ty::I8, 1),
+        512 => (Ty::U16, 1),
+        768 => (Ty::U32, 1),
+        1024 => (Ty::I64, 1),
+        1280 => (Ty::U64, 1),
+        128 => (Ty::U8, 3),
+        2304 => (Ty::U8, 4),
+        t => bail!("{}: NIfTI datatype {t} is not read (complex or float128)", path.display()),
+    };
+    // The voxel data: after the header in the file, or in the .img beside a .hdr.
+    let data: Vec<u8> = if single {
+        bytes[(vox_offset as usize).min(bytes.len())..].to_vec()
+    } else {
+        let base = path.to_string_lossy().trim_end_matches(".gz").trim_end_matches(".hdr").trim_end_matches(".HDR").to_string();
+        let img = [format!("{base}.img"), format!("{base}.img.gz"), format!("{base}.IMG")].into_iter().map(PathBuf::from).find(|p| p.exists());
+        let img = img.ok_or_else(|| anyhow!("{}: no .img file beside the header", path.display()))?;
+        let r = std::fs::read(&img)?;
+        if img.to_string_lossy().ends_with(".gz") {
+            inflate(&r, true)?
+        } else {
+            r
+        }
+    };
+    let nvox = nx * ny * nz;
+    let n = nvox * ncomp * per;
+    let vals = decode(&data, ty, n, le).with_context(|| format!("reading the voxels of {}", path.display()))?;
+    // Components: voxel v of volume k is value v + nvox k (RGB: interleaved in each voxel).
+    let scaled = slope != 0.0 && !(slope == 1.0 && inter == 0.0) && per == 1;
+    let array = if per > 1 {
+        Array::new("NIFTI", per, vals)
+    } else if ncomp == 1 && !scaled {
+        Array::new("NIFTI", 1, vals)
+    } else {
+        let f = vals.to_f64_vec();
+        let mut out = vec![0.0f64; n];
+        for v in 0..nvox {
+            for k in 0..ncomp {
+                let x = f[v + nvox * k];
+                out[v * ncomp + k] = if scaled { slope * x + inter } else { x };
+            }
+        }
+        let is_f64 = matches!(ty, Ty::F64 | Ty::I64 | Ty::U64 | Ty::I32 | Ty::U32);
+        Array::new("NIFTI", ncomp, if is_f64 { ArrayData::F64(out) } else { ArrayData::F32(out.iter().map(|x| *x as f32).collect()) })
+    };
+    // Placement: sform, else qform, else the voxel sizes.
+    let (axes, origin): ([[f64; 3]; 3], [f64; 3]) = if scode > 0 {
+        (std::array::from_fn(|c| std::array::from_fn(|r| srow(r, c))), [srow(0, 3), srow(1, 3), srow(2, 3)])
+    } else if qcode > 0 {
+        let (b, c, dq) = (q(0), q(1), q(2));
+        let a = (1.0 - (b * b + c * c + dq * dq)).max(0.0).sqrt();
+        let r = [
+            [a * a + b * b - c * c - dq * dq, 2.0 * (b * c - a * dq), 2.0 * (b * dq + a * c)],
+            [2.0 * (b * c + a * dq), a * a + c * c - b * b - dq * dq, 2.0 * (c * dq - a * b)],
+            [2.0 * (b * dq - a * c), 2.0 * (c * dq + a * b), a * a + dq * dq - c * c - b * b],
+        ];
+        let qfac = if pixdim[0] < 0.0 { -1.0 } else { 1.0 };
+        let sp = [pixdim[1].abs().max(1e-30), pixdim[2].abs().max(1e-30), pixdim[3].abs().max(1e-30) * qfac];
+        (std::array::from_fn(|col| std::array::from_fn(|row| r[row][col] * sp[col])), [q(3), q(4), q(5)])
+    } else {
+        let sp = |k: usize| if pixdim[k] > 0.0 { pixdim[k] } else { 1.0 };
+        ([[sp(1), 0.0, 0.0], [0.0, sp(2), 0.0], [0.0, 0.0, sp(3)]], [0.0; 3])
+    };
+    let spacing: [f64; 3] = std::array::from_fn(|c| {
+        let l = (axes[c][0].powi(2) + axes[c][1].powi(2) + axes[c][2].powi(2)).sqrt();
+        if l > 0.0 {
+            l
+        } else {
+            1.0
+        }
+    });
+    let mut im = image([nx, ny, nz], spacing, origin, direction_from_axes(axes));
+    im.point_data.insert(array);
+    align_axes(&mut im);
+    Ok(DataSet::ImageData(im))
+}
+
+// ------------------------------------------------------------------ PTS point clouds
+
+/// Leica PTS: blocks of a point count line then `x y z [intensity [r g b]]` lines (several scans
+/// one after another). Points as vertices with `Intensity` and `Colors` (8-bit RGB) when present
+/// and the scan number `ScanId` when there are several.
+pub fn read_pts(path: &Path) -> Result<DataSet> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let (mut pts, mut inten, mut col, mut scan) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut s = -1i32;
+    let (mut has_i, mut has_c) = (false, false);
+    for line in text.lines() {
+        let v: Vec<f64> = line.split_whitespace().filter_map(|t| t.parse::<f64>().ok()).collect();
+        match v.len() {
+            0 => continue,
+            1 => {
+                s += 1;
+                continue;
+            }
+            n if n >= 3 => {
+                pts.extend_from_slice(&v[..3]);
+                inten.push(if n >= 4 { v[3] as f32 } else { 0.0 });
+                has_i |= n >= 4;
+                if n >= 7 {
+                    has_c = true;
+                    col.extend(v[4..7].iter().map(|x| x.clamp(0.0, 255.0) as u8));
+                } else {
+                    col.extend([0u8; 3]);
+                }
+                scan.push(s.max(0));
+            }
+            _ => bail!("{}: a line with two numbers: {line}", path.display()),
+        }
+    }
+    if pts.is_empty() {
+        bail!("{}: no points", path.display());
+    }
+    let n = pts.len() / 3;
+    let mut pd = PolyData::from_points(Points::new_f64(pts));
+    for i in 0..n as u32 {
+        pd.verts.push(CellType::Vertex, &[i]);
+    }
+    if has_i {
+        pd.point_data.insert(Array::new("Intensity", 1, ArrayData::F32(inten)));
+    }
+    if has_c {
+        pd.point_data.insert(Array::new("Colors", 3, ArrayData::U8(col)));
+    }
+    if s > 0 {
+        pd.point_data.insert(Array::new("ScanId", 1, ArrayData::I32(scan)));
+    }
+    Ok(DataSet::PolyData(pd))
 }

@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5f60c4e3.js";
+            window.path_to_searchindex_js = "searchindex-5bc7a23a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-a8fafe43.js"></script>
+        <script src="toc-8e704b6d.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -217,8 +217,8 @@ and value ranges on the same files. The comparisons are listed in the verificati
 <tr><td>SPPARKS sites</td><td><code>.spparks</code>, <code>.sites</code>; lattice text dumps (<code>id i1 x y z</code>)</td><td>a site file without a <code>Sites</code> section (a lattice filling its box) and a dump of every site of a lattice open as a volume with <code>FeatureIds</code> (from <code>i1</code>); a site file with coordinates opens as points</td></tr>
 <tr><td>Surfaces</td><td><code>.stl .ply .obj</code>, <code>.off</code></td><td>OFF also with point colors (<code>COFF</code>) and face colors</td></tr>
 <tr><td>Scenes</td><td>glTF 2.0 <code>.gltf .glb</code>, VRML 2.0 <code>.wrl</code></td><td>triangles, lines and points of every placed mesh (moved by its nodes or transforms), normals, vertex colors; a block per mesh; see below</td></tr>
-<tr><td>Medical and microscopy volumes</td><td>NRRD <code>.nrrd .nhdr</code>, MetaImage <code>.mhd .mha</code>, MRC <code>.mrc .map .rec</code>, DICOM <code>.dcm</code> (or the folder of a series), OME-TIFF <code>.ome.tif</code></td><td>image data at the file’s spacing, origin and orientation; see below</td></tr>
-<tr><td>Point clouds (lidar)</td><td>LAS <code>.las</code>, LAZ <code>.laz</code></td><td>LAS 1.0 to 1.4, point formats 0 to 10, with intensity, returns, classification, scan angle, GPS time and colors; see below</td></tr>
+<tr><td>Medical and microscopy volumes</td><td>NRRD <code>.nrrd .nhdr</code>, MetaImage <code>.mhd .mha</code>, MRC <code>.mrc .map .rec</code>, DICOM <code>.dcm</code> (or the folder of a series), NIfTI <code>.nii .nii.gz .hdr</code>, OME-TIFF <code>.ome.tif</code></td><td>image data at the file’s spacing, origin and orientation; see below</td></tr>
+<tr><td>Point clouds (lidar)</td><td>LAS <code>.las</code>, LAZ <code>.laz</code>, PTS <code>.pts</code></td><td>LAS 1.0 to 1.4, point formats 0 to 10, with intensity, returns, classification, scan angle, GPS time and colors; see below</td></tr>
 <tr><td>Particles on HDF5</td><td>H5Part <code>.h5part</code>, openPMD <code>.h5</code></td><td>time steps of particles; openPMD meshes as image data and a block per particle species; see below</td></tr>
 <tr><td>Nek5000</td><td><code>.nek5000</code> (or a data file <code>name0.f00001</code>)</td><td>spectral elements as hexahedra (quadrilaterals in 2-D), velocity, pressure, temperature, passive scalars, time steps</td></tr>
 <tr><td>LS-DYNA</td><td><code>d3plot</code> and its family files</td><td>solids, shells, beams; states with moving nodes, velocities, accelerations, stresses, plastic strain, beam resultants; see below</td></tr>
@@ -240,6 +240,7 @@ and value ranges on the same files. The comparisons are listed in the verificati
 <tr><td><strong>MetaImage</strong> (<code>.mha</code>, <code>.mhd</code> + <code>.raw</code>/<code>.zraw</code>)</td><td>every element type, zlib-compressed data, <code>Offset</code>, <code>ElementSpacing</code>, <code>TransformMatrix</code>, channels. The array is <code>MetaImage</code></td></tr>
 <tr><td><strong>MRC / CCP4</strong> (<code>.mrc</code>, <code>.map</code>, <code>.rec</code>, <code>.st</code>)</td><td>cryo-EM maps and tomograms: modes 0 (int8), 1 (int16), 2 (float32), 6 (uint16), 12 (float16); the voxel size from the cell and sample counts; the origin; the axis order of the file (columns, rows, sections) put back to x, y, z</td></tr>
 <tr><td><strong>DICOM</strong> (<code>.dcm</code>, extension-less files, or a folder)</td><td>a file opens its whole series (the files of its folder with the same series id), ordered along the slice normal; spacing from Pixel Spacing and the distance between slices, position and orientation from the patient coordinates; values rescaled by slope and intercept (Hounsfield units for CT). A folder opens its largest series. Compressed (JPEG) files are not read: save them uncompressed</td></tr>
+<tr><td><strong>NIfTI</strong> (<code>.nii</code>, <code>.nii.gz</code>, or a <code>.hdr</code> with its <code>.img</code>)</td><td>NIfTI-1 and NIfTI-2, either byte order; the values as <code>NIFTI</code>, scaled by the header’s slope and intercept; a 4th (time) and 5th (vector) dimension become components; placed by the sform, else the qform, else the voxel sizes.</td></tr>
 <tr><td><strong>OME-TIFF</strong> (<code>.ome.tif</code>)</td><td>the planes in the order the OME-XML gives (Z, channels, times), the physical pixel sizes, one array per channel named after it, times as time steps</td></tr>
 </tbody>
 </table>
@@ -253,12 +254,14 @@ mri = afx.load("brain.nrrd")
 cells = afx.load("cells.ome.tif")          # DAPI, GFP... arrays; time steps
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/medical_volumes.png" alt="A CT-like volume read from a DICOM series, sliced and volume-rendered"><span class="img-wrapper"><img src="images/medical_volumes.png" alt="A CT-like volume read from a DICOM series, sliced and volume-rendered"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/nifti_volume.png" alt="A small NIfTI volume colored by its values, placed by its sform (x reversed, y and z swapped)"><span class="img-wrapper"><img src="images/nifti_volume.png" alt="A small NIfTI volume colored by its values, placed by its sform (x reversed, y and z swapped)"></span></label></p>
 <h3 id="point-clouds"><a class="header" href="#point-clouds">Point clouds</a></h3>
 <p><strong>LAS</strong> and <strong>LAZ</strong> files (lidar) open as points with the arrays <code>Intensity</code>, <code>ReturnNumber</code>,
 <code>NumberOfReturns</code>, <code>Classification</code> (2 ground, 5 high vegetation, 6 building…), <code>ScanAngle</code>
 (degrees), <code>UserData</code>, <code>PointSourceId</code>, <code>GpsTime</code> and <code>Color</code> (drawn as its own colors), at real
 coordinates (scaled and offset). LAZ (compressed LAS) is read too. Point Gaussian or Eye-Dome
 Lighting (View › Lighting) suit large clouds; Threshold on <code>Classification</code> keeps one class.</p>
+<p><strong>PTS</strong> files (<code>.pts</code>, a count line then <code>x y z intensity r g b</code> per point, several scans one after another) open as points with <code>Intensity</code>, <code>Colors</code> and, for several scans, <code>ScanId</code>.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/lidar_points.png" alt="20 000 lidar points colored by classification, with Eye-Dome Lighting"><span class="img-wrapper"><img src="images/lidar_points.png" alt="20 000 lidar points colored by classification, with Eye-Dome Lighting"></span></label></p>
 <h3 id="scenes"><a class="header" href="#scenes">Scenes</a></h3>
 <p>glTF 2.0 (<code>.gltf</code> with embedded or separate buffers, <code>.glb</code>) and VRML 2.0 (<code>.wrl</code>, also

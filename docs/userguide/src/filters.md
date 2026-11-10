@@ -355,6 +355,34 @@ c = afx.chart_view(w.compute_quartiles(), y=["Q1"])
 w.plot("RTData", style="box")
 ```
 
+## Outliers and change points
+
+In **Filters › Data Analysis**:
+
+- **Find Outliers** marks the points or cells of an array whose value stands out (a vector by its
+  length): **Robust z-score** (0.6745 × the distance from the median over the median absolute
+  deviation, past **Threshold**, 3.5 by default), **z-score** (from the mean and standard
+  deviation), or **Interquartile fences** (past the quartiles by Threshold × the interquartile
+  range: 1.5 mild, 3 extreme). It adds `OutlierScore` and `Outlier` (1 or 0), and the count as
+  `Outliers` in the field data; Threshold on `Outlier` keeps them. A value that is not a number
+  counts as an outlier.
+- **Find Change Points** finds where a table column changes its level, such as a value over time
+  from Plot Data Over Time: it splits the series where that lowers the squared error by more than
+  **Penalty** times the series' noise (estimated from successive differences), segments at least
+  **Shortest segment** rows long. It adds `ChangePoint` (1 on the first row of each new level)
+  and `SegmentMean`, and the change rows and their x values (`ChangeAt`) as field data. Levels
+  0, 5 and 2 with noise of 0.3 come back as changes at rows 40 and 75; a flat noisy series gives
+  none.
+
+Mesh problems are found with **Mesh Quality** and **Validate Cells**.
+
+```python
+o = data.find_outliers(array="T", method="Robust z-score (median, MAD)", threshold=3.5)
+cp = data.plot_data_over_time().find_change_points(column="max(T)", penalty=25)
+```
+
+![A wavelet with a few spoiled values: the cells around the outliers found, colored by their score, over a translucent slice](images/find_outliers.png)
+
 ## Text in the 3D view
 
 The **Annotation** filters write a line of text that every 3D view showing them draws in a

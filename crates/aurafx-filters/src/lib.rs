@@ -13,6 +13,7 @@ pub mod am;
 pub mod amr;
 pub mod analysis;
 pub mod annotate;
+pub mod anomaly;
 pub mod append;
 pub mod attributes;
 pub mod cad;

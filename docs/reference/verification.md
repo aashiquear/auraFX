@@ -485,6 +485,12 @@ side sets (Fluent faces are matched to their cells by position).
 | Tetrahedra in a Region on half of a 4³ box | volume 1 | volume exact (1e-12), every tetrahedron and pyramid positive, side sets kept |
 | Swept-curve and sheet webcuts of bricks | volumes of the pieces | within 0.02 of 0.25 + 3.75 and 2 + 2 |
 
+## NIfTI (iteration 85)
+
+| File | Reference | Result |
+|---|---|---|
+| `head.nii.gz`, `vectors.nii`, `pair.hdr` | `vtkNIFTIImageReader` in ParaView 6.1.1 | same dimensions (in the file's index order), voxel sizes and raw values (0 to 345, 0 to 125 with 3 components, 1 to 12). The reference keeps the raw values and puts the grid at the origin, giving the slope (2, -5) and the sform/qform apart; auraFX applies the scaling and places the grid by the sform or qform |
+
 ## Writers
 
 The `.htg` writer produces XML version 2, as ParaView 5.10 and later write it. Files written

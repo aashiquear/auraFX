@@ -79,8 +79,8 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] NetCDF CF (iteration 19: classic and NetCDF-4, lon/lat on a sphere with bounds, time, packing, fill values); MPAS (iteration 25; vertical levels, multilayer and lon/lat map in iteration 27); CAM-SE and POP (iteration 28); GeoTIFF and Esri ASCII grid rasters (iteration 26), ERDAS Imagine .img (iteration 51); GIS vectors: Shapefile, GeoJSON, KML, GeoPackage (iteration 31), KMZ, FlatGeobuf, GML 2/3/3.2 (iteration 38), MapInfo .tab/.mif and Esri file geodatabases (iteration 50); other GDAL rasters, SEG-Y todo.
 - [~] Molecular: PDB and Gaussian Cube (iteration 18), XYZ molecules (done); VASP POSCAR/CONTCAR/CHGCAR/LOCPOT/ELFCAR (iteration 19); CML (iteration 35); OUTCAR todo.
 - [~] Cosmology: Gadget, GenericIO, Cosmo, Enzo/FLASH AMR (iteration 39), Chombo (iteration 40), AMReX plotfiles (iteration 32), FLASH and Enzo particles (iteration 42), Chombo particles and node-centered Chombo (iteration 43), 4-D Chombo (iteration 52).
-- [~] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF (iteration 83); NIfTI todo.
-- [~] Point clouds: LAS/LAZ, H5Part (iteration 83); PTS todo.
+- [x] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF (iteration 83); NIfTI (iteration 85).
+- [x] Point clouds: LAS/LAZ, H5Part (iteration 83); PTS (iteration 85).
 - [~] CAD: STEP, IGES, 3MF and `.sc` (read and written by the CAD environment, section 13, iteration 78); VRML 2.0, glTF, OFF (iteration 83); Alembic, USD, OpenVDB todo.
 - [ ] Every remaining reader in the catalog, tracked per entry in `docs/reference/format-matrix.md`.
 
@@ -89,7 +89,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified with the reference reader), EnSight Gold and Xdmf 3 (iteration 22), CGNS/HDF5 (iteration 23), all verified with the reference reader; OpenVDB, GenericIO, Fides.
 - [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
 - [~] Images: PNG, image stacks of volumes as PNG slices or one multi-page TIFF, MetaImage (iteration 83), screenshot with resolution override and transparent background (done, iteration 16), pictures of every view as laid out (iteration 83); JPEG/BMP/EXR todo.
-- [~] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM.
+- [x] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM (iteration 85).
 - [~] Scene export: glTF (.glb), OBJ with vertex colors (iteration 16), X3D, VRML and SVG vector pictures (iteration 17); POV-Ray, PDF, WebGL/HTML interactive scene todo.
 - [ ] Extracts and Catalyst-style in-situ scripts.
 
@@ -225,7 +225,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Tools the model can call (agent mode acts through generated Python): load file, add filter, set property, color by, take screenshot (and view it), run Python, read a chart's data, search docs, run a simulation job.
 - [~] Modes: "Explain", "Do it for me" (agentic with confirmation per step), "Write a script", "Debug this error".
 - [x] Natural-language filter creation (iteration 82: Filters › Describe a filter…) ("show me regions where von Mises stress > 300 MPa").
-- [ ] Anomaly and feature detection helpers (outliers in fields, mesh quality problems, time-series change points).
+- [x] Anomaly and feature detection helpers (outliers in fields, mesh quality problems, time-series change points). (Iteration 85: Find Outliers, Find Change Points; mesh problems by Mesh Quality and Validate Cells.)
 - [~] Prompt templates and user-defined skills; privacy controls (iteration 82: local-only mode and path redaction done; prompt templates and skills not yet) (local-only mode, redaction).
 - [x] Vision: send rendered frames to multimodal models for interpretation (iteration 82: the camera box next to Send, `afx.ask(..., view=True)`; Ollama, Anthropic and OpenAI formats).
 
@@ -265,8 +265,8 @@ with cancel), everything searchable, every action scriptable, every panel option
 ## 10. Quality, docs, community
 
 - [~] Golden-image render tests, filter regression tests against VTK outputs, reader conformance suite with sample files for every format.
-- [ ] Benchmarks (load time, filter time, frame rate) published in docs.
-- [~] User guide (done: Markdown, HTML book and PDF, a picture per feature), tutorials and examples (done, iteration 71); filter reference auto-generated from property metadata, Python API docs todo.
+- [x] Benchmarks (load time, filter time, frame rate) published in docs. (Iteration 85: the guide's Benchmarks page, written by an ignored release-mode test.)
+- [~] User guide (done: Markdown, HTML book and PDF, a picture per feature), tutorials and examples (done, iteration 71); filter reference auto-generated from property metadata (iteration 85, kept current by a test), Python API docs todo.
 - [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook (done: `docs/plugins.md`).
 
 ---

@@ -24,6 +24,7 @@ mod ray_tracing;
 mod screenshot_ui;
 mod server_ui;
 mod settings;
+mod shortcuts;
 mod source_dialog;
 mod svg_export;
 mod theme;

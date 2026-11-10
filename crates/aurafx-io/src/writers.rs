@@ -26,7 +26,15 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
             ("bdf", "Nastran bulk data (properties per block)"),
         ],
         DataSet::PolyData(_) => {
-            vec![("vtp", "VTK polygonal data"), ("pvtp", "Parallel VTK (4 pieces in a folder)"), ("stl", "STL surface"), ("ply", "PLY surface")]
+            vec![
+                ("vtp", "VTK polygonal data"),
+                ("pvtp", "Parallel VTK (4 pieces in a folder)"),
+                ("stl", "STL surface"),
+                ("ply", "PLY surface"),
+                ("obj", "Wavefront OBJ"),
+                ("glb", "glTF 2.0 binary (positions, normals, colors)"),
+                ("geo", "Houdini text geometry (point attributes)"),
+            ]
         }
         DataSet::ImageData(i) if i.cell_data.get("FeatureIds").is_some() || i.cell_data.get("grain_id").is_some() => {
             vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)"), ("spparks", "SPPARKS site file (feature ids)")]
@@ -111,6 +119,9 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
         "pvtu" | "pvtp" | "pvti" | "pvts" | "pvtr" => crate::collections::write_parallel(ds, path, 4).map(|_| ()),
         "pvd" => crate::collections::write_pvd_steps(&[(0.0, ds)], path),
         "nodes" | "triangles" => write_nodes_triangles(ds, path),
+        "obj" => crate::surface_writers::write_obj(ds, path),
+        "glb" => crate::surface_writers::write_glb(ds, path),
+        "geo" => crate::surface_writers::write_geo(ds, path),
         "png" | "tif" | "tiff" if matches!(ds, DataSet::ImageData(_)) => crate::collections::write_image_stack(ds, path).map(|_| ()),
         e => bail!("don't know how to write .{e} files"),
     };

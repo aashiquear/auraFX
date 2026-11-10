@@ -1336,6 +1336,25 @@ fn lighting(py: Python<'_>, options: Option<&Bound<'_, PyDict>>) -> PyResult<Py<
     Ok(py.None())
 }
 
+/// Put a saved prompt (by name) in the assistant's box, the selected object filled in.
+#[pyfunction]
+fn assistant_prompt(name: String) {
+    app_command(format!("assistant_prompt {name}"));
+}
+
+/// Bind keys to an action of the window: `afx.set_shortcut("screenshot", "Ctrl+P")`, several keys
+/// with commas, "" for none; `vim=True` turns on the vim-style view keys (h j k l, + -, 0).
+#[pyfunction]
+#[pyo3(signature = (action=None, keys="", vim=None))]
+fn set_shortcut(action: Option<String>, keys: &str, vim: Option<bool>) {
+    if let Some(a) = action {
+        app_command(format!("shortcut {a} {keys}"));
+    }
+    if let Some(v) = vim {
+        app_command(format!("vim_keys {}", if v { "on" } else { "off" }));
+    }
+}
+
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
 #[pyfunction]
 fn show_panel(name: String) {
@@ -1448,8 +1467,8 @@ fn active_view(py: Python<'_>, index: u32) -> PyResult<()> {
 #[pyfunction]
 fn set_theme(mode: String) -> PyResult<()> {
     let m = mode.to_ascii_lowercase();
-    if !["dark", "light", "system"].contains(&m.as_str()) {
-        return Err(PyValueError::new_err("mode must be 'dark', 'light' or 'system'"));
+    if !["dark", "light", "system", "high contrast"].contains(&m.as_str()) {
+        return Err(PyValueError::new_err("mode must be 'dark', 'light', 'system' or 'high contrast'"));
     }
     app_command(format!("theme {m}"));
     Ok(())
@@ -2792,6 +2811,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(clear, m)?)?;
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
+    m.add_function(wrap_pyfunction!(set_shortcut, m)?)?;
+    m.add_function(wrap_pyfunction!(assistant_prompt, m)?)?;
     m.add_function(wrap_pyfunction!(annotate, m)?)?;
     m.add_function(wrap_pyfunction!(key_camera, m)?)?;
     m.add_function(wrap_pyfunction!(import_colormaps, m)?)?;

@@ -43,6 +43,7 @@ pub mod solver_meshes;
 pub mod spparks;
 pub mod sqlite;
 pub mod stl;
+pub mod surface_writers;
 pub mod surfaces;
 pub mod tecplot;
 pub mod vectors;

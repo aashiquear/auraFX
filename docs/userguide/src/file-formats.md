@@ -744,8 +744,9 @@ mesh, so curved cells come out straight.
 | Microstructure files | `.dream3d` | volumes (an image geometry), point sets and meshes of one element type (vertex, edge, triangle, quad, tetrahedral, hexahedral geometries) with their cell, vertex, feature and phase arrays; multiblocks as one data container per block; the pipeline that made the data is recorded in the file (see [Grains and crystals](grains.md#pipelines-in-dream3d-files)) |
 | SPPARKS sites | `.spparks` | the `FeatureIds` of a volume as the `Values` of a simple-cubic lattice filling the box, x fastest |
 | CSV, STL, PLY | | a multiblock of surfaces saved as `name.stl` writes one file per block, `name_<block>.stl` (Feature Surfaces gives one per grain) |
+| Surfaces for other programs | `.obj .glb .geo` | **File › Save Data** of a surface: Wavefront OBJ (points, normals from a `Normals` array, faces, lines, points), binary glTF 2.0 (positions, normals, an 8-bit color array, triangles, lines and points) and Houdini text geometry (every point array of 1 to 4 numbers as a point attribute; polygons closed, lines open). These hold the data itself; Export Scene writes what is drawn, with its colors |
 | Scenes | `.glb .obj .x3d .wrl` | see [Exporting](exporting.md) |
-| Pictures | `.png .svg`, GIF/MP4 animations | see [Exporting](exporting.md) |
+| Pictures | `.png .svg`, GIF/MP4/WebM animations | see [Exporting](exporting.md) |
 
 Files written by the VTK XML, VTKHDF, Exodus, EnSight, Xdmf and CGNS writers were read back
 with the same points, cells and values (verified against a reference implementation; the

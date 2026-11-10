@@ -94,6 +94,8 @@ pub struct State {
     pub show_licences: bool,
     pub licence_find: String,
     pub show_shortcuts: bool,
+    /// An action waiting for its new key (Settings › Keyboard).
+    pub recording_shortcut: Option<String>,
     pub rename_target: Option<(NodeId, String)>,
     pub playing: bool,
     pub play_fps: f32,
@@ -366,6 +368,7 @@ impl AuraApp {
             show_licences: false,
             licence_find: String::new(),
             show_shortcuts: false,
+            recording_shortcut: None,
             rename_target: None,
             playing: false,
             play_fps: 10.0,
@@ -686,15 +689,31 @@ impl State {
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.text_edit_focused();
-        let (undo, redo, save_state) = ctx.input_mut(|i| {
-            (
-                !typing && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
-                !typing
-                    && (i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z)
-                        || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y)),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
-            )
-        });
+        // Recording a new key for an action (Settings › Keyboard): the next key pressed, Esc cancels.
+        if let Some(action) = self.recording_shortcut.clone() {
+            let got = ctx.input_mut(|i| {
+                let ev = i.events.iter().find_map(|e| match e {
+                    egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
+                    _ => None,
+                });
+                if let Some((k, m)) = ev {
+                    i.consume_key(m, k);
+                }
+                ev
+            });
+            if let Some((k, m)) = got {
+                if k != egui::Key::Escape {
+                    let _ = self.settings.shortcuts.set(&action, vec![crate::shortcuts::combo_text(m, k)]);
+                    self.settings.save();
+                }
+                self.recording_shortcut = None;
+            }
+            return;
+        }
+        let sc = self.settings.shortcuts.clone();
+        use crate::shortcuts::pressed;
+        let (undo, redo, save_state) =
+            ctx.input_mut(|i| (!typing && pressed(i, &sc, "undo", typing), !typing && pressed(i, &sc, "redo", typing), pressed(i, &sc, "save_state", typing)));
         if undo {
             self.undo();
         }
@@ -706,17 +725,68 @@ impl State {
         }
         let (open, palette, screenshot, reset_cam, del, play, next, prev, settings) = ctx.input_mut(|i| {
             (
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::K) || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space),
-                i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::S),
-                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::R),
-                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Delete),
-                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Space),
-                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Period),
-                !typing && i.consume_key(egui::Modifiers::NONE, egui::Key::Comma),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma),
+                pressed(i, &sc, "open", typing),
+                pressed(i, &sc, "palette", typing),
+                pressed(i, &sc, "screenshot", typing),
+                pressed(i, &sc, "reset_camera", typing),
+                pressed(i, &sc, "delete_node", typing),
+                pressed(i, &sc, "play", typing),
+                pressed(i, &sc, "next_step", typing),
+                pressed(i, &sc, "prev_step", typing),
+                pressed(i, &sc, "settings", typing),
             )
         });
+        // View directions bound to keys.
+        for (action, dir, up) in [
+            ("view_x", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            ("view_y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+            ("view_z", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
+            ("view_iso", [-1.0, -1.0, -1.0], [0.0, 0.0, 1.0]),
+        ] {
+            if ctx.input_mut(|i| pressed(i, &sc, action, typing)) {
+                self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
+            }
+        }
+        // Vim-style view keys: h l turn about the up axis, j k tilt, + - zoom, 0 resets.
+        if sc.vim_keys && !typing {
+            let k = |i: &mut egui::InputState, key: egui::Key| i.consume_key(egui::Modifiers::NONE, key);
+            let (h, l, j, kk, plus, minus, zero) = ctx.input_mut(|i| {
+                (
+                    k(i, egui::Key::H),
+                    k(i, egui::Key::L),
+                    k(i, egui::Key::J),
+                    k(i, egui::Key::K),
+                    k(i, egui::Key::Plus) || k(i, egui::Key::Equals),
+                    k(i, egui::Key::Minus),
+                    k(i, egui::Key::Num0),
+                )
+            });
+            let cam = &mut self.viewport.camera;
+            if h {
+                cam.rotate(-1.0 / 24.0, 0.0);
+            }
+            if l {
+                cam.rotate(1.0 / 24.0, 0.0);
+            }
+            if j {
+                cam.rotate(0.0, 1.0 / 24.0);
+            }
+            if kk {
+                cam.rotate(0.0, -1.0 / 24.0);
+            }
+            if plus {
+                cam.zoom(1.2);
+            }
+            if minus {
+                cam.zoom(1.0 / 1.2);
+            }
+            if zero {
+                self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
+            }
+            if h || l || j || kk || plus || minus {
+                ctx.request_repaint();
+            }
+        }
         if open {
             self.open_file_dialog();
         }
@@ -1366,6 +1436,43 @@ impl State {
             ui.checkbox(&mut self.settings.ask_source_settings, "Ask before adding a source")
                 .on_hover_text("Adding a source opens a window to insert it with its standard settings or change them first");
             ui.separator();
+            ui.heading("Keyboard");
+            ui.label(RichText::new("Type keys like Ctrl+Shift+S, R, F5 or Space (several with commas), or press Record and then the key.").weak().small());
+            egui::Grid::new("keyboard settings").num_columns(3).striped(true).show(ui, |ui| {
+                for (a, label, _) in crate::shortcuts::ACTIONS {
+                    ui.label(*label);
+                    let mut text = self.settings.shortcuts.of(a).join(", ");
+                    let r = ui.add_sized([170.0, 20.0], egui::TextEdit::singleline(&mut text));
+                    if r.changed() {
+                        let combos: Vec<String> = text.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect();
+                        if self.settings.shortcuts.set(a, combos).is_ok() {
+                            self.settings.save();
+                        }
+                    }
+                    let rec = self.recording_shortcut.as_deref() == Some(*a);
+                    if ui.selectable_label(rec, if rec { "Press a key…" } else { "Record" }).clicked() {
+                        self.recording_shortcut = if rec { None } else { Some(a.to_string()) };
+                    }
+                    ui.end_row();
+                }
+            });
+            for (c, a, b) in self.settings.shortcuts.clashes() {
+                ui.colored_label(crate::theme::ERROR, format!("{c} is bound to both {a} and {b}: the first one wins"));
+            }
+            ui.horizontal(|ui| {
+                if ui
+                    .checkbox(&mut self.settings.shortcuts.vim_keys, "Vim-style view keys")
+                    .on_hover_text("h and l turn the view, j and k tilt it, + and - zoom, 0 resets")
+                    .changed()
+                {
+                    self.settings.save();
+                }
+                if ui.button("Defaults").on_hover_text("Put every key back as it was").clicked() {
+                    self.settings.shortcuts = Default::default();
+                    self.settings.save();
+                }
+            });
+            ui.separator();
             ui.heading("Performance");
             ui.horizontal(|ui| {
                 let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
@@ -1445,20 +1552,21 @@ impl State {
             let mut open = true;
             egui::Window::new("Keyboard shortcuts").open(&mut open).collapsible(false).show(ctx, |ui| {
                 egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
+                    for (a, label, _) in crate::shortcuts::ACTIONS {
+                        let keys = self.settings.shortcuts.of(a);
+                        if keys.is_empty() {
+                            continue;
+                        }
+                        ui.label(RichText::new(keys.join(" / ")).monospace());
+                        ui.label(*label);
+                        ui.end_row();
+                    }
                     for (k, v) in [
-                        ("Ctrl+O", "Open file"),
-                        ("Ctrl+K / Ctrl+Space", "Command palette (search filters, sources, actions)"),
-                        ("Ctrl+Shift+S", "Save screenshot"),
-                        ("R", "Reset camera"),
-                        ("Delete", "Delete active node"),
-                        ("Space", "Play / pause time"),
-                        (", / .", "Previous / next time step"),
                         ("Left drag", "Rotate"),
                         ("Middle drag / Shift+drag", "Pan"),
                         ("Right drag / wheel", "Zoom"),
                         ("Double click", "Reset camera"),
                         ("Ctrl+Enter", "Run code in Python console"),
-                        ("Ctrl+,", "Settings"),
                         ("CAD: Ctrl+Enter", "Apply the part (in the CAD environment)"),
                         ("CAD: Esc", "Leave the CAD environment (asks), or end a sketch chain"),
                         ("CAD: Ctrl+Z / Ctrl+Y", "Undo / redo one CAD edit"),
@@ -1720,6 +1828,7 @@ impl eframe::App for AuraApp {
                     let m = match arg {
                         "light" => crate::theme::ThemeMode::Light,
                         "system" => crate::theme::ThemeMode::System,
+                        "high contrast" | "high-contrast" | "contrast" => crate::theme::ThemeMode::HighContrast,
                         _ => crate::theme::ThemeMode::Dark,
                     };
                     self.state.settings.theme = m;
@@ -1759,6 +1868,7 @@ impl eframe::App for AuraApp {
                     self.state.cmap_editor.open = true;
                 }
                 "show" if arg.eq_ignore_ascii_case("goal statistics") => self.state.goal_stats.open = true,
+                "show" if arg.eq_ignore_ascii_case("settings") => self.state.show_settings = true,
                 "show" if arg.eq_ignore_ascii_case("animation") => {
                     self.state.anim_dialog.open = true;
                     self.state.anim_dialog.mode = crate::animation::AnimMode::Keyframes;
@@ -1939,6 +2049,28 @@ impl eframe::App for AuraApp {
                             e.dim_edit = Some((i, t));
                         }
                     }
+                }
+                // "shortcut <action> <keys, comma separated>": bind keys to an action (empty: none).
+                "shortcut" => {
+                    let (a, k) = arg.split_once(' ').unwrap_or((arg, ""));
+                    let combos: Vec<String> = k.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect();
+                    match self.state.settings.shortcuts.set(a.trim(), combos) {
+                        Ok(()) => self.state.settings.save(),
+                        Err(e) => self.state.toast(e, true),
+                    }
+                }
+                // "settings [section]": the Settings window; "assistant_prompt <name>": a saved prompt put in
+                // the assistant's box (for the guide's pictures).
+                "settings" => self.state.show_settings = true,
+                "assistant_prompt" => {
+                    let object = self.state.session.lock().active_node().map(|n| n.name.clone()).unwrap_or_else(|| "the data".into());
+                    if let Some(p) = self.state.settings.ai.prompts.iter().find(|p| p.name.eq_ignore_ascii_case(arg.trim())) {
+                        self.state.assistant.input = p.fill(&object);
+                    }
+                }
+                "vim_keys" => {
+                    self.state.settings.shortcuts.vim_keys = arg.trim() != "off";
+                    self.state.settings.save();
                 }
                 "cad_plane_form" => {
                     if crate::cad::editing(&self.state) {

@@ -11,7 +11,8 @@
 //! half the triangles' size.
 
 use anyhow::{bail, Result};
-use std::collections::{HashMap, HashSet};
+// Ordered maps and sets: the same input always gives the same mesh (hash order would vary).
+use std::collections::{BTreeMap as HashMap, BTreeSet as HashSet};
 
 pub type P = [f64; 3];
 

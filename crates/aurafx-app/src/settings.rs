@@ -36,6 +36,8 @@ pub struct Settings {
     pub show_light_widgets: bool,
     /// Adding a source opens a window to insert it with its standard settings or change them first.
     pub ask_source_settings: bool,
+    /// Keyboard shortcuts (actions bound to keys) and vim-style view keys.
+    pub shortcuts: crate::shortcuts::Shortcuts,
 }
 
 impl Default for Settings {
@@ -60,6 +62,7 @@ impl Default for Settings {
             lighting: Default::default(),
             show_light_widgets: true,
             ask_source_settings: true,
+            shortcuts: Default::default(),
         }
     }
 }

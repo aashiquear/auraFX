@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5bc7a23a.js";
+            window.path_to_searchindex_js = "searchindex-384142ef.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -1397,6 +1397,17 @@ name, checks the volume against numbers it worked out, and can open the part in 
 environment, edit the working copy, and apply it; when applying would break a node below the
 part, it is asked for the fixes. It also places parts side by side (assemblies) and uses the
 face operations (patterns on a face, draft, mirror).</p>
+<h2 id="prompts-and-skills"><a class="header" href="#prompts-and-skills">Prompts and skills</a></h2>
+<p><strong>Prompts</strong> beside the model list offers saved prompts: one click puts it in the box, with
+<code>{object}</code> replaced by the selected object’s name (<em>Describe</em>, <em>Find problems</em>, <em>Slice and color</em>
+and <em>Plot over time</em> come with auraFX). <strong>Save the message as a prompt</strong> keeps what you typed.
+Edit, add or remove them in <strong>Settings › AI assistant › Prompts</strong>.</p>
+<p><strong>Skills</strong> are Markdown files in the <code>skills</code> folder beside the settings
+(<code>~/.config/aurafx/skills</code> on Linux; <strong>Open</strong> in Settings › AI assistant › Skills shows it): the
+text of every ticked one goes with each request, for house rules (“lengths are in micrometres”,
+“color temperatures with Inferno”), a lab’s usual steps or naming conventions. Untick a skill to
+leave it out.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/assistant_prompts.png" alt="The assistant with a saved prompt put in the box for the selected object"><span class="img-wrapper"><img src="images/assistant_prompts.png" alt="The assistant with a saved prompt put in the box for the selected object"></span></label></p>
 <h2 id="providers"><a class="header" href="#providers">Providers</a></h2>
 <p>Choose the provider and model in the panel’s drop-downs or in <strong>Settings</strong>:</p>
 <div class="table-wrapper">
@@ -2224,8 +2235,9 @@ mesh, so curved cells come out straight.</p>
 <tr><td>Microstructure files</td><td><code>.dream3d</code></td><td>volumes (an image geometry), point sets and meshes of one element type (vertex, edge, triangle, quad, tetrahedral, hexahedral geometries) with their cell, vertex, feature and phase arrays; multiblocks as one data container per block; the pipeline that made the data is recorded in the file (see <a href="#pipelines-in-dream3d-files">Grains and crystals</a>)</td></tr>
 <tr><td>SPPARKS sites</td><td><code>.spparks</code></td><td>the <code>FeatureIds</code> of a volume as the <code>Values</code> of a simple-cubic lattice filling the box, x fastest</td></tr>
 <tr><td>CSV, STL, PLY</td><td></td><td>a multiblock of surfaces saved as <code>name.stl</code> writes one file per block, <code>name_&lt;block&gt;.stl</code> (Feature Surfaces gives one per grain)</td></tr>
+<tr><td>Surfaces for other programs</td><td><code>.obj .glb .geo</code></td><td><strong>File › Save Data</strong> of a surface: Wavefront OBJ (points, normals from a <code>Normals</code> array, faces, lines, points), binary glTF 2.0 (positions, normals, an 8-bit color array, triangles, lines and points) and Houdini text geometry (every point array of 1 to 4 numbers as a point attribute; polygons closed, lines open). These hold the data itself; Export Scene writes what is drawn, with its colors</td></tr>
 <tr><td>Scenes</td><td><code>.glb .obj .x3d .wrl</code></td><td>see <a href="#exporting-pictures-scenes-and-animations">Exporting</a></td></tr>
-<tr><td>Pictures</td><td><code>.png .svg</code>, GIF/MP4 animations</td><td>see <a href="#exporting-pictures-scenes-and-animations">Exporting</a></td></tr>
+<tr><td>Pictures</td><td><code>.png .svg</code>, GIF/MP4/WebM animations</td><td>see <a href="#exporting-pictures-scenes-and-animations">Exporting</a></td></tr>
 </tbody>
 </table>
 </div>
@@ -4482,13 +4494,14 @@ the result is accurate to a few percent for overlaps that span several cells.</l
 <tr><th>Setting</th><th>Meaning</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Theme</strong></td><td>dark, light or system; the 3D background per theme</td></tr>
+<tr><td><strong>Theme</strong></td><td>dark, light, system or <strong>high contrast</strong> (black panels, white text and borders, thick yellow outlines on the control under the mouse and the one in use); the 3D background per theme</td></tr>
 <tr><td><strong>Ask before adding a source</strong></td><td>adding a source opens a window to insert it with its standard settings or change them first (on by default)</td></tr>
 <tr><td><strong>UI scale</strong></td><td>enlarges the whole interface</td></tr>
 <tr><td><strong>Orientation axes</strong>, <strong>Time label</strong></td><td>shown in the 3D views</td></tr>
 <tr><td><strong>Filter threads</strong></td><td>cores used by the parallel filters (0 = all); takes effect at the next start; <code>AURAFX_THREADS</code> overrides it</td></tr>
 <tr><td><strong>Default color map</strong></td><td>for new objects</td></tr>
-<tr><td><strong>AI</strong></td><td>provider, model, server URL, API key, auto-run and agent mode</td></tr>
+<tr><td><strong>AI</strong></td><td>provider, model, server URL, API key, auto-run and agent mode, saved prompts and skills (see <a href="#ai-assistant">AI assistant</a>)</td></tr>
+<tr><td><strong>Keyboard</strong></td><td>the key of every action, typed or recorded (see below)</td></tr>
 <tr><td><strong>Plugins</strong></td><td>the Plugins window (also <strong>Edit › Plugins…</strong>)</td></tr>
 <tr><td><strong>Lighting</strong></td><td>in <strong>View › Lighting</strong>; the choices are saved with the settings</td></tr>
 </tbody>
@@ -4518,7 +4531,26 @@ other systems; the window layout in <code>~/.local/share/aurafx/app.ron</code>.<
 </tbody>
 </table>
 </div>
-<p><strong>Help › Keyboard shortcuts</strong> shows this list in the app.</p>
+<p><strong>Help › Keyboard shortcuts</strong> shows the keys as they are set.</p>
+<h3 id="changing-the-keys"><a class="header" href="#changing-the-keys">Changing the keys</a></h3>
+<p>Every action in the list (open, palette, save the state, screenshot, undo, redo, reset the
+camera, delete the object, play, next and previous step, settings, and four view directions
+that have no key at first) takes any keys in <strong>Settings › Keyboard</strong>: type them (<code>Ctrl+Shift+S</code>,
+<code>R</code>, <code>F5</code>, <code>Space</code>; several with commas; Ctrl is Cmd on a Mac), or press <strong>Record</strong> and then the
+key (Esc cancels). Keys bound to two actions are pointed out. <strong>Defaults</strong> puts every key back.
+Keys without Ctrl or Alt do nothing while a text field has the keyboard.</p>
+<p><strong>Vim-style view keys</strong> (off by default): <code>h</code> and <code>l</code> turn the view about its up direction, <code>j</code>
+and <code>k</code> tilt it, <code>+</code> and <code>-</code> zoom, <code>0</code> fits the data.</p>
+<pre><code class="language-python">afx.set_shortcut("screenshot", "Ctrl+P")
+afx.set_shortcut("view_iso", "I")
+afx.set_shortcut(vim=True)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/keyboard_settings.png" alt="Settings in the high-contrast theme: the Keyboard section with each action’s keys and Record"><span class="img-wrapper"><img src="images/keyboard_settings.png" alt="Settings in the high-contrast theme: the Keyboard section with each action’s keys and Record"></span></label></p>
+<h3 id="screen-readers"><a class="header" href="#screen-readers">Screen readers</a></h3>
+<p>auraFX describes its controls to screen readers (Orca on Linux, NVDA or Narrator on Windows,
+VoiceOver on macOS): buttons, check boxes, fields and menus give their names and states, and Tab
+moves between them. The default color map, Viridis, reads in grey and for the common kinds of
+color blindness.</p>
 <h2 id="environment-variables"><a class="header" href="#environment-variables">Environment variables</a></h2>
 <div class="table-wrapper">
 <table>

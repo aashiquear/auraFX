@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5bc7a23a.js";
+            window.path_to_searchindex_js = "searchindex-384142ef.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -875,8 +875,9 @@ mesh, so curved cells come out straight.</p>
 <tr><td>Microstructure files</td><td><code>.dream3d</code></td><td>volumes (an image geometry), point sets and meshes of one element type (vertex, edge, triangle, quad, tetrahedral, hexahedral geometries) with their cell, vertex, feature and phase arrays; multiblocks as one data container per block; the pipeline that made the data is recorded in the file (see <a href="grains.html#pipelines-in-dream3d-files">Grains and crystals</a>)</td></tr>
 <tr><td>SPPARKS sites</td><td><code>.spparks</code></td><td>the <code>FeatureIds</code> of a volume as the <code>Values</code> of a simple-cubic lattice filling the box, x fastest</td></tr>
 <tr><td>CSV, STL, PLY</td><td></td><td>a multiblock of surfaces saved as <code>name.stl</code> writes one file per block, <code>name_&lt;block&gt;.stl</code> (Feature Surfaces gives one per grain)</td></tr>
+<tr><td>Surfaces for other programs</td><td><code>.obj .glb .geo</code></td><td><strong>File › Save Data</strong> of a surface: Wavefront OBJ (points, normals from a <code>Normals</code> array, faces, lines, points), binary glTF 2.0 (positions, normals, an 8-bit color array, triangles, lines and points) and Houdini text geometry (every point array of 1 to 4 numbers as a point attribute; polygons closed, lines open). These hold the data itself; Export Scene writes what is drawn, with its colors</td></tr>
 <tr><td>Scenes</td><td><code>.glb .obj .x3d .wrl</code></td><td>see <a href="exporting.html">Exporting</a></td></tr>
-<tr><td>Pictures</td><td><code>.png .svg</code>, GIF/MP4 animations</td><td>see <a href="exporting.html">Exporting</a></td></tr>
+<tr><td>Pictures</td><td><code>.png .svg</code>, GIF/MP4/WebM animations</td><td>see <a href="exporting.html">Exporting</a></td></tr>
 </tbody>
 </table>
 </div>

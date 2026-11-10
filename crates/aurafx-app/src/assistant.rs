@@ -11,6 +11,13 @@ use std::sync::mpsc::Receiver;
 /// The model list's entry when no model is chosen (the shipped default).
 pub const NO_MODEL: &str = "<no model>";
 
+/// The folder of skills: Markdown files beside the settings (`skills/`), made on first use.
+pub fn skills_dir() -> Option<std::path::PathBuf> {
+    let d = directories::ProjectDirs::from("org", "aurafx", "auraFX")?.config_dir().join("skills");
+    let _ = std::fs::create_dir_all(&d);
+    Some(d)
+}
+
 pub struct Assistant {
     pub messages: Vec<ChatMessage>,
     pub input: String,
@@ -202,7 +209,10 @@ impl Assistant {
             .map(|f| format!("- {}: {} [{}]", f.id, f.description, f.params.iter().map(|p| p.key.as_str()).collect::<Vec<_>>().join(", ")))
             .collect::<Vec<_>>()
             .join("\n");
-        let system = aurafx_ai::system_prompt(&pipeline, &catalog);
+        let mut system = aurafx_ai::system_prompt(&pipeline, &catalog);
+        if let Some(dir) = skills_dir() {
+            system += &aurafx_ai::skills_prompt(&aurafx_ai::load_skills(&dir, &self.cfg.skills_off));
+        }
         // Keep the last 20 messages to bound context.
         let msgs: Vec<ChatMessage> = self.messages.iter().rev().take(20).rev().cloned().collect();
         self.stream = Some(aurafx_ai::stream_chat(self.cfg.clone(), system, msgs));
@@ -320,6 +330,62 @@ impl Assistant {
                 .on_hover_text("Off by default: review code before running it.");
             ui.end_row();
         });
+        // Saved prompts.
+        egui::CollapsingHeader::new(format!("Prompts ({})", self.cfg.prompts.len())).id_salt("ai prompts").show(ui, |ui| {
+            ui.label(RichText::new("Offered by the Prompts button of the assistant; {object} stands for the selected object's name.").weak().small());
+            let mut remove = None;
+            for (i, p) in self.cfg.prompts.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut p.name).desired_width(110.0));
+                    ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(2).desired_width(300.0));
+                    if ui.small_button("×").on_hover_text("Remove this prompt").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                self.cfg.prompts.remove(i);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Add a prompt").clicked() {
+                    self.cfg.prompts.push(aurafx_ai::PromptTemplate { name: "New prompt".into(), text: "Show {object} ...".into() });
+                }
+                if ui.button("Defaults").clicked() {
+                    self.cfg.prompts = aurafx_ai::default_prompts();
+                }
+            });
+        });
+        // Skills: Markdown files whose text joins the assistant's instructions.
+        let dir = skills_dir();
+        let all = dir.as_ref().map(|d| aurafx_ai::load_skills(d, &[])).unwrap_or_default();
+        egui::CollapsingHeader::new(format!("Skills ({})", all.len())).id_salt("ai skills").show(ui, |ui| {
+            ui.label(
+                RichText::new("Markdown files in the skills folder (house rules, usual steps, naming): the text of each one ticked goes with every request.")
+                    .weak()
+                    .small(),
+            );
+            for (name, text) in &all {
+                let mut on = !self.cfg.skills_off.contains(name);
+                if ui.checkbox(&mut on, name).on_hover_text(text.chars().take(400).collect::<String>()).changed() {
+                    if on {
+                        self.cfg.skills_off.retain(|n| n != name);
+                    } else {
+                        self.cfg.skills_off.push(name.clone());
+                    }
+                }
+            }
+            if let Some(d) = &dir {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(d.display().to_string()).monospace().small());
+                    if ui.small_button("Open").clicked() {
+                        let _ = crate::plugins_ui::open_in_os(d);
+                    }
+                });
+            }
+        });
+        if before.prompts != self.cfg.prompts || before.skills_off != self.cfg.skills_off {
+            settings.ai = self.cfg.clone();
+        }
         if before.provider != self.cfg.provider
             || before.ollama_url != self.cfg.ollama_url
             || before.api_key != self.cfg.api_key
@@ -534,6 +600,30 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
     }
     let enter = resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
     ui.horizontal(|ui| {
+        // Saved prompts: one click puts it in the box (the selected object filled in).
+        let object = state.session.lock().active_node().map(|n| n.name.clone()).unwrap_or_else(|| "the data".into());
+        let prompts = state.assistant.cfg.prompts.clone();
+        ui.menu_button("Prompts", |ui| {
+            for p in &prompts {
+                if ui.button(&p.name).on_hover_text(p.fill(&object)).clicked() {
+                    state.assistant.input = p.fill(&object);
+                    state.assistant.focus_input = true;
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if ui.add_enabled(!state.assistant.input.trim().is_empty(), egui::Button::new("Save the message as a prompt")).clicked() {
+                let text = state.assistant.input.trim().to_string();
+                let name: String = text.split_whitespace().take(4).collect::<Vec<_>>().join(" ");
+                state.assistant.cfg.prompts.push(aurafx_ai::PromptTemplate { name, text });
+                state.settings.ai = state.assistant.cfg.clone();
+                state.settings.save();
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text("Saved prompts (edit them in Settings › AI assistant)");
+
         let busy = state.assistant.is_streaming();
         if ui.add_enabled(!busy, egui::Button::new("Send")).clicked() || enter {
             let t = std::mem::take(&mut state.assistant.input);

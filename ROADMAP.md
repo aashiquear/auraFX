@@ -87,7 +87,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 ### 1.3 Writers
 - [~] VTK XML (all dataset types; parallel pieces `.pvtu/.pvtp/.pvti/.pvts/.pvtr` and `.pvd` collections, iteration 83), VTK legacy, VTKHDF (iteration 21; read by the reference reader since iteration 22).
 - [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified with the reference reader), EnSight Gold and Xdmf 3 (iteration 22), CGNS/HDF5 (iteration 23), all verified with the reference reader; OpenVDB, GenericIO, Fides.
-- [~] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo`.
+- [x] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo` (iteration 85).
 - [~] Images: PNG, image stacks of volumes as PNG slices or one multi-page TIFF, MetaImage (iteration 83), screenshot with resolution override and transparent background (done, iteration 16), pictures of every view as laid out (iteration 83); JPEG/BMP/EXR todo.
 - [x] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM (iteration 85).
 - [~] Scene export: glTF (.glb), OBJ with vertex colors (iteration 16), X3D, VRML and SVG vector pictures (iteration 17); POV-Ray, PDF, WebGL/HTML interactive scene todo.
@@ -190,10 +190,10 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Contextual quick actions in the viewport (right-click: slice here, clip here, probe here, color by...).
 - [x] Color map editor with live histogram, drag handles, presets gallery, color-blind safe set, favorites, import/export (ParaView `.json`), reverse and discrete bands.
 - [~] Onboarding (sample dataset done): sample datasets gallery, guided tours, tooltips with screenshots, "Explain this filter" via AI.
-- [ ] Keyboard-first: fully rebindable shortcuts, vim-style view navigation optional.
-- [~] Themes: dark/light/high-contrast, scalable UI (HiDPI), font size.
+- [x] Keyboard-first: fully rebindable shortcuts, vim-style view navigation optional. (Iteration 85: Settings › Keyboard, `afx.set_shortcut`.)
+- [x] Themes: dark/light/high-contrast, scalable UI (HiDPI), font size. (High contrast: iteration 85.)
 - [~] Session recovery after crash, autosave of state. (Last session restored on start.)
-- [ ] Accessibility: screen-reader labels, keyboard navigation, color-blind color maps by default.
+- [x] Accessibility: screen-reader labels, keyboard navigation, color-blind color maps by default. (Iteration 85: AccessKit, a high-contrast theme; Viridis was already the default.)
 - [ ] Localization framework.
 - [~] Notifications/toasts for background jobs and errors, with "show details" and "ask AI why".
 
@@ -226,7 +226,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Modes: "Explain", "Do it for me" (agentic with confirmation per step), "Write a script", "Debug this error".
 - [x] Natural-language filter creation (iteration 82: Filters › Describe a filter…) ("show me regions where von Mises stress > 300 MPa").
 - [x] Anomaly and feature detection helpers (outliers in fields, mesh quality problems, time-series change points). (Iteration 85: Find Outliers, Find Change Points; mesh problems by Mesh Quality and Validate Cells.)
-- [~] Prompt templates and user-defined skills; privacy controls (iteration 82: local-only mode and path redaction done; prompt templates and skills not yet) (local-only mode, redaction).
+- [x] Prompt templates and user-defined skills; privacy controls (iteration 82: local-only mode and path redaction; iteration 85: saved prompts and skills).
 - [x] Vision: send rendered frames to multimodal models for interpretation (iteration 82: the camera box next to Send, `afx.ask(..., view=True)`; Ollama, Anthropic and OpenAI formats).
 
 ---

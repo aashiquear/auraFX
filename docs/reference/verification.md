@@ -491,6 +491,12 @@ side sets (Fluent faces are matched to their cells by position).
 |---|---|---|
 | `head.nii.gz`, `vectors.nii`, `pair.hdr` | `vtkNIFTIImageReader` in ParaView 6.1.1 | same dimensions (in the file's index order), voxel sizes and raw values (0 to 345, 0 to 125 with 3 components, 1 to 12). The reference keeps the raw values and puts the grid at the origin, giving the slope (2, -5) and the sform/qform apart; auraFX applies the scaling and places the grid by the sform or qform |
 
+## Surface writers (iteration 85)
+
+| File | Reference | Result |
+|---|---|---|
+| A sphere source (962 points, 64 triangles and 928 quads) saved as `.obj` and `.glb` | `vtkOBJReader` and `vtkGLTFReader` in ParaView 6.1.1 | OBJ: 962 points, 992 faces; glTF: 962 points, 1 920 triangles (the quads split in two) |
+
 ## Writers
 
 The `.htg` writer produces XML version 2, as ParaView 5.10 and later write it. Files written

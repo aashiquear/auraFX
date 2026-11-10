@@ -60,6 +60,21 @@ environment, edit the working copy, and apply it; when applying would break a no
 part, it is asked for the fixes. It also places parts side by side (assemblies) and uses the
 face operations (patterns on a face, draft, mirror).
 
+## Prompts and skills
+
+**Prompts** beside the model list offers saved prompts: one click puts it in the box, with
+`{object}` replaced by the selected object's name (*Describe*, *Find problems*, *Slice and color*
+and *Plot over time* come with auraFX). **Save the message as a prompt** keeps what you typed.
+Edit, add or remove them in **Settings › AI assistant › Prompts**.
+
+**Skills** are Markdown files in the `skills` folder beside the settings
+(`~/.config/aurafx/skills` on Linux; **Open** in Settings › AI assistant › Skills shows it): the
+text of every ticked one goes with each request, for house rules ("lengths are in micrometres",
+"color temperatures with Inferno"), a lab's usual steps or naming conventions. Untick a skill to
+leave it out.
+
+![The assistant with a saved prompt put in the box for the selected object](images/assistant_prompts.png)
+
 ## Providers
 
 Choose the provider and model in the panel's drop-downs or in **Settings**:

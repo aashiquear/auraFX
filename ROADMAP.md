@@ -43,7 +43,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [~] Selections (IDs, rectangle/frustum, visible-only, threshold query done): IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
 - [~] Spatial structures (cell locator for probe and stream tracer done): point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
 - [ ] Out-of-core/mmap-backed arrays for files larger than RAM.
-- [ ] Unit and physical-quantity metadata on arrays.
+- [x] Unit and physical-quantity metadata on arrays. (Iteration 87: units on every array, read from NetCDF, set with Set Units or `data.point_data.set_units`, shown in the legend, Information panel and spreadsheet; a label, no conversion.)
 
 ### 0.3 Pipeline engine (`aurafx-pipeline`)
 - [x] Demand-driven DAG: sources -> filters -> representations, with dirty tracking and memoized outputs.
@@ -950,6 +950,16 @@ refined everywhere, or a region becomes tetrahedra), fillets on picked curves an
 implicit bodies (the B-rep kernel has fillets, chamfers and lofts on picked edges), and
 multi-source sweeps and submapping. The older open items
 of sections 0 to 10 are unchanged.
+
+Done in iterations 85 to 87 (2026-11-10), sections 1 to 10 with section 14 left until the
+user has looked into it: the GPU server-render tests no longer crash with several devices at
+once; NIfTI and PTS readers, Houdini `.geo`, WebM, Find Outliers and Find Change Points, a
+generated filter reference and a benchmarks page, keyboard shortcuts and accessibility,
+surface writers, saved assistant prompts (85); the Jupyter kernel and the Notebook panel, MPI
+and Slurm launchers for parallel servers, Rust plugins (the `aurafx-plugin` crate) and Python
+plugin panels (86); units on arrays (87). Still open in sections 0 to 10, by priority:
+out-of-core streaming, GPU compute filters, ghost cells, localization, collaboration, in-situ
+coupling, VR and stereo, POV-Ray and HTML scene export, and the remaining catalog filters.
 
 ## Status (2026-11-05)
 

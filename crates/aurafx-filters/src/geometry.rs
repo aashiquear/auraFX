@@ -514,6 +514,24 @@ pub fn rename_array(ds: &DataSet, from: &str, to: &str) -> Result<DataSet> {
     Ok(out)
 }
 
+/// Set (or, with empty `units`, clear) the units of an array.
+pub fn set_units(ds: &DataSet, name: &str, units: &str) -> Result<DataSet> {
+    let mut out = ds.clone();
+    let mut done = false;
+    let mut fix = |a: Option<&mut Attributes>| {
+        if let Some(arr) = a.and_then(|a| a.get_mut(name)) {
+            *arr = arr.clone().with_units(units);
+            done = true;
+        }
+    };
+    fix(out.point_data_mut());
+    fix(out.cell_data_mut());
+    if !done {
+        bail!("no array named {name:?}");
+    }
+    Ok(out)
+}
+
 /// Turn polylines into tubes (`sides` facets, radius optionally scaled by a scalar).
 pub fn tube(ds: &DataSet, radius: f64, sides: usize, scale_by: Option<&str>) -> Result<PolyData> {
     let pd = match ds {

@@ -32,7 +32,7 @@ use std::ffi::{c_char, CStr, CString};
 /// The version of the C table.
 pub const ABI_VERSION: u32 = 1;
 /// The version of the data the plugin and auraFX exchange (the `aurafx-data` crate's).
-pub const DATA_VERSION: &str = concat!("aurafx-data ", env!("CARGO_PKG_VERSION"), " format 1\0");
+pub const DATA_VERSION: &str = concat!("aurafx-data ", env!("CARGO_PKG_VERSION"), " format 2\0");
 
 /// Bytes handed across the boundary; freed by the side that made them.
 #[repr(C)]

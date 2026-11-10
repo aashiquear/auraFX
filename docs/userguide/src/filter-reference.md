@@ -1073,6 +1073,17 @@ Python: `resample_with_dataset` · also found by: probe, interpolate onto, map f
 | Keep destination point arrays | `pass_point_arrays` | on/off | off |  |
 | Keep destination cell arrays | `pass_cell_arrays` | on/off | off |  |
 
+### Set Units
+
+Say what units an array's values are in (K, m/s, MPa). The color legend, the Information panel and the spreadsheet show them; empty clears them.
+
+Python: `set_units` · also found by: units, unit, dimension, physical, label, legend
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Array | `array` | array | (the active array) |  |
+| Units | `units` | text | (empty) |  |
+
 ### Spatio Temporal Harmonics
 
 A sum of travelling sine waves at every point, changing with the input's time.

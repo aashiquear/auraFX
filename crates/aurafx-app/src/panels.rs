@@ -1193,12 +1193,13 @@ fn info_body(ui: &mut egui::Ui, info: &aurafx_data::DataSetInfo) {
         }
         ui.add_space(4.0);
         ui.label(RichText::new(title).strong());
-        egui::Grid::new(title).striped(true).num_columns(4).spacing([10.0, 2.0]).show(ui, |ui| {
+        egui::Grid::new(title).striped(true).num_columns(5).spacing([10.0, 2.0]).show(ui, |ui| {
             for a in arrs {
                 ui.label(&a.name);
                 ui.label(RichText::new(&a.dtype).weak());
                 ui.label(format!("{}c", a.ncomp));
                 ui.label(format!("{} .. {}", aurafx_data::info::g(a.range.0), aurafx_data::info::g(a.range.1)));
+                ui.label(RichText::new(a.units.as_deref().unwrap_or("")).weak());
                 ui.end_row();
             }
         });
@@ -1354,7 +1355,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
         }
         for a in &cols {
             h.col(|ui| {
-                ui.label(RichText::new(&a.name).strong()).on_hover_text(format!("{} x {}", a.scalar_type().vtk_name(), a.ncomp));
+                ui.label(RichText::new(a.label()).strong()).on_hover_text(format!("{} x {}", a.scalar_type().vtk_name(), a.ncomp));
             });
         }
     })

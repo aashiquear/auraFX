@@ -255,7 +255,11 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, colormap:
                 let arrays = if cb.assoc == Association::Points { &info.point_arrays } else { &info.cell_arrays };
                 if let Some(a) = arrays.iter().find(|a| a.name == cb.name) {
                     if scalar_bar.is_none() || s.active == Some(n.id) {
-                        scalar_bar = Some((cb.name.clone(), n.display.effective_colormap(), n.display.range.unwrap_or(a.range), n.display.log_scale));
+                        let label = match &a.units {
+                            Some(u) => format!("{} ({u})", cb.name),
+                            None => cb.name.clone(),
+                        };
+                        scalar_bar = Some((label, n.display.effective_colormap(), n.display.range.unwrap_or(a.range), n.display.log_scale));
                     }
                 }
             }
@@ -277,13 +281,19 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, colormap:
         };
         if n.display.show_scalar_bar && mesh.has_scalars && (scalar_bar.is_none() || s.active == Some(n.id)) {
             if let (Some(cb), Some(r)) = (&n.display.color_by, mesh.scalar_range) {
+                // The array's units, when known, after its name: "T (K)".
+                let units = aurafx_filters::selection::flat_leaves(out).iter().find_map(|(l, _, _)| {
+                    let at = if cb.assoc == Association::Points { l.point_data() } else { l.cell_data() };
+                    at.and_then(|a| a.get(&cb.name)).and_then(|a| a.units.clone())
+                });
                 let label = format!(
-                    "{}{}",
+                    "{}{}{}",
                     cb.name,
                     match cb.component {
                         Some(c) => format!(" [{c}]"),
                         None => String::new(),
-                    }
+                    },
+                    units.map(|u| format!(" ({u})")).unwrap_or_default()
                 );
                 scalar_bar = Some((label, n.display.effective_colormap(), r, n.display.log_scale));
             }

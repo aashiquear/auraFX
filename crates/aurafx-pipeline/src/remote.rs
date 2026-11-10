@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
-pub const PROTOCOL: u32 = 11;
+pub const PROTOCOL: u32 = 12;
 
 /// One node of the recipe the client sends, keyed by the client's node id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

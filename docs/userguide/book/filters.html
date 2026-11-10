@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-a3838b4f.js";
+            window.path_to_searchindex_js = "searchindex-0cbb9698.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -216,7 +216,7 @@ Harmonics are described <a href="#textures-and-made-up-data">below</a>.</p>
 Surface Normals, Smooth, Triangulate, Tetrahedralize, Tessellate (curved cells into straight
 pieces), Mask Points, Merge Blocks, Extract Block, Extract Subset (a sub-volume of an image),
 Append Datasets / Geometry / Attributes, Cell Data to Point Data and back, Extract Component,
-Rename Array, Pass Arrays, and OpenFOAM Boundary Patches.</p>
+Rename Array, Set Units, Pass Arrays, and OpenFOAM Boundary Patches.</p>
 <h2 id="sources"><a class="header" href="#sources">Sources</a></h2>
 <p><strong>Sources</strong> adds objects without a file: Sphere, Cone, Cylinder, Box, Plane, Line, Point
 Cloud, Wavelet (a test volume), Spatio Temporal Harmonics (a test volume of waves with its own
@@ -624,6 +624,21 @@ moved = target.transform(rotate=[0, 20, 10], translate=[0.2, 0, 0])
 aligned = afx.iterative_closest_point(moved, target, iterations=100)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/point_alignment.png" alt="Points sampled on a cone, a turned and moved copy (orange) and the copy moved back by Iterative Closest Point (blue, lying on the original)"><span class="img-wrapper"><img src="images/point_alignment.png" alt="Points sampled on a cone, a turned and moved copy (orange) and the copy moved back by Iterative Closest Point (blue, lying on the original)"></span></label></p>
+<h2 id="units"><a class="header" href="#units">Units</a></h2>
+<p>An array can say what units its values are in (K, m/s, MPa). The color legend then reads
+“sst (K)”, the Information panel lists the units after each array’s range, and the
+spreadsheet’s column headings carry them. Readers fill them in where the file says (NetCDF
+files, from each variable’s <code>units</code>); for other arrays, <strong>Filters › Data › Set Units</strong> sets them
+(pick the array, type the units; an empty box clears them). Units are a label: auraFX does not
+convert between them, and arrays made by filters (a Calculator result, a gradient) start
+without units.</p>
+<pre><code class="language-python">t = d.set_units(array="T", units="K")
+[a["units"] for a in t.info()["point_arrays"]]
+data = afx.make_points(xyz)
+data.point_data["p"] = p
+data.point_data.set_units("p", "MPa"); data.point_data.units("p")
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/array_units.png" alt="Sea-surface temperature from a NetCDF file: the legend and the Information panel show its units, K"><span class="img-wrapper"><img src="images/array_units.png" alt="Sea-surface temperature from a NetCDF file: the legend and the Information panel show its units, K"></span></label></p>
 <h2 id="from-python"><a class="header" href="#from-python">From Python</a></h2>
 <pre><code class="language-python">afx.filters()                 # every filter with its parameters
 afx.help_filter("clip")       # one filter explained

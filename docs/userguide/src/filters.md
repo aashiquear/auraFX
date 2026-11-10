@@ -38,7 +38,7 @@ Extract Surface, Extract Edges, Feature Edges, Outline, Transform, Reflect, Shri
 Surface Normals, Smooth, Triangulate, Tetrahedralize, Tessellate (curved cells into straight
 pieces), Mask Points, Merge Blocks, Extract Block, Extract Subset (a sub-volume of an image),
 Append Datasets / Geometry / Attributes, Cell Data to Point Data and back, Extract Component,
-Rename Array, Pass Arrays, and OpenFOAM Boundary Patches.
+Rename Array, Set Units, Pass Arrays, and OpenFOAM Boundary Patches.
 
 ## Sources
 
@@ -502,6 +502,26 @@ aligned = afx.iterative_closest_point(moved, target, iterations=100)
 ```
 
 ![Points sampled on a cone, a turned and moved copy (orange) and the copy moved back by Iterative Closest Point (blue, lying on the original)](images/point_alignment.png)
+
+## Units
+
+An array can say what units its values are in (K, m/s, MPa). The color legend then reads
+"sst (K)", the Information panel lists the units after each array's range, and the
+spreadsheet's column headings carry them. Readers fill them in where the file says (NetCDF
+files, from each variable's `units`); for other arrays, **Filters › Data › Set Units** sets them
+(pick the array, type the units; an empty box clears them). Units are a label: auraFX does not
+convert between them, and arrays made by filters (a Calculator result, a gradient) start
+without units.
+
+```python
+t = d.set_units(array="T", units="K")
+[a["units"] for a in t.info()["point_arrays"]]
+data = afx.make_points(xyz)
+data.point_data["p"] = p
+data.point_data.set_units("p", "MPa"); data.point_data.units("p")
+```
+
+![Sea-surface temperature from a NetCDF file: the legend and the Information panel show its units, K](images/array_units.png)
 
 ## From Python
 

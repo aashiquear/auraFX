@@ -696,6 +696,12 @@ fn netcdf_cf_matches_paraview() {
         close(range_all(&d, false, "pr"), pr, "pr");
         assert!(d.cell_data().unwrap().get("sst").unwrap().get(0, 0).is_nan(), "fill value");
     }
+    // The CF units attribute becomes the array's units.
+    let Loaded::Series(g) = read_file(td("netcdf/globe_sst.nc")).unwrap() else { panic!("time steps") };
+    let d = load_step(&g.steps[0]).unwrap();
+    let a = d.cell_data().and_then(|c| c.get("sst")).or_else(|| d.point_data().and_then(|p| p.get("sst"))).expect("sst");
+    assert_eq!(a.units.as_deref(), Some("K"));
+    assert_eq!(a.label(), "sst (K)");
     let b = static_ds("netcdf/box.nc");
     assert!(matches!(&*b, aurafx_data::DataSet::RectilinearGrid(_)));
     assert_eq!((b.n_points(), b.n_cells()), (24, 6));

@@ -250,7 +250,20 @@ impl ArrayMap {
         let mut d = self.owner.borrow_mut(py);
         d.attrs_mut(self.which).and_then(|a| a.remove(name)).map(|_| ()).ok_or_else(|| PyKeyError::new_err(format!("no array {name:?}")))
     }
-    /// ParaView-style `append(array, name)`.
+    /// The units of an array ("K", "m/s"), or None.
+    fn units(&self, py: Python<'_>, name: &str) -> PyResult<Option<String>> {
+        let d = self.owner.borrow(py);
+        let a = d.attrs(self.which).and_then(|a| a.get(name)).ok_or_else(|| PyKeyError::new_err(format!("no array {name:?}")))?;
+        Ok(a.units.clone())
+    }
+    /// Set the units of an array (an empty string clears them).
+    fn set_units(&self, py: Python<'_>, name: &str, units: &str) -> PyResult<()> {
+        let mut d = self.owner.borrow_mut(py);
+        let a = d.attrs_mut(self.which).and_then(|a| a.get_mut(name)).ok_or_else(|| PyKeyError::new_err(format!("no array {name:?}")))?;
+        *a = a.clone().with_units(units);
+        Ok(())
+    }
+    /// `append(array, name)`, the same as `self[name] = array`.
     fn append(&self, py: Python<'_>, value: &Bound<'_, PyAny>, name: &str) -> PyResult<()> {
         self.__setitem__(py, name, value)
     }

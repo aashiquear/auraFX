@@ -9,6 +9,8 @@ pub struct ArrayInfo {
     pub ncomp: usize,
     pub dtype: String,
     pub range: (f64, f64),
+    #[serde(default)]
+    pub units: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +53,13 @@ fn cell_types(ds: &DataSet, counts: &mut std::collections::BTreeMap<u8, usize>) 
 
 fn arrays(a: &Attributes) -> Vec<ArrayInfo> {
     a.iter()
-        .map(|arr| ArrayInfo { name: arr.name.clone(), ncomp: arr.ncomp, dtype: arr.scalar_type().vtk_name().to_string(), range: arr.range(None) })
+        .map(|arr| ArrayInfo {
+            name: arr.name.clone(),
+            ncomp: arr.ncomp,
+            dtype: arr.scalar_type().vtk_name().to_string(),
+            range: arr.range(None),
+            units: arr.units.clone(),
+        })
         .collect()
 }
 

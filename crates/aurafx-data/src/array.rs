@@ -331,11 +331,29 @@ pub struct Array {
     pub data: ArrayData,
     /// Optional per-component names (e.g. ["X","Y","Z"]).
     pub component_names: Option<Vec<String>>,
+    /// The physical units of the values ("K", "m/s", "MPa"), when known.
+    #[serde(default)]
+    pub units: Option<String>,
 }
 
 impl Array {
     pub fn new(name: impl Into<String>, ncomp: usize, data: ArrayData) -> Self {
-        Self { name: name.into(), ncomp: ncomp.max(1), data, component_names: None }
+        Self { name: name.into(), ncomp: ncomp.max(1), data, component_names: None, units: None }
+    }
+
+    /// The same array with its units ("K", "m/s"; empty: none).
+    pub fn with_units(mut self, units: impl Into<String>) -> Self {
+        let u: String = units.into();
+        self.units = (!u.trim().is_empty()).then(|| u.trim().to_string());
+        self
+    }
+
+    /// "T (K)" when the units are known, else the name.
+    pub fn label(&self) -> String {
+        match &self.units {
+            Some(u) => format!("{} ({u})", self.name),
+            None => self.name.clone(),
+        }
     }
 
     pub fn from_vec<T: ArrayElement>(name: impl Into<String>, ncomp: usize, v: Vec<T>) -> Self {
@@ -424,7 +442,13 @@ impl Array {
     }
 
     pub fn gather(&self, idx: &[usize]) -> Array {
-        Array { name: self.name.clone(), ncomp: self.ncomp, data: self.data.gather(self.ncomp, idx), component_names: self.component_names.clone() }
+        Array {
+            name: self.name.clone(),
+            ncomp: self.ncomp,
+            data: self.data.gather(self.ncomp, idx),
+            component_names: self.component_names.clone(),
+            units: self.units.clone(),
+        }
     }
 
     pub fn n_bytes(&self) -> usize {

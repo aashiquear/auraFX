@@ -3472,6 +3472,24 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "set_units",
+            label: "Set Units",
+            category: "Data",
+            description: "Say what units an array's values are in (K, m/s, MPa). The color legend, the Information panel and the spreadsheet show them; empty clears them.",
+            keywords: &["units", "unit", "dimension", "physical", "label", "legend"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), s("units", "Units", "")],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", false)?;
+                    crate::geometry::set_units(d, &n, &p.str("units"))
+                })
+            },
+        },
+        FilterDef {
             id: "pass_arrays",
             label: "Pass Arrays",
             category: "Data",

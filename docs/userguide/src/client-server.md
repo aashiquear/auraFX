@@ -101,6 +101,15 @@ files are read by every process and split. Cell-by-cell filters run on every pie
 automatic values taken from the whole data; the pieces come back appended, as a merged
 surface, or as pictures composited by depth. Results match a single process exactly.
 
+Filters that look at the cells around each point (**Gradient**, **Cell Data to Point Data**,
+**Surface Normals**, **Curvature**, **Compute Derivatives**) also run on every piece: each
+process first gets a layer of ghost cells, the neighbouring pieces' cells along its border, so
+values on the borders between pieces are the same as with one process; the ghosts are
+dropped before anything comes back. Other filters (connectivity, statistics, anything that
+needs the whole data) run on the server's main process with the pieces put together.
+
+![A gradient computed by four processes, cut open: the colors run smoothly across the borders between the pieces](images/server_ghosts.png)
+
 ### Starting the processes with MPI or Slurm
 
 On a cluster, choose **started by** next to Processes: *mpirun* (MPI), *srun* (Slurm), or *a

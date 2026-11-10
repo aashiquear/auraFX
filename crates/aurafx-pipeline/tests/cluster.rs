@@ -177,3 +177,63 @@ fn parallel_server_reader_options() {
     assert_eq!(range(&b), (-14.967137336730957, 15.5), "level 3 at step 1");
     assert_eq!(s.reader_specs(r).map(|v| v.len()), Some(6));
 }
+
+/// Filters that look at neighbours run on every piece with ghost cells from the neighbouring
+/// pieces, and match one process at the piece borders: an explicit mesh (Exodus, several
+/// blocks), an image (wavelet) and a surface (normals, curvature).
+#[test]
+fn neighbour_filters_match_one_process() {
+    let (mut s, host) = cluster_session(4);
+    let mut local = Session::new();
+    let cases: [(&str, &str, serde_json::Value); 7] = [
+        ("wavelet.vti", "gradient", serde_json::json!({"array": {"assoc": "Points", "name": "RTData"}})),
+        ("wavelet.vti", "cell_data_to_point_data", serde_json::json!({})),
+        ("disk_out_ref.ex2", "gradient", serde_json::json!({"array": {"assoc": "Points", "name": "Temp"}})),
+        ("disk_out_ref.ex2", "cell_data_to_point_data", serde_json::json!({})),
+        ("wavelet_tets.vtu", "gradient", serde_json::json!({"array": {"assoc": "Points", "name": "RTData"}})),
+        ("contour.vtp", "surface_normals", serde_json::json!({})),
+        ("contour.vtp", "curvature", serde_json::json!({})),
+    ];
+    for (file, id, set) in cases {
+        let r = s.open_remote(host.clone(), &td(file));
+        let lr = local.open_file(td(file)).unwrap();
+        let a = s.add_filter(id, r).unwrap();
+        let b = local.add_filter(id, lr).unwrap();
+        for (k, v) in set.as_object().unwrap() {
+            s.set_param_json(a, k, v);
+            local.set_param_json(b, k, v);
+        }
+        s.update_blocking();
+        local.update_blocking();
+        assert!(s.nodes[&a].error.is_none(), "{file} {id}: {:?}", s.nodes[&a].error);
+        let (x, y) = (s.nodes[&a].output.clone().unwrap(), local.nodes[&b].output.clone().unwrap());
+        // Explicit pieces repeat the points on their borders; cells appear once.
+        assert_eq!(x.n_cells(), y.n_cells(), "{file} {id}: cells");
+        // Values by point position: border points appear in several pieces, and every copy
+        // must agree with one process.
+        let by_pos = |d: &DataSet| {
+            let mut m: std::collections::HashMap<(String, [i64; 3]), Vec<Vec<f64>>> = Default::default();
+            for (leaf, _, _) in aurafx_filters::selection::flat_leaves(d) {
+                let Some(u) = leaf.to_unstructured() else { continue };
+                for a in u.point_data.iter() {
+                    for i in 0..u.points.len() {
+                        let key = (a.name.clone(), u.points.get(i).map(|v| (v * 1e9).round() as i64));
+                        m.entry(key).or_default().push((0..a.ncomp).map(|c| a.get(i, c)).collect());
+                    }
+                }
+            }
+            m
+        };
+        let (px, py) = (by_pos(&x), by_pos(&y));
+        let mut worst = 0.0f64;
+        for (k, v) in &py {
+            let copies = px.get(k).unwrap_or_else(|| panic!("{file} {id}: missing {k:?}"));
+            for w in copies {
+                for (a, b) in w.iter().zip(&v[0]) {
+                    worst = worst.max((a - b).abs() / b.abs().max(1.0));
+                }
+            }
+        }
+        assert!(worst < 1e-9, "{file} {id}: values differ by {worst}");
+    }
+}

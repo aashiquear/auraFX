@@ -131,7 +131,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 - [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer; iteration 46: Probe; iteration 47: Compute Sides): Centers, Compute Sides, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
 - [~] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder (Halo Finder, friends of friends with SOD radius and mass: iteration 83; subhalos todo)
-- [~] Parallel/distributed (Redistribute DataSet and Ghost Cells: iteration 83; the rest todo): D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
+- [~] Parallel/distributed (Redistribute DataSet and Ghost Cells: iteration 83; ghost exchange between server processes: iteration 88; the rest todo): D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
 - [~] Annotation (text, time label and ruler done): Annotate Attribute Data, Annotate Global Data, Annotate Selection, Annotate Time Filter, Environment Annotation, Python Annotation, Programmable Annotation, Text, 3D Text, Logo, Ruler, Protractor
 - [~] Programmable: Programmable Filter ★ (Python), Programmable Source, Python Calculator ★ (done), Live Programmable Source, Color By Array, OME TIFF Channel Calculator, Threshold Table, Field Arrays From File
 
@@ -256,7 +256,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 ## 9. Distributed and remote
 
 - [~] Client/server split (data server and server-side rendering done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery, GPU-drawn color+depth images composited by depth; MPI and Slurm launchers: iteration 86): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
-- [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI and Slurm launchers: iteration 86; ghost layers exchanged between the server's processes todo, the Ghost Cells filter works within one process) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
+- [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI and Slurm launchers: iteration 86; ghost layers between the server's processes: iteration 88, so Gradient, Cell Data to Point Data, Surface Normals, Curvature and Compute Derivatives run on every piece) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
 - [ ] Collaboration: shared sessions with multiple clients.
 - [ ] In-situ: Catalyst/Conduit endpoint, live visualization of running jobs.
 
@@ -958,7 +958,7 @@ generated filter reference and a benchmarks page, keyboard shortcuts and accessi
 surface writers, saved assistant prompts (85); the Jupyter kernel and the Notebook panel, MPI
 and Slurm launchers for parallel servers, Rust plugins (the `aurafx-plugin` crate) and Python
 plugin panels (86); units on arrays (87). Still open in sections 0 to 10, by priority:
-out-of-core streaming, GPU compute filters, ghost layers between server processes, localization, collaboration, in-situ
+out-of-core streaming, GPU compute filters, localization, collaboration, in-situ
 coupling, VR and stereo, POV-Ray and HTML scene export, and the remaining catalog filters.
 
 ## Status (2026-11-05)

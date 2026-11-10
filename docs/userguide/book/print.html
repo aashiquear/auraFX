@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0cbb9698.js";
+            window.path_to_searchindex_js = "searchindex-5bd246f4.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -2657,6 +2657,13 @@ over machines sharing a file system). Partitioned VTK files are read piece by pi
 files are read by every process and split. Cell-by-cell filters run on every piece with
 automatic values taken from the whole data; the pieces come back appended, as a merged
 surface, or as pictures composited by depth. Results match a single process exactly.</p>
+<p>Filters that look at the cells around each point (<strong>Gradient</strong>, <strong>Cell Data to Point Data</strong>,
+<strong>Surface Normals</strong>, <strong>Curvature</strong>, <strong>Compute Derivatives</strong>) also run on every piece: each
+process first gets a layer of ghost cells, the neighbouring pieces’ cells along its border, so
+values on the borders between pieces are the same as with one process; the ghosts are
+dropped before anything comes back. Other filters (connectivity, statistics, anything that
+needs the whole data) run on the server’s main process with the pieces put together.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/server_ghosts.png" alt="A gradient computed by four processes, cut open: the colors run smoothly across the borders between the pieces"><span class="img-wrapper"><img src="images/server_ghosts.png" alt="A gradient computed by four processes, cut open: the colors run smoothly across the borders between the pieces"></span></label></p>
 <h3 id="starting-the-processes-with-mpi-or-slurm"><a class="header" href="#starting-the-processes-with-mpi-or-slurm">Starting the processes with MPI or Slurm</a></h3>
 <p>On a cluster, choose <strong>started by</strong> next to Processes: <em>mpirun</em> (MPI), <em>srun</em> (Slurm), or <em>a
 command</em> with <code>{n}</code> for the number of processes and <code>{cmd}</code> for the worker command (for example

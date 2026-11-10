@@ -273,7 +273,7 @@ fn vec_param(key: &str, label: &str) -> ParamSpec {
 fn f(key: &str, label: &str, default: f64, min: f64, max: f64) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Float { min, max, log: false }, ParamValue::Float(default))
 }
-fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> ParamSpec {
+pub(crate) fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Int { min, max }, ParamValue::Int(default))
 }
 fn v3(key: &str, label: &str, default: [f64; 3]) -> ParamSpec {
@@ -285,7 +285,7 @@ fn b(key: &str, label: &str, default: bool) -> ParamSpec {
 fn choice(key: &str, label: &str, opts: &[&str], default: &str) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Choice(opts.iter().map(|s| s.to_string()).collect()), ParamValue::Str(default.into()))
 }
-fn s(key: &str, label: &str, default: &str) -> ParamSpec {
+pub(crate) fn s(key: &str, label: &str, default: &str) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Str, ParamValue::Str(default.into()))
 }
 
@@ -6019,7 +6019,14 @@ pub fn unregister_plugin(plugin: &str) -> Vec<String> {
 
 pub fn find(id: &str) -> Option<Arc<FilterDef>> {
     let idl = id.to_ascii_lowercase().replace([' ', '-'], "_");
-    registry().iter().find(|f| f.id == idl || f.label.eq_ignore_ascii_case(id)).cloned()
+    registry().iter().find(|f| f.id == idl || f.label.eq_ignore_ascii_case(id)).cloned().or_else(|| internal().iter().find(|f| f.id == idl).cloned())
+}
+
+/// Filters used inside auraFX (by the processes of a parallel server): found by id, never
+/// listed.
+fn internal() -> &'static Vec<Arc<FilterDef>> {
+    static T: std::sync::OnceLock<Vec<Arc<FilterDef>>> = std::sync::OnceLock::new();
+    T.get_or_init(|| crate::ghost_exchange::internal_defs().into_iter().map(Arc::new).collect())
 }
 
 /// Search filters and sources, best match first.

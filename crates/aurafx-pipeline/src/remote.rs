@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
-pub const PROTOCOL: u32 = 12;
+pub const PROTOCOL: u32 = 13;
 
 /// One node of the recipe the client sends, keyed by the client's node id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,6 +180,11 @@ pub enum Request {
     Forget {
         ids: Vec<NodeId>,
     },
+    /// A parallel server's worker: keep the attached border cells of the other pieces under
+    /// `key` (for ghost layers).
+    Ghosts {
+        key: String,
+    },
     Shutdown,
 }
 
@@ -302,7 +307,7 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
     let mut srv = Server { hook: opts.hook, gpu: opts.gpu, cluster, ..Server::default() };
     srv.session.piece = piece;
     loop {
-        let Ok((head, _)) = read_frame(&mut r) else { return Ok(()) }; // client went away
+        let Ok((head, att)) = read_frame(&mut r) else { return Ok(()) }; // client went away
         let req: Request = match postcard::from_bytes(&head) {
             Ok(m) => m,
             Err(e) => {
@@ -315,6 +320,13 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
                 write_msg(&mut w, &Reply::Ok, &[])?;
                 return Ok(());
             }
+            Request::Ghosts { key } => match decode(&att) {
+                Ok(d) => {
+                    aurafx_filters::ghost_exchange::store(&key, d);
+                    (Reply::Ok, vec![])
+                }
+                Err(e) => (Reply::Error { message: format!("could not read the ghost cells: {e:#}") }, vec![]),
+            },
             other => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| srv.handle(other))) {
                 Ok(r) => r,
                 Err(p) => {
@@ -326,6 +338,7 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
                     if let Some(c) = srv.cluster.as_mut() {
                         c.gathered.clear();
                         c.infos.lock().clear();
+                        c.ghosts.lock().clear();
                     }
                     (Reply::Error { message: format!("the server failed: {msg}") }, vec![])
                 }
@@ -403,7 +416,7 @@ impl Server {
                 Ok(r) => r,
                 Err(e) => (Reply::Error { message: format!("{e:#}") }, vec![]),
             },
-            Request::Shutdown => (Reply::Ok, vec![]),
+            Request::Shutdown | Request::Ghosts { .. } => (Reply::Ok, vec![]),
         }
     }
 
@@ -900,6 +913,22 @@ impl RemoteClient {
 
     /// Send a request and wait for the reply, connecting (or reconnecting once) as needed.
     pub fn request(&self, req: &Request) -> Result<(Reply, Vec<u8>)> {
+        self.request_with(req, &[])
+    }
+
+    /// [`RemoteClient::request`] with an attachment; an error reply is an error.
+    pub fn request_with(&self, req: &Request, attachment: &[u8]) -> Result<(Reply, Vec<u8>)> {
+        let r = self.request_raw(req, attachment)?;
+        if let Reply::Error { message } = &r.0 {
+            if attachment.is_empty() {
+                return Ok(r);
+            }
+            bail!("{message}");
+        }
+        Ok(r)
+    }
+
+    fn request_raw(&self, req: &Request, attachment: &[u8]) -> Result<(Reply, Vec<u8>)> {
         let mut guard = self.conn.lock();
         let mut first: Option<anyhow::Error> = None;
         for _ in 0..2 {
@@ -910,7 +939,7 @@ impl RemoteClient {
                 }
             }
             let conn = guard.as_mut().unwrap();
-            let res = write_msg(&mut conn.w, req, &[]).and_then(|_| read_msg::<Reply>(&mut conn.r));
+            let res = write_msg(&mut conn.w, req, attachment).and_then(|_| read_msg::<Reply>(&mut conn.r));
             match res {
                 Ok(r) => return Ok(r),
                 Err(e) => {

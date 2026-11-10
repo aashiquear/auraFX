@@ -3,8 +3,10 @@
 //!
 //! Readers and filters that only look at one cell at a time run on every piece; their results
 //! are appended (whole data), merged with the faces between pieces removed (surfaces), summed
-//! (summaries) or composited by depth (pictures). Anything else runs on the coordinator on the
-//! gathered data.
+//! (summaries) or composited by depth (pictures). Filters that look at a cell's neighbours run
+//! on every piece too, with a layer of the neighbouring pieces' cells added as ghosts (see
+//! `aurafx_filters::ghost_exchange`). Anything else runs on the coordinator on the gathered
+//! data.
 
 use super::remote::*;
 use crate::session::NodeId;
@@ -39,6 +41,15 @@ pub const PIECE_LOCAL: &[&str] = &[
     "glyph",
 ];
 
+/// Filters that need the cells around each point or cell: they run on every piece with one
+/// layer of ghost cells from the neighbouring pieces, then the ghosts are dropped.
+pub const GHOSTED: &[&str] = &["gradient", "cell_data_to_point_data", "surface_normals", "curvature", "compute_derivatives"];
+
+/// Ids of the extra nodes a ghosted filter becomes on the workers.
+fn ghost_id(id: NodeId, k: u64) -> NodeId {
+    (1u64 << 62) | (id << 3) | k
+}
+
 /// Nodes of `specs` that can run piece by piece: readers, and piece-local filters of them.
 pub fn piece_local(specs: &[NodeSpec]) -> HashSet<NodeId> {
     let mut local = HashSet::new();
@@ -46,7 +57,9 @@ pub fn piece_local(specs: &[NodeSpec]) -> HashSet<NodeId> {
         let ok = match &s.kind {
             SpecKind::Reader { .. } => true,
             SpecKind::Filter { id } => {
-                PIECE_LOCAL.contains(&id.as_str()) && s.input.is_some_and(|i| local.contains(&i)) && s.extra.iter().all(|e| local.contains(e))
+                (PIECE_LOCAL.contains(&id.as_str()) || GHOSTED.contains(&id.as_str()))
+                    && s.input.is_some_and(|i| local.contains(&i))
+                    && s.extra.iter().all(|e| local.contains(e))
             }
         };
         if ok {
@@ -63,6 +76,8 @@ pub struct Cluster {
     pub gathered: HashMap<NodeId, u64>,
     /// Summaries of whole outputs, by recipe fingerprint (for automatic parameter values).
     pub infos: parking_lot::Mutex<HashMap<u64, DataSetInfo>>,
+    /// Keys of the ghost cells each worker holds, by recipe fingerprint of the input.
+    pub ghosts: parking_lot::Mutex<HashMap<u64, Vec<String>>>,
 }
 
 /// Filters whose automatic parameter values (centers, ranges, sizes) come from their input.
@@ -70,49 +85,123 @@ const AUTO_VALUES: &[&str] = &["slice", "clip", "contour", "threshold", "glyph",
 
 impl Cluster {
     pub fn new(workers: Vec<Arc<RemoteClient>>) -> Self {
-        Self { workers, gathered: HashMap::new(), infos: Default::default() }
+        Self { workers, gathered: HashMap::new(), infos: Default::default(), ghosts: Default::default() }
     }
 
-    /// Give filters with automatic values the bounds and ranges of their whole input, so every
-    /// piece uses the same plane, iso-values, thresholds and sizes.
-    pub fn annotate(&self, specs: &[NodeSpec], time: Option<f64>) -> Result<Vec<NodeSpec>> {
-        let mut out = specs.to_vec();
-        for i in 0..out.len() {
-            let SpecKind::Filter { id } = &out[i].kind else { continue };
-            if !AUTO_VALUES.contains(&id.as_str()) {
+    /// The recipe each worker runs: filters with automatic values get the bounds and ranges of
+    /// their whole input (so every piece uses the same plane, iso-values, thresholds and sizes),
+    /// and filters that look at neighbours get ghost cells from the other pieces.
+    pub fn prepare(&self, specs: &[NodeSpec], time: Option<f64>) -> Result<Vec<Vec<NodeSpec>>> {
+        let n = self.workers.len();
+        let mut per: Vec<Vec<NodeSpec>> = vec![Vec::new(); n];
+        let fp_all = |per: &[Vec<NodeSpec>], input: NodeId| per.iter().fold(input.rotate_left(17), |h, s| h.rotate_left(5) ^ fingerprint(s, time));
+        for s in specs {
+            let mut s = s.clone();
+            let id = match &s.kind {
+                SpecKind::Filter { id } => id.clone(),
+                _ => String::new(),
+            };
+            if let (true, Some(input)) = (AUTO_VALUES.contains(&id.as_str()), s.input) {
+                let fp = fp_all(&per, input);
+                let cached = self.infos.lock().get(&fp).cloned();
+                let info = match cached {
+                    Some(i) => i,
+                    None => {
+                        let parts = self.each_k(|k, w| w.compute(per[k].clone(), input, time, Fetch::Info, 0, 1, 0))?;
+                        let i = DataSetInfo::merge(&parts.iter().filter_map(|p| p.info.clone()).collect::<Vec<_>>());
+                        self.infos.lock().insert(fp, i.clone());
+                        i
+                    }
+                };
+                let b = info.bounds;
+                let mut ranges = serde_json::Map::new();
+                for (tag, arrays) in [("P", &info.point_arrays), ("C", &info.cell_arrays)] {
+                    for a in arrays {
+                        ranges.insert(format!("{tag}:{}", a.name), serde_json::json!([a.range.0, a.range.1]));
+                    }
+                }
+                let p = &mut s.params.0;
+                p.insert("__bounds".into(), aurafx_filters::ParamValue::Floats(vec![b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]));
+                p.insert("__ranges".into(), aurafx_filters::ParamValue::Str(serde_json::Value::Object(ranges).to_string()));
+            }
+            if let (true, Some(input), true) = (GHOSTED.contains(&id.as_str()), s.input, n > 1) {
+                let keys = self.ghost_keys(&per, input, time, fp_all(&per, input))?;
+                let (a, g) = (ghost_id(s.id, 1), ghost_id(s.id, 2));
+                for (k, sp) in per.iter_mut().enumerate() {
+                    let mut ap = aurafx_filters::Params::default();
+                    ap.0.insert("layers".into(), aurafx_filters::ParamValue::Int(1));
+                    ap.0.insert("key".into(), aurafx_filters::ParamValue::Str(keys[k].clone()));
+                    let filter = |f: &str| SpecKind::Filter { id: f.to_string() };
+                    sp.push(NodeSpec { id: a, kind: filter("__append_ghosts"), params: ap, input: Some(input), extra: vec![] });
+                    sp.push(NodeSpec { id: g, kind: s.kind.clone(), params: s.params.clone(), input: Some(a), extra: s.extra.clone() });
+                    sp.push(NodeSpec { id: s.id, kind: filter("__drop_ghosts"), params: Default::default(), input: Some(g), extra: vec![input] });
+                }
                 continue;
             }
-            let Some(input) = out[i].input else { continue };
-            let upstream = out[..i].to_vec();
-            let fp = fingerprint(&upstream, time) ^ input.rotate_left(17);
-            let cached = self.infos.lock().get(&fp).cloned();
-            let info = match cached {
-                Some(i) => i,
-                None => {
-                    let parts = self.each(|w| w.compute(upstream.clone(), input, time, Fetch::Info, 0, 1, 0))?;
-                    let i = DataSetInfo::merge(&parts.iter().filter_map(|p| p.info.clone()).collect::<Vec<_>>());
-                    self.infos.lock().insert(fp, i.clone());
-                    i
-                }
-            };
-            let b = info.bounds;
-            let mut ranges = serde_json::Map::new();
-            for (tag, arrays) in [("P", &info.point_arrays), ("C", &info.cell_arrays)] {
-                for a in arrays {
-                    ranges.insert(format!("{tag}:{}", a.name), serde_json::json!([a.range.0, a.range.1]));
+            for sp in per.iter_mut() {
+                sp.push(s.clone());
+            }
+        }
+        Ok(per)
+    }
+
+    /// Hand every worker the border cells of the other pieces next to it (the output of
+    /// `input`); returns the key each worker keeps them under.
+    fn ghost_keys(&self, per: &[Vec<NodeSpec>], input: NodeId, time: Option<f64>, fp: u64) -> Result<Vec<String>> {
+        if let Some(k) = self.ghosts.lock().get(&fp) {
+            return Ok(k.clone());
+        }
+        let bid = ghost_id(input, 3);
+        let borders = self.each_k(|k, w| {
+            let mut sp = per[k].clone();
+            let mut bp = aurafx_filters::Params::default();
+            bp.0.insert("layers".into(), aurafx_filters::ParamValue::Int(1));
+            sp.push(NodeSpec { id: bid, kind: SpecKind::Filter { id: "__piece_border".into() }, params: bp, input: Some(input), extra: vec![] });
+            Ok(w.compute(sp, bid, time, Fetch::Full, u64::MAX, 1, u64::MAX)?.data)
+        })?;
+        let boxes: Vec<Option<aurafx_data::Bounds>> = borders.iter().map(|b| (b.n_cells() > 0).then(|| b.bounds())).collect();
+        let overlap = |a: &aurafx_data::Bounds, b: &aurafx_data::Bounds| {
+            let tol = (a.diagonal() + b.diagonal()) * 1e-9;
+            (0..3).all(|i| a.min[i] <= b.max[i] + tol && b.min[i] <= a.max[i] + tol)
+        };
+        let mut keys = Vec::new();
+        for k in 0..borders.len() {
+            let mut mb = aurafx_data::MultiBlock::default();
+            if let Some(bk) = &boxes[k] {
+                for (j, b) in borders.iter().enumerate() {
+                    if j != k && boxes[j].as_ref().is_some_and(|bj| overlap(bk, bj)) {
+                        mb.blocks.push((format!("piece {j}"), Some(b.clone())));
+                    }
                 }
             }
-            let p = &mut out[i].params.0;
-            p.insert("__bounds".into(), aurafx_filters::ParamValue::Floats(vec![b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]));
-            p.insert("__ranges".into(), aurafx_filters::ParamValue::Str(serde_json::Value::Object(ranges).to_string()));
+            let bytes = encode(&DataSet::MultiBlock(mb))?;
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                bytes.hash(&mut h);
+                format!("{:016x}-{k}", h.finish())
+            };
+            self.workers[k].request_with(&Request::Ghosts { key: key.clone() }, &bytes)?;
+            keys.push(key);
         }
-        Ok(out)
+        let mut g = self.ghosts.lock();
+        if g.len() > 256 {
+            g.clear();
+        }
+        g.insert(fp, keys.clone());
+        Ok(keys)
     }
 
     /// Run `f` on every worker at once; results in worker order.
     pub fn each<T: Send>(&self, f: impl Fn(&RemoteClient) -> Result<T> + Sync) -> Result<Vec<T>> {
+        self.each_k(|_, w| f(w))
+    }
+
+    /// [`Cluster::each`] with the worker's number.
+    pub fn each_k<T: Send>(&self, f: impl Fn(usize, &RemoteClient) -> Result<T> + Sync) -> Result<Vec<T>> {
         std::thread::scope(|s| {
-            let hs: Vec<_> = self.workers.iter().map(|w| s.spawn(|| f(w))).collect();
+            let f = &f;
+            let hs: Vec<_> = self.workers.iter().enumerate().map(|(k, w)| s.spawn(move || f(k, w))).collect();
             hs.into_iter()
                 .enumerate()
                 .map(|(i, h)| h.join().map_err(|_| anyhow!("worker {i} failed")).and_then(|r| r.map_err(|e| e.context(format!("process {}", i + 1)))))
@@ -133,8 +222,8 @@ impl Cluster {
 
     /// The whole output of a piece-local node, gathered from the pieces.
     pub fn gather(&self, specs: &[NodeSpec], target: NodeId, time: Option<f64>) -> Result<(DataSet, Vec<f64>)> {
-        let specs = &self.annotate(specs, time)?;
-        let parts = self.each(|w| w.compute(specs.to_vec(), target, time, Fetch::Full, u64::MAX, 1, u64::MAX))?;
+        let per = self.prepare(specs, time)?;
+        let parts = self.each_k(|k, w| w.compute(per[k].clone(), target, time, Fetch::Full, u64::MAX, 1, u64::MAX))?;
         let times = parts.first().map(|p| p.times.clone()).unwrap_or_default();
         Ok((aurafx_data::pieces::merge(parts.into_iter().map(|p| p.data).collect()), times))
     }
@@ -152,8 +241,8 @@ impl Cluster {
         max_surface: u64,
     ) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
-        let specs = &self.annotate(specs, time)?;
-        let infos = self.each(|w| w.compute(specs.to_vec(), target, time, Fetch::Info, max_bytes, level, max_surface))?;
+        let per = self.prepare(specs, time)?;
+        let infos = self.each_k(|k, w| w.compute(per[k].clone(), target, time, Fetch::Info, max_bytes, level, max_surface))?;
         let info = DataSetInfo::merge(&infos.iter().filter_map(|f| f.info.clone()).collect::<Vec<_>>());
         let full_bytes: u64 = infos.iter().map(|f| f.full_bytes).sum();
         let times = infos.first().map(|f| f.times.clone()).unwrap_or_default();
@@ -171,11 +260,11 @@ impl Cluster {
         let (payload, att) = match wanted {
             Payload::None | Payload::Drawn => (wanted, vec![]),
             Payload::Full => {
-                let parts = self.each(|w| w.compute(specs.to_vec(), target, time, Fetch::Full, u64::MAX, level, u64::MAX))?;
+                let parts = self.each_k(|k, w| w.compute(per[k].clone(), target, time, Fetch::Full, u64::MAX, level, u64::MAX))?;
                 (Payload::Full, encode(&aurafx_data::pieces::merge(parts.into_iter().map(|p| p.data).collect()))?)
             }
             Payload::Surface => {
-                let parts = self.each(|w| w.compute(specs.to_vec(), target, time, Fetch::Surface, 0, level, u64::MAX))?;
+                let parts = self.each_k(|k, w| w.compute(per[k].clone(), target, time, Fetch::Surface, 0, level, u64::MAX))?;
                 // Each piece's cell ids start after the cells of the pieces before it.
                 let mut offset = 0;
                 let mut pieces = Vec::new();
@@ -200,9 +289,9 @@ impl Cluster {
     /// Workers draw without multisampling at twice the size; the pictures are composited and
     /// then reduced 2x2, which smooths edges without seams between pieces.
     pub fn render_local(&self, specs: &[NodeSpec], time: Option<f64>, job: &RenderJob) -> Result<(Vec<u8>, Vec<f32>)> {
-        let specs = &self.annotate(specs, time)?;
+        let per = self.prepare(specs, time)?;
         let big = RenderJob { width: job.width * 2, height: job.height * 2, ..job.clone() };
-        let images = self.each(|w| w.render(specs.to_vec(), time, big.clone()))?;
+        let images = self.each_k(|k, w| w.render(per[k].clone(), time, big.clone()))?;
         let mut it = images.into_iter();
         let (_, _, mut color, mut depth, _) = it.next().ok_or_else(|| anyhow!("no workers"))?;
         for (_, _, c, d, _) in it {

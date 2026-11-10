@@ -696,6 +696,9 @@ pub struct RemoteClient {
     spawn: Spawner,
     stderr: Mutex<Arc<Mutex<String>>>,
     pub info: Mutex<Option<ServerInfo>>,
+    /// For a server on a thread of this process: a signal sent when that thread has finished
+    /// (and dropped what it held, such as a GPU device). Dropping the client waits for it.
+    done: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
 }
 
 impl std::fmt::Debug for RemoteClient {
@@ -763,7 +766,7 @@ impl RemoteClient {
             }
             Ok((Conn { child: Some(child), r: Box::new(r), w: Box::new(BufWriter::new(w)) }, err))
         });
-        Arc::new(Self { name, conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+        Arc::new(Self { name, conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None), done: Mutex::new(None) })
     }
 
     /// A server process started by `make` (with stdin/stdout piped), restarted when needed.
@@ -795,17 +798,28 @@ impl RemoteClient {
             }
             Ok((Conn { child: Some(child), r: Box::new(r), w: Box::new(BufWriter::new(w)) }, err))
         });
-        Arc::new(Self { name: name.to_string(), conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+        Arc::new(Self {
+            name: name.to_string(),
+            conn: Mutex::new(None),
+            spawn,
+            stderr: Mutex::new(Arc::default()),
+            info: Mutex::new(None),
+            done: Mutex::new(None),
+        })
     }
 
     /// A server running on threads of this process with these options (tests).
     pub fn in_process_opts(name: &str, opts: ServeOptions) -> Arc<Self> {
         let (c2s_r, c2s_w) = pipe();
         let (s2c_r, s2c_w) = pipe();
+        let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = serve_opts(c2s_r, s2c_w, opts);
+            let _ = tx.send(());
         });
-        Self::from_streams(name, s2c_r, c2s_w)
+        let c = Self::from_streams(name, s2c_r, c2s_w);
+        *c.done.lock() = Some(rx);
+        c
     }
 
     /// A client over existing streams (tests, or a server in the same process).
@@ -815,7 +829,14 @@ impl RemoteClient {
             let (r, w) = cell.lock().take().ok_or_else(|| anyhow!("the connection was closed"))?;
             Ok((Conn { child: None, r, w }, Arc::default()))
         });
-        Arc::new(Self { name: name.to_string(), conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+        Arc::new(Self {
+            name: name.to_string(),
+            conn: Mutex::new(None),
+            spawn,
+            stderr: Mutex::new(Arc::default()),
+            info: Mutex::new(None),
+            done: Mutex::new(None),
+        })
     }
 
     /// A server running on threads of this process (for trying client/server locally).
@@ -827,10 +848,14 @@ impl RemoteClient {
     pub fn in_process_with(name: &str, hook: Option<Box<dyn RenderHook>>, gpu: Option<String>) -> Arc<Self> {
         let (c2s_r, c2s_w) = pipe();
         let (s2c_r, s2c_w) = pipe();
+        let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = serve_with(c2s_r, s2c_w, hook, gpu);
+            let _ = tx.send(());
         });
-        Self::from_streams(name, s2c_r, c2s_w)
+        let c = Self::from_streams(name, s2c_r, c2s_w);
+        *c.done.lock() = Some(rx);
+        c
     }
 
     pub fn is_connected(&self) -> bool {
@@ -953,15 +978,31 @@ impl RemoteClient {
 
 impl Drop for RemoteClient {
     fn drop(&mut self) {
-        if let Some(mut c) = self.conn.lock().take() {
-            let _ = write_msg(&mut c.w, &Request::Shutdown, &[]);
-            if let Some(mut ch) = c.child {
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    let _ = ch.kill();
-                    let _ = ch.wait();
-                });
+        let in_process = self.done.lock().take();
+        match self.conn.lock().take() {
+            Some(mut c) => {
+                let _ = write_msg(&mut c.w, &Request::Shutdown, &[]);
+                if let Some(mut ch) = c.child.take() {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        let _ = ch.kill();
+                        let _ = ch.wait();
+                    });
+                }
+                // Closing the streams ends an in-process server that missed the request.
+                drop(c);
             }
+            None => {
+                // Never connected: an in-process server still waits on its streams; take and close them.
+                if in_process.is_some() {
+                    let _ = (self.spawn)();
+                }
+            }
+        }
+        // Wait for an in-process server's thread to finish, so what it holds (a GPU device) is
+        // released before this process can exit (a driver torn down under a live device crashes).
+        if let Some(rx) = in_process {
+            let _ = rx.recv_timeout(std::time::Duration::from_secs(20));
         }
     }
 }

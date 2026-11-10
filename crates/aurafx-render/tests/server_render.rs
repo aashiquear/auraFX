@@ -7,11 +7,10 @@ use aurafx_render::server::{render_camera, ServerRenderer};
 use aurafx_render::*;
 use std::sync::Arc;
 
-/// In-process servers draw on background threads: shut them down (dropping their GPU devices)
-/// before the test process exits, or the driver may be torn down under them.
+/// In-process servers draw on background threads: dropping the session drops their clients,
+/// which wait for those threads to finish (releasing their GPU devices) before the test ends.
 fn shut_down(s: Session) {
     drop(s);
-    std::thread::sleep(std::time::Duration::from_millis(600));
 }
 
 #[test]

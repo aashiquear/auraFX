@@ -2414,7 +2414,12 @@ pub fn headless(width: u32, height: u32) -> Result<Renderer> {
 
 /// [`headless`] with a sample count (1: no multisampling).
 pub fn headless_with_samples(width: u32, height: u32, samples: u32) -> Result<Renderer> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    // No debug labels or validation unless asked for (WGPU_DEBUG, WGPU_VALIDATION): with several
+    // devices working on different threads at once (a server drawing beside the client), the
+    // Vulkan loader's debug-name calls can crash in debug builds.
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    desc.flags = wgpu::InstanceFlags::empty().with_env();
+    let instance = wgpu::Instance::new(desc);
     let adapter = pollster_block(
         instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
     )?;

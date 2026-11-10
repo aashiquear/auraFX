@@ -50,7 +50,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Multi-input filters: extra inputs per node, scheduled and invalidated like the main input, kept in undo and state files, cycles rejected.
 - [~] Per-node progress and cancellation; background execution off the UI thread.
 - [x] Time-aware execution: temporal filters read their input at any time (the upstream pipeline is re-evaluated on the worker thread), add or remap time steps, keep state between runs (particles advance incrementally) and skip re-running when their result does not depend on time.
-- [ ] Streaming/pieces for huge datasets; ghost-cell generation.
+- [~] Streaming/pieces for huge datasets; ghost-cell generation. (Pieces on the parallel server, the Ghost Cells and Redistribute DataSet filters: iteration 83; streaming pieces through one process todo.)
 - [x] Undo/redo of every pipeline and property change.
 - [~] State files (`.afx` JSON/TOML) and `.pvsm` state import (best effort).
 - [~] Python trace: every UI action recorded as an equivalent `aurafx` Python call.
@@ -82,7 +82,7 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [x] Medical/imaging: DICOM, NRRD, MetaImage (`.mhd`), MRC, OME-TIFF (iteration 83); NIfTI (iteration 85).
 - [x] Point clouds: LAS/LAZ, H5Part (iteration 83); PTS (iteration 85).
 - [~] CAD: STEP, IGES, 3MF and `.sc` (read and written by the CAD environment, section 13, iteration 78); VRML 2.0, glTF, OFF (iteration 83); Alembic, USD, OpenVDB todo.
-- [ ] Every remaining reader in the catalog, tracked per entry in `docs/reference/format-matrix.md`.
+- [ ] Every remaining reader in the catalog, tracked per entry in a format matrix (`docs/reference/format-matrix.md`, not written yet).
 
 ### 1.3 Writers
 - [~] VTK XML (all dataset types; parallel pieces `.pvtu/.pvtp/.pvti/.pvts/.pvtr` and `.pvd` collections, iteration 83), VTK legacy, VTKHDF (iteration 21; read by the reference reader since iteration 22).
@@ -130,8 +130,8 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 - [~] AMR (foundations, readers, Gaussian pulse, level ids in iteration 32; crack-free Contour and Dual Grid in 33): Connectivity, Contour, Dual Clip, Fragment Integration, Fragments Filter, Material Interface Filter, Intersect Fragments, Youngs Material Interface
 - [~] Cell Grid (iteration 36: Centers, Elevation, To Unstructured Grid, source; iteration 45: Transform, Warp, Convert To Cell Grid, .dg writer; iteration 46: Probe; iteration 47: Compute Sides): Centers, Compute Sides, Elevation, Probe, To Unstructured Grid, Transform, Warp
 - [~] Molecules (iteration 35: Molecule representation, CML reader, Compute Molecule Bonds; molecules are polydata, so Molecule To Lines / Convert Into Molecule are not needed): Compute Molecule Bonds, Molecule To Lines, EAM Project To Sphere
-- [ ] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder
-- [ ] Parallel/distributed: D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
+- [~] Cosmology: ANL Halo Finder, ANL Subhalo Finder, LANL FOF/SOD Halo Finder (Halo Finder, friends of friends with SOD radius and mass: iteration 83; subhalos todo)
+- [~] Parallel/distributed (Redistribute DataSet and Ghost Cells: iteration 83; the rest todo): D3, Redistribute DataSet, Partition Balancer, Reduction Filter, Aggregate Dataset, Client Server Move Data, MPI Move Data, Pass Through, Force Static Mesh, Voronoi Merge Connected
 - [~] Annotation (text, time label and ruler done): Annotate Attribute Data, Annotate Global Data, Annotate Selection, Annotate Time Filter, Environment Annotation, Python Annotation, Programmable Annotation, Text, 3D Text, Logo, Ruler, Protractor
 - [~] Programmable: Programmable Filter ★ (Python), Programmable Source, Python Calculator ★ (done), Live Programmable Source, Color By Array, OME TIFF Channel Calculator, Threshold Table, Field Arrays From File
 
@@ -157,7 +157,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 - [~] Volume rendering: GPU ray casting, smart/fixed-point, 2D transfer functions, shade, gradient opacity, multi-component, blend modes (composite, MIP, MinIP, additive, isosurface), cropping, clipping planes, unstructured-grid projected tetra / ray casting.
 - [x] Lighting (iterations 14–15): light kit, custom lights (camera-relative or fixed, colored), shadows, screen-space ambient occlusion, Eye-Dome Lighting, ACES/Reinhard tone mapping and exposure, MSAA + FXAA, order-independent transparency. Light widgets done in iteration 16. Not done: TAA. Original list: key/fill/head/back light kit, custom lights with widgets, shadows, ambient occlusion (SSAO), Eye-Dome Lighting, tone mapping, FXAA/MSAA/TAA, depth peeling for correct transparency.
 - [x] Surface LIC and ray tracing (Rust path tracer, iteration 15); environment maps as light and background, materials (metallic, roughness, specular) in Properties, GPU path tracing (iteration 16).
-- [~] Axes grid (data axes grid with ticks and labels, orientation axes, scalar bars and text done; custom bounds and units todo): Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
+- [~] Axes grid (data axes grid with ticks and labels, orientation axes, scalar bars and text done; array units in the scalar bar: iteration 87; custom bounds and axis units todo): Axes grid (data, custom bounds, labels, units), orientation axes, center-of-rotation marker, scalar bars (position, titles, number format, custom labels), legends, logos, text, interactive 2D annotations.
 - [~] Widgets (implicit plane, box, sphere, line, point, light and ruler done): implicit plane, box, sphere, cylinder, cone, annulus, frustum, line, polyline, spline, handle/point, distance, protractor, ruler, slider, light, coordinate frame, four-lines, contour, display-sized plane, text, logo, equalizer, progress bar.
 - [~] Selection: by click/rubber band/polygon on points/cells/blocks, through-frustum, by query (`field > value`, nearest, etc.), grow/shrink, invert, hover tooltips and interactive labels, "Find Data" panel.
 - [~] Picking tools: point probe, coordinate readout, interactive cell/point info.
@@ -238,7 +238,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Templates: LAMMPS, MOOSE, OpenFOAM, Abaqus/CalculiX, GROMACS, custom shell/Python.
 - [~] Python pipeline runs: define a pipeline in Python (pre -> run -> post), run as a job, auto-load outputs when done.
 - [x] Parameter sweeps and ensembles with a results table and comparative views.
-- [~] Remote executor over SSH: connect (key, agent, password, jump hosts, 2FA prompts), remote file browser, sync inputs/outputs (rsync-style), run under nohup/tmux, Slurm/PBS/LSF submission and queue monitoring, reconnect to running jobs.
+- [~] Remote executor over SSH: connect (key, agent, password, jump hosts, 2FA prompts), remote file browser, sync inputs/outputs (rsync-style), run under nohup/tmux, Slurm/PBS/LSF submission and queue monitoring, reconnect to running jobs. (Slurm done, untested on a real cluster; PBS and LSF todo.)
 - [x] Remote rendering/data server mode (done in iterations 10 to 13; iteration 82 made it one guided window, Remote › Open data on another machine…): run `aurafx-server` on the GPU box, stream geometry or images to the local client.
 - [x] Watch folders: auto-refresh when the solver writes a new step.
 
@@ -255,8 +255,8 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 ## 9. Distributed and remote
 
-- [~] Client/server split (data server and server-side rendering done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery, GPU-drawn color+depth images composited by depth; MPI todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
-- [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI and Slurm launchers: iteration 86; ghost cells todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
+- [~] Client/server split (data server and server-side rendering done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery, GPU-drawn color+depth images composited by depth; MPI and Slurm launchers: iteration 86): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
+- [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI and Slurm launchers: iteration 86; ghost layers exchanged between the server's processes todo, the Ghost Cells filter works within one process) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
 - [ ] Collaboration: shared sessions with multiple clients.
 - [ ] In-situ: Catalyst/Conduit endpoint, live visualization of running jobs.
 
@@ -404,12 +404,12 @@ and PNG series; writers: PNG/TIFF image stacks of volumes, MetaImage, the parall
 | P3 Simulation | mostly done (Slurm untested) | Job runner local + SSH, templates, sweeps, watch folders, remote file browser, GPU monitoring |
 | P4 Rendering depth | in progress | Volume rendering, widgets, lighting/SSAO/EDL, animation + keyframes, exporters, LIC, ray tracing |
 | P5 Breadth | in progress | Remaining readers/writers/filters from the catalog, AMR/HTG/molecule/cell-grid types, higher-order cells |
-| P6 Scale | started (data server) | Client/server, distributed, in-situ, collaboration, out-of-core |
-| P7 Polish | packaging done | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
+| P6 Scale | in progress (data server, parallel server processes with MPI/Slurm launchers; out-of-core, collaboration, in-situ todo) | Client/server, distributed, in-situ, collaboration, out-of-core |
+| P7 Polish | mostly done (packaging, Python and Rust plugins, accessibility; localization and three package formats todo) | Plugins, packaging on all OSes, accessibility, localization, docs and benchmarks |
 | P8 Grains | done (section 11) | Crystal core, EBSD readers, features, texture, synthetic builder, surface meshing, mechanics, `.dream3d`, solver templates |
 | P9 Mesh | done (section 12) | Geometry kernel and command language, structured hex (hexaform), overlay-grid mesher, refinement and tets, grains on meshes |
 | P10 CAD | built, C0 to C9 (section 13; the iOS target and the installers were not built here), branch `feat/CAD-modeling-environment` | auraFX's own parametric CAD modeler: the document and two kernels (implicit; B-rep from SolidCraft's code carried in `vendor/` as plain files, free to diverge), the environment with its ribbon, commit with the downstream check and fixers, STEP/IGES/3MF, meshing from CAD; upstream work comes in as a three-way patch of the carried directories (`vendor/UPSTREAM.toml`, `scripts/cad/upstream-pull.sh`) |
-| P11 Gaps | in progress (section 14; iterations 80 and 82 did half of the P1 rows) | The prioritized items missing against the reference programs' catalogs: filters and readers, microstructure cleanup and metrics, solver inputs, webcut/imprint/merge, paving and sizing |
+| P11 Gaps | mostly done (iterations 80 to 84; the open rows wait for the user's research) | The prioritized items missing against the reference programs' catalogs: filters and readers, microstructure cleanup and metrics, solver inputs, webcut/imprint/merge, paving and sizing |
 
 P8 and P9 are developed interleaved (G1, M1, G2, M2, G3, M3, G4, G5, M4, G6, M5, G7) so that
 each side is usable early; see the design document for the test reference of every stage.
@@ -421,7 +421,7 @@ so they can be picked up one at a time in any order within a priority.
 
 ---
 
-## Status (2026-11-08)
+## Status (2026-11-10)
 
 Review of iterations 2 to 52 against the catalog: the catalog marks, the "Done in iteration"
 notes and the user guide (every feature has its entry and screenshot; all 150 tests pass)
@@ -958,7 +958,7 @@ generated filter reference and a benchmarks page, keyboard shortcuts and accessi
 surface writers, saved assistant prompts (85); the Jupyter kernel and the Notebook panel, MPI
 and Slurm launchers for parallel servers, Rust plugins (the `aurafx-plugin` crate) and Python
 plugin panels (86); units on arrays (87). Still open in sections 0 to 10, by priority:
-out-of-core streaming, GPU compute filters, ghost cells, localization, collaboration, in-situ
+out-of-core streaming, GPU compute filters, ghost layers between server processes, localization, collaboration, in-situ
 coupling, VR and stereo, POV-Ray and HTML scene export, and the remaining catalog filters.
 
 ## Status (2026-11-05)

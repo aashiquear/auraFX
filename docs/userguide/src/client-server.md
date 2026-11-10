@@ -93,7 +93,7 @@ tone mapping) are applied here to the whole picture.
 
 ## Parallel servers
 
-Data too big for one process can be spread over several, like `mpirun pvserver`:
+Data too big for one process can be spread over several:
 **Open on Server › Processes**, or `afx.load(path, host="cluster", processes=8)`, starts
 eight worker processes on the host (`aurafx-server --workers node1:16,node2:16` spreads them
 over machines sharing a file system). Partitioned VTK files are read piece by piece; other
@@ -101,5 +101,23 @@ files are read by every process and split. Cell-by-cell filters run on every pie
 automatic values taken from the whole data; the pieces come back appended, as a merged
 surface, or as pictures composited by depth. Results match a single process exactly.
 
-Not yet: MPI launchers (`srun`) for the workers, ghost cells, sharing one server between
-people, temporal filters on parallel servers.
+### Starting the processes with MPI or Slurm
+
+On a cluster, choose **started by** next to Processes: *mpirun* (MPI), *srun* (Slurm), or *a
+command* with `{n}` for the number of processes and `{cmd}` for the worker command (for example
+`mpiexec -n {n} -hostfile hosts {cmd}`). The server opens a port, runs the launcher, and each
+rank (from `OMPI_COMM_WORLD_RANK`, `PMI_RANK`, `PMIX_RANK` or `SLURM_PROCID`) connects back with
+a one-time token and holds its piece. The ranks must be able to reach the server's machine
+(`AURAFX_CONNECT_HOST` sets the address they use, by default its host name); a launch that ends
+early, or ranks that do not connect within 60 seconds, give an error naming the command.
+
+```python
+big = afx.load("/scratch/run/out.pvtu", host="cluster", processes=64, launcher="srun")
+```
+
+Results match a single process: three ranks from a launch give the same contour area as one
+process to 1e-9.
+
+![The Open on Server window with eight processes started by srun](images/server_launcher.png)
+
+Not yet: ghost cells, sharing one server between people, temporal filters on parallel servers.

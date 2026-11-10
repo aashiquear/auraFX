@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-384142ef.js";
+            window.path_to_searchindex_js = "searchindex-a3838b4f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -1348,6 +1348,26 @@ afx.sweep("lmp -var T {T} -in in.melt", T=[300, 600, 900], host="cluster")
 afx.jobs(); afx.job(id); afx.cancel(id); afx.gpus("rocm-server"); afx.hosts()
 afx.servers(); afx.load_remote("cluster", "/scratch/run.e")
 </code></pre>
+<h2 id="notebooks"><a class="header" href="#notebooks">Notebooks</a></h2>
+<p>auraFX runs Jupyter notebooks two ways:</p>
+<ul>
+<li><strong>The Notebook panel</strong> (Windows › Notebook): Markdown and Python cells run in the same Python
+as the console (Shift+Enter runs a cell and moves on, <strong>Run all</strong>), with their printed output,
+values, errors and pictures below them. <strong>Open…</strong> and <strong>Save</strong> read and write <code>.ipynb</code> files,
+so a notebook moves between this panel and Jupyter.</li>
+<li><strong>As a Jupyter kernel</strong>: <code>aurafx --install-jupyter-kernel</code> once, then choose
+<strong>auraFX (Python)</strong> as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
+that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through <code>afx</code>,
+and their output, values, errors and pictures come back to the notebook. Tab completes names;
+shutting the kernel down closes the window.</li>
+</ul>
+<p>In either, <code>afx.snapshot()</code> shows a picture of the 3D view in the notebook (<code>views="all"</code>: every
+view as laid out) and <code>afx.display(x)</code> shows a picture file, PNG bytes or any object as text.</p>
+<pre><code class="language-python">w = afx.wavelet()
+w.slice(normal=[0, 0, 1]).set(color_by="RTData")
+afx.snapshot(width=640, height=400)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"><span class="img-wrapper"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"></span></label></p>
 <p>The <strong>Help › Python API cheat sheet</strong> window lists the same calls inside the app, and every
 function has a docstring (<code>help(afx.lighting)</code>).</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -1490,8 +1510,66 @@ functions (<code>afx.load</code>, <code>node.slice()</code>, <code>show</code>�
 <li>Ids must be unique and cannot replace built-in filters.</li>
 <li>For one-off code, the <strong>Programmable Filter</strong>, <strong>Programmable Source</strong> and <strong>Python
 Calculator</strong> run Python stored in the pipeline (and in state files).</li>
-<li>Native (Rust) plugins are not supported yet.</li>
 </ul>
+<h2 id="panels"><a class="header" href="#panels">Panels</a></h2>
+<p>A plugin can add a small window of its own controls: <code>@afx.panel("Title")</code> on a function that
+gets a <code>ui</code>. It appears under <strong>Windows › Plugin panels</strong>. The function runs when the panel opens
+and again whenever a button is pressed or a value changes, so it reads like a script from top
+to bottom: <code>ui.button(text)</code> is <code>True</code> on the run its press causes, and <code>ui.slider</code>,
+<code>ui.number</code>, <code>ui.checkbox</code>, <code>ui.text</code> and <code>ui.choice</code> give their current values, which last
+between runs. <code>ui.label(text)</code>, <code>ui.separator()</code> and <code>ui.image(path)</code> show things. An error in
+the function shows in the panel, under what it drew before.</p>
+<pre><code class="language-python">import aurafx as afx
+
+@afx.panel("Scale tools")
+def scale_tools(ui):
+    ui.label("Scale the selected object")
+    f = ui.slider("factor", 2.0, 0.1, 10.0)
+    axis = ui.choice("axes", ["all", "x", "y", "z"])
+    if ui.button("Apply"):
+        s = [f if axis in ("all", a) else 1 for a in "xyz"]
+        afx.active().transform(scale=s)
+</code></pre>
+<p>Unlike filters, panel functions run on the Python thread between pipeline runs, so they may call
+<code>afx.load</code>, filters and <code>show</code>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/plugin_panel.png" alt="A plugin panel with a slider, a choice and a button"><span class="img-wrapper"><img src="images/plugin_panel.png" alt="A plugin panel with a slider, a choice and a button"></span></label></p>
+<h2 id="rust-plugins"><a class="header" href="#rust-plugins">Rust plugins</a></h2>
+<p>Filters and sources can also be written in Rust, compiled into a shared library (<code>.so</code> on
+Linux, <code>.dylib</code> on macOS, <code>.dll</code> on Windows) and put in the plugin folder, or added with
+<strong>Edit › Plugins › Add file</strong>, or <code>afx.load_plugin("libmy_filters.so")</code>. The <code>aurafx-plugin</code>
+crate in the auraFX source gives the types and a macro:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use aurafx_plugin::{export_plugin, DataSet, Filter, Param, Params};
+
+fn scale_points(inputs: &amp;[DataSet], p: &amp;Params) -&gt; Result&lt;DataSet, String&gt; {
+    let mut d = inputs[0].clone();
+    let f = p.f64("factor", 2.0);
+    // ... change the points of d ...
+    Ok(d)
+}
+
+export_plugin! {
+    name: "My filters",
+    filters: [Filter::new("scale_points", "Scale Points", scale_points)
+        .describe("Scale the points about a centre.")
+        .param(Param::float("factor", "Factor", 2.0).range(0.0, 100.0))],
+}
+<span class="boring">}</span></code></pre>
+<p>with <code>crate-type = ["cdylib"]</code> in its <code>Cargo.toml</code>. <code>Filter::source</code> makes a source,
+<code>.inputs(n)</code> a filter of several inputs; <code>Param::float</code>, <code>int</code>, <code>bool</code>, <code>string</code>, <code>vec3</code>,
+<code>choice</code> and <code>array</code> are its settings in the Properties panel. <code>crates/aurafx-plugin-example</code>
+is a complete plugin (Scale Points and a Spiral source): <code>cargo build --release -p aurafx-plugin-example</code> builds it.</p>
+<ul>
+<li>A plugin library is checked when it loads: it must be built against the same version of
+auraFX’s data crate (the message says which), since the data passes between them as bytes in
+that layout.</li>
+<li>Errors returned by the plugin show as the filter’s error; a panic in the plugin is caught and
+shown the same way.</li>
+<li>A library loads once per run: after rebuilding a plugin, restart auraFX.</li>
+<li>Load only libraries you trust: a plugin runs with the same rights as auraFX.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/rust_plugin.png" alt="The Plugins window listing an example Rust plugin, and its Spiral source scaled by its Scale Points filter"><span class="img-wrapper"><img src="images/rust_plugin.png" alt="The Plugins window listing an example Rust plugin, and its Spiral source scaled by its Scale Points filter"></span></label></p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="tutorials-and-examples"><a class="header" href="#tutorials-and-examples">Tutorials and examples</a></h1>
 <p>The <code>examples/</code> folder of the repository holds small, complete workflows. The simulations are
@@ -2557,15 +2635,27 @@ Translucent objects, volumes and Surface LIC are always drawn here. The view’s
 shadows travel with each request; screen effects (ambient occlusion, Eye-Dome Lighting, FXAA,
 tone mapping) are applied here to the whole picture.</p>
 <h2 id="parallel-servers"><a class="header" href="#parallel-servers">Parallel servers</a></h2>
-<p>Data too big for one process can be spread over several, like <code>mpirun pvserver</code>:
+<p>Data too big for one process can be spread over several:
 <strong>Open on Server › Processes</strong>, or <code>afx.load(path, host="cluster", processes=8)</code>, starts
 eight worker processes on the host (<code>aurafx-server --workers node1:16,node2:16</code> spreads them
 over machines sharing a file system). Partitioned VTK files are read piece by piece; other
 files are read by every process and split. Cell-by-cell filters run on every piece with
 automatic values taken from the whole data; the pieces come back appended, as a merged
 surface, or as pictures composited by depth. Results match a single process exactly.</p>
-<p>Not yet: MPI launchers (<code>srun</code>) for the workers, ghost cells, sharing one server between
-people, temporal filters on parallel servers.</p>
+<h3 id="starting-the-processes-with-mpi-or-slurm"><a class="header" href="#starting-the-processes-with-mpi-or-slurm">Starting the processes with MPI or Slurm</a></h3>
+<p>On a cluster, choose <strong>started by</strong> next to Processes: <em>mpirun</em> (MPI), <em>srun</em> (Slurm), or <em>a
+command</em> with <code>{n}</code> for the number of processes and <code>{cmd}</code> for the worker command (for example
+<code>mpiexec -n {n} -hostfile hosts {cmd}</code>). The server opens a port, runs the launcher, and each
+rank (from <code>OMPI_COMM_WORLD_RANK</code>, <code>PMI_RANK</code>, <code>PMIX_RANK</code> or <code>SLURM_PROCID</code>) connects back with
+a one-time token and holds its piece. The ranks must be able to reach the server’s machine
+(<code>AURAFX_CONNECT_HOST</code> sets the address they use, by default its host name); a launch that ends
+early, or ranks that do not connect within 60 seconds, give an error naming the command.</p>
+<pre><code class="language-python">big = afx.load("/scratch/run/out.pvtu", host="cluster", processes=64, launcher="srun")
+</code></pre>
+<p>Results match a single process: three ranks from a launch give the same contour area as one
+process to 1e-9.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/server_launcher.png" alt="The Open on Server window with eight processes started by srun"><span class="img-wrapper"><img src="images/server_launcher.png" alt="The Open on Server window with eight processes started by srun"></span></label></p>
+<p>Not yet: ghost cells, sharing one server between people, temporal filters on parallel servers.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="grains-and-crystals"><a class="header" href="#grains-and-crystals">Grains and crystals</a></h1>
 <p>auraFX reads electron backscatter diffraction (EBSD) maps, serial-section stacks and voxel

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-384142ef.js";
+            window.path_to_searchindex_js = "searchindex-a3838b4f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -239,8 +239,66 @@ functions (<code>afx.load</code>, <code>node.slice()</code>, <code>show</code>�
 <li>Ids must be unique and cannot replace built-in filters.</li>
 <li>For one-off code, the <strong>Programmable Filter</strong>, <strong>Programmable Source</strong> and <strong>Python
 Calculator</strong> run Python stored in the pipeline (and in state files).</li>
-<li>Native (Rust) plugins are not supported yet.</li>
 </ul>
+<h2 id="panels"><a class="header" href="#panels">Panels</a></h2>
+<p>A plugin can add a small window of its own controls: <code>@afx.panel("Title")</code> on a function that
+gets a <code>ui</code>. It appears under <strong>Windows › Plugin panels</strong>. The function runs when the panel opens
+and again whenever a button is pressed or a value changes, so it reads like a script from top
+to bottom: <code>ui.button(text)</code> is <code>True</code> on the run its press causes, and <code>ui.slider</code>,
+<code>ui.number</code>, <code>ui.checkbox</code>, <code>ui.text</code> and <code>ui.choice</code> give their current values, which last
+between runs. <code>ui.label(text)</code>, <code>ui.separator()</code> and <code>ui.image(path)</code> show things. An error in
+the function shows in the panel, under what it drew before.</p>
+<pre><code class="language-python">import aurafx as afx
+
+@afx.panel("Scale tools")
+def scale_tools(ui):
+    ui.label("Scale the selected object")
+    f = ui.slider("factor", 2.0, 0.1, 10.0)
+    axis = ui.choice("axes", ["all", "x", "y", "z"])
+    if ui.button("Apply"):
+        s = [f if axis in ("all", a) else 1 for a in "xyz"]
+        afx.active().transform(scale=s)
+</code></pre>
+<p>Unlike filters, panel functions run on the Python thread between pipeline runs, so they may call
+<code>afx.load</code>, filters and <code>show</code>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/plugin_panel.png" alt="A plugin panel with a slider, a choice and a button"><span class="img-wrapper"><img src="images/plugin_panel.png" alt="A plugin panel with a slider, a choice and a button"></span></label></p>
+<h2 id="rust-plugins"><a class="header" href="#rust-plugins">Rust plugins</a></h2>
+<p>Filters and sources can also be written in Rust, compiled into a shared library (<code>.so</code> on
+Linux, <code>.dylib</code> on macOS, <code>.dll</code> on Windows) and put in the plugin folder, or added with
+<strong>Edit › Plugins › Add file</strong>, or <code>afx.load_plugin("libmy_filters.so")</code>. The <code>aurafx-plugin</code>
+crate in the auraFX source gives the types and a macro:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use aurafx_plugin::{export_plugin, DataSet, Filter, Param, Params};
+
+fn scale_points(inputs: &amp;[DataSet], p: &amp;Params) -&gt; Result&lt;DataSet, String&gt; {
+    let mut d = inputs[0].clone();
+    let f = p.f64("factor", 2.0);
+    // ... change the points of d ...
+    Ok(d)
+}
+
+export_plugin! {
+    name: "My filters",
+    filters: [Filter::new("scale_points", "Scale Points", scale_points)
+        .describe("Scale the points about a centre.")
+        .param(Param::float("factor", "Factor", 2.0).range(0.0, 100.0))],
+}
+<span class="boring">}</span></code></pre>
+<p>with <code>crate-type = ["cdylib"]</code> in its <code>Cargo.toml</code>. <code>Filter::source</code> makes a source,
+<code>.inputs(n)</code> a filter of several inputs; <code>Param::float</code>, <code>int</code>, <code>bool</code>, <code>string</code>, <code>vec3</code>,
+<code>choice</code> and <code>array</code> are its settings in the Properties panel. <code>crates/aurafx-plugin-example</code>
+is a complete plugin (Scale Points and a Spiral source): <code>cargo build --release -p aurafx-plugin-example</code> builds it.</p>
+<ul>
+<li>A plugin library is checked when it loads: it must be built against the same version of
+auraFX’s data crate (the message says which), since the data passes between them as bytes in
+that layout.</li>
+<li>Errors returned by the plugin show as the filter’s error; a panic in the plugin is caught and
+shown the same way.</li>
+<li>A library loads once per run: after rebuilding a plugin, restart auraFX.</li>
+<li>Load only libraries you trust: a plugin runs with the same rights as auraFX.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/rust_plugin.png" alt="The Plugins window listing an example Rust plugin, and its Spiral source scaled by its Scale Points filter"><span class="img-wrapper"><img src="images/rust_plugin.png" alt="The Plugins window listing an example Rust plugin, and its Spiral source scaled by its Scale Points filter"></span></label></p>
 
                     </main>
 

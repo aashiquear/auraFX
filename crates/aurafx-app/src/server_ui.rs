@@ -20,6 +20,8 @@ pub struct ServerWindow {
     status: Option<Result<String, String>>,
     /// Server processes to spread the data over (1: one process).
     processes: u32,
+    /// How the processes start: empty (processes of the server), mpirun, srun or a template.
+    launcher: String,
     /// Where the data opened here is drawn: this computer, the server (only pictures come back), or auto.
     pub draw_on: aurafx_pipeline::DrawOn,
     /// The "add a machine" form.
@@ -43,6 +45,7 @@ impl Default for ServerWindow {
             check_rx: None,
             status: None,
             processes: 1,
+            launcher: String::new(),
             draw_on: aurafx_pipeline::DrawOn::Auto,
             new_name: String::new(),
             new_target: String::new(),
@@ -178,6 +181,7 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
         }
         let mut host = hosts.get(w.host).cloned().unwrap_or_else(Host::local);
         host.server_processes = w.processes.max(1);
+        host.launcher = w.launcher.clone();
         ui.horizontal(|ui| {
             ui.label("Host");
             let before = w.host;
@@ -225,6 +229,7 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
                         },
                         setup: String::new(),
                         server_processes: 0,
+                        launcher: String::new(),
                     });
                 }
                 let aliases = crate::jobs_panel::ssh_config_hosts();
@@ -232,7 +237,7 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
                     ui.label(RichText::new("from ~/.ssh/config:").weak().small());
                     for a in aliases.into_iter().filter(|a| !hosts.iter().any(|h| &h.name == a)).take(8) {
                         if ui.small_button(format!("+ {a}")).clicked() {
-                            add_host = Some(Host { name: a.clone(), kind: aurafx_jobs::HostKind::Ssh { target: a, port: None, identity: None, jump: None }, setup: String::new(), server_processes: 0 });
+                            add_host = Some(Host { name: a.clone(), kind: aurafx_jobs::HostKind::Ssh { target: a, port: None, identity: None, jump: None }, setup: String::new(), server_processes: 0, launcher: String::new() });
                         }
                     }
                 }
@@ -287,6 +292,22 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
             ui.label("Processes");
             ui.add(egui::DragValue::new(&mut st.server.processes).range(1..=1024))
                 .on_hover_text("Spread each file over this many server processes (a parallel server). Partitioned files (.pvtu, ...) are read piece by piece; other files are read, then split.");
+            if st.server.processes > 1 {
+                ui.label("started by");
+                let shown = if st.server.launcher.is_empty() { "the server".to_string() } else { st.server.launcher.clone() };
+                egui::ComboBox::from_id_salt("server_launcher").selected_text(shown).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut st.server.launcher, String::new(), "the server (its own processes)");
+                    ui.selectable_value(&mut st.server.launcher, "mpirun".to_string(), "mpirun (MPI)");
+                    ui.selectable_value(&mut st.server.launcher, "srun".to_string(), "srun (Slurm)");
+                    if ui.selectable_label(st.server.launcher.contains("{cmd}"), "a command…").clicked() {
+                        st.server.launcher = "mpiexec -n {n} -hostfile hosts {cmd}".into();
+                    }
+                });
+                if st.server.launcher.contains("{cmd}") {
+                    ui.add(egui::TextEdit::singleline(&mut st.server.launcher).desired_width(220.0))
+                        .on_hover_text("{n}: the number of processes, {cmd}: the worker command");
+                }
+            }
         });
         ui.separator();
         let w = &mut st.server;
@@ -388,5 +409,13 @@ pub fn human(b: u64) -> String {
         format!("{:.0} kB", b / 1e3)
     } else {
         format!("{b:.0} B")
+    }
+}
+
+impl ServerWindow {
+    /// The process count and how they start (for scripts and the guide's pictures).
+    pub fn set_processes(&mut self, n: u32, launcher: &str) {
+        self.processes = n.max(1);
+        self.launcher = launcher.to_string();
     }
 }

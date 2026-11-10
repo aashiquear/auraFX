@@ -20,7 +20,7 @@ fn server_drawn_objects_match_local_drawing() {
         return;
     };
     let gpu = hook.gpu();
-    let host = Host { name: "gpu-server".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0 };
+    let host = Host { name: "gpu-server".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0, launcher: String::new() };
     let mut s = Session::new();
     s.remote_clients.insert(host.name.clone(), RemoteClient::in_process_with("gpu-server", Some(Box::new(hook)), Some(gpu)));
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/disk_out_ref.ex2");
@@ -134,7 +134,7 @@ fn parallel_server_composites_pieces_by_depth() {
             RemoteClient::in_process_opts(&format!("w{k}"), ServeOptions { hook: Some(Box::new(hook)), gpu, piece: Some((k, n)), workers: vec![] })
         })
         .collect();
-    let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32 };
+    let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32, launcher: String::new() };
     let mut s = Session::new();
     s.remote_clients
         .insert(aurafx_pipeline::remote::client_key(&host), RemoteClient::in_process_opts("cluster", ServeOptions { workers, ..Default::default() }));

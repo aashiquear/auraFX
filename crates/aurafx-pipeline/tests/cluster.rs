@@ -13,7 +13,7 @@ fn td(name: &str) -> String {
 
 fn cluster_session(n: usize) -> (Session, Host) {
     let workers = (0..n).map(|k| RemoteClient::in_process_opts(&format!("worker {k}"), ServeOptions { piece: Some((k, n)), ..Default::default() })).collect();
-    let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32 };
+    let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32, launcher: String::new() };
     let mut s = Session::new();
     s.remote_clients
         .insert(aurafx_pipeline::remote::client_key(&host), RemoteClient::in_process_opts("cluster", ServeOptions { workers, ..Default::default() }));

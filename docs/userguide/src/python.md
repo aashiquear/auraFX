@@ -92,5 +92,30 @@ afx.jobs(); afx.job(id); afx.cancel(id); afx.gpus("rocm-server"); afx.hosts()
 afx.servers(); afx.load_remote("cluster", "/scratch/run.e")
 ```
 
+## Notebooks
+
+auraFX runs Jupyter notebooks two ways:
+
+- **The Notebook panel** (Windows › Notebook): Markdown and Python cells run in the same Python
+  as the console (Shift+Enter runs a cell and moves on, **Run all**), with their printed output,
+  values, errors and pictures below them. **Open…** and **Save** read and write `.ipynb` files,
+  so a notebook moves between this panel and Jupyter.
+- **As a Jupyter kernel**: `aurafx --install-jupyter-kernel` once, then choose
+  **auraFX (Python)** as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
+  that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through `afx`,
+  and their output, values, errors and pictures come back to the notebook. Tab completes names;
+  shutting the kernel down closes the window.
+
+In either, `afx.snapshot()` shows a picture of the 3D view in the notebook (`views="all"`: every
+view as laid out) and `afx.display(x)` shows a picture file, PNG bytes or any object as text.
+
+```python
+w = afx.wavelet()
+w.slice(normal=[0, 0, 1]).set(color_by="RTData")
+afx.snapshot(width=640, height=400)
+```
+
+![The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()](images/notebook_panel.png)
+
 The **Help › Python API cheat sheet** window lists the same calls inside the app, and every
 function has a docstring (`help(afx.lighting)`).

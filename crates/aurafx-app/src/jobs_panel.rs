@@ -645,6 +645,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     },
                     setup: p.new_host_setup.clone(),
                     server_processes: 0,
+                    launcher: String::new(),
                 });
                 aurafx_jobs::set_hosts(state.settings.hosts.clone());
                 state.settings.save();
@@ -666,6 +667,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                                 kind: HostKind::Ssh { target: a, port: None, identity: None, jump: None },
                                 setup: String::new(),
                                 server_processes: 0,
+                                launcher: String::new(),
                             });
                             aurafx_jobs::set_hosts(state.settings.hosts.clone());
                             state.settings.save();

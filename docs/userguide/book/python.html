@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-384142ef.js";
+            window.path_to_searchindex_js = "searchindex-a3838b4f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -249,6 +249,26 @@ afx.sweep("lmp -var T {T} -in in.melt", T=[300, 600, 900], host="cluster")
 afx.jobs(); afx.job(id); afx.cancel(id); afx.gpus("rocm-server"); afx.hosts()
 afx.servers(); afx.load_remote("cluster", "/scratch/run.e")
 </code></pre>
+<h2 id="notebooks"><a class="header" href="#notebooks">Notebooks</a></h2>
+<p>auraFX runs Jupyter notebooks two ways:</p>
+<ul>
+<li><strong>The Notebook panel</strong> (Windows › Notebook): Markdown and Python cells run in the same Python
+as the console (Shift+Enter runs a cell and moves on, <strong>Run all</strong>), with their printed output,
+values, errors and pictures below them. <strong>Open…</strong> and <strong>Save</strong> read and write <code>.ipynb</code> files,
+so a notebook moves between this panel and Jupyter.</li>
+<li><strong>As a Jupyter kernel</strong>: <code>aurafx --install-jupyter-kernel</code> once, then choose
+<strong>auraFX (Python)</strong> as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
+that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through <code>afx</code>,
+and their output, values, errors and pictures come back to the notebook. Tab completes names;
+shutting the kernel down closes the window.</li>
+</ul>
+<p>In either, <code>afx.snapshot()</code> shows a picture of the 3D view in the notebook (<code>views="all"</code>: every
+view as laid out) and <code>afx.display(x)</code> shows a picture file, PNG bytes or any object as text.</p>
+<pre><code class="language-python">w = afx.wavelet()
+w.slice(normal=[0, 0, 1]).set(color_by="RTData")
+afx.snapshot(width=640, height=400)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"><span class="img-wrapper"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"></span></label></p>
 <p>The <strong>Help › Python API cheat sheet</strong> window lists the same calls inside the app, and every
 function has a docstring (<code>help(afx.lighting)</code>).</p>
 

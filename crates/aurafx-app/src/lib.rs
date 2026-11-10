@@ -13,12 +13,15 @@ mod dialogs;
 mod goal_stats;
 mod icons;
 mod jobs_panel;
+mod jupyter;
 mod lighting_ui;
 mod menus;
+mod notebook;
 mod overlays;
 mod palette;
 mod panels;
 mod pick;
+mod plugin_panels;
 mod plugins_ui;
 mod ray_tracing;
 mod screenshot_ui;
@@ -65,6 +68,9 @@ pub fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() }
 }
 
+/// The connection file when the app runs as a Jupyter kernel (`--jupyter-kernel FILE`).
+pub static JUPYTER_CONNECTION: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
 /// Run the app with the given files to open and optional startup script.
 pub fn run(options: eframe::NativeOptions, files: Vec<PathBuf>, script: Option<PathBuf>) -> eframe::Result<()> {
     eframe::run_native("auraFX", options, Box::new(move |cc| Ok(Box::new(app::AuraApp::new(cc, files, script)))))
@@ -76,13 +82,23 @@ pub fn main_desktop() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
         println!(
-            "auraFX {}\n\nUsage: aurafx [FILES...] [--script SCRIPT.py]\n\n  FILES             data files (or .afx sessions) to open\n  --script FILE     run a Python script after startup (uses the `afx` module)\n  --version         print the version",
+            "auraFX {}\n\nUsage: aurafx [FILES...] [--script SCRIPT.py]\n\n  FILES             data files (or .afx sessions) to open\n  --script FILE     run a Python script after startup (uses the `afx` module)\n  --install-jupyter-kernel   make Jupyter list auraFX as a kernel\n  --jupyter-kernel FILE      run as a Jupyter kernel (Jupyter passes the connection file)\n  --version         print the version",
             env!("CARGO_PKG_VERSION")
         );
         return Ok(());
     }
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("auraFX {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--install-jupyter-kernel") {
+        match jupyter::install_kernel_spec() {
+            Ok(d) => println!("Installed the auraFX kernel for Jupyter in {}\nChoose \"auraFX (Python)\" as the kernel of a notebook.", d.display()),
+            Err(e) => {
+                eprintln!("could not install the kernel: {e:#}");
+                std::process::exit(1);
+            }
+        }
         return Ok(());
     }
     aurafx_filters::init_threads(crate::settings::Settings::load().threads);
@@ -92,6 +108,10 @@ pub fn main_desktop() -> eframe::Result<()> {
     while let Some(a) = it.next() {
         if a == "--script" {
             script = it.next().map(Into::into);
+        } else if a == "--jupyter-kernel" {
+            if let Some(f) = it.next() {
+                let _ = JUPYTER_CONNECTION.set(f.into());
+            }
         } else if !a.starts_with('-') {
             files.push(a.into());
         }

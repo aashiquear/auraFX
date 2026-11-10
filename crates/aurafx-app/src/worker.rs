@@ -2,7 +2,9 @@
 
 use aurafx_pipeline::SharedSession;
 #[cfg(feature = "python")]
-use aurafx_python::{PythonRuntime, RunOutput};
+use aurafx_python::PythonRuntime;
+#[cfg(feature = "python")]
+pub use aurafx_python::RunOutput;
 
 /// Output of a Python run (mirrors `aurafx_python::RunOutput` so the UI compiles without Python).
 #[cfg(not(feature = "python"))]
@@ -12,6 +14,7 @@ pub struct RunOutput {
     pub stderr: String,
     pub error: Option<String>,
     pub value: Option<String>,
+    pub displays: Vec<(String, Vec<u8>)>,
 }
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -74,6 +77,12 @@ pub enum PythonRequest {
     Complete(String, Sender<Vec<String>>),
     /// Load new/changed plugins and unload removed/disabled ones (paths, disabled, reload all).
     SyncPlugins(Vec<std::path::PathBuf>, Vec<std::path::PathBuf>, bool),
+    /// Run code and send the output straight back (the Jupyter kernel's cells).
+    RunFor(String, Sender<RunOutput>),
+    /// Run a plugin panel for an event (title, event JSON); the reply is its items as JSON.
+    Panel(String, String, Sender<String>),
+    /// The titles of the plugin panels.
+    PanelTitles(Sender<Vec<String>>),
 }
 
 /// Owns the interpreter on its own thread; the UI talks to it through channels.
@@ -153,6 +162,32 @@ impl PythonWorker {
                             #[cfg(not(feature = "python"))]
                             let _ = (paths, disabled, force, &pm2);
                         }
+                        PythonRequest::RunFor(code, reply) => {
+                            b2.store(true, std::sync::atomic::Ordering::Relaxed);
+                            #[cfg(feature = "python")]
+                            let output = rt.run(&code);
+                            #[cfg(not(feature = "python"))]
+                            let output = {
+                                let _ = &code;
+                                RunOutput { error: Some("Python is not included in this build of auraFX.".into()), ..Default::default() }
+                            };
+                            b2.store(false, std::sync::atomic::Ordering::Relaxed);
+                            let _ = reply.send(output);
+                            ctx.request_repaint();
+                        }
+                        PythonRequest::Panel(title, event, reply) => {
+                            #[cfg(feature = "python")]
+                            let _ = reply.send(rt.panel(&title, &event));
+                            #[cfg(not(feature = "python"))]
+                            let _ = (title, event, reply);
+                            ctx.request_repaint();
+                        }
+                        PythonRequest::PanelTitles(reply) => {
+                            #[cfg(feature = "python")]
+                            let _ = reply.send(rt.panel_titles());
+                            #[cfg(not(feature = "python"))]
+                            let _ = reply.send(vec![]);
+                        }
                         PythonRequest::Complete(prefix, reply) => {
                             #[cfg(feature = "python")]
                             let _ = reply.send(rt.complete(&prefix));
@@ -172,6 +207,11 @@ impl PythonWorker {
 
     pub fn run(&self, code: impl Into<String>, origin: &str) {
         let _ = self.tx.send(PythonRequest::Run(PythonJob { code: code.into(), origin: origin.into() }));
+    }
+
+    /// A sender for requests from other threads (the Jupyter kernel).
+    pub fn sender(&self) -> Sender<PythonRequest> {
+        self.tx.clone()
     }
 
     pub fn complete(&self, prefix: &str) -> Vec<String> {

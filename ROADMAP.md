@@ -29,7 +29,7 @@ one ships something usable on its own.
 - [~] Packaging: AppImage, tar.gz + `install.sh`, `.dmg`, Windows installer + zip, Android APK, unsigned iOS IPA (done); `.deb`, MSIX, Flatpak (todo).
 - [~] Crash reporting and structured logs (`tracing`), log panel in the UI. (Logs and log panel done; crash reporting todo.)
 - [~] Settings system (TOML in platform config dir), settings UI with search.
-- [~] Plugin ABI (dynamic Rust crates + Python plugins) and plugin manager UI. (Python plugins and the Plugins window done; Rust plugins todo.)
+- [x] Plugin ABI (dynamic Rust crates + Python plugins) and plugin manager UI. (Python plugins and the Plugins window; Rust plugins: iteration 86, a C table checked by ABI and data versions.)
 
 ### 0.2 Data model (`aurafx-data`)
 Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible.
@@ -143,7 +143,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 ### 2.5 Filter infrastructure
 - [~] Every filter has: typed properties, defaults, validation, documentation, search keywords, Python binding, undo entry, and progress reporting.
 - [ ] GPU implementations (wgpu compute) for: contour, clip, slice, threshold, gradient, resample, glyph, stream tracer, particle advection, connectivity, histogram.
-- [~] Custom filter authoring: Python (`@afx.filter`, done) and Rust plugins.
+- [x] Custom filter authoring: Python (`@afx.filter`, done) and Rust plugins (iteration 86: the `aurafx-plugin` crate, shared libraries in the plugin folder).
 
 ---
 
@@ -211,8 +211,8 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Python trace recorder (UI -> script), script "macros" toolbar, scheduled/batch runs (`aurafx --script run.py`), headless mode (`aurafx-batch`).
 - [~] Bundled scientific stack management (packages ship Python 3.12 + NumPy): detect/install numpy, scipy, pandas, polars, matplotlib, h5py, netCDF4, scikit-learn, torch (CUDA/ROCm wheels), with a UI for environments.
 - [x] Programmable filter/source with NumPy and typed dataset wrappers (`afx.Data`).
-- [ ] Jupyter kernel exposure (drive auraFX from a notebook) and notebook panel inside the app.
-- [~] Custom Python plugins (reader, filter, source done; panel todo) with hot-reload.
+- [x] Jupyter kernel exposure (drive auraFX from a notebook) and notebook panel inside the app. (Iteration 86: `aurafx --install-jupyter-kernel`, the kernel drives the window; the Notebook panel opens and saves `.ipynb`; `afx.snapshot`, `afx.display`.)
+- [x] Custom Python plugins (reader, filter, source done; panels: iteration 86, `@afx.panel`) with hot-reload.
 
 ---
 
@@ -256,7 +256,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 ## 9. Distributed and remote
 
 - [~] Client/server split (data server and server-side rendering done: `aurafx-server` over SSH stdio, server-side pipeline with caching, surface/summary delivery, GPU-drawn color+depth images composited by depth; MPI todo): `aurafx-server` (data + render) over TCP/SSH tunnel with the same protocol as local.
-- [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI launchers and ghost cells todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
+- [~] Multi-process data parallel (all-core shared-memory execution done; multi-process parallel servers done: workers per piece, piece-wise reading of partitioned files, sort-last compositing; MPI and Slurm launchers: iteration 86; ghost cells todo) (MPI optional; Rust-native work distribution first), ghost cells, D3 redistribution, compositing (sort-last), tile displays.
 - [ ] Collaboration: shared sessions with multiple clients.
 - [ ] In-situ: Catalyst/Conduit endpoint, live visualization of running jobs.
 

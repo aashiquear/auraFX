@@ -726,7 +726,11 @@ impl RemoteClient {
     pub fn for_host(host: aurafx_jobs::Host) -> Arc<Self> {
         let name = host.name.clone();
         let spawn: Spawner = Box::new(move || {
-            let cmd = if host.server_processes > 1 {
+            let cmd = if host.server_processes > 1 && !host.launcher.trim().is_empty() {
+                // An MPI or Slurm launch: the ranks connect back to the server.
+                let l = host.launcher.trim().replace('\'', "'\\''");
+                SERVER_COMMAND.replace("--stdio", &format!("--stdio --workers {} --launcher '{l}'", host.server_processes))
+            } else if host.server_processes > 1 {
                 SERVER_COMMAND.replace("--stdio", &format!("--stdio --workers {}", host.server_processes))
             } else {
                 SERVER_COMMAND.to_string()

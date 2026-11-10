@@ -1,0 +1,12 @@
+[package]
+name = "aurafx-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Write auraFX filters and sources in Rust, loaded at run time from a shared library"
+
+[dependencies]
+aurafx-data.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+postcard = { version = "1.1", features = ["use-std"] }

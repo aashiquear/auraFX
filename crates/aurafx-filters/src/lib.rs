@@ -49,6 +49,7 @@ pub mod point_ops;
 pub mod pointinterp;
 pub mod probe;
 pub mod python;
+pub mod rust_plugins;
 pub mod selection;
 pub mod slice;
 pub mod sources;

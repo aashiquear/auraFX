@@ -41,6 +41,19 @@ impl State {
     /// Ask the Python worker to pick up new or changed plugins.
     pub fn sync_plugins(&mut self, force: bool) {
         let paths = self.plugin_search_paths();
+        // Rust plugins (shared libraries) load once; a new build needs a restart.
+        let msgs = aurafx_filters::rust_plugins::load_all(&paths, &self.settings.disabled_plugins);
+        if !msgs.is_empty() {
+            let ids: Vec<String> = aurafx_filters::registry().iter().filter(|f| f.ext.is_some()).map(|f| f.id.to_string()).collect();
+            let mut s = self.session.lock();
+            s.refresh_filter_defs(&ids);
+            for m in &msgs {
+                let lvl = if m.contains("failed") { aurafx_pipeline::LogLevel::Error } else { aurafx_pipeline::LogLevel::Info };
+                s.log(lvl, m.clone());
+            }
+            drop(s);
+            self.python.plugin_messages.lock().extend(msgs);
+        }
         self.python.sync_plugins(paths, self.settings.disabled_plugins.clone(), force);
     }
 
@@ -51,6 +64,9 @@ impl State {
             self.plugins.started = true;
             self.plugins.last_sync = now;
             self.sync_plugins(false);
+            // The panels of the plugins (after the sync above, on the same Python thread).
+            let tx = self.python.sender();
+            self.plugin_panels.refresh_titles(&tx);
         }
         let msgs: Vec<String> = std::mem::take(&mut *self.python.plugin_messages.lock());
         for m in msgs {
@@ -122,7 +138,7 @@ fn body(st: &mut State, ui: &mut egui::Ui) {
             }
         }
         if ui.button("Add file or folder…").on_hover_text("Load plugins from another place too").clicked() {
-            if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Python plugin", &["py"]).pick_file() {
+            if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Plugin (Python or Rust)", &["py", std::env::consts::DLL_EXTENSION]).pick_file() {
                 if !st.settings.plugin_paths.contains(&p) {
                     st.settings.plugin_paths.push(p);
                     st.settings.save();
@@ -202,6 +218,32 @@ fn body(st: &mut State, ui: &mut egui::Ui) {
             ui.add_space(4.0);
         }
     });
+    // Rust plugins (shared libraries built with the aurafx-plugin crate).
+    let libs = aurafx_filters::rust_plugins::loaded();
+    if !libs.is_empty() {
+        ui.separator();
+        ui.label(RichText::new("Rust plugins").strong());
+        for l in libs {
+            let key = l.display().to_string();
+            let labels: Vec<String> = aurafx_filters::registry()
+                .iter()
+                .filter(|f| f.ext.as_ref().is_some_and(|e| e.plugin == key))
+                .map(|f| format!("{} ({})", f.label, f.category))
+                .collect();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(l.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).strong()).on_hover_text(&key);
+                ui.label(RichText::new(labels.join(" · ")).small().weak());
+            });
+        }
+        ui.label(RichText::new("A new build of a Rust plugin loads at the next start.").small().weak());
+    }
     ui.separator();
-    ui.label(RichText::new("In Python: afx.load_plugin(path), afx.plugins(). Native (Rust) plugins are not supported yet.").small().weak());
+    ui.label(
+        RichText::new(format!(
+            "In Python: afx.load_plugin(path), afx.plugins(). Rust plugins: shared libraries (.{}) built with the aurafx-plugin crate, in the plugin folder.",
+            std::env::consts::DLL_EXTENSION
+        ))
+        .small()
+        .weak(),
+    );
 }

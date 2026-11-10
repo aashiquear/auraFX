@@ -41,8 +41,12 @@ half = { version = "2", features = ["serde"] }
 
 [profile.dev]
 opt-level = 1
+# Line numbers only (backtraces keep file and line); full debug info for a debugger session with
+# CARGO_PROFILE_DEV_DEBUG=2. Full debug info everywhere made target/debug grow past 300 GB.
+debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 [profile.release]
 lto = "thin"
 codegen-units = 4

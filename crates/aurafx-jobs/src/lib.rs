@@ -37,11 +37,16 @@ pub struct Host {
     /// Processes an aurafx-server on this host spreads data over (0 or 1: one process).
     #[serde(default)]
     pub server_processes: u32,
+    /// How those processes start: empty for processes of the server itself, `mpirun` or `srun`
+    /// (an MPI or Slurm launch whose ranks connect back to the server), or a command with `{n}`
+    /// for the count and `{cmd}` for the worker command (`mpiexec -n {n} -hostfile hosts {cmd}`).
+    #[serde(default)]
+    pub launcher: String,
 }
 
 impl Host {
     pub fn local() -> Self {
-        Host { name: "This computer".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0 }
+        Host { name: "This computer".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0, launcher: String::new() }
     }
     pub fn is_local(&self) -> bool {
         matches!(self.kind, HostKind::Local)
@@ -783,6 +788,7 @@ pub fn resolve_host(name: Option<&str>) -> Host {
             kind: HostKind::Ssh { target: n.to_string(), port: None, identity: None, jump: None },
             setup: String::new(),
             server_processes: 0,
+            launcher: String::new(),
         }),
     }
 }

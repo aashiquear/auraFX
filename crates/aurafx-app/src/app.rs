@@ -25,6 +25,8 @@ pub enum Pane {
     Information,
     Jobs,
     Charts,
+    /// A notebook of Python and text cells.
+    Notebook,
     /// An additional 3D view.
     View(u32),
     /// An additional chart view (`aurafx_pipeline::charts`; the Charts panel is view 0).
@@ -32,7 +34,7 @@ pub enum Pane {
 }
 
 impl Pane {
-    pub const ALL: [Pane; 10] = [
+    pub const ALL: [Pane; 11] = [
         Pane::Pipeline,
         Pane::Properties,
         Pane::Viewport,
@@ -43,6 +45,7 @@ impl Pane {
         Pane::Information,
         Pane::Jobs,
         Pane::Charts,
+        Pane::Notebook,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -56,6 +59,7 @@ impl Pane {
             Pane::Information => "Information",
             Pane::Jobs => "Simulations",
             Pane::Charts => "Charts",
+            Pane::Notebook => "Notebook",
             Pane::View(_) => "3D View",
             Pane::Chart(_) => "Chart",
         }
@@ -72,6 +76,7 @@ impl Pane {
             Pane::Information => crate::icons::INFO,
             Pane::Jobs => crate::icons::ATOM,
             Pane::Charts => crate::icons::WAVE_SINE,
+            Pane::Notebook => crate::icons::FILE_PY,
             Pane::View(_) => crate::icons::CUBE,
             Pane::Chart(_) => crate::icons::WAVE_SINE,
         }
@@ -109,6 +114,8 @@ pub struct State {
     pub pipeline_selection: Vec<aurafx_pipeline::NodeId>,
     pub toasts: Vec<(String, f64, bool)>,
     pub jobs_panel: crate::jobs_panel::JobsPanel,
+    pub notebook: crate::notebook::Notebook,
+    pub plugin_panels: crate::plugin_panels::PluginPanels,
     pub charts: crate::charts::ChartsState,
     pub anim_dialog: crate::animation::AnimDialog,
     pub screenshot_dialog: crate::screenshot_ui::ScreenshotDialog,
@@ -231,7 +238,9 @@ pub fn show_pane(tree: &mut egui_tiles::Tree<Pane>, pane: Pane) {
             let anchor = tree.tiles.find_pane(&Pane::Viewport).and_then(|v| tree.tiles.parent_of(v)).or(tree.root());
             match anchor {
                 Some(a) => match pane {
-                    Pane::Python | Pane::Charts | Pane::Spreadsheet | Pane::Log | Pane::Chart(_) => split_beside(tree, a, tabs, Vertical, false, 0.3),
+                    Pane::Python | Pane::Notebook | Pane::Charts | Pane::Spreadsheet | Pane::Log | Pane::Chart(_) => {
+                        split_beside(tree, a, tabs, Vertical, false, 0.3)
+                    }
                     Pane::Assistant | Pane::Jobs => split_beside(tree, a, tabs, Horizontal, false, 0.28),
                     Pane::Pipeline | Pane::Properties | Pane::Information => {
                         // Join the left column if the other left-side group is open.
@@ -350,6 +359,19 @@ impl AuraApp {
         let session = Session::shared();
         spawn_pipeline_worker(session.clone(), cc.egui_ctx.clone());
         let python = PythonWorker::spawn(session.clone(), cc.egui_ctx.clone());
+        // Run as a Jupyter kernel: the notebook's cells go to this Python; shutting the kernel
+        // down closes the window.
+        if let Some(conn) = crate::JUPYTER_CONNECTION.get() {
+            let ctx = cc.egui_ctx.clone();
+            let close = Box::new(move || ctx.send_viewport_cmd(egui::ViewportCommand::Close));
+            match crate::jupyter::start(conn, python.sender(), close) {
+                Ok(()) => session.lock().log(
+                    aurafx_pipeline::LogLevel::Info,
+                    "Running as a Jupyter kernel: cells from the notebook run in the Python console's interpreter".to_string(),
+                ),
+                Err(e) => session.lock().log(aurafx_pipeline::LogLevel::Error, format!("Jupyter kernel: {e:#}")),
+            }
+        }
         let viewport = Viewport::new(cc, settings.background);
         let tree = cc.storage.and_then(|s| s.get_string("layout_v4")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
         let assistant = Assistant::new(&settings);
@@ -380,6 +402,8 @@ impl AuraApp {
             pipeline_selection: Vec::new(),
             toasts: Vec::new(),
             jobs_panel: crate::jobs_panel::JobsPanel::default(),
+            notebook: Default::default(),
+            plugin_panels: Default::default(),
             charts: Default::default(),
             file_browser: Default::default(),
             state_path: None,
@@ -1155,6 +1179,28 @@ impl State {
                     }
                 }
                 ui.separator();
+                ui.menu_button("Plugin panels", |ui| {
+                    if ui.button(format!("{} Look again", crate::icons::ARROW_CLOCKWISE)).on_hover_text("Panels added by @afx.panel in Python plugins").clicked() {
+                        let tx = self.python.sender();
+                        self.plugin_panels.refresh_titles(&tx);
+                    }
+                    if self.plugin_panels.titles.is_empty() {
+                        ui.label(RichText::new("None yet: a Python plugin adds one with @afx.panel(\"Title\")").weak());
+                    }
+                    for t in self.plugin_panels.titles.clone() {
+                        let open = self.plugin_panels.open.contains_key(&t);
+                        if ui.selectable_label(open, &t).clicked() {
+                            if open {
+                                self.plugin_panels.open.remove(&t);
+                            } else {
+                                let tx = self.python.sender();
+                                self.plugin_panels.open_panel(&t, &tx);
+                            }
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
                 ui.label(RichText::new("3D views").weak());
                 if ui.button(format!("{} New view side by side", crate::icons::COLUMNS)).clicked() {
                     self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: false, only: None });
@@ -1627,6 +1673,7 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
                 self.state.view_pane_ui(ui, *id)
             }
             Pane::Python => crate::console::console_ui(self.state, ui),
+            Pane::Notebook => crate::notebook::notebook_ui(self.state, ui),
             Pane::Assistant => crate::assistant::assistant_ui(self.state, ui),
             Pane::Log => crate::panels::log_ui(self.state, ui),
             Pane::Spreadsheet => {
@@ -1869,17 +1916,49 @@ impl eframe::App for AuraApp {
                 }
                 "show" if arg.eq_ignore_ascii_case("goal statistics") => self.state.goal_stats.open = true,
                 "show" if arg.eq_ignore_ascii_case("settings") => self.state.show_settings = true,
+                // "show notebook run": the Notebook panel with every cell run.
+                // "show notebook run [file.ipynb]": the Notebook panel (with that notebook) with every cell run.
+                "show" if arg.trim().to_ascii_lowercase().starts_with("notebook run") => {
+                    self.state.layout_actions.push(LayoutAction::Show(Pane::Notebook));
+                    let f = arg.trim()[12..].trim();
+                    if !f.is_empty() {
+                        self.state.notebook.open(PathBuf::from(f));
+                    }
+                    self.state.notebook.run_all();
+                }
+                // "show plugin <title>": a plugin panel.
+                "show" if arg.trim().to_ascii_lowercase().starts_with("plugin ") => {
+                    let t = arg.trim()[7..].trim().to_string();
+                    let tx = self.state.python.sender();
+                    self.state.plugin_panels.open_panel(&t, &tx);
+                }
                 "show" if arg.eq_ignore_ascii_case("animation") => {
                     self.state.anim_dialog.open = true;
                     self.state.anim_dialog.mode = crate::animation::AnimMode::Keyframes;
                 }
                 "show" if arg.trim().eq_ignore_ascii_case("remote") => self.state.server.open = true,
+                // "show remote 8 srun": the Remote window with a process count and a launcher.
+                "show" if arg.trim().to_ascii_lowercase().starts_with("remote ") => {
+                    // "show remote 8 srun [folder]": also the folder the window browses.
+                    let w: Vec<&str> = arg.trim()[7..].split_whitespace().collect();
+                    self.state.server.set_processes(w.first().and_then(|n| n.parse().ok()).unwrap_or(1), w.get(1).copied().unwrap_or(""));
+                    if let Some(f) = w.get(2) {
+                        self.state.server.path = f.to_string();
+                        self.state.server.entries.clear();
+                    }
+                    self.state.server.open = true;
+                }
                 // "assistant_view_on": tick the assistant's camera box (for the guide's picture).
                 "assistant_view_on" => {
                     self.state.assistant.include_view = true;
                     self.state.assistant.input = "What stands out in this view?".into();
                 }
                 // "remote_window <folder>": the Remote window, browsing that folder.
+                // "remote_processes <n> [launcher]": the process count and launcher of the Remote window.
+                "remote_processes" => {
+                    let (n, l) = arg.trim().split_once(' ').unwrap_or((arg.trim(), ""));
+                    self.state.server.set_processes(n.parse().unwrap_or(1), l.trim());
+                }
                 "remote_window" => {
                     self.state.server.path = arg.trim().to_string();
                     self.state.server.entries.clear();
@@ -2234,6 +2313,7 @@ impl eframe::App for AuraApp {
         crate::screenshot_ui::dialog_ui(st, ctx);
         crate::colormap_editor::editor_ui(st, ctx);
         crate::goal_stats::window(st, ctx);
+        crate::plugin_panels::panels_ui(st, ctx);
         st.plugins_tick(ctx);
         crate::plugins_ui::plugins_ui(st, ctx);
         crate::server_ui::server_ui(st, ctx);

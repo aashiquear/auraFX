@@ -776,8 +776,8 @@ fn plugins<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
 /// or "local") or an `ssh://host/path` URL, the file is read on that machine by aurafx-server
 /// and filters added below it run there too.
 #[pyfunction]
-#[pyo3(signature = (path, host=None, processes=None, **kwargs))]
-fn load(path: String, host: Option<String>, processes: Option<u32>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+#[pyo3(signature = (path, host=None, processes=None, launcher=None, **kwargs))]
+fn load(path: String, host: Option<String>, processes: Option<u32>, launcher: Option<String>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
     let (host, path) = match (host, path.strip_prefix("ssh://")) {
         (Some(h), _) => (Some(h), path),
         (None, Some(rest)) => {
@@ -790,6 +790,9 @@ fn load(path: String, host: Option<String>, processes: Option<u32>, kwargs: Opti
     let id = match host {
         Some(h) => {
             let mut host = aurafx_jobs::resolve_host(Some(&h));
+            if let Some(l) = &launcher {
+                host.launcher = l.clone();
+            }
             if let Some(n) = processes {
                 host.server_processes = n;
             }
@@ -2098,6 +2101,115 @@ class _MeshModule:
 mesh = _MeshModule()
 "#;
 
+/// Plugin panels: `@afx.panel("Title")` and the `ui` the function gets.
+const PANEL_API: &str = r#"
+_panels = {}
+_panel_state = {}
+def panel(title):
+    """Add a panel to the window (Windows > Plugin panels). The function gets a `ui` and is run
+    when the panel opens and whenever a button is pressed or a value changes: ui.label(text),
+    ui.button(text) -> True on the run its press causes, ui.slider(name, value, lo, hi),
+    ui.number(name, value), ui.checkbox(name, value), ui.text(name, value),
+    ui.choice(name, options, value) give the current value, ui.image(path), ui.separator()."""
+    def deco(fn):
+        _panels[title] = fn
+        return fn
+    return deco
+
+class _PanelUI:
+    def __init__(self, title, event):
+        self.title = title
+        self.event = event or {}
+        self.items = []
+        self.state = _panel_state.setdefault(title, {})
+    def _value(self, name, value, conv):
+        if self.event.get("kind") == "set" and self.event.get("name") == name:
+            self.state[name] = conv(self.event.get("value"))
+        return self.state.setdefault(name, value)
+    def label(self, text):
+        self.items.append({"kind": "label", "text": str(text)})
+    def separator(self):
+        self.items.append({"kind": "separator"})
+    def button(self, text):
+        self.items.append({"kind": "button", "text": str(text)})
+        return self.event.get("kind") == "button" and self.event.get("name") == str(text)
+    def slider(self, name, value, lo, hi):
+        integer = isinstance(value, int) and not isinstance(value, bool)
+        v = self._value(name, value, int if integer else float)
+        self.items.append({"kind": "slider", "name": name, "value": v, "min": lo, "max": hi, "int": integer})
+        return v
+    def number(self, name, value):
+        integer = isinstance(value, int) and not isinstance(value, bool)
+        v = self._value(name, value, int if integer else float)
+        self.items.append({"kind": "number", "name": name, "value": v, "int": integer})
+        return v
+    def checkbox(self, name, value=False):
+        v = self._value(name, bool(value), bool)
+        self.items.append({"kind": "checkbox", "name": name, "value": v})
+        return v
+    def text(self, name, value=""):
+        v = self._value(name, str(value), str)
+        self.items.append({"kind": "text", "name": name, "value": v})
+        return v
+    def choice(self, name, options, value=None):
+        options = [str(o) for o in options]
+        v = self._value(name, str(value if value is not None else (options[0] if options else "")), str)
+        self.items.append({"kind": "choice", "name": name, "value": v, "options": options})
+        return v
+    def image(self, path):
+        self.items.append({"kind": "image", "path": str(path)})
+
+def _render_panel(title, event_json):
+    import json, traceback
+    fn = _panels.get(title)
+    ui = _PanelUI(title, json.loads(event_json) if event_json else None)
+    err = None
+    if fn is None:
+        err = "no panel named %r" % title
+    else:
+        try:
+            fn(ui)
+        except Exception:
+            err = traceback.format_exc()
+    return json.dumps({"items": ui.items, "error": err})
+
+def _panel_titles():
+    return list(_panels)
+"#;
+
+/// Rich output for notebooks: `afx.display(...)` and `afx.snapshot()`.
+const DISPLAY_API: &str = r#"
+_displays = []
+_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "svg": "image/svg+xml"}
+def display(obj):
+    """Show something in the notebook when auraFX runs as a Jupyter kernel: a picture file (.png,
+    .jpg, .gif, .svg), PNG bytes, or any object (as text). In the app's console it prints a line."""
+    import os
+    if isinstance(obj, (bytes, bytearray)):
+        _displays.append(("image/png", bytes(obj)))
+    elif isinstance(obj, str) and os.path.isfile(obj) and obj.rsplit(".", 1)[-1].lower() in _MIME:
+        with open(obj, "rb") as f:
+            _displays.append((_MIME[obj.rsplit(".", 1)[-1].lower()], f.read()))
+    else:
+        _displays.append(("text/plain", str(obj).encode()))
+def snapshot(width=None, height=None, views=None):
+    """A picture of the active 3D view (views="all": every view as laid out) shown in the notebook."""
+    import os, tempfile
+    fd, f = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    try:
+        if views is None:
+            screenshot(f, width=width, height=height)
+        else:
+            screenshot(f, views=views)
+        display(f)
+    finally:
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+"#;
+
 /// `afx.cad_model()` and the `cad` object of a CAD Model node.
 const CAD_API: &str = r#"
 import json as _json
@@ -2899,6 +3011,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.py().run(&std::ffi::CString::new(crate::plugins::PY_API).unwrap(), Some(&m.dict()), None)?;
     m.py().run(&std::ffi::CString::new(MESH_API).unwrap(), Some(&m.dict()), None)?;
     m.py().run(&std::ffi::CString::new(CAD_API).unwrap(), Some(&m.dict()), None)?;
+    m.py().run(&std::ffi::CString::new(DISPLAY_API).unwrap(), Some(&m.dict()), None)?;
+    m.py().run(&std::ffi::CString::new(PANEL_API).unwrap(), Some(&m.dict()), None)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__doc__", "auraFX scripting: afx.load(path), node.slice(...), node.color_by('T'), afx.screenshot('out.png'). See afx.filters().")?;
     let _ = PyTuple::empty(py);

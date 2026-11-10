@@ -27,6 +27,11 @@ native-dialogs = ["dep:rfd"]
 linux-desktop = ["eframe/x11", "eframe/wayland"]
 
 [dependencies]
+# The Jupyter kernel (aurafx --jupyter-kernel): ZeroMQ sockets and signed messages.
+zeromq = { version = "0.7", default-features = false, features = ["tokio-runtime", "tcp-transport"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
+hmac = "0.13"
+sha2 = "0.11"
 aurafx-data.workspace = true
 aurafx-io.workspace = true
 aurafx-filters.workspace = true
@@ -59,3 +64,4 @@ directories = "6"
 toml = "1"
 image = { version = "0.25", default-features = false, features = ["png", "gif"] }
 base64 = "0.22"
+bytes = "1"

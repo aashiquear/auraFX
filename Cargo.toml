@@ -17,6 +17,7 @@ rust-version = "1.95"
 aurafx-data = { path = "crates/aurafx-data" }
 aurafx-io = { path = "crates/aurafx-io" }
 aurafx-filters = { path = "crates/aurafx-filters" }
+aurafx-gpu = { path = "crates/aurafx-gpu" }
 aurafx-pipeline = { path = "crates/aurafx-pipeline" }
 aurafx-render = { path = "crates/aurafx-render" }
 aurafx-python = { path = "crates/aurafx-python" }

@@ -78,6 +78,8 @@ pub struct Cluster {
     pub infos: parking_lot::Mutex<HashMap<u64, DataSetInfo>>,
     /// Keys of the ghost cells each worker holds, by recipe fingerprint of the input.
     pub ghosts: parking_lot::Mutex<HashMap<u64, Vec<String>>>,
+    /// Ask the workers one after another (pieces streamed through one process).
+    pub sequential: bool,
 }
 
 /// Filters whose automatic parameter values (centers, ranges, sizes) come from their input.
@@ -85,7 +87,7 @@ const AUTO_VALUES: &[&str] = &["slice", "clip", "contour", "threshold", "glyph",
 
 impl Cluster {
     pub fn new(workers: Vec<Arc<RemoteClient>>) -> Self {
-        Self { workers, gathered: HashMap::new(), infos: Default::default(), ghosts: Default::default() }
+        Self { workers, gathered: HashMap::new(), infos: Default::default(), ghosts: Default::default(), sequential: false }
     }
 
     /// The recipe each worker runs: filters with automatic values get the bounds and ranges of
@@ -199,6 +201,9 @@ impl Cluster {
 
     /// [`Cluster::each`] with the worker's number.
     pub fn each_k<T: Send>(&self, f: impl Fn(usize, &RemoteClient) -> Result<T> + Sync) -> Result<Vec<T>> {
+        if self.sequential {
+            return self.workers.iter().enumerate().map(|(k, w)| f(k, w).map_err(|e| e.context(format!("piece {}", k + 1)))).collect();
+        }
         std::thread::scope(|s| {
             let f = &f;
             let hs: Vec<_> = self.workers.iter().enumerate().map(|(k, w)| s.spawn(move || f(k, w))).collect();
@@ -259,6 +264,32 @@ impl Cluster {
         };
         let (payload, att) = match wanted {
             Payload::None | Payload::Drawn => (wanted, vec![]),
+            // Pieces read in turn: put each into the result as it comes, so only the result
+            // and one piece are held at a time.
+            Payload::Full if self.sequential => {
+                let mut acc: Option<DataSet> = None;
+                for (k, w) in self.workers.iter().enumerate() {
+                    let p =
+                        w.compute(per[k].clone(), target, time, Fetch::Full, u64::MAX, level, u64::MAX).map_err(|e| e.context(format!("piece {}", k + 1)))?;
+                    acc = Some(match acc.take() {
+                        None => p.data,
+                        Some(a) => aurafx_data::pieces::merge(vec![a, p.data]),
+                    });
+                }
+                (Payload::Full, encode(&acc.unwrap_or(DataSet::PolyData(Default::default())))?)
+            }
+            Payload::Surface if self.sequential => {
+                let mut m = aurafx_filters::surface::SurfaceMerger::new(&info.bounds);
+                let mut offset = 0;
+                for (k, w) in self.workers.iter().enumerate() {
+                    let p = w.compute(per[k].clone(), target, time, Fetch::Surface, 0, level, u64::MAX).map_err(|e| e.context(format!("piece {}", k + 1)))?;
+                    if let DataSet::PolyData(pd) = p.data {
+                        m.add(pd, offset);
+                    }
+                    offset += infos[k].info.as_ref().map(|i| i.n_cells).unwrap_or(0);
+                }
+                (Payload::Surface, encode(&DataSet::PolyData(m.finish()))?)
+            }
             Payload::Full => {
                 let parts = self.each_k(|k, w| w.compute(per[k].clone(), target, time, Fetch::Full, u64::MAX, level, u64::MAX))?;
                 (Payload::Full, encode(&aurafx_data::pieces::merge(parts.into_iter().map(|p| p.data).collect()))?)

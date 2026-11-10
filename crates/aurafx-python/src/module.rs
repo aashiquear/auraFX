@@ -774,10 +774,22 @@ fn plugins<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
 
 /// Open a file. With `host=` (a host from the Simulations panel, an ssh alias or user@machine,
 /// or "local") or an `ssh://host/path` URL, the file is read on that machine by aurafx-server
-/// and filters added below it run there too.
+/// and filters added below it run there too. `stream=N` reads a file larger than memory in N
+/// pieces one after another (on this computer unless `host=` says otherwise).
 #[pyfunction]
-#[pyo3(signature = (path, host=None, processes=None, launcher=None, **kwargs))]
-fn load(path: String, host: Option<String>, processes: Option<u32>, launcher: Option<String>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+#[pyo3(signature = (path, host=None, processes=None, launcher=None, stream=None, **kwargs))]
+fn load(
+    path: String,
+    host: Option<String>,
+    processes: Option<u32>,
+    launcher: Option<String>,
+    stream: Option<u32>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<PyNode> {
+    let (host, processes, launcher) = match stream.filter(|&n| n > 1) {
+        Some(n) => (Some(host.unwrap_or_else(|| "local".into())), Some(n), Some("stream".to_string())),
+        None => (host, processes, launcher),
+    };
     let (host, path) = match (host, path.strip_prefix("ssh://")) {
         (Some(h), _) => (Some(h), path),
         (None, Some(rest)) => {
@@ -1343,6 +1355,37 @@ fn lighting(py: Python<'_>, options: Option<&Bound<'_, PyDict>>) -> PyResult<Py<
 #[pyfunction]
 fn assistant_prompt(name: String) {
     app_command(format!("assistant_prompt {name}"));
+}
+
+/// Use the GPU for filters (Contour and Slice on big grids; the results are the same):
+/// `afx.gpu_filters(False)` turns it off; returns {"device": name or None, "on": bool}.
+#[pyfunction]
+#[pyo3(signature = (on=None))]
+fn gpu_filters(py: Python<'_>, on: Option<bool>) -> PyResult<Bound<'_, PyDict>> {
+    if let Some(b) = on {
+        aurafx_filters::gpu::set_enabled(b);
+    }
+    let d = PyDict::new(py);
+    d.set_item("device", aurafx_filters::gpu::device_name())?;
+    d.set_item("on", aurafx_filters::gpu::enabled())?;
+    Ok(d)
+}
+
+/// Time Contour and Slice with and without the GPU on a wavelet of
+/// (2 half + 1)^3 points: a list of {"filter", "cpu_s", "gpu_s"} (empty without a GPU).
+#[pyfunction]
+#[pyo3(signature = (half=100))]
+fn gpu_benchmark(py: Python<'_>, half: i64) -> PyResult<Bound<'_, PyList>> {
+    let r = py.detach(|| aurafx_filters::gpu::benchmark(half));
+    let l = PyList::empty(py);
+    for (n, c, g) in r {
+        let d = PyDict::new(py);
+        d.set_item("filter", n)?;
+        d.set_item("cpu_s", c)?;
+        d.set_item("gpu_s", g)?;
+        l.append(d)?;
+    }
+    Ok(l)
 }
 
 /// Bind keys to an action of the window: `afx.set_shortcut("screenshot", "Ctrl+P")`, several keys
@@ -2924,6 +2967,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(set_shortcut, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu_filters, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu_benchmark, m)?)?;
     m.add_function(wrap_pyfunction!(assistant_prompt, m)?)?;
     m.add_function(wrap_pyfunction!(annotate, m)?)?;
     m.add_function(wrap_pyfunction!(key_camera, m)?)?;

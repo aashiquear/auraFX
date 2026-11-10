@@ -38,6 +38,8 @@ pub struct Settings {
     pub ask_source_settings: bool,
     /// Keyboard shortcuts (actions bound to keys) and vim-style view keys.
     pub shortcuts: crate::shortcuts::Shortcuts,
+    /// Let filters use the GPU (the results are the same; only faster on big grids).
+    pub gpu_filters: bool,
 }
 
 impl Default for Settings {
@@ -63,6 +65,7 @@ impl Default for Settings {
             show_light_widgets: true,
             ask_source_settings: true,
             shortcuts: Default::default(),
+            gpu_filters: true,
         }
     }
 }

@@ -1532,6 +1532,32 @@ impl State {
                 }
                 ui.label(RichText::new(format!("(now {}; changes apply at the next start)", rayon::current_num_threads())).weak().small());
             });
+            ui.horizontal(|ui| {
+                let dev = aurafx_filters::gpu::device_name();
+                let label = match &dev {
+                    Some(d) => format!("Use the GPU for filters ({d})"),
+                    None => "Use the GPU for filters (none found)".to_string(),
+                };
+                if ui
+                    .add_enabled(dev.is_some(), egui::Checkbox::new(&mut self.settings.gpu_filters, label))
+                    .on_hover_text(
+                        "Contour and Slice on big grids: the GPU finds the cells they can cross and the CPU cuts those, so the results are the same.",
+                    )
+                    .changed()
+                {
+                    aurafx_filters::gpu::set_enabled(self.settings.gpu_filters);
+                    self.settings.save();
+                }
+                if dev.is_some()
+                    && ui.button("Benchmark").on_hover_text("Time Contour and Slice on a 201^3 grid with and without the GPU (a few seconds).").clicked()
+                {
+                    let r = aurafx_filters::gpu::benchmark(100);
+                    aurafx_filters::gpu::set_enabled(self.settings.gpu_filters);
+                    let text = r.iter().map(|(n, c, g)| format!("{n}: CPU {:.0} ms, GPU {:.0} ms", c * 1e3, g * 1e3)).collect::<Vec<_>>().join("; ");
+                    self.status = format!("GPU benchmark: {text}");
+                    tracing::info!("GPU benchmark: {text}");
+                }
+            });
             ui.separator();
             ui.heading("AI assistant");
             self.assistant.settings_ui(ui, &mut self.settings);

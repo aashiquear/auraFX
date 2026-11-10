@@ -149,6 +149,32 @@ Variables run on every core and give exactly the same result on any number of th
 slice of 4 million cells takes about 80 ms. The thread count can be limited in **Settings ›
 Filter threads** (0 = all cores) or with `AURAFX_THREADS`.
 
+Slice and Contour of image, rectilinear and structured grids only build the cells the cut
+crosses, so a big grid needs memory for those, not for the whole grid as cells.
+
+### The GPU
+
+With a graphics card, **Slice** and **Contour** of grids with more than a million cells let the
+GPU find the cells the cut can cross; the CPU then cuts those. The GPU works in 32-bit, so it
+takes a margin (a few cells more than needed, never fewer) and leaves every value to the CPU's
+64-bit arithmetic: the results are the same, number for number, with or without it. Slicing a
+grid of 64 million points took 0.23 s instead of 2.1 s on a laptop GPU; contours take about as
+long either way, since cutting the crossed cells is most of their work.
+
+**Settings › Use the GPU for filters** switches it off and on, and **Benchmark** times both on a
+201^3 grid. From Python:
+
+```python
+afx.gpu_filters()          # {'device': 'AMD Radeon ... (Vulkan)', 'on': True}
+afx.gpu_filters(False)     # CPU only
+afx.gpu_benchmark(100)     # [{'filter': 'Contour', 'cpu_s': ..., 'gpu_s': ...}, ...]
+```
+
+Servers use their own GPU the same way (`aurafx-server --no-gpu` does not); `AURAFX_GPU_FILTERS=0`
+turns it off before start. Data bigger than the GPU's buffers is sent in slabs.
+
+![The Performance settings with the GPU switch, and timings of Slice and Contour on a 201^3 grid with and without the GPU, written in the 3D view](images/gpu_filters.png)
+
 ## Surface operations
 
 Eight filters work on surfaces and lines (**Filters › Geometry**, **Data Analysis**):

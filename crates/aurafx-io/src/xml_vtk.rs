@@ -212,7 +212,75 @@ fn decode_base64_payload(ctx: &FileCtx, text: &[u8]) -> Result<Vec<u8>> {
     decode_binary_payload(ctx, &joined)
 }
 
+/// Bytes `b0..b1` of a binary payload (header + blocks), decompressing only the blocks that
+/// hold them.
+fn decode_binary_payload_range<'a>(ctx: &FileCtx, bytes: &'a [u8], b0: usize, b1: usize) -> Result<std::borrow::Cow<'a, [u8]>> {
+    let hsz = if ctx.header64 { 8 } else { 4 };
+    if ctx.compressor == Compressor::None {
+        let n = read_header_values(ctx, bytes, 1)[0] as usize;
+        if b1 > n || hsz + b1 > bytes.len() {
+            bail!("truncated binary array ({} bytes needed, {} available)", hsz + b1, bytes.len());
+        }
+        // Straight from the file's bytes (a memory map when reading a piece).
+        return Ok(std::borrow::Cow::Borrowed(&bytes[hsz + b0..hsz + b1]));
+    }
+    let head = read_header_values(ctx, bytes, 3);
+    let (nblocks, block_size, last_size) = (head[0] as usize, head[1] as usize, head[2] as usize);
+    let sizes = read_header_values(ctx, &bytes[3 * hsz..], nblocks);
+    let mut pos = (3 + nblocks) * hsz;
+    let mut out = Vec::with_capacity(b1 - b0);
+    for (i, &cs) in sizes.iter().enumerate() {
+        let cs = cs as usize;
+        let len = if i + 1 == nblocks && last_size > 0 { last_size } else { block_size };
+        let (lo, hi) = (i * block_size, i * block_size + len);
+        if hi > b0 && lo < b1 {
+            if pos + cs > bytes.len() {
+                bail!("truncated compressed block");
+            }
+            let d = decompress_block(ctx, &bytes[pos..pos + cs], len)?;
+            out.extend_from_slice(&d[b0.max(lo) - lo..b1.min(hi) - lo]);
+        }
+        if lo >= b1 {
+            break;
+        }
+        pos += cs;
+    }
+    Ok(std::borrow::Cow::Owned(out))
+}
+
 fn read_array(ctx: &FileCtx, node: &Node) -> Result<Array> {
+    read_array_range(ctx, node, None)
+}
+
+/// Tuples `range` of an array (all when None). Appended binary data is read for those tuples
+/// only; other encodings are decoded whole and cut.
+fn read_array_range(ctx: &FileCtx, node: &Node, range: Option<(usize, usize)>) -> Result<Array> {
+    let ty0 = parse_type(node.attr("type").unwrap_or("Float32"))?;
+    let nc: usize = node.attr("NumberOfComponents").and_then(|s| s.parse().ok()).unwrap_or(1).max(1);
+    if let (Some((t0, t1)), "appended", false, Some(blob), false) =
+        (range, node.attr("format").unwrap_or("ascii"), ctx.appended_base64, ctx.appended, ty0 == ScalarType::String)
+    {
+        let offset: usize = node.attr("offset").ok_or_else(|| anyhow!("appended array lacks offset"))?.parse()?;
+        if offset >= blob.len() {
+            bail!("appended offset {offset} beyond data ({} bytes)", blob.len());
+        }
+        let w = nc * ty0.size_of();
+        let raw = decode_binary_payload_range(ctx, &blob[offset..], t0 * w, t1 * w)?;
+        let mut arr = Array::new(node.attr("Name").unwrap_or(""), nc, decode_typed(ctx, ty0, &raw)?);
+        let comp_names: Vec<String> = (0..nc).filter_map(|i| node.attr(&format!("ComponentName{i}")).map(|s| s.to_string())).collect();
+        if comp_names.len() == nc && nc > 1 {
+            arr.component_names = Some(comp_names);
+        }
+        return Ok(arr);
+    }
+    let whole = read_array_whole(ctx, node)?;
+    Ok(match range {
+        Some((t0, t1)) if whole.scalar_type() != ScalarType::String => whole.gather(&(t0..t1.min(whole.len())).collect::<Vec<_>>()),
+        _ => whole,
+    })
+}
+
+fn read_array_whole(ctx: &FileCtx, node: &Node) -> Result<Array> {
     let name = node.attr("Name").unwrap_or("").to_string();
     let ty = parse_type(node.attr("type").unwrap_or("Float32"))?;
     let ncomp: usize = node.attr("NumberOfComponents").and_then(|s| s.parse().ok()).unwrap_or(1);
@@ -270,10 +338,14 @@ fn parse_type(s: &str) -> Result<ScalarType> {
 }
 
 fn read_attributes(ctx: &FileCtx, node: Option<&Node>) -> Result<Attributes> {
+    read_attributes_range(ctx, node, None)
+}
+
+fn read_attributes_range(ctx: &FileCtx, node: Option<&Node>, range: Option<(usize, usize)>) -> Result<Attributes> {
     let mut attrs = Attributes::new();
     let Some(node) = node else { return Ok(attrs) };
     for da in node.children.iter().filter(|c| c.name == "DataArray" || c.name == "Array") {
-        let arr = read_array(ctx, da)?;
+        let arr = read_array_range(ctx, da, range)?;
         attrs.insert(arr);
     }
     for (attr, kind) in [
@@ -396,8 +468,132 @@ fn parse_f64s(s: &str) -> Vec<f64> {
 
 /// Read a VTK XML file into a dataset.
 pub fn read(path: &Path) -> Result<DataSet> {
+    // A piece of a file read by one of several processes (or streamed): map the file, so only
+    // the bytes of this piece's arrays are read from disk.
+    if crate::current_piece().is_some_and(|p| p.1 > 1) {
+        let f = std::fs::File::open(path).with_context(|| format!("reading {}", path.display()))?;
+        // SAFETY: the file is only read; a file changed by another program while it is mapped
+        // gives wrong values, not undefined behaviour in safe code that copies out of it.
+        if let Ok(map) = unsafe { memmap2::Mmap::map(&f) } {
+            return read_bytes(&map, path).with_context(|| format!("reading VTK XML file {}", path.display()));
+        }
+    }
     let bytes = crate::read_bytes(path)?;
     read_bytes(&bytes, path).with_context(|| format!("reading VTK XML file {}", path.display()))
+}
+
+/// The share `k` of `n` of a grid file: a slab of cells along its last axis that has cells
+/// (whose points and cells are contiguous in the arrays), neighbouring slabs sharing a plane of
+/// points.
+fn read_grid_piece(ctx: &FileCtx, body: &Node, ty: &str, k: usize, n: usize) -> Result<Option<DataSet>> {
+    let pieces: Vec<&Node> = body.children_named("Piece").collect();
+    let [p] = pieces[..] else { return Ok(None) };
+    let whole = parse_extent(body.attr("WholeExtent").ok_or_else(|| anyhow!("missing WholeExtent"))?)?;
+    let e = match p.attr("Extent") {
+        Some(x) => parse_extent(x)?,
+        None => whole,
+    };
+    let Some(a) = (0..3).rev().find(|&a| e[2 * a + 1] > e[2 * a]) else { return Ok(None) };
+    let cells_along = (e[2 * a + 1] - e[2 * a]) as usize;
+    let (c0, c1) = (k * cells_along / n, (k + 1) * cells_along / n);
+    let mut sub = e;
+    sub[2 * a] = e[2 * a] + c0 as i64;
+    sub[2 * a + 1] = e[2 * a] + c1 as i64;
+    let dims: [usize; 3] = std::array::from_fn(|b| (e[2 * b + 1] - e[2 * b] + 1) as usize);
+    let plane_p: usize = (0..a).map(|b| dims[b]).product();
+    let plane_c: usize = (0..a).map(|b| dims[b].saturating_sub(1).max(1)).product();
+    if c1 == c0 {
+        sub = [0, -1, 0, -1, 0, -1];
+    }
+    let (pr, cr) = ((c0 * plane_p, (c1 + 1) * plane_p), (c0 * plane_c, c1 * plane_c));
+    let (pr, cr) = if c1 == c0 { ((0, 0), (0, 0)) } else { (pr, cr) };
+    let pd = read_attributes_range(ctx, p.child("PointData"), Some(pr))?;
+    let cd = read_attributes_range(ctx, p.child("CellData"), Some(cr))?;
+    let ds = match ty {
+        "ImageData" => {
+            let DataSet::ImageData(mut img) =
+                read_image(ctx, &Node { name: body.name.clone(), attrs: body.attrs.clone(), children: vec![], text: String::new() })?
+            else {
+                return Ok(None);
+            };
+            img.extent = sub;
+            img.point_data = pd;
+            img.cell_data = cd;
+            DataSet::ImageData(img)
+        }
+        "RectilinearGrid" => {
+            let coords = p.child("Coordinates").ok_or_else(|| anyhow!("no Coordinates"))?;
+            let arrs: Vec<Array> = coords.children_named("DataArray").map(|n| read_array(ctx, n)).collect::<Result<_>>()?;
+            if arrs.len() != 3 {
+                bail!("Coordinates must have 3 arrays");
+            }
+            let mut xyz: Vec<Vec<f64>> = arrs.iter().map(|x| x.data.to_f64_vec()).collect();
+            xyz[a] = if c1 == c0 { Vec::new() } else { xyz[a][c0..=c1].to_vec() };
+            let mut g = RectilinearGrid { extent: sub, point_data: pd, cell_data: cd, ..Default::default() };
+            g.z = xyz.pop().unwrap();
+            g.y = xyz.pop().unwrap();
+            g.x = xyz.pop().unwrap();
+            DataSet::RectilinearGrid(g)
+        }
+        "StructuredGrid" => {
+            let node = p.child("Points").and_then(|q| q.child("DataArray")).ok_or_else(|| anyhow!("Piece has no Points"))?;
+            let pts = read_array_range(ctx, node, Some(pr))?;
+            DataSet::StructuredGrid(StructuredGrid { extent: sub, points: Points::from_array(pts.data), point_data: pd, cell_data: cd, ..Default::default() })
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(ds))
+}
+
+/// The share `k` of `n` of an unstructured grid file: a range of its cells, with only the
+/// points they use (in their order), like splitting the whole grid.
+fn read_unstructured_piece(ctx: &FileCtx, body: &Node, k: usize, n: usize) -> Result<Option<DataSet>> {
+    let pieces: Vec<&Node> = body.children_named("Piece").collect();
+    let [p] = pieces[..] else { return Ok(None) };
+    let Some(cnode) = p.child("Cells") else { return Ok(None) };
+    let find = |name: &str| cnode.children.iter().find(|c| c.name == "DataArray" && c.attr("Name") == Some(name));
+    let (Some(conn_n), Some(offs_n), Some(types_n)) = (find("connectivity"), find("offsets"), find("types")) else { return Ok(None) };
+    if find("faces").is_some() {
+        return Ok(None);
+    }
+    let total: usize = p.attr("NumberOfCells").and_then(|v| v.parse().ok()).ok_or_else(|| anyhow!("Piece lacks NumberOfCells"))?;
+    let n_points: usize = p.attr("NumberOfPoints").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let (c0, c1) = (k * total / n, (k + 1) * total / n);
+    let mut ug = UnstructuredGrid::default();
+    if c1 > c0 {
+        let offs = read_array_range(ctx, offs_n, Some((c0.saturating_sub(1), c1)))?;
+        let start = if c0 > 0 { offs.get(0, 0) as usize } else { 0 };
+        let ends: Vec<usize> = (usize::from(c0 > 0)..offs.len()).map(|i| offs.get(i, 0) as usize).collect();
+        let end = *ends.last().unwrap_or(&start);
+        let conn = read_array_range(ctx, conn_n, Some((start, end)))?;
+        let types = read_array_range(ctx, types_n, Some((c0, c1)))?;
+        let ids: Vec<u32> = (0..conn.len()).map(|i| conn.get(i, 0) as u32).collect();
+        // The points these cells use, in their order.
+        let mut used: Vec<u32> = ids.clone();
+        used.sort_unstable();
+        used.dedup();
+        let (pmin, pmax) = (*used.first().unwrap_or(&0) as usize, *used.last().unwrap_or(&0) as usize + 1);
+        let pmax = pmax.min(n_points.max(pmax));
+        let pnode = p.child("Points").and_then(|q| q.child("DataArray")).ok_or_else(|| anyhow!("Piece has no Points"))?;
+        let local: Vec<usize> = used.iter().map(|&u| u as usize - pmin).collect();
+        let pts = read_array_range(ctx, pnode, Some((pmin, pmax)))?.gather(&local);
+        let mut renum = HashMap::with_capacity(used.len());
+        for (i, &u) in used.iter().enumerate() {
+            renum.insert(u, i as u32);
+        }
+        let mut cells = Cells::with_capacity(c1 - c0, ids.len());
+        cells.connectivity = ids.iter().map(|i| renum[i]).collect();
+        cells.offsets.extend(ends.iter().map(|&e| (e - start) as u32));
+        cells.types = (0..types.len()).map(|i| CellType::from_vtk(types.get(i, 0) as u8).unwrap_or(CellType::Empty)).collect();
+        ug.points = Points::from_array(pts.data);
+        ug.cells = cells;
+        ug.point_data = read_attributes_range(ctx, p.child("PointData"), Some((pmin, pmax)))?.gather(&local);
+        ug.cell_data = read_attributes_range(ctx, p.child("CellData"), Some((c0, c1)))?;
+        if ctx.old_hex_order {
+            upgrade_hex_order(&mut ug);
+        }
+    }
+    Ok(Some(DataSet::UnstructuredGrid(ug)))
 }
 
 pub fn read_bytes(bytes: &[u8], path: &Path) -> Result<DataSet> {
@@ -424,6 +620,21 @@ pub fn read_bytes(bytes: &[u8], path: &Path) -> Result<DataSet> {
         },
     };
     let body = vtkfile.child(ty).ok_or_else(|| anyhow!("missing <{ty}> element"))?;
+    if let Some((k, n)) = crate::current_piece().filter(|p| p.1 > 1) {
+        let piece = match ty {
+            "ImageData" | "RectilinearGrid" | "StructuredGrid" => read_grid_piece(&ctx, body, ty, k, n)?,
+            "UnstructuredGrid" => read_unstructured_piece(&ctx, body, k, n)?,
+            _ => None,
+        };
+        if let Some(mut ds) = piece {
+            crate::mark_pieced();
+            let fd = read_attributes(&ctx, body.child("FieldData"))?;
+            if !fd.is_empty() {
+                *ds.field_data_mut_any() = fd;
+            }
+            return Ok(ds);
+        }
+    }
     let mut ds = match ty {
         "ImageData" => read_image(&ctx, body)?,
         "RectilinearGrid" => read_rectilinear(&ctx, body)?,

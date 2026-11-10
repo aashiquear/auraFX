@@ -35,6 +35,7 @@ pub mod geometry;
 pub mod geometry_model;
 pub mod ghost_exchange;
 pub mod glyph;
+pub mod gpu;
 pub mod grain_grid;
 pub mod grain_surface;
 pub mod higher_order;

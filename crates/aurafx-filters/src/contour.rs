@@ -9,7 +9,42 @@ use anyhow::{anyhow, Result};
 use aurafx_data::*;
 
 pub fn contour(ds: &DataSet, assoc: Association, array: &str, comp: Option<usize>, values: &[f64]) -> Result<PolyData> {
-    let ds = crate::higher_order::as_linear(ds);
+    // A grid: only the cells some contour crosses (the same result, without the whole grid as
+    // a mesh).
+    let sub = match (assoc, ds.point_data().and_then(|p| p.get(array))) {
+        (Association::Points, Some(arr)) if values.len() <= 64 => {
+            // A big grid: the GPU finds the cells whose values come near a contour value.
+            let dims = match ds {
+                DataSet::ImageData(d) => Some(d.dims()),
+                DataSet::RectilinearGrid(d) => Some(d.dims()),
+                DataSet::StructuredGrid(d) => Some(d.dims()),
+                _ => None,
+            };
+            let candidates = match (crate::gpu::kernels(), dims) {
+                (Some(g), Some(dims)) if ds.n_cells() >= crate::gpu::MIN_ITEMS && dims.iter().all(|&d| d >= 2) => crate::gpu::as_f32(arr, comp).and_then(|v| {
+                    let ranges: Vec<(f32, f32)> = values
+                        .iter()
+                        .map(|&iso| {
+                            let m = 1e-6 * iso.abs().max(1e-30);
+                            ((iso - m) as f32, (iso + m) as f32)
+                        })
+                        .collect();
+                    g.grid_candidates(&v, dims, &ranges)
+                }),
+                _ => None,
+            };
+            crate::slice::crossing_cells(
+                ds,
+                &|i| values.iter().enumerate().fold(0u64, |m, (b, &iso)| m | (u64::from(ScalarFn::Array { arr, comp, offset: iso }.eval(i) >= 0.0) << b)),
+                candidates,
+            )
+        }
+        _ => None,
+    };
+    let ds = match sub {
+        Some(s) => std::borrow::Cow::Owned(s),
+        None => crate::higher_order::as_linear(ds),
+    };
     let ds: std::borrow::Cow<DataSet> = if assoc == Association::Cells { std::borrow::Cow::Owned(cell_to_point(&ds, &[array.to_string()])?) } else { ds };
     let (_, pd, ..) = parts(&ds).ok_or_else(|| anyhow!("contour: unsupported dataset"))?;
     let arr = pd.get(array).ok_or_else(|| anyhow!("contour: no point array named {array:?}"))?;

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5bd246f4.js";
+            window.path_to_searchindex_js = "searchindex-b78dfc0f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -284,6 +284,32 @@ early, or ranks that do not connect within 60 seconds, give an error naming the 
 <p>Results match a single process: three ranks from a launch give the same contour area as one
 process to 1e-9.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/server_launcher.png" alt="The Open on Server window with eight processes started by srun"><span class="img-wrapper"><img src="images/server_launcher.png" alt="The Open on Server window with eight processes started by srun"></span></label></p>
+<h2 id="files-larger-than-memory"><a class="header" href="#files-larger-than-memory">Files larger than memory</a></h2>
+<p>A file bigger than the memory of the machine can still be cut, contoured or sliced: choose
+<strong>started by › one process, one piece at a time</strong> next to Processes (on <em>This computer</em> or any
+host), or</p>
+<pre><code class="language-python">big = afx.load("/data/run/volume.vti", stream=16)       # on this computer
+big.contour(array="T", values=[600]).set(color_by="T")
+</code></pre>
+<p>One server process then reads the file in 16 pieces, one after another: it reads a piece, runs
+the filters on it, keeps what comes out (a surface, a slice, a contour, a table of numbers),
+forgets the piece and goes on to the next, so it needs memory for one piece and the results
+only. The same filters as on a parallel server work this way, including the ones that need
+ghost cells; filters that need the whole data at once (connectivity, statistics) put the
+pieces together and need the memory for all of them. Each change re-reads the file, so this is
+slower than holding the data in memory.</p>
+<p>Which files are read piece by piece:</p>
+<ul>
+<li>VTK XML image, rectilinear, structured and unstructured grids (<code>.vti</code>, <code>.vtr</code>, <code>.vts</code>,
+<code>.vtu</code>) with their data appended as raw or compressed binary, as auraFX and most programs
+write them: a piece is a slab of the grid (or a range of cells and the points they use), and
+only its bytes are read from the file (compressed data: only the blocks holding it are
+unpacked).</li>
+<li>Partitioned VTK files (<code>.pvtu</code>, <code>.pvti</code>, …): each piece reads its share of the piece files.</li>
+<li>Other formats are read whole for every piece and then cut, which saves no memory: convert
+them to VTK XML first (File › Save Data).</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/server_stream.png" alt="A wavelet read in four pieces one after another: its contour, and the Open on Server window with one process reading one piece at a time"><span class="img-wrapper"><img src="images/server_stream.png" alt="A wavelet read in four pieces one after another: its contour, and the Open on Server window with one process reading one piece at a time"></span></label></p>
 <p>Not yet: ghost cells, sharing one server between people, temporal filters on parallel servers.</p>
 
                     </main>

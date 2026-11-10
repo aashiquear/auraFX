@@ -101,7 +101,13 @@ pub fn main_desktop() -> eframe::Result<()> {
         }
         return Ok(());
     }
-    aurafx_filters::init_threads(crate::settings::Settings::load().threads);
+    let settings = crate::settings::Settings::load();
+    aurafx_filters::init_threads(settings.threads);
+    // The GPU for filters, found in the background (it takes a moment).
+    aurafx_filters::gpu::set_enabled(settings.gpu_filters);
+    std::thread::spawn(|| {
+        aurafx_gpu::install();
+    });
     let mut files: Vec<PathBuf> = Vec::new();
     let mut script: Option<PathBuf> = None;
     let mut it = args.into_iter();

@@ -129,4 +129,36 @@ process to 1e-9.
 
 ![The Open on Server window with eight processes started by srun](images/server_launcher.png)
 
+## Files larger than memory
+
+A file bigger than the memory of the machine can still be cut, contoured or sliced: choose
+**started by › one process, one piece at a time** next to Processes (on *This computer* or any
+host), or
+
+```python
+big = afx.load("/data/run/volume.vti", stream=16)       # on this computer
+big.contour(array="T", values=[600]).set(color_by="T")
+```
+
+One server process then reads the file in 16 pieces, one after another: it reads a piece, runs
+the filters on it, keeps what comes out (a surface, a slice, a contour, a table of numbers),
+forgets the piece and goes on to the next, so it needs memory for one piece and the results
+only. The same filters as on a parallel server work this way, including the ones that need
+ghost cells; filters that need the whole data at once (connectivity, statistics) put the
+pieces together and need the memory for all of them. Each change re-reads the file, so this is
+slower than holding the data in memory.
+
+Which files are read piece by piece:
+
+- VTK XML image, rectilinear, structured and unstructured grids (`.vti`, `.vtr`, `.vts`,
+  `.vtu`) with their data appended as raw or compressed binary, as auraFX and most programs
+  write them: a piece is a slab of the grid (or a range of cells and the points they use), and
+  only its bytes are read from the file (compressed data: only the blocks holding it are
+  unpacked).
+- Partitioned VTK files (`.pvtu`, `.pvti`, ...): each piece reads its share of the piece files.
+- Other formats are read whole for every piece and then cut, which saves no memory: convert
+  them to VTK XML first (File › Save Data).
+
+![A wavelet read in four pieces one after another: its contour, and the Open on Server window with one process reading one piece at a time](images/server_stream.png)
+
 Not yet: ghost cells, sharing one server between people, temporal filters on parallel servers.

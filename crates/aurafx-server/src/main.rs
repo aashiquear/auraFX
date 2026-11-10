@@ -18,6 +18,9 @@ fn main() -> anyhow::Result<()> {
     });
     // --workers N | host:N,host:N: coordinate a parallel server over these processes.
     let workers = take_value(&mut args, "--workers");
+    // --stream N: read every file in N pieces, one after another, in this process (files larger
+    // than memory: only one piece is held at a time).
+    let stream: Option<usize> = take_value(&mut args, "--stream").and_then(|v| v.trim().parse().ok()).filter(|&n| n > 1);
     // --launcher mpirun|srun|TEMPLATE: start the N workers through MPI or Slurm (they connect back).
     let launcher = take_value(&mut args, "--launcher");
     // --connect HOST:PORT --token T: a worker started by an MPI or Slurm launch (its rank and size
@@ -46,6 +49,10 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some("--stdio") | None => {
+            exit_with_parent();
+            if !no_gpu {
+                aurafx_gpu::install();
+            }
             // Draw on this machine's GPU when there is one (--no-gpu: never).
             let hook = match (no_gpu, piece) {
                 (true, _) => None,
@@ -54,17 +61,28 @@ fn main() -> anyhow::Result<()> {
             };
             let gpu = hook.as_ref().map(|h| h.gpu());
             let hook = hook.map(|h| Box::new(h) as Box<dyn aurafx_pipeline::remote::RenderHook>);
+            if let Some(n) = stream {
+                // Streamed pieces draw nothing themselves: their surfaces come here.
+                let pieces = (0..n)
+                    .map(|k| {
+                        let o = aurafx_pipeline::remote::ServeOptions { piece: Some((k, n)), forget: true, ..Default::default() };
+                        aurafx_pipeline::remote::RemoteClient::in_process_opts(&format!("piece {}", k + 1), o)
+                    })
+                    .collect();
+                let opts = aurafx_pipeline::remote::ServeOptions { workers: pieces, sequential: true, ..Default::default() };
+                return aurafx_pipeline::remote::serve_opts(std::io::stdin().lock(), std::io::stdout().lock(), opts);
+            }
             let workers = match (&workers, &launcher) {
                 (Some(spec), Some(l)) => launch_ranks(spec.trim().parse().map_err(|_| anyhow::anyhow!("--launcher takes --workers N"))?, l, no_gpu)?,
                 (Some(spec), None) => spawn_workers(spec, no_gpu)?,
                 (None, _) => Vec::new(),
             };
-            let opts = aurafx_pipeline::remote::ServeOptions { hook, gpu, piece, workers };
+            let opts = aurafx_pipeline::remote::ServeOptions { hook, gpu, piece, workers, ..Default::default() };
             // stdout carries the protocol; anything else must go to stderr.
             aurafx_pipeline::remote::serve_opts(std::io::stdin().lock(), std::io::stdout().lock(), opts)
         }
         Some(other) => {
-            eprintln!("usage: aurafx-server [--stdio | --version [--gpu]] [--threads N] [--no-gpu] [--workers N|host:N,...] [--launcher mpirun|srun|TEMPLATE] [--piece k/n] [--connect HOST:PORT --token T]   (unknown argument {other})");
+            eprintln!("usage: aurafx-server [--stdio | --version [--gpu]] [--threads N] [--no-gpu] [--workers N|host:N,...] [--launcher mpirun|srun|TEMPLATE] [--stream N] [--piece k/n] [--connect HOST:PORT --token T]   (unknown argument {other})");
             std::process::exit(2);
         }
     }
@@ -79,6 +97,24 @@ fn take_value(args: &mut Vec<String>, flag: &str) -> Option<String> {
 
 /// Start the worker processes of a parallel server: `N` here, or `host:N,host:N` (over ssh;
 /// the data must be at the same path there, as on a cluster's shared file system).
+/// Stop when the program that started this server goes away (the app was closed or killed, or
+/// the ssh session ended), even in the middle of a long request: the server would otherwise only
+/// notice when it next reads a request.
+fn exit_with_parent() {
+    #[cfg(unix)]
+    {
+        let first = std::os::unix::process::parent_id();
+        if first > 1 {
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if std::os::unix::process::parent_id() != first {
+                    std::process::exit(0);
+                }
+            });
+        }
+    }
+}
+
 fn spawn_workers(spec: &str, no_gpu: bool) -> anyhow::Result<Vec<std::sync::Arc<aurafx_pipeline::remote::RemoteClient>>> {
     let mut places: Vec<(Option<String>, usize)> = Vec::new();
     for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
@@ -151,7 +187,7 @@ fn serve_rank(addr: &str, token: &str, no_gpu: bool) -> anyhow::Result<()> {
     let hook = if no_gpu { None } else { aurafx_render::server::ServerRenderer::for_pieces() };
     let gpu = hook.as_ref().map(|h| h.gpu());
     let hook = hook.map(|h| Box::new(h) as Box<dyn aurafx_pipeline::remote::RenderHook>);
-    let opts = aurafx_pipeline::remote::ServeOptions { hook, gpu, piece: Some((rank, size)), workers: vec![] };
+    let opts = aurafx_pipeline::remote::ServeOptions { hook, gpu, piece: Some((rank, size)), workers: vec![], ..Default::default() };
     aurafx_pipeline::remote::serve_opts(stream.try_clone()?, stream, opts)
 }
 

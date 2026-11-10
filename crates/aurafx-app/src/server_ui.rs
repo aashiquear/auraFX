@@ -294,11 +294,17 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
                 .on_hover_text("Spread each file over this many server processes (a parallel server). Partitioned files (.pvtu, ...) are read piece by piece; other files are read, then split.");
             if st.server.processes > 1 {
                 ui.label("started by");
-                let shown = if st.server.launcher.is_empty() { "the server".to_string() } else { st.server.launcher.clone() };
+                let shown = match st.server.launcher.as_str() {
+                    "" => "the server".to_string(),
+                    "stream" => "one, in turn".to_string(),
+                    l => l.to_string(),
+                };
                 egui::ComboBox::from_id_salt("server_launcher").selected_text(shown).show_ui(ui, |ui| {
                     ui.selectable_value(&mut st.server.launcher, String::new(), "the server (its own processes)");
                     ui.selectable_value(&mut st.server.launcher, "mpirun".to_string(), "mpirun (MPI)");
                     ui.selectable_value(&mut st.server.launcher, "srun".to_string(), "srun (Slurm)");
+                    ui.selectable_value(&mut st.server.launcher, "stream".to_string(), "one process, one piece at a time")
+                        .on_hover_text("For files larger than memory: one process reads the pieces one after another and keeps only what comes out of each (a surface, a slice, a contour). Slower, but needs memory for one piece only.");
                     if ui.selectable_label(st.server.launcher.contains("{cmd}"), "a command…").clicked() {
                         st.server.launcher = "mpiexec -n {n} -hostfile hosts {cmd}".into();
                     }

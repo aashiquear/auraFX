@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5bd246f4.js";
+            window.path_to_searchindex_js = "searchindex-b78dfc0f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8e704b6d.js"></script>
@@ -313,6 +313,24 @@ pieces of a parallel server.</p>
 Variables run on every core and give exactly the same result on any number of threads. A
 slice of 4 million cells takes about 80 ms. The thread count can be limited in <strong>Settings ›
 Filter threads</strong> (0 = all cores) or with <code>AURAFX_THREADS</code>.</p>
+<p>Slice and Contour of image, rectilinear and structured grids only build the cells the cut
+crosses, so a big grid needs memory for those, not for the whole grid as cells.</p>
+<h3 id="the-gpu"><a class="header" href="#the-gpu">The GPU</a></h3>
+<p>With a graphics card, <strong>Slice</strong> and <strong>Contour</strong> of grids with more than a million cells let the
+GPU find the cells the cut can cross; the CPU then cuts those. The GPU works in 32-bit, so it
+takes a margin (a few cells more than needed, never fewer) and leaves every value to the CPU’s
+64-bit arithmetic: the results are the same, number for number, with or without it. Slicing a
+grid of 64 million points took 0.23 s instead of 2.1 s on a laptop GPU; contours take about as
+long either way, since cutting the crossed cells is most of their work.</p>
+<p><strong>Settings › Use the GPU for filters</strong> switches it off and on, and <strong>Benchmark</strong> times both on a
+201^3 grid. From Python:</p>
+<pre><code class="language-python">afx.gpu_filters()          # {'device': 'AMD Radeon ... (Vulkan)', 'on': True}
+afx.gpu_filters(False)     # CPU only
+afx.gpu_benchmark(100)     # [{'filter': 'Contour', 'cpu_s': ..., 'gpu_s': ...}, ...]
+</code></pre>
+<p>Servers use their own GPU the same way (<code>aurafx-server --no-gpu</code> does not); <code>AURAFX_GPU_FILTERS=0</code>
+turns it off before start. Data bigger than the GPU’s buffers is sent in slabs.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/gpu_filters.png" alt="The Performance settings with the GPU switch, and timings of Slice and Contour on a 201^3 grid with and without the GPU, written in the 3D view"><span class="img-wrapper"><img src="images/gpu_filters.png" alt="The Performance settings with the GPU switch, and timings of Slice and Contour on a 201^3 grid with and without the GPU, written in the 3D view"></span></label></p>
 <h2 id="surface-operations"><a class="header" href="#surface-operations">Surface operations</a></h2>
 <p>Eight filters work on surfaces and lines (<strong>Filters › Geometry</strong>, <strong>Data Analysis</strong>):</p>
 <ul>

@@ -237,3 +237,95 @@ fn neighbour_filters_match_one_process() {
         assert!(worst < 1e-9, "{file} {id}: values differ by {worst}");
     }
 }
+
+/// Memory of a streamed server on a big file (set AFX_BIG to a large .vti; run with --ignored).
+#[test]
+#[ignore]
+fn streamed_memory() {
+    let Ok(big) = std::env::var("AFX_BIG") else { return };
+    let hwm = || std::fs::read_to_string("/proc/self/status").unwrap().lines().find(|l| l.starts_with("VmHWM")).unwrap().to_string();
+    let rss = || std::fs::read_to_string("/proc/self/status").unwrap().lines().find(|l| l.starts_with("VmRSS")).unwrap().to_string();
+    let n = 16;
+    let pieces = (0..n)
+        .map(|k| RemoteClient::in_process_opts(&format!("piece {k}"), ServeOptions { piece: Some((k, n)), forget: true, ..Default::default() }))
+        .collect();
+    let host = Host { name: "stream".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32, launcher: "stream".into() };
+    let mut s = Session::new();
+    s.remote_clients.insert(
+        aurafx_pipeline::remote::client_key(&host),
+        RemoteClient::in_process_opts("stream", ServeOptions { workers: pieces, sequential: true, ..Default::default() }),
+    );
+    let t = std::time::Instant::now();
+    let r = s.open_remote(host.clone(), &big);
+    s.update_blocking();
+    println!("open: {:.1} s {} {} payload {:?}", t.elapsed().as_secs_f64(), hwm(), rss(), s.nodes[&r].remote.as_ref().map(|x| x.payload));
+    let sl = s.add_filter("slice", r).unwrap();
+    s.set_param_json(sl, "normal", &serde_json::json!([0.0, 0.0, 1.0]));
+    s.update_blocking();
+    println!(
+        "slice: {:.1} s {} {} cells {:?} {:?} {:?}",
+        t.elapsed().as_secs_f64(),
+        hwm(),
+        rss(),
+        s.nodes[&sl].output.as_ref().map(|o| o.n_cells()),
+        s.nodes[&sl].remote.as_ref().map(|x| x.payload),
+        s.nodes[&sl].error
+    );
+    let c = s.add_filter("contour", r).unwrap();
+    s.set_param_json(c, "values", &serde_json::json!([0.5]));
+    s.update_blocking();
+    println!(
+        "contour: {:.1} s {} {} cells {:?} {:?}",
+        t.elapsed().as_secs_f64(),
+        hwm(),
+        rss(),
+        s.nodes[&c].output.as_ref().map(|o| o.n_cells()),
+        s.nodes[&c].error
+    );
+}
+
+/// A streamed server (pieces in turn, each forgotten after every request) gives the same
+/// surface, slice and contour as one process.
+#[test]
+fn streamed_pieces_match_one_process() {
+    let n = 5;
+    let pieces = (0..n)
+        .map(|k| RemoteClient::in_process_opts(&format!("piece {k}"), ServeOptions { piece: Some((k, n)), forget: true, ..Default::default() }))
+        .collect();
+    let host = Host { name: "stream".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32, launcher: "stream".into() };
+    let mut s = Session::new();
+    s.remote_clients.insert(
+        aurafx_pipeline::remote::client_key(&host),
+        RemoteClient::in_process_opts("stream", ServeOptions { workers: pieces, sequential: true, ..Default::default() }),
+    );
+    s.remote_max_bytes = 1000; // the reader comes back as its surface
+    let mut local = Session::new();
+    let r = s.open_remote(host.clone(), &td("wavelet.vti"));
+    let lr = local.open_file(td("wavelet.vti")).unwrap();
+    // The reader alone comes back as its outer surface, merged piece by piece.
+    s.update_blocking();
+    local.update_blocking();
+    let surf = s.nodes[&r].output.clone().unwrap();
+    let want = aurafx_filters::surface::extract_surface(local.nodes[&lr].output.as_ref().unwrap()).unwrap();
+    assert_eq!(surf.n_cells(), want.polys.len(), "surface: no faces between pieces");
+    close(integrate(&surf)["Area"], integrate(&DataSet::PolyData(want))["Area"], "surface area");
+    let mut pairs = Vec::new();
+    for (id, k, v) in [("slice", "normal", serde_json::json!([0.0, 0.0, 1.0])), ("contour", "values", serde_json::json!([150.0]))] {
+        let a = s.add_filter(id, r).unwrap();
+        let b = local.add_filter(id, lr).unwrap();
+        s.set_param_json(a, k, &v);
+        local.set_param_json(b, k, &v);
+        pairs.push((id, a, b));
+    }
+    s.update_blocking();
+    local.update_blocking();
+    for (id, a, b) in pairs {
+        assert!(s.nodes[&a].error.is_none(), "{id}: {:?}", s.nodes[&a].error);
+        let x = s.nodes[&a].output.clone().unwrap();
+        let y = local.nodes[&b].output.clone().unwrap();
+        assert_eq!(x.n_cells(), y.n_cells(), "{id}: cells");
+        for (k, v) in integrate(&y) {
+            close(integrate(&x)[&k], v, &format!("{id}: integral of {k}"));
+        }
+    }
+}

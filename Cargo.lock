@@ -477,6 +477,7 @@ dependencies = [
  "aurafx-crystal",
  "aurafx-data",
  "aurafx-filters",
+ "aurafx-gpu",
  "aurafx-io",
  "aurafx-jobs",
  "aurafx-mesh",
@@ -566,6 +567,18 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tracing",
+]
+
+[[package]]
+name = "aurafx-gpu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aurafx-data",
+ "aurafx-filters",
+ "bytemuck",
+ "tracing",
+ "wgpu",
 ]
 
 [[package]]
@@ -707,6 +720,7 @@ dependencies = [
  "anyhow",
  "aurafx-data",
  "aurafx-filters",
+ "aurafx-gpu",
  "aurafx-jobs",
  "aurafx-pipeline",
  "aurafx-render",

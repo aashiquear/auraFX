@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 aurafx-pipeline.workspace = true
 aurafx-filters.workspace = true
+aurafx-gpu.workspace = true
 aurafx-render.workspace = true
 aurafx-jobs.workspace = true
 anyhow.workspace = true

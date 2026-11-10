@@ -212,6 +212,10 @@ pub struct ServeOptions {
     pub piece: Option<(usize, usize)>,
     /// A parallel server's coordinator: its workers.
     pub workers: Vec<Arc<RemoteClient>>,
+    /// Ask the workers one after another, not at once (a streamed server: pieces read in turn).
+    pub sequential: bool,
+    /// Forget everything after each request (a streamed piece: only one piece in memory).
+    pub forget: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,7 +307,9 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
     let mut r = BufReader::new(input);
     let mut w = BufWriter::new(output);
     let piece = opts.piece;
-    let cluster = (!opts.workers.is_empty()).then(|| crate::cluster::Cluster::new(opts.workers));
+    let forget = opts.forget;
+    let sequential = opts.sequential;
+    let cluster = (!opts.workers.is_empty()).then(|| crate::cluster::Cluster { sequential, ..crate::cluster::Cluster::new(opts.workers) });
     let mut srv = Server { hook: opts.hook, gpu: opts.gpu, cluster, ..Server::default() };
     srv.session.piece = piece;
     loop {
@@ -345,6 +351,10 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
             },
         };
         write_msg(&mut w, &reply, &att)?;
+        if forget {
+            srv = Server { hook: srv.hook.take(), gpu: srv.gpu.clone(), cluster: srv.cluster.take(), ..Server::default() };
+            srv.session.piece = piece;
+        }
     }
 }
 
@@ -723,7 +733,9 @@ impl std::fmt::Debug for RemoteClient {
 /// Name under which a session keeps its connection to a host (a parallel server on the same
 /// host is a different connection).
 pub fn client_key(h: &aurafx_jobs::Host) -> String {
-    if h.server_processes > 1 {
+    if h.server_processes > 1 && h.launcher.trim() == "stream" {
+        format!("{} ×{} streamed", h.name, h.server_processes)
+    } else if h.server_processes > 1 {
         format!("{} ×{}", h.name, h.server_processes)
     } else {
         h.name.clone()
@@ -739,7 +751,10 @@ impl RemoteClient {
     pub fn for_host(host: aurafx_jobs::Host) -> Arc<Self> {
         let name = host.name.clone();
         let spawn: Spawner = Box::new(move || {
-            let cmd = if host.server_processes > 1 && !host.launcher.trim().is_empty() {
+            let cmd = if host.server_processes > 1 && host.launcher.trim() == "stream" {
+                // Files larger than memory: one process reads the pieces one after another.
+                SERVER_COMMAND.replace("--stdio", &format!("--stdio --stream {}", host.server_processes))
+            } else if host.server_processes > 1 && !host.launcher.trim().is_empty() {
                 // An MPI or Slurm launch: the ranks connect back to the server.
                 let l = host.launcher.trim().replace('\'', "'\\''");
                 SERVER_COMMAND.replace("--stdio", &format!("--stdio --workers {} --launcher '{l}'", host.server_processes))
@@ -1066,6 +1081,11 @@ impl Read for PipeReader {
         let n = out.len().min(self.buf.len() - self.pos);
         out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
         self.pos += n;
+        if self.pos >= self.buf.len() {
+            // Do not keep the last message (a piece's data can be large).
+            self.buf = Vec::new();
+            self.pos = 0;
+        }
         Ok(n)
     }
 }

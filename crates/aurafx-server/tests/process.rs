@@ -116,3 +116,48 @@ fn ranks_from_a_launcher_match_one_process() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A file larger than memory, streamed: one server process reads it in pieces one after
+/// another (VTK XML files read only each piece's bytes), and the results equal one process:
+/// the reader's surface, a contour, a slice and a gradient (with ghost cells between pieces).
+#[test]
+fn streamed_pieces_match_one_process() {
+    std::env::set_var("AURAFX_SERVER", env!("CARGO_BIN_EXE_aurafx-server"));
+    let td = |n: &str| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata").join(n).display().to_string();
+    let host = Host { name: "this computer".into(), kind: HostKind::Local, setup: String::new(), server_processes: 5, launcher: "stream".into() };
+    assert_eq!(aurafx_pipeline::remote::client_key(&host), "this computer ×5 streamed");
+    for file in ["wavelet_tets.vtu", "wavelet.vti"] {
+        let mut s = Session::new();
+        let mut local = Session::new();
+        let r = s.open_remote(host.clone(), &td(file));
+        let lr = local.open_file(td(file)).unwrap();
+        let rt = serde_json::json!({"assoc": "Points", "name": "RTData"});
+        let mut pairs = Vec::new();
+        for (id, k, v) in
+            [("contour", "values", serde_json::json!([150.0])), ("slice", "normal", serde_json::json!([0.0, 1.0, 0.0])), ("gradient", "array", rt)]
+        {
+            let a = s.add_filter(id, r).unwrap();
+            let b = local.add_filter(id, lr).unwrap();
+            s.set_param_json(a, k, &v);
+            local.set_param_json(b, k, &v);
+            pairs.push((id, a, b));
+        }
+        s.update_blocking();
+        local.update_blocking();
+        let info = s.remote_clients[&aurafx_pipeline::remote::client_key(&host)].info.lock().clone().unwrap();
+        assert_eq!(info.processes, 5);
+        for (id, a, b) in pairs {
+            assert!(s.nodes[&a].error.is_none(), "{file} {id}: {:?}", s.nodes[&a].error);
+            let (x, y) = (s.nodes[&a].output.clone().unwrap(), local.nodes[&b].output.clone().unwrap());
+            assert_eq!(x.n_cells(), y.n_cells(), "{file} {id}: cells");
+            let range = |d: &aurafx_data::DataSet, n: &str| {
+                let u = d.to_unstructured().unwrap();
+                u.point_data.get(n).map(|a| a.range(None)).unwrap_or((0.0, 0.0))
+            };
+            for n in ["RTData", "RTData_gradient"] {
+                let (p, q) = (range(&x, n), range(&y, n));
+                assert!((p.0 - q.0).abs() < 1e-6 * q.0.abs().max(1.0) && (p.1 - q.1).abs() < 1e-6 * q.1.abs().max(1.0), "{file} {id} {n}: {p:?} vs {q:?}");
+            }
+        }
+    }
+}

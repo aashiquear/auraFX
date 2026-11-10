@@ -131,7 +131,10 @@ fn parallel_server_composites_pieces_by_depth() {
         .map(|k| {
             let hook = ServerRenderer::for_pieces().unwrap();
             let gpu = Some(hook.gpu());
-            RemoteClient::in_process_opts(&format!("w{k}"), ServeOptions { hook: Some(Box::new(hook)), gpu, piece: Some((k, n)), workers: vec![] })
+            RemoteClient::in_process_opts(
+                &format!("w{k}"),
+                ServeOptions { hook: Some(Box::new(hook)), gpu, piece: Some((k, n)), workers: vec![], ..Default::default() },
+            )
         })
         .collect();
     let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32, launcher: String::new() };

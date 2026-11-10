@@ -42,7 +42,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [~] Time: `TimeSeries` wrapper with lazy per-step loading, time-step metadata, time arrays.
 - [~] Selections (IDs, rectangle/frustum, visible-only, threshold query done): IDs, global IDs, pedigree IDs, frustum, location, block, thresholds, query.
 - [~] Spatial structures (cell locator for probe and stream tracer done): point locator, cell locator, BVH/octree, kd-tree (used by probe, interpolate, picking).
-- [ ] Out-of-core/mmap-backed arrays for files larger than RAM.
+- [~] Out-of-core/mmap-backed arrays for files larger than RAM. (Iteration 88: files streamed in pieces through one server process, `afx.load(path, stream=N)`; VTK XML grids and `.vtu` read only each piece's bytes through a memory map; other readers todo.)
 - [x] Unit and physical-quantity metadata on arrays. (Iteration 87: units on every array, read from NetCDF, set with Set Units or `data.point_data.set_units`, shown in the legend, Information panel and spreadsheet; a label, no conversion.)
 
 ### 0.3 Pipeline engine (`aurafx-pipeline`)
@@ -50,7 +50,7 @@ Mirror of VTK's data object hierarchy, column-oriented, zero-copy where possible
 - [x] Multi-input filters: extra inputs per node, scheduled and invalidated like the main input, kept in undo and state files, cycles rejected.
 - [~] Per-node progress and cancellation; background execution off the UI thread.
 - [x] Time-aware execution: temporal filters read their input at any time (the upstream pipeline is re-evaluated on the worker thread), add or remap time steps, keep state between runs (particles advance incrementally) and skip re-running when their result does not depend on time.
-- [~] Streaming/pieces for huge datasets; ghost-cell generation. (Pieces on the parallel server, the Ghost Cells and Redistribute DataSet filters: iteration 83; streaming pieces through one process todo.)
+- [x] Streaming/pieces for huge datasets; ghost-cell generation. (Pieces on the parallel server, the Ghost Cells and Redistribute DataSet filters: iteration 83; ghost layers between server processes and pieces streamed through one process: iteration 88.)
 - [x] Undo/redo of every pipeline and property change.
 - [~] State files (`.afx` JSON/TOML) and `.pvsm` state import (best effort).
 - [~] Python trace: every UI action recorded as an equivalent `aurafx` Python call.
@@ -142,7 +142,7 @@ Each group below is a menu category. Every filter of the catalog is listed; thos
 
 ### 2.5 Filter infrastructure
 - [~] Every filter has: typed properties, defaults, validation, documentation, search keywords, Python binding, undo entry, and progress reporting.
-- [ ] GPU implementations (wgpu compute) for: contour, clip, slice, threshold, gradient, resample, glyph, stream tracer, particle advection, connectivity, histogram.
+- [~] GPU implementations (wgpu compute) for: contour, clip, slice, threshold, gradient, resample, glyph, stream tracer, particle advection, connectivity, histogram. (Iteration 88: contour and slice of grids, the GPU finding the cells to cut and the CPU cutting them, so results are unchanged; a GPU histogram was slower than the CPU here and was left out.)
 - [x] Custom filter authoring: Python (`@afx.filter`, done) and Rust plugins (iteration 86: the `aurafx-plugin` crate, shared libraries in the plugin folder).
 
 ---
@@ -247,9 +247,9 @@ with cancel), everything searchable, every action scriptable, every panel option
 ## 8. GPU compute (`aurafx-gpu`)
 
 - [x] wgpu device management: adapter choice (AMD, NVIDIA, Intel, software), features, limits, memory stats in UI.
-- [ ] Compute kernels in WGSL for filters listed in 2.5, array math (calculator JIT to WGSL), reductions, histograms, sorting.
+- [~] Compute kernels in WGSL for filters listed in 2.5, array math (calculator JIT to WGSL), reductions, histograms, sorting. (Iteration 88: the `aurafx-gpu` crate, cell-candidate kernels for values and planes.)
 - [ ] Optional vendor backends behind features: `cuda` (cudarc) and `rocm` (HIP) for kernels where WGSL is too limited (fp64, large shared memory), and for interop with PyTorch tensors.
-- [ ] GPU memory budgeting, fallbacks to CPU (rayon), benchmark panel.
+- [x] GPU memory budgeting, fallbacks to CPU (rayon), benchmark panel. (Iteration 88: slabs sized to the device's buffer limits, CPU fallback on any GPU error or without a GPU, Settings › Benchmark and `afx.gpu_benchmark`.)
 
 ---
 
@@ -951,14 +951,15 @@ implicit bodies (the B-rep kernel has fillets, chamfers and lofts on picked edge
 multi-source sweeps and submapping. The older open items
 of sections 0 to 10 are unchanged.
 
-Done in iterations 85 to 87 (2026-11-10), sections 1 to 10 with section 14 left until the
+Done in iterations 85 to 88 (2026-11-10), sections 1 to 10 with section 14 left until the
 user has looked into it: the GPU server-render tests no longer crash with several devices at
 once; NIfTI and PTS readers, Houdini `.geo`, WebM, Find Outliers and Find Change Points, a
 generated filter reference and a benchmarks page, keyboard shortcuts and accessibility,
 surface writers, saved assistant prompts (85); the Jupyter kernel and the Notebook panel, MPI
 and Slurm launchers for parallel servers, Rust plugins (the `aurafx-plugin` crate) and Python
-plugin panels (86); units on arrays (87). Still open in sections 0 to 10, by priority:
-out-of-core streaming, GPU compute filters, localization, collaboration, in-situ
+plugin panels (86); units on arrays (87); ghost layers between server processes and files
+streamed in pieces, GPU help for Slice and Contour (88). Still open in sections 0 to 10, by
+priority: piece readers for more formats, more GPU filters, localization, collaboration, in-situ
 coupling, VR and stereo, POV-Ray and HTML scene export, and the remaining catalog filters.
 
 ## Status (2026-11-05)

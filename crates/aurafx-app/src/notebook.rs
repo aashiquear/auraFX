@@ -34,14 +34,22 @@ pub struct Cell {
     pub count: Option<u64>,
     /// Markdown cells show rendered until double-clicked.
     editing: bool,
+    /// Tells this cell from every other while the app runs, wherever it is moved to (cells
+    /// waiting to run, the one running and the pictures shown are kept by it).
+    id: u64,
+}
+
+fn next_cell_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl Cell {
     pub fn code(src: &str) -> Cell {
-        Cell { kind: CellKind::Code, source: src.into(), outputs: vec![], count: None, editing: false }
+        Cell { kind: CellKind::Code, source: src.into(), outputs: vec![], count: None, editing: false, id: next_cell_id() }
     }
     pub fn markdown(src: &str) -> Cell {
-        Cell { kind: CellKind::Markdown, source: src.into(), outputs: vec![], count: None, editing: false }
+        Cell { kind: CellKind::Markdown, source: src.into(), outputs: vec![], count: None, editing: false, id: next_cell_id() }
     }
 }
 
@@ -49,15 +57,19 @@ pub struct Notebook {
     pub cells: Vec<Cell>,
     pub path: Option<PathBuf>,
     pub dirty: bool,
-    queue: VecDeque<usize>,
-    running: Option<(usize, Receiver<RunOutput>)>,
+    /// Cells waiting to run, by id.
+    queue: VecDeque<u64>,
+    /// The cell that runs (by id) and where its result arrives. The cell may be gone by then
+    /// (deleted, or another notebook opened): the result is dropped.
+    running: Option<(u64, Receiver<RunOutput>)>,
     count: u64,
     selected: usize,
     md_cache: egui_commonmark::CommonMarkCache,
-    textures: std::collections::HashMap<(usize, usize, usize), egui::TextureHandle>,
+    /// Pictures of outputs: (cell id, output number, bytes) -> texture.
+    textures: std::collections::HashMap<(u64, usize, usize), egui::TextureHandle>,
     pub error: Option<String>,
-    /// A cell that just finished: scroll so its output shows.
-    scroll_to: Option<usize>,
+    /// A cell (by id) that just finished: scroll so its output shows.
+    scroll_to: Option<u64>,
 }
 
 impl Default for Notebook {
@@ -202,45 +214,76 @@ fn outputs_of(o: RunOutput) -> Vec<Output> {
 }
 
 impl Notebook {
+    /// Queue the code cells at these positions.
     fn run_cells(&mut self, cells: impl IntoIterator<Item = usize>) {
         for i in cells {
-            if self.cells.get(i).is_some_and(|c| c.kind == CellKind::Code) && !self.queue.contains(&i) {
-                self.queue.push_back(i);
+            if let Some(c) = self.cells.get(i).filter(|c| c.kind == CellKind::Code) {
+                if !self.queue.contains(&c.id) {
+                    self.queue.push_back(c.id);
+                }
             }
         }
     }
 
-    /// Start the next queued cell and collect a finished one.
-    fn pump(&mut self, python: &std::sync::mpsc::Sender<PythonRequest>, ctx: &egui::Context) {
-        if let Some((i, rx)) = &self.running {
+    fn position(&self, id: u64) -> Option<usize> {
+        self.cells.iter().position(|c| c.id == id)
+    }
+
+    /// Take the cell at `i` out (the notebook always keeps one cell): it no longer waits to
+    /// run, and a result still to come for it is dropped.
+    fn delete_cell(&mut self, i: usize) {
+        if i >= self.cells.len() {
+            return;
+        }
+        let id = self.cells.remove(i).id;
+        self.queue.retain(|q| *q != id);
+        self.textures.retain(|k, _| k.0 != id);
+        if self.cells.is_empty() {
+            self.cells.push(Cell::code(""));
+        }
+        self.selected = self.selected.min(self.cells.len() - 1);
+    }
+
+    /// Start the next queued cell and collect a finished one. Returns whether a cell runs.
+    fn step(&mut self, python: &std::sync::mpsc::Sender<PythonRequest>) -> bool {
+        if let Some((id, rx)) = &self.running {
             match rx.try_recv() {
                 Ok(out) => {
-                    let i = *i;
-                    if let Some(c) = self.cells.get_mut(i) {
-                        c.outputs = outputs_of(out);
-                    }
-                    self.textures.retain(|k, _| k.0 != i);
+                    let id = *id;
                     self.running = None;
-                    self.scroll_to = Some(i);
-                    self.dirty = true;
+                    // (The cell may have moved, or be gone.)
+                    if let Some(i) = self.position(id) {
+                        self.cells[i].outputs = outputs_of(out);
+                        self.textures.retain(|k, _| k.0 != id);
+                        self.scroll_to = Some(id);
+                        self.dirty = true;
+                    }
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {
-                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
-                    return;
-                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return true,
                 Err(_) => self.running = None,
             }
         }
-        if let Some(i) = self.queue.pop_front() {
+        while let Some(id) = self.queue.pop_front() {
+            // (A queued cell that was deleted since, or turned into text: skipped.)
+            let Some(i) = self.position(id).filter(|&i| self.cells[i].kind == CellKind::Code) else { continue };
             let (tx, rx) = std::sync::mpsc::channel();
             let src = self.cells[i].source.clone();
             if python.send(PythonRequest::RunFor(src, tx)).is_ok() {
                 self.count += 1;
                 self.cells[i].count = Some(self.count);
                 self.cells[i].outputs.clear();
-                self.running = Some((i, rx));
-                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                self.textures.retain(|k, _| k.0 != id);
+                self.running = Some((id, rx));
+                return true;
             }
+        }
+        false
+    }
+
+    /// [`Notebook::step`], and come back soon while a cell runs.
+    fn pump(&mut self, python: &std::sync::mpsc::Sender<PythonRequest>, ctx: &egui::Context) {
+        if self.step(python) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
     }
 
@@ -256,8 +299,11 @@ impl Notebook {
                 self.cells = cells;
                 self.path = Some(path);
                 self.dirty = false;
+                // Nothing of the old notebook waits to run; what still runs gives its result
+                // to a cell that is gone, so it is dropped when it arrives.
                 self.textures.clear();
                 self.queue.clear();
+                self.scroll_to = None;
                 self.selected = 0;
                 self.error = None;
             }
@@ -331,6 +377,9 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
         if nb.running.is_some() || !nb.queue.is_empty() {
             ui.spinner();
         }
+        if nb.running.as_ref().is_some_and(|r| nb.position(r.0).is_none()) {
+            ui.label(RichText::new("finishing a cell that is gone…").weak());
+        }
     });
     if let Some(e) = &nb.error {
         ui.colored_label(crate::theme::ERROR, e);
@@ -349,7 +398,7 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     let c = &nb.cells[i];
-                    let tag = match (c.kind, running == Some(i), nb.queue.contains(&i)) {
+                    let tag = match (c.kind, running == Some(c.id), nb.queue.contains(&c.id)) {
                         (CellKind::Markdown, ..) => "text".to_string(),
                         (_, true, _) => "[*]".into(),
                         (_, _, true) => "[ ]".into(),
@@ -380,7 +429,7 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
                                 if c.source.trim().is_empty() { "*(empty text cell: double-click to write)*" } else { &c.source },
                             );
                         });
-                        let resp = ui.interact(r.response.rect, ui.id().with(("md", i)), egui::Sense::click());
+                        let resp = ui.interact(r.response.rect, ui.id().with(("md", c.id)), egui::Sense::click());
                         if resp.double_clicked() {
                             c.editing = true;
                         }
@@ -412,6 +461,7 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
                     nb.selected = i;
                 }
                 // Outputs.
+                let id = nb.cells[i].id;
                 for (k, o) in nb.cells[i].outputs.iter().enumerate() {
                     match o {
                         Output::Text(t) => {
@@ -421,12 +471,12 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.label(RichText::new(e.trim_end()).monospace().color(crate::theme::ERROR));
                         }
                         Output::Image(_, bytes) => {
-                            let key = (i, k, bytes.len());
+                            let key = (id, k, bytes.len());
                             if !nb.textures.contains_key(&key) {
                                 if let Ok(img) = image::load_from_memory(bytes) {
                                     let rgba = img.to_rgba8();
                                     let ci = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw());
-                                    nb.textures.insert(key, ui.ctx().load_texture(format!("nb-{i}-{k}"), ci, Default::default()));
+                                    nb.textures.insert(key, ui.ctx().load_texture(format!("nb-{id}-{k}"), ci, Default::default()));
                                 }
                             }
                             match nb.textures.get(&key) {
@@ -443,7 +493,7 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
                     }
                 }
             });
-            if nb.scroll_to == Some(i) {
+            if nb.scroll_to == Some(nb.cells[i].id) {
                 ui.scroll_to_rect(shown.response.rect, Some(egui::Align::BOTTOM));
                 nb.scroll_to = None;
             }
@@ -463,22 +513,12 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
             "up" if i > 0 => {
                 nb.cells.swap(i, i - 1);
                 nb.selected = i - 1;
-                nb.textures.clear();
             }
             "down" if i + 1 < nb.cells.len() => {
                 nb.cells.swap(i, i + 1);
                 nb.selected = i + 1;
-                nb.textures.clear();
             }
-            "delete" => {
-                nb.cells.remove(i);
-                if nb.cells.is_empty() {
-                    nb.cells.push(Cell::code(""));
-                }
-                nb.selected = nb.selected.min(nb.cells.len() - 1);
-                nb.textures.clear();
-                nb.queue.retain(|q| *q != i);
-            }
+            "delete" => nb.delete_cell(i),
             _ => {}
         }
         nb.dirty = true;
@@ -515,5 +555,59 @@ mod tests {
              "outputs": [{"output_type": "execute_result", "execution_count": 1, "data": {"text/plain": ["6"]}, "metadata": {}}]}]}"#;
         let c = from_ipynb(j).unwrap();
         assert_eq!((c[0].source.as_str(), c[0].outputs.clone()), ("a = 2\na * 3", vec![Output::Text("6".into())]));
+    }
+
+    /// Cells are deleted, moved and replaced while one runs and others wait: every result
+    /// reaches its own cell, or nothing when the cell is gone.
+    #[test]
+    fn cells_change_while_one_runs() {
+        let (python, requests) = std::sync::mpsc::channel::<PythonRequest>();
+        // Answer the request that waits: the source back as the output.
+        let answer = || match requests.try_recv() {
+            Ok(PythonRequest::RunFor(src, reply)) => {
+                let _ = reply.send(RunOutput { stdout: format!("ran {src}"), ..Default::default() });
+                src
+            }
+            _ => panic!("a cell was sent to run"),
+        };
+        let text = |nb: &Notebook, src: &str| nb.cells.iter().find(|c| c.source == src).map(|c| c.outputs.clone());
+        let ran = |src: &str| Some(vec![Output::Text(format!("ran {src}"))]);
+        let mut nb = Notebook { cells: ["a", "b", "c", "d"].map(Cell::code).to_vec(), ..Default::default() };
+        nb.run_all();
+        assert!(nb.step(&python), "a runs");
+        // While a runs: b (waiting) is deleted, d moves to the front, a moves to the end.
+        nb.delete_cell(1);
+        nb.cells.swap(1, 2); // a d c
+        nb.cells.swap(0, 1); // d a c
+        nb.cells.swap(1, 2); // d c a
+        assert_eq!(answer(), "a");
+        assert!(nb.step(&python), "a is done; the next cell that still exists (c) runs");
+        assert_eq!(text(&nb, "a"), ran("a"), "the result is in the cell that ran, where it is now");
+        assert_eq!(text(&nb, "d"), Some(vec![]));
+        // While c runs it is deleted: its result goes nowhere, and d still runs after it.
+        let at = nb.cells.iter().position(|c| c.source == "c").unwrap();
+        nb.delete_cell(at);
+        assert_eq!(answer(), "c");
+        assert!(nb.step(&python), "d runs");
+        assert!(nb.cells.iter().all(|c| c.outputs.iter().all(|o| *o != Output::Text("ran c".into()))));
+        assert_eq!(answer(), "d");
+        assert!(!nb.step(&python), "nothing left");
+        assert_eq!(text(&nb, "d"), ran("d"));
+        assert_eq!(nb.cells.iter().map(|c| c.source.as_str()).collect::<Vec<_>>(), ["d", "a"]);
+        assert_eq!(nb.cells.iter().map(|c| c.count).collect::<Vec<_>>(), [Some(3), Some(1)]);
+        // Deleting every cell leaves an empty one; a result for a notebook that was replaced
+        // is dropped.
+        nb.run_cells([1]);
+        assert!(nb.step(&python));
+        let file = std::env::temp_dir().join(format!("aurafx_nb_{}.ipynb", std::process::id()));
+        std::fs::write(&file, to_ipynb(&[Cell::code("other")])).unwrap();
+        nb.open(file.clone());
+        let _ = std::fs::remove_file(&file);
+        assert_eq!(answer(), "a");
+        assert!(!nb.step(&python));
+        assert_eq!(nb.cells.len(), 1);
+        assert!(nb.cells[0].outputs.is_empty(), "the old notebook's result is not shown in the new one");
+        nb.delete_cell(0);
+        assert_eq!((nb.cells.len(), nb.selected), (1, 0));
     }
 }

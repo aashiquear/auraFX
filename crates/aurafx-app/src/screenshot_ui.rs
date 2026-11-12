@@ -120,6 +120,9 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     if save {
         if let Some(path) = crate::dialogs::FileDialog::new()
             .add_filter("PNG image", &["png"])
+            .add_filter("JPEG image (no transparency)", &["jpg", "jpeg"])
+            .add_filter("BMP image", &["bmp"])
+            .add_filter("TIFF image", &["tif", "tiff"])
             .add_filter("SVG vector picture", &["svg"])
             .set_file_name("aurafx.png")
             .save_file()

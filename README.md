@@ -22,6 +22,11 @@ more), renders them on any GPU through Vulkan/Metal/DX12, and puts three things 
 * a **simulation runner** that launches LAMMPS, MOOSE, OpenFOAM or your own Python pipeline
   locally, on a remote GPU box over SSH, or through Slurm, and opens the results when the run ends.
 
+The same window also holds a **parametric CAD modeler** (sketches, a feature history, STEP in
+and out), a **geometry and mesh generator** (hexahedral and tetrahedral meshes with named sets)
+and a **grain workbench** for microstructures, so a part can go from a sketch to a mesh to a
+solver run to pictures without leaving the app.
+
 The goal is the breadth of a full visualization suite with a UI a new user can drive
 without a manual. auraFX is inspired by ParaView, DREAM.3D and Cubit; it shares no code with
 them. The full plan, with every reader, filter and view of the catalog mapped to a phase, is
@@ -43,6 +48,7 @@ in [ROADMAP.md](ROADMAP.md). The **user guide** is in [docs/userguide](docs/user
 | **Curved cells** | Lagrange and Bezier cells of any order (VTK types 68-80, rational weights, per-cell degrees) and quadratic cells drawn curved, with an adjustable subdivision level; Slice, Clip, Contour, Probe and Integrate Variables follow their nodes (verified against a reference implementation) |
 | **Rendering** | wgpu (Vulkan / Metal / DX12 / GL), progressive path tracing, environment maps and metal/rough materials, Surface LIC, MSAA + FXAA, light kit and custom lights, shadows, ambient occlusion, tone mapping, order-independent transparency, Eye-Dome Lighting, crease-angle shading, surface / edges / wireframe / points / outline / molecules (ball-and-stick, van der Waals, liquorice) / **GPU volume rendering**, line widths, 18 color maps with previews plus a **color map editor** (histogram, drag markers, bands, reverse, your own presets, ParaView `.json` import/export), log scale, scalar bar, translucency, volumes depth-merged with surfaces, X-ray selection highlight, data axes grid, text and time annotations, headless rendering |
 | **Interaction** | Several 3D views side by side or stacked with linked cameras; pick values on surfaces; rectangle selection of visible cells (or through); ruler; interactive slice/clip plane widget; camera presets; time player |
+| **Finding your way** | A Welcome window; right-click an object (in the pipeline or the 3D view) for the filters that fit its data, with the reason, and cuts through the clicked point; filters that will not work say what they need; in the CAD environment a strip that says what to do next and a command search at the pointer; menus that write the geometry commands and the steps to a mesh |
 | **UI** | Dark, light or system theme; Windows menu with panel toggles and layout presets; command palette (Ctrl+K); undo/redo; `.afx` session files and last-session restore; charts; spreadsheet; keyframe animation (camera and filter values on a timeline) and export (GIF, MP4, PNG) |
 | **Python** | Embedded interpreter with the `afx` module, NumPy in and out, console with completion, `--script`, trace export; a **Notebook panel** (`.ipynb`) and a **Jupyter kernel** (`aurafx --install-jupyter-kernel`) that drives the window from JupyterLab |
 | **Speed** | Slice, Contour, Clip, Threshold, Extract Surface, Stream Tracer, Gradient and Integrate Variables use every core, with the same results on any number of threads; 4M-cell slice in ~80 ms; watertight contours; thread limit in Settings |
@@ -50,7 +56,7 @@ in [ROADMAP.md](ROADMAP.md). The **user guide** is in [docs/userguide](docs/user
 | **CAD modeling** | A parametric part modeler in the same window: constrained sketches, a feature timeline that rebuilds when a dimension changes, holes, patterns (also on a face), rounding and shelling, picked-edge fillets, draft and mirror about a face (chosen by a click in the 3D view), parts side by side as an assembly with a fit check; two kernels (exact B-rep and signed-distance fields) that name faces alike; STEP, IGES, 3MF and SolidCraft files in, STEP, IGES, 3MF, STL and OBJ out; a check of everything downstream before an edit is applied, with fixes (and an assistant's suggestion); parts mesh into hexahedra with their faces as named side sets (user guide: CAD modeling) |
 | **Plugins** | Python plugins add filters, sources and readers with `@afx.filter`, `@afx.source`, `@afx.reader`, and panels of their own controls with `@afx.panel`; reload on save; **Rust plugins** as shared libraries built with the `aurafx-plugin` crate; Plugins window (Edit menu); see [docs/plugins.md](docs/plugins.md) |
 | **AI** | Ollama (honours `OLLAMA_HOST`), Anthropic, OpenAI-compatible; streaming; pipeline-aware; **agent mode** runs code and iterates on results |
-| **Simulations** | Local, SSH and Slurm jobs; templates for LAMMPS, MOOSE, OpenFOAM, SPPARKS, PINNACLE and Python pipelines, three of which write their input files from the pipeline's data (grain meshes, microstructures); results reopened for analysis; NVIDIA/AMD GPU selection; parameter sweeps; live logs; auto-open results; **live reload** of files a running solver writes; GPU monitor; remote file browser |
+| **Simulations** | Local, SSH, Slurm, PBS and LSF jobs; templates for LAMMPS, MOOSE, OpenFOAM, SPPARKS, PINNACLE and Python pipelines, three of which write their input files from the pipeline's data (grain meshes, microstructures); results reopened for analysis; NVIDIA/AMD GPU selection; parameter sweeps; live logs; auto-open results; **live reload** of files a running solver writes; GPU monitor; remote file browser |
 
 ## Grains and meshes in the same window
 
@@ -94,7 +100,7 @@ assistant and submit jobs to remote machines, but they do not embed Python. Pack
 
 ## Building
 
-Requirements: Rust 1.85+, Python 3.10+ with development headers (`python3-dev`), a GPU driver
+Requirements: Rust 1.95+, Python 3.10+ with development headers (`python3-dev`), a GPU driver
 with Vulkan (Linux/Windows) or Metal (macOS).
 
 ```bash
@@ -153,6 +159,11 @@ crates/
   aurafx-data      data model: arrays, attributes, cells, image/rectilinear/structured/poly/unstructured grids, tables, multiblock, AMR, hyper tree grids, cell grids, time series
   aurafx-io        readers and writers (every format above, in pure Rust: own NetCDF-3, HDF5, ADF, SQLite, FlatBuffers and zip decoders)
   aurafx-filters   filters and sources with typed parameter schemas (one registry drives UI, Python and AI)
+  aurafx-crystal   crystal orientations, symmetry and texture for the grain workbench
+  aurafx-mesh      geometry kernel (signed distance fields), hexahedral and tetrahedral meshers
+  aurafx-cad       parametric CAD document, sketch solver, two kernels (implicit and B-rep), STEP/IGES/3MF
+  aurafx-gpu       GPU compute kernels that speed up filters (wgpu)
+  aurafx-plugin    the crate Rust plugins are written against (and aurafx-plugin-example)
   aurafx-pipeline  pipeline graph, background execution, time, display properties, color maps
   aurafx-render    wgpu renderer, camera, tessellation, headless rendering
   aurafx-python    embedded CPython (PyO3) and the `aurafx` module
@@ -171,7 +182,7 @@ More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 cargo test --workspace
 ```
 
-The 150 tests compare readers, writers and filters with reference outputs on the files in
+The tests (about 500) compare readers, writers and filters with reference outputs on the files in
 `testdata/` (how each file and reference was made is in [testdata/README.md](testdata/README.md)
 and [docs/reference/verification.md](docs/reference/verification.md));
 the rendering tests draw on the GPU headless and check the pixels.

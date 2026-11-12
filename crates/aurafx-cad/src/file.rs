@@ -53,7 +53,10 @@ impl CadFile {
         if format > FORMAT_VERSION {
             return Err(FileError::TooNew { found: format, supported: FORMAT_VERSION });
         }
-        serde_json::from_value(v).map_err(|e| FileError::Parse(e.to_string()))
+        serde_json::from_value(v).map_err(|e| FileError::Parse(e.to_string())).map(|mut f: Self| {
+            f.document.normalize_ids();
+            f
+        })
     }
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), FileError> {
         std::fs::write(path.as_ref(), self.to_json()).map_err(|e| FileError::Io(format!("{}: {e}", path.as_ref().display())))

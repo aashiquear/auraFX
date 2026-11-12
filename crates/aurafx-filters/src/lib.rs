@@ -57,6 +57,7 @@ pub mod slice;
 pub mod sources;
 pub mod stats;
 pub mod streamlines;
+pub mod suggest;
 pub mod surface;
 pub mod surface_ops;
 pub mod synthetic;

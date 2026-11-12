@@ -1,5 +1,5 @@
 //! Editing a document with plain data: one operation name and a JSON object of arguments, the
-//! same calls the Python `cad` object, the assistant and the PropertyManager make, so a script
+//! same calls the Python `cad` object, the assistant and the feature panel make, so a script
 //! and the interactive environment produce identical documents (and the same trace).
 //!
 //! Numbers in an operation may be written as expressions of the document's parameters
@@ -352,7 +352,41 @@ fn feature_summary(f: &Feature) -> Value {
 }
 
 /// Apply one operation to the document; returns what it made (a feature's id and name, ...).
+/// One operation on a document. All or nothing: when the operation is refused the document is
+/// exactly as it was (operations may change it before they find the problem).
 pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, CadError> {
+    let before = doc.clone();
+    match apply_op_inner(doc, op, args) {
+        Ok(v) => {
+            doc.normalize_ids();
+            Ok(v)
+        }
+        Err(e) => {
+            *doc = before;
+            Err(e)
+        }
+    }
+}
+
+/// Drop the bindings of modifier `k` of a feature and renumber those of the modifiers after it
+/// (bindings address modifiers by position).
+fn unbind_modifier(f: &mut Feature, k: usize) {
+    let mut kept = Vec::new();
+    for mut b in std::mem::take(&mut f.bindings) {
+        if let Some(rest) = b.path.strip_prefix("/modifiers/") {
+            let (idx, tail) = rest.split_once('/').unwrap_or((rest, ""));
+            match idx.parse::<usize>() {
+                Ok(i) if i == k => continue,
+                Ok(i) if i > k => b.path = if tail.is_empty() { format!("/modifiers/{}", i - 1) } else { format!("/modifiers/{}/{tail}", i - 1) },
+                _ => {}
+            }
+        }
+        kept.push(b);
+    }
+    f.bindings = kept;
+}
+
+fn apply_op_inner(doc: &mut Document, op: &str, args: &Value) -> Result<Value, CadError> {
     match op {
         "new" => {
             let name = args.get("name").and_then(|n| n.as_str()).unwrap_or("Part");
@@ -399,6 +433,11 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             if doc.parameters.len() == before {
                 return bad(format!("no parameter '{name}'"));
             }
+            // Still used by another dimension, a feature or a sketch: say so instead of leaving
+            // a part that no longer builds.
+            if let Err(e) = doc.resolved() {
+                return bad(format!("'{name}' is still used ({e}): change what uses it first"));
+            }
             Ok(json!({}))
         }
         "add" => {
@@ -438,7 +477,10 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
                     sketch: sk,
                     depth,
                     end,
-                    draft_deg: args.get("draft").and_then(|d| d.as_f64()).unwrap_or(0.0),
+                    draft_deg: match args.get("draft") {
+                        Some(d) => num(doc, d)?.0,
+                        None => 0.0,
+                    },
                     top_edge: edge("top")?,
                     bottom_edge: edge("bottom")?,
                     reverse: args.get("reverse").and_then(|r| r.as_bool()).unwrap_or(false),
@@ -476,6 +518,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
                 Some(f) => {
                     let i = find(doc, f)?;
                     doc.features[i].modifiers.clear();
+                    doc.features[i].bindings.retain(|b| !b.path.starts_with("/modifiers/"));
                 }
             }
             Ok(json!({}))
@@ -492,7 +535,14 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
         }
         "rename" => {
             let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
-            doc.features[i].name = args.get("to").and_then(|t| t.as_str()).ok_or_else(|| CadError::Edit("rename needs \"to\"".into()))?.to_string();
+            let to = args.get("to").and_then(|t| t.as_str()).ok_or_else(|| CadError::Edit("rename needs \"to\"".into()))?.trim().to_string();
+            if to.is_empty() {
+                return bad("a feature needs a name");
+            }
+            if doc.features.iter().enumerate().any(|(k, f)| k != i && f.name == to) {
+                return bad(format!("a feature named '{to}' already exists (faces are named after their feature)"));
+            }
+            doc.features[i].name = to;
             Ok(json!({}))
         }
         "move" => {
@@ -527,7 +577,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(json!({}))
         }
         "set_json" => {
-            // The general edit the PropertyManager uses for choices (an end condition, a hole
+            // The general edit the feature panel uses for choices (an end condition, a hole
             // type): any value at a JSON pointer inside the feature, checked by reading it back.
             let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
             let path = args.get("path").and_then(|p| p.as_str()).ok_or_else(|| CadError::Edit("set_json needs a JSON pointer \"path\"".into()))?;
@@ -565,7 +615,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             } else {
                 (Shape::ShellFaces { thickness: num(doc, args.get("thickness").unwrap_or(&json!(2)))?.0, faces: picks("faces")? }, "Shell")
             };
-            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or(default_name), BooleanOp::Add, shape);
+            let mut f = Feature::new(new_name(doc, args, default_name)?, BooleanOp::Add, shape);
             if let Some(e) = args.get("size").or(args.get("thickness")).and_then(|v| v.as_str()) {
                 f.bindings.push(Binding { path: if op == "edge_blend" { "/shape/size".into() } else { "/shape/thickness".into() }, expr: e.into() });
             }
@@ -578,7 +628,9 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             let part = part_from_args(args)?;
             let base = args.get("name").and_then(|n| n.as_str()).map(str::to_string).unwrap_or_else(|| if part.name.is_empty() { "Part".into() } else { part.name.clone() });
             let name = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base} {k}") }).find(|n| !doc.components.iter().any(|c| &c.name == n)).unwrap();
-            let id = Id(doc.components.iter().map(|c| c.id.0).max().unwrap_or(0) + 1);
+            // Never reused, also after the last part is removed (face ids derive from it).
+            doc.next_id = doc.next_id.max(doc.components.iter().map(|c| c.id.0).max().unwrap_or(0)) + 1;
+            let id = Id(doc.next_id);
             let placement = Placement { translate: vec3(args.get("at"), [0.0; 3]), rotate_deg: vec3(args.get("rotate"), [0.0; 3]) };
             doc.components.push(crate::document::ComponentRef { id, name: name.clone(), document: Box::new(part), placement, visible: true });
             Ok(json!({ "component": name, "id": id.0 }))
@@ -670,7 +722,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             } else {
                 (Shape::Hole { kind: HoleKind::Simple, diameter: size("diameter", 6.0)?, depth: size("depth", 10.0)? }, BooleanOp::Cut, "Hole")
             };
-            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or(default_name), op_kind, shape);
+            let mut f = Feature::new(new_name(doc, args, default_name)?, op_kind, shape);
             f.placement = Placement { translate: origin.to_array(), rotate_deg: [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()] };
             let count = args.get("count").and_then(|c| c.as_u64()).unwrap_or(4).max(1) as usize;
             match args.get("layout").and_then(|l| l.as_str()).unwrap_or("linear") {
@@ -693,11 +745,15 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             // Another part (a template, a document, a CAD file) added to, cut from or intersected with the
             // part so far, placed by `at` / `rotate`.
             let part = part_from_args(args)?;
-            if part.features.iter().all(|f| f.suppressed) && part.components.is_empty() {
-                return bad("the part to combine has no solid: give a template, a document or a file");
+            if part.features.iter().all(|f| f.suppressed) {
+                return bad(if part.components.is_empty() {
+                    "the part to combine has no solid: give a template, a document or a file"
+                } else {
+                    "the part to combine is an assembly: combine one of its parts"
+                });
             }
             let op_kind = op_of(&json!({ "op": args.get("op").cloned().unwrap_or(json!("add")), "kind": "" }))?;
-            let name = args.get("name").and_then(|n| n.as_str()).map(str::to_string).unwrap_or_else(|| format!("Combine {}", part.name));
+            let name = new_name(doc, args, &format!("Combine {}", part.name))?;
             let mut f = Feature::new(name, op_kind, Shape::Body { part: Box::new(part) });
             f.placement = Placement { translate: vec3(args.get("at"), [0.0; 3]), rotate_deg: vec3(args.get("rotate"), [0.0; 3]) };
             let id = doc.push(f);
@@ -710,7 +766,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             if normal[0].is_nan() || normal.iter().all(|c| *c == 0.0) {
                 return bad("mirror_plane needs a normal [x, y, z] (and an origin on the plane)");
             }
-            let f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or("Mirror"), BooleanOp::Add, Shape::MirrorPlane { origin, normal });
+            let f = Feature::new(new_name(doc, args, "Mirror")?, BooleanOp::Add, Shape::MirrorPlane { origin, normal });
             let id = doc.push(f);
             Ok(feature_summary(doc.feature(id).unwrap()))
         }
@@ -723,7 +779,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             let (angle, _) = num(doc, args.get("angle").unwrap_or(&json!(3)))?;
             let neutral_origin = vec3(args.get("neutral_origin"), [0.0; 3]);
             let neutral_normal = vec3(args.get("neutral_normal"), [0.0, 0.0, 1.0]);
-            let mut f = Feature::new(args.get("name").and_then(|n| n.as_str()).unwrap_or("Draft"), BooleanOp::Add, Shape::Draft { angle_deg: angle, faces, neutral_origin, neutral_normal });
+            let mut f = Feature::new(new_name(doc, args, "Draft")?, BooleanOp::Add, Shape::Draft { angle_deg: angle, faces, neutral_origin, neutral_normal });
             if let Some(e) = args.get("angle").and_then(|v| v.as_str()) {
                 f.bindings.push(Binding { path: "/shape/angle_deg".into(), expr: e.into() });
             }
@@ -742,6 +798,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
                 return bad(format!("'{}' has {} modifiers", doc.features[i].name, doc.features[i].modifiers.len()));
             }
             doc.features[i].modifiers.remove(k);
+            unbind_modifier(&mut doc.features[i], k);
             Ok(json!({}))
         }
         "remove_finish" => {
@@ -785,6 +842,18 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             doc.configurations.push(Configuration { name: name.into(), overrides });
             Ok(json!({}))
         }
+        "remove_configuration" => {
+            let name = args.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let n0 = doc.configurations.len();
+            doc.configurations.retain(|c| c.name != name);
+            if doc.configurations.len() == n0 {
+                return bad(format!("no configuration '{name}'"));
+            }
+            if doc.active_configuration.as_deref() == Some(name) {
+                doc.active_configuration = None;
+            }
+            Ok(json!({}))
+        }
         "plane" => {
             let rp = ref_plane_of(doc, args)?;
             if ["XY", "XZ", "YZ", "TOP", "FRONT", "RIGHT"].contains(&rp.name.to_uppercase().as_str()) {
@@ -817,7 +886,7 @@ pub fn apply_op(doc: &mut Document, op: &str, args: &Value) -> Result<Value, Cad
             Ok(json!({}))
         }
         other => bad(format!(
-            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, mirror_plane, draft, face_pattern, combine, component_add, component_move, component_remove, component_visible, component_rename, component_op, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, activate, plane, remove_plane)"
+            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, mirror_plane, draft, face_pattern, combine, component_add, component_move, component_remove, component_visible, component_rename, component_op, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, remove_configuration, activate, plane, remove_plane)"
         )),
     }
 }

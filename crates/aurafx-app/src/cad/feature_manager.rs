@@ -1,4 +1,4 @@
-//! The FeatureManager: the part's tree (dimensions, features in order, finishing modifiers,
+//! The model tree: the part's tree (dimensions, features in order, finishing modifiers,
 //! configurations) in place of the Pipeline panel while the environment is open.
 
 use super::{editing, expr_field, number_or_expr, op};
@@ -41,6 +41,12 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.label(RichText::new(format!("{} mm³", super::num_text(s.volume))).weak().small());
         }
     });
+    super::guide::guide_ui(state, ui);
+    let (build_error, approximate) = {
+        let s = state.session.lock();
+        let e = s.cad_edit.as_ref();
+        (e.and_then(|e| e.error.clone()), e.and_then(|e| e.summary.as_ref()).map(|m| m.approximate.clone()).unwrap_or_default())
+    };
     ui.separator();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         // ---------------------------------------------------------------- dimensions
@@ -82,7 +88,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
             ui,
             |ui| {
                 if doc.features.is_empty() {
-                    ui.label(RichText::new("No feature yet: add one from the ribbon (Sketch or Features).").weak().small());
+                    ui.label(RichText::new("No feature yet. Use the buttons above, the ribbon's Sketch and Features tabs, or press S to search.").weak().small());
                 }
                 let upto = rollback.unwrap_or(doc.features.len());
                 for (i, f) in doc.features.iter().enumerate() {
@@ -112,12 +118,28 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                             BooleanOp::Intersect => "intersects",
                         };
                         let mut text = RichText::new(&f.name);
+                        // The feature the build error names, and those built only roughly.
+                        let failed = build_error.as_ref().filter(|e| !f.suppressed && e.contains(&format!("'{}'", f.name)));
+                        let rough = approximate.iter().find(|a| a.contains(&f.name));
                         if f.suppressed {
                             text = text.weak().strikethrough();
+                        } else if failed.is_some() {
+                            text = text.color(crate::theme::ERROR);
                         } else if i >= upto {
                             text = text.weak();
                         }
-                        let r = ui.selectable_label(selected == Some(f.id), text).on_hover_text(format!("{} {}", verb, kind_label(f)));
+                        let mut hover = format!("{} {}\nRight-click: rename, suppress, roll back, move, delete. Double-click: rename.", verb, kind_label(f));
+                        if let Some(e) = failed {
+                            hover = format!("This feature stops the part from building:\n{e}\n\nChange its numbers on the right, suppress it (untick the box), or undo.");
+                        } else if let Some(a) = rough {
+                            hover = format!("{hover}\n\nShown roughly: {a}");
+                        }
+                        let r = ui.selectable_label(selected == Some(f.id), text).on_hover_text(hover);
+                        if failed.is_some() {
+                            ui.label(RichText::new(crate::icons::WARNING).color(crate::theme::ERROR));
+                        } else if rough.is_some() {
+                            ui.label(RichText::new("≈").weak()).on_hover_text("Built roughly by this kernel; the exact kernel builds it at Apply");
+                        }
                         ui.label(RichText::new(format!("{verb} {}", kind_label(f))).weak().small());
                         if r.clicked() {
                             acts.push(Act::Select(Some(f.id)));
@@ -178,12 +200,28 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                             if ui.checkbox(&mut vis, "").on_hover_text("Show this part (off: left out of the assembly)").changed() {
                                 acts.push(Act::Op("component_visible", json!({"component": c.name, "visible": vis})));
                             }
+                            if state.cad.component_rename.as_ref().is_some_and(|(n, _)| *n == c.name) {
+                                let (_, text) = state.cad.component_rename.as_mut().unwrap();
+                                let r = ui.add_sized([120.0, 20.0], egui::TextEdit::singleline(text));
+                                r.request_focus();
+                                if r.lost_focus() {
+                                    let (old, new) = state.cad.component_rename.take().unwrap();
+                                    if !new.trim().is_empty() && new.trim() != old {
+                                        acts.push(Act::Op("component_rename", json!({"component": old, "to": new.trim()})));
+                                    }
+                                }
+                                return;
+                            }
                             let mut text = RichText::new(&c.name);
                             if !c.visible {
                                 text = text.weak().strikethrough();
                             }
-                            if ui.selectable_label(on_it, text).on_hover_text(format!("{} ({} features)", c.document.name, c.document.features.len())).clicked()
-                            {
+                            let r = ui
+                                .selectable_label(on_it, text)
+                                .on_hover_text(format!("{} ({} features)\nClick to move or turn it; double-click to rename", c.document.name, c.document.features.len()));
+                            if r.double_clicked() {
+                                state.cad.component_rename = Some((c.name.clone(), c.name.clone()));
+                            } else if r.clicked() {
                                 state.cad.component = if on_it { None } else { Some(c.name.clone()) };
                             }
                             if ui.small_button("×").on_hover_text("Remove this part from the assembly").clicked() {
@@ -244,20 +282,43 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
             );
         }
         // ---------------------------------------------------------------- configurations
-        if !doc.configurations.is_empty() {
-            egui::CollapsingHeader::new(RichText::new(format!("Configurations ({})", doc.configurations.len())).strong()).id_salt("fm cfg").show(ui, |ui| {
-                let active = doc.active_configuration.clone();
-                if ui.selectable_label(active.is_none(), "(the document's own values)").clicked() {
-                    acts.push(Act::Op("activate", json!({"name": Value::Null})));
-                }
-                for c in &doc.configurations {
-                    let r = ui.selectable_label(active.as_deref() == Some(c.name.as_str()), &c.name);
-                    r.clone().on_hover_text(c.overrides.iter().map(|p| format!("{} = {}", p.name, p.expr)).collect::<Vec<_>>().join("\n"));
-                    if r.clicked() {
-                        acts.push(Act::Op("activate", json!({"name": c.name})));
+        if !doc.configurations.is_empty() || !doc.parameters.is_empty() {
+            egui::CollapsingHeader::new(RichText::new(format!("Configurations ({})", doc.configurations.len())).strong())
+                .id_salt("fm cfg")
+                .show(ui, |ui| {
+                    ui.label(RichText::new("Named sets of dimension values: variants of one part.").weak().small());
+                    let active = doc.active_configuration.clone();
+                    if ui.selectable_label(active.is_none(), "(the dimensions as listed above)").clicked() {
+                        acts.push(Act::Op("activate", json!({"name": Value::Null})));
                     }
-                }
-            });
+                    for c in &doc.configurations {
+                        ui.horizontal(|ui| {
+                            let r = ui.selectable_label(active.as_deref() == Some(c.name.as_str()), &c.name);
+                            r.clone().on_hover_text(c.overrides.iter().map(|p| format!("{} = {}", p.name, p.expr)).collect::<Vec<_>>().join("\n"));
+                            if r.clicked() {
+                                acts.push(Act::Op("activate", json!({"name": c.name})));
+                            }
+                            if ui.small_button("×").on_hover_text("Remove this configuration").clicked() {
+                                acts.push(Act::Op("remove_configuration", json!({"name": c.name})));
+                            }
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        let name = &mut state.cad.new_configuration;
+                        ui.add_sized([110.0, 20.0], egui::TextEdit::singleline(name).hint_text("name, e.g. large"));
+                        let ok = !name.trim().is_empty() && !doc.parameters.is_empty();
+                        if ui
+                            .add_enabled(ok, egui::Button::new("Save values"))
+                            .on_hover_text("Keep the dimensions' present values under this name (an existing name is replaced). To change a configuration: set the dimensions, then save under its name again.")
+                            .on_disabled_hover_text("Type a name; the part needs at least one dimension")
+                            .clicked()
+                        {
+                            let overrides: serde_json::Map<String, Value> = doc.parameters.iter().map(|p| (p.name.clone(), json!(p.expr))).collect();
+                            acts.push(Act::Op("configuration", json!({"name": name.trim(), "overrides": overrides})));
+                            name.clear();
+                        }
+                    });
+                });
         }
     });
     for a in acts {

@@ -89,3 +89,59 @@ fn glb_and_obj() {
         eprintln!("kept {}", dir.display());
     }
 }
+
+/// The web page export: one file holding the vertices (10 floats each) of the scene, with the
+/// viewer's script. When Chrome is on this machine the page is opened headless and must draw
+/// (a picture that is not one flat color, and the script reports the counts it loaded).
+#[test]
+fn html_page_holds_the_scene_and_draws() {
+    use base64::Engine;
+    let draws = draws();
+    let objects: Vec<ExportObject> = draws.iter().zip(["sphere", "box"]).map(|(d, n)| ExportObject { name: n.into(), draw: d }).collect();
+    let dir = std::env::temp_dir().join(format!("aurafx_export_html_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let page = dir.join("scene.html");
+    export(&page, &objects).unwrap();
+    let text = std::fs::read_to_string(&page).unwrap();
+    assert!(
+        text.starts_with("<!doctype html>")
+            && text.contains("2 objects")
+            && !text.contains("@TRIS@")
+            && !text.contains("http://")
+            && !text.contains("https://")
+    );
+    // The triangle array: the sphere's triangles, 10 floats a vertex, positions within the unit ball.
+    let b64 = text.split("tris: \"").nth(1).unwrap().split('"').next().unwrap();
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+    let f: Vec<f32> = bytes.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+    assert_eq!(f.len(), draws[0].mesh.tris.len() * 10);
+    assert!(f.chunks_exact(10).all(|v| v[0].abs() <= 1.001 && v[1].abs() <= 1.001 && v[2].abs() <= 1.001 && (0.0..=1.0).contains(&v[6])));
+    // In a browser, when there is one.
+    let chrome = ["google-chrome", "chromium", "chromium-browser"].into_iter().find(|c| std::process::Command::new(c).arg("--version").output().is_ok());
+    if let Some(chrome) = chrome {
+        let png = dir.join("page.png");
+        let out = std::process::Command::new(chrome)
+            .args([
+                "--headless=new",
+                "--no-sandbox",
+                "--use-angle=swiftshader",
+                "--enable-unsafe-swiftshader",
+                "--window-size=640,480",
+                "--virtual-time-budget=4000",
+            ])
+            .arg(format!("--screenshot={}", png.display()))
+            .arg(format!("file://{}", page.display()))
+            .output()
+            .unwrap();
+        if let Ok(img) = image::open(&png) {
+            let img = img.to_rgb8();
+            let first = *img.get_pixel(5, 5);
+            let other = img.pixels().filter(|p| (0..3).any(|k| p[k].abs_diff(first[k]) > 24)).count();
+            eprintln!("the page drew {other} pixels that differ from the background");
+            assert!(other > 2000, "the page is blank ({other} pixels drawn)\n{}", String::from_utf8_lossy(&out.stderr));
+        } else {
+            eprintln!("no screenshot from {chrome}: skipped the browser check\n{}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -12,7 +12,8 @@ pub struct Palette {
 }
 
 enum Item {
-    Filter(std::sync::Arc<aurafx_filters::FilterDef>),
+    /// A filter or source, with a note: why it is suggested, or why it may not work.
+    Filter(std::sync::Arc<aurafx_filters::FilterDef>, Option<String>),
     Action(&'static str, fn(&mut State)),
 }
 
@@ -26,6 +27,7 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
                 .add_filter("Wavefront OBJ", &["obj"])
                 .add_filter("X3D", &["x3d"])
                 .add_filter("VRML 2.0", &["wrl"])
+                .add_filter("Web page you can turn (HTML)", &["html"])
                 .set_file_name("scene.glb")
                 .save_file()
             {
@@ -90,10 +92,35 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     if !state.palette.open {
         return;
     }
+    // While a part is being edited the search is over the CAD commands.
+    if crate::cad::editing(state) {
+        state.palette.open = false;
+        state.cad.search = Some(crate::cad::CommandSearch::default());
+        return;
+    }
     let q = state.palette.query.clone();
     let mut items: Vec<(u32, Item)> = Vec::new();
+    // What fits the selected object comes first; what is unlikely to work on it sinks and says why.
+    let ctx_info = crate::menus::node_context(state, None);
+    let suggested: Vec<aurafx_filters::suggest::Suggestion> = ctx_info.as_ref().map(|(i, t)| aurafx_filters::suggest::suggestions(i, *t)).unwrap_or_default();
     for f in aurafx_filters::search(&q) {
-        items.push((f.search_score(&q), Item::Filter(f)));
+        let mut score = f.search_score(&q);
+        let mut note = None;
+        if let Some((info, _)) = &ctx_info {
+            if let Some(k) = suggested.iter().position(|s| s.def.id == f.id) {
+                score += if q.is_empty() { 1000 - k as u32 } else { 40 };
+                note = Some(format!("Suggested: {}", suggested[k].reason));
+            } else if let Err(why) = aurafx_filters::suggest::applicable(&f, info) {
+                score = score / 2;
+                note = Some(format!("May not work on the selected object: {why}"));
+            }
+        } else if !f.is_source {
+            score = score / 2;
+            note = Some("Needs an object: open a file or add a source first".to_string());
+        } else if q.is_empty() {
+            score += 10;
+        }
+        items.push((score.max(1), Item::Filter(f, note)));
     }
     let ql = q.to_lowercase();
     for (label, keys, f) in actions() {
@@ -154,9 +181,12 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
                     for (i, (_, item)) in items.iter().enumerate() {
                         let sel = i == state.palette.selected;
                         let (title, sub) = match item {
-                            Item::Filter(f) => (
+                            Item::Filter(f, note) => (
                                 format!("{}  {}", if f.is_source { crate::icons::PLUS } else { crate::icons::FUNNEL }, f.label),
-                                format!("{} · {}", f.category, f.description),
+                                match note {
+                                    Some(n) => format!("{n} · {}", f.description),
+                                    None => format!("{} · {}", f.category, f.description),
+                                },
                             ),
                             Item::Action(l, _) => (format!("{}  {l}", crate::icons::ARROW_RIGHT), "Action".to_string()),
                         };
@@ -178,7 +208,7 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     );
     if let Some(i) = run {
         match &items[i].1 {
-            Item::Filter(f) => {
+            Item::Filter(f, _) => {
                 let id = f.id;
                 if f.is_source {
                     crate::source_dialog::insert_source(state, id);

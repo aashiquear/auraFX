@@ -311,6 +311,7 @@ impl<'a> PointBuilder<'a> {
             let ty = if arr.scalar_type().is_float() { arr.scalar_type() } else { ScalarType::F64 };
             let mut a = Array::new(arr.name.clone(), nc, ArrayData::from_f64(ty, &out));
             a.component_names = arr.component_names.clone();
+            a.units = arr.units.clone();
             attrs.insert(a);
         }
         attrs.active = self.src_attrs.active.clone();
@@ -451,6 +452,35 @@ impl<'a> ScalarFn<'a> {
                 None => arr.magnitude(i) - offset,
             },
             ScalarFn::Values(v) => v[i],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use aurafx_data::DataSet;
+
+    /// Arrays interpolated onto new points (a slice, a contour, a clip) keep their units.
+    #[test]
+    fn interpolated_arrays_keep_their_units() {
+        let src = crate::find("wavelet").unwrap();
+        let DataSet::ImageData(mut img) = src.run(None, &src.default_params()).unwrap() else { panic!("an image") };
+        let rt = img.point_data.get("RTData").unwrap().clone().with_units("K");
+        img.point_data.insert(rt);
+        let img = DataSet::ImageData(img);
+        let mesh = DataSet::UnstructuredGrid(img.to_unstructured().unwrap());
+        for input in [&img, &mesh] {
+            for id in ["slice", "contour", "clip"] {
+                let def = crate::find(id).unwrap();
+                let mut p = def.default_params();
+                if id == "contour" {
+                    p.0.insert("values".into(), crate::ParamValue::Floats(vec![150.0]));
+                }
+                let out = def.run(Some(input), &p).unwrap();
+                assert!(out.n_points() > 0, "{id}: something came out");
+                let a = out.point_data().and_then(|d| d.get("RTData")).unwrap_or_else(|| panic!("{id}: RTData is kept"));
+                assert_eq!(a.units.as_deref(), Some("K"), "{id} of {}", input.type_name());
+            }
         }
     }
 }

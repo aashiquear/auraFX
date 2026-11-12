@@ -10,7 +10,7 @@ The **Simulations** panel (right side; **Simulate › Run a simulation…**, or
 | Field | Meaning |
 |---|---|
 | **Template** | LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, DAMASK, FFT texture file, LAMMPS polycrystal, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below) |
-| **Run on** | this computer, or a remote machine from the SSH list; **via Slurm** submits with `sbatch` there (partition, time and extra `#SBATCH` lines appear) |
+| **Run on** | this computer, or a remote machine from the SSH list; **through a scheduler** submits the job to the machine's batch system instead: **Slurm** (`sbatch`), **PBS** (`qsub`; PBS Professional, OpenPBS, Torque) or **LSF** (`bsub`). The partition or queue, the time limit, the nodes and extra directive lines appear; auraFX follows the job's state and log and collects its exit code |
 | **Name**, **Working directory** | where the run lives; a remote directory when running over SSH |
 | **Program**, **Input**, **MPI processes** | the command line is assembled from these and shown below, editable |
 | **GPU** | None, Any, NVIDIA or AMD; the panel finds the GPUs on the host and sets the solver's flags (LAMMPS GPU package, `CUDA_VISIBLE_DEVICES` / `HIP_VISIBLE_DEVICES`) |
@@ -84,6 +84,16 @@ v = afx.voronoi_grains(cells=[64, 64, 64], grains=200, periodic=True)
 afx.simulation_case(v, "damask", "~/runs/damask", material="Copper", strain=0.05, steps=100)
 afx.simulation_case(v, "fft", "~/runs/fft")
 afx.simulation_case(v, "lammps", "~/runs/md", material="Aluminium", angstrom_per_unit=5)
+```
+
+`slurm` is the batch scheduler's settings as a dictionary, for Slurm, PBS or LSF:
+
+```python
+afx.submit("mpirun lmp -in in.melt", host="cluster", workdir="~/runs/melt",
+           slurm={"partition": "short", "time": "00:30:00", "nodes": "2", "tasks": "64"})
+afx.submit("mpirun lmp -in in.melt", host="cluster", workdir="~/runs/melt",
+           slurm={"system": "pbs", "queue": "short", "time": "00:30:00", "nodes": "2", "tasks": "64",
+                  "extra": "-A myproject"})          # "system": "lsf" for LSF
 ```
 
 `run_case` takes `host`, `exe` (the solver program), `np`, `slurm`, `auto_load` and `wait` as

@@ -8,6 +8,8 @@
   **keep the view's shape** ties width and height together. Point sizes and line widths are
   in pixels, so they look thinner in a larger picture.
 - **Background › transparent** saves a PNG with an alpha channel, with clean edges.
+- The file's extension chooses the format: **PNG** (the default), **JPEG** (smaller, no
+  transparency), **BMP**, **TIFF**, or **SVG** for a vector picture.
 - **Annotations** includes the legend, axes-grid labels, time label, text annotations and
   the orientation axes, laid out as on screen and scaled with the picture.
 - **PNG** or **SVG**: an SVG holds the surfaces as shaded polygons sorted back to front, the
@@ -21,6 +23,7 @@ With ray tracing on, the picture is traced at the requested size first.
 afx.screenshot("fig.png")                               # the view as shown
 afx.screenshot("fig.png", width=3840, transparent=True) # keeps the view's shape
 afx.screenshot("fig.png", width=1600, height=900, annotations=False)
+afx.screenshot("fig.jpg")                               # JPEG, BMP (.bmp) or TIFF (.tif) by the extension
 afx.screenshot("fig.svg")
 ```
 
@@ -56,8 +59,11 @@ their colors, as:
 | **glTF binary** (`.glb`) | for Blender, three.js, PowerPoint, Windows 3D Viewer; vertex colors, normals, translucency, materials (metallic, roughness) |
 | **OBJ** (`.obj`) | with vertex colors after the coordinates (Blender and MeshLab read them) |
 | **X3D** (`.x3d`), **VRML** (`.wrl`) | absolute coordinates, vertex colors |
+| **Web page** (`.html`) | one file that opens in any browser and shows the scene in 3D: drag to turn it, Shift+drag (or two fingers) to move, wheel or pinch to zoom, double-click to reset. Everything is inside the file (no server, nothing loaded from the network), so it can be mailed or put on a web site as it is. Surfaces, lines and points with their colors; simple lighting; the size grows with the number of triangles (about 55 bytes each vertex) |
 
 Volumes are not exported (they are not geometry).
+
+![A scene exported as a web page, open in a browser](images/export_html.png)
 
 ## Animations
 

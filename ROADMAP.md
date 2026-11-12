@@ -27,7 +27,7 @@ one ships something usable on its own.
 - [x] App icon and branding assets (`assets/icons`, `assets/branding`).
 - [~] CI: build + test on Linux/macOS/Windows, clippy, rustfmt, licence check (green on `main` since iteration 71; not yet run on the CAD branch, whose pull request starts it).
 - [~] Packaging: AppImage, tar.gz + `install.sh`, `.dmg`, Windows installer + zip, Android APK, unsigned iOS IPA (done); `.deb`, MSIX, Flatpak (todo).
-- [~] Crash reporting and structured logs (`tracing`), log panel in the UI. (Logs and log panel done; crash reporting todo.)
+- [x] Crash reporting and structured logs (`tracing`), log panel in the UI. (Logs and log panel done; iteration 89: a local crash report file and a notice at the next start, nothing sent.)
 - [~] Settings system (TOML in platform config dir), settings UI with search.
 - [x] Plugin ABI (dynamic Rust crates + Python plugins) and plugin manager UI. (Python plugins and the Plugins window; Rust plugins: iteration 86, a C table checked by ABI and data versions.)
 
@@ -88,9 +88,9 @@ Pure-Rust readers are preferred; HDF5/NetCDF-4 use the C libraries behind a feat
 - [~] VTK XML (all dataset types; parallel pieces `.pvtu/.pvtp/.pvti/.pvts/.pvtr` and `.pvd` collections, iteration 83), VTK legacy, VTKHDF (iteration 21; read by the reference reader since iteration 22).
 - [~] Exodus II (done: element blocks, nodal/element variables, all time steps; verified with the reference reader), EnSight Gold and Xdmf 3 (iteration 22), CGNS/HDF5 (iteration 23), all verified with the reference reader; OpenVDB, GenericIO, Fides.
 - [x] CSV, STL, PLY (done), OBJ, glTF, Houdini `.geo` (iteration 85).
-- [~] Images: PNG, image stacks of volumes as PNG slices or one multi-page TIFF, MetaImage (iteration 83), screenshot with resolution override and transparent background (done, iteration 16), pictures of every view as laid out (iteration 83); JPEG/BMP/EXR todo.
+- [~] Images: PNG, image stacks of volumes as PNG slices or one multi-page TIFF, MetaImage (iteration 83), screenshot with resolution override and transparent background (done, iteration 16), pictures of every view as laid out (iteration 83); JPEG, BMP and TIFF screenshots (iteration 89); EXR todo.
 - [x] Animation: PNG sequence, MP4 (ffmpeg), GIF (done); WebM (iteration 85).
-- [~] Scene export: glTF (.glb), OBJ with vertex colors (iteration 16), X3D, VRML and SVG vector pictures (iteration 17); POV-Ray, PDF, WebGL/HTML interactive scene todo.
+- [~] Scene export: glTF (.glb), OBJ with vertex colors (iteration 16), X3D, VRML and SVG vector pictures (iteration 17); an interactive web page (iteration 89); POV-Ray and PDF todo.
 - [ ] Extracts and Catalyst-style in-situ scripts.
 
 ---
@@ -192,7 +192,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Onboarding (sample dataset done): sample datasets gallery, guided tours, tooltips with screenshots, "Explain this filter" via AI.
 - [x] Keyboard-first: fully rebindable shortcuts, vim-style view navigation optional. (Iteration 85: Settings › Keyboard, `afx.set_shortcut`.)
 - [x] Themes: dark/light/high-contrast, scalable UI (HiDPI), font size. (High contrast: iteration 85.)
-- [~] Session recovery after crash, autosave of state. (Last session restored on start.)
+- [x] Session recovery after crash, autosave of state. (Last session restored on start; iteration 89: saved every half minute, offered after a crash.)
 - [x] Accessibility: screen-reader labels, keyboard navigation, color-blind color maps by default. (Iteration 85: AccessKit, a high-contrast theme; Viridis was already the default.)
 - [ ] Localization framework.
 - [~] Notifications/toasts for background jobs and errors, with "show details" and "ask AI why".
@@ -238,7 +238,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [~] Templates: LAMMPS, MOOSE, OpenFOAM, Abaqus/CalculiX, GROMACS, custom shell/Python.
 - [~] Python pipeline runs: define a pipeline in Python (pre -> run -> post), run as a job, auto-load outputs when done.
 - [x] Parameter sweeps and ensembles with a results table and comparative views.
-- [~] Remote executor over SSH: connect (key, agent, password, jump hosts, 2FA prompts), remote file browser, sync inputs/outputs (rsync-style), run under nohup/tmux, Slurm/PBS/LSF submission and queue monitoring, reconnect to running jobs. (Slurm done, untested on a real cluster; PBS and LSF todo.)
+- [~] Remote executor over SSH: connect (key, agent, password, jump hosts, 2FA prompts), remote file browser, sync inputs/outputs (rsync-style), run under nohup/tmux, Slurm/PBS/LSF submission and queue monitoring, reconnect to running jobs. (Slurm, and since iteration 89 PBS and LSF: all three tested with stand-in commands only, not on a real cluster.)
 - [x] Remote rendering/data server mode (done in iterations 10 to 13; iteration 82 made it one guided window, Remote › Open data on another machine…): run `aurafx-server` on the GPU box, stream geometry or images to the local client.
 - [x] Watch folders: auto-refresh when the solver writes a new step.
 
@@ -266,7 +266,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 - [~] Golden-image render tests, filter regression tests against VTK outputs, reader conformance suite with sample files for every format.
 - [x] Benchmarks (load time, filter time, frame rate) published in docs. (Iteration 85: the guide's Benchmarks page, written by an ignored release-mode test.)
-- [~] User guide (done: Markdown, HTML book and PDF, a picture per feature), tutorials and examples (done, iteration 71); filter reference auto-generated from property metadata (iteration 85, kept current by a test), Python API docs todo.
+- [~] User guide (done: Markdown, HTML book and PDF, a picture per feature), tutorials and examples (done, iteration 71); filter reference auto-generated from property metadata (iteration 85, kept current by a test), Python API reference generated from the module's docstrings (iteration 89, kept current by a test).
 - [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook (done: `docs/plugins.md`).
 
 ---
@@ -327,14 +327,24 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 
 - [x] C0 Skeleton: crate `aurafx-cad` (kernel trait, `Evaluated` contract, errors, `Id`), the expression evaluator ported with its tests, the design document, this section (iteration 72).
 - [x] C1 Document (iteration 73): `document.rs` (Feature, Shape, Modifier, Parameter, Binding, Configuration, Document, resolution of parameters and configurations), `sketch.rs` + `path.rs` (entities, constraints, dimensions, the Levenberg-Marquardt solver with its DOF report), `templates.rs`, `analysis.rs` (mass properties, interference, sections), `assembly.rs`; `.afxcad` JSON files with a format version. Tests: EZ-YX-craft's, plus every template through a JSON round trip.
-- [x] C2 Implicit kernel and the node (iteration 74): `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters; `NodeKind::Cad`; the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
-- [x] C3 Environment shell (iteration 75): `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; FeatureManager in place of the Pipeline panel; PropertyManager for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
+- [x] C2 Implicit kernel and the node (iteration 74): `kernel/implicit.rs` on `aurafx-mesh` (every Shape and Modifier as a signed distance; surface with BodyId/FaceId/FaceNames as the Geometry source writes them); the `cad_model` source whose parameters are the document's parameters (the document is a parameter of the source, so no new node kind was needed); the document kept in `.afx` state; `afx.cad_model()`, `node.cad.*`, `node.set(param=...)`. Tests: volumes of the primitives and of extrude/revolve within 1 % of analytic values; an overlay mesh of a template passes Mesh Quality.
+- [x] C3 Environment shell (iteration 75): `Session.cad_editing` pauses the scheduler and marks other views stale; the CAD menu; the ribbon (Sketch, Features, Modify, Assemble, Inspect, Files) in place of the toolbar; Model tree in place of the Pipeline panel; Feature panel for every feature, modifier and parameter; the timeline bar (rollback, suppress, reorder); Apply, Apply-and-keep-editing, Discard, Save as; `node.edit_cad()`; one undo group per commit. Ported from `ezyx-app/src/solid/{mod,props}.rs`. Test: an app-driven script enters, adds a box and a hole, applies, and the node's output has two faces more.
 - [x] C5 Downstream check (iteration 76; before C4 on purpose): `aurafx-pipeline/src/cad_check.rs` and `aurafx-cad/src/diff.rs`; references collected from downstream parameters (face and body names and ids, set names, positions inside the old bounds, geometry command text, Python code as "may reference"); the diff by stable ids, names, then centroid/normal/area; conflict kinds Removed, Renamed, Moved, Ambiguous, Count; default fixers as `set_param_json`; the dialog (default fix, assistant's fix, leave; Apply fixes and re-run, Apply without fixing, Back to CAD, Discard); the "Re-run N downstream filters?" confirmation; `afx.cad_check(node)`; the assistant prompt and its JSON answer parser. Tests: plate with a hole → Extract Set of the hole; rename the hole feature (Renamed, fixed), delete it (Removed, offered), move a Refine Region box (Moved); a canned assistant answer applied.
 - [x] C4 Sketching (iteration 77): the sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints, dimensions typed as expressions, the solver's status colours and DOF count, sketches on faces. Ported from `ezyx-app/src/solid/sketch_ui.rs`. Tests: the solver's (fully constrained rectangle, over-constraint rejected, tangent arc), a canvas script.
-- [x] C6 B-rep kernel and CAD files, shipped in the repository (iterations 78 and 81; the CAD readers are registered in aurafx-io's reader table, not compiled into the crate, because aurafx-cad depends on aurafx-mesh, which depends on aurafx-io; four of the six templates build exactly, the other two fall back by design; see Status): `vendor/solidcraft` and `vendor/solidcore` carried as plain files at a recorded revision (first added by `git subtree`; after iteration 82 the history was rewritten so that one commit adds only the carried directories, and `scripts/cad/upstream-pull.sh` takes upstream work as a three-way patch; see the Status note on vendored code) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (subtree pull at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`'s reader table (`aurafx_io::register_reader`); `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP and an IGES file written here measure the same through the vendored engine and an independent reader (done: `scripts/cad/step_check.py`); the committed tree builds offline from a clean clone (`cargo build --offline --locked -p aurafx-cad --release`, done; the installers themselves were not run).
+- [x] C6 B-rep kernel and CAD files, shipped in the repository (iterations 78 and 81; the CAD readers are registered in aurafx-io's reader table, not compiled into the crate, because aurafx-cad depends on aurafx-mesh, which depends on aurafx-io; four of the six templates build exactly, the other two fall back by design; see Status): `vendor/solidcraft` and `vendor/solidcore` carried as plain files at a recorded revision (first added by `git subtree`; after iteration 82 the history was rewritten so that one commit adds only the carried directories, and `scripts/cad/upstream-pull.sh` takes upstream work as a three-way patch; see the Status note on vendored code) and pruned to the crates we build (engine, doc, kernel, smlib, io, step, geom, profile, sketch, derive, testkit; not its UI, apps, browser build or docs), their licences and NOTICE kept, `vendor/README.md` (tag, date, pruning, auraFX patches marked `// auraFX:`), `docs/reference/third-party.md`, `scripts/cad/upstream-pull.sh` and `upstream-diff.sh` (a three-way patch of the carried directories at a new tag; upstream commits and new command ids since the recorded tag); workspace `rust-version` 1.95; the B-rep kernel always built (no cargo feature, no external bridge); `kernel/brep.rs` mapping every Shape and Modifier to SolidCraft commands run in process; STEP AP242, IGES, 3MF and `.sc` read and written; STEP/IGES import as a base feature; the faceted STEP writer for implicit-only bodies; readers registered in `aurafx-io`'s reader table (`aurafx_io::register_reader`); `testdata/cad/` with small STEP/IGES/`.sc` files and their provenance. Tests: the templates give the same volumes on both kernels within 1 %; a STEP and an IGES file written here measure the same through the vendored engine and an independent reader (done: `scripts/cad/step_check.py`); the committed tree builds offline from a clean clone (`cargo build --offline --locked -p aurafx-cad --release`, done; the installers themselves were not run).
 - [x] C7 Edge operations and assemblies (iterations 78 and 81; see Status): picking faces and edges on the B-rep tessellation (a click in the 3D view, or the list); fillet and chamfer on picked edges, draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties, a measure tool. Tests: fillet volume against SolidCraft's measure; interference of two boxes analytic.
 - [x] C8 Meshing from CAD (iterations 79 and 81; Overlay Mesh and Tet Mesh both keep the faces' names): `mesh body` on CAD bodies, face names to side sets, `import 'part.step'` and `import 'part.afxcad'` in journals, STEP → mesh → grains → solver case end to end as a test and in the guide's worked example.
-- [x] C9 Polish (iterations 79 and 81; see Status): templates gallery, shortcuts, PropertyManager help, the assistant modelling in the environment through `afx.cad`, the project page's CAD video, the README's credits for SolidCraft and solidcore.
+- [x] C9 Polish (iterations 79 and 81; see Status): templates gallery, shortcuts, Feature panel help, the assistant modelling in the environment through `afx.cad`, the project page's CAD video, the README's credits for SolidCraft and solidcore.
+
+Open in section 13 (found by a review against the design in iteration 89; the design asked for
+them and they were not built, or only in Python):
+
+- [ ] Sweep and Loft features from the window (they are in the document and the kernels; only a template uses one).
+- [ ] Sketch planes that follow their face, and sketch entities with stable ids (a `side N` face keeps its name when the outline gains or loses a line).
+- [ ] Edit in CAD on a Geometry source or a surface (a body made from commands or a mesh as a feature).
+- [ ] A component's own features edited in the window (today: Python's `component_op`, or its own CAD Model).
+- [ ] Mates and motion between components.
+- [ ] Constraints and dimensions in sketches built from Python without raw sketch JSON.
 
 ## 14. Gaps against the reference programs (P11)
 
@@ -421,7 +431,7 @@ so they can be picked up one at a time in any order within a priority.
 
 ---
 
-## Status (2026-11-10)
+## Status (2026-11-11)
 
 Review of iterations 2 to 52 against the catalog: the catalog marks, the "Done in iteration"
 notes and the user guide (every feature has its entry and screenshot; all 150 tests pass)
@@ -616,7 +626,7 @@ rebuilds the mesh with blocks or boundary sets.
 
 Done in iteration 72 (planning, branch `feat/CAD-modeling-environment`): the CAD modeling
 environment designed (`docs/design/cad-environment.md`: one window with a CAD mode, ribbon,
-FeatureManager and PropertyManager, stale views, Apply/Discard, the downstream check with
+Model tree and Feature panel, stale views, Apply/Discard, the downstream check with
 default fixers and an assistant suggestion, a kernel-free document with an implicit kernel and
 a B-rep kernel through SolidCraft, the port plan from EZ-YX-craft file by file), section 13
 with stages C0 to C9, section 14 with the prioritized gaps against the reference programs,
@@ -669,8 +679,8 @@ works unchanged); Apply gives the node the document and resumes the pipeline as 
 (a part that does not build is refused with the reason), Discard restores the node's output
 and document. The app (`aurafx-app/src/cad/`) swaps the toolbar for the ribbon (Sketch,
 Features, Modify, Inspect, Files; Apply, Apply and keep editing, Discard), the Pipeline panel
-for the FeatureManager (dimensions, features with suppress, rename, reorder, roll back,
-delete, finishing modifiers, configurations), Properties for the PropertyManager (every
+for the model tree (dimensions, features with suppress, rename, reorder, roll back,
+delete, finishing modifiers, configurations), Properties for the feature panel (every
 field of the selected feature, numbers or expressions, choices as menus, sketch dimensions,
 placement, modifiers, bindings), adds the timeline bar with the rollback marker, a CAD menu,
 the Esc question and grey banners on the stale views, charts and spreadsheets. Entry:
@@ -716,13 +726,13 @@ grid and axes, pan and zoom, line, rectangle, circle, arc, spline and point tool
 snapping to points and to a grid and horizontal/vertical inference, selection and dragging of
 points, constraints and dimensions from the ribbon's Sketch tab (13 geometric constraints,
 7 dimensions), driving dimensions edited as values or expressions of the part's dimensions in
-the PropertyManager's constraint list, the solver after every change with the status colored
+the feature panel's constraint list, the solver after every change with the status colored
 blue (under-defined, with the degrees of freedom left), white (fully defined) or red
 (over-defined), construction shapes, delete with renumbering of everything that referred to
 the deleted shapes. A sketch starts on a principal plane, on the top of the part, or on a flat
-face with an axis-aligned normal (PropertyManager Faces: Sketch here; the plane, offset and
-direction come from the face), or edits an existing feature's sketch (FeatureManager and
-PropertyManager: Edit sketch…); it finishes as an Extrude (depth a number or an expression,
+face with an axis-aligned normal (Feature panel Faces: Sketch here; the plane, offset and
+direction come from the face), or edits an existing feature's sketch (Model tree and
+Feature panel: Edit sketch…); it finishes as an Extrude (depth a number or an expression,
 reverse), a Cut, a Revolve, or Apply sketch (`set_sketch`). New edit operations: `set_sketch`
 and `sketch_json` on extrude and revolve. Python: `cad.sketch_new`, `cad.sketch_edit` open the
 canvas from a script. Tests: the solver's (ported with it: fully constrained rectangle,
@@ -789,7 +799,7 @@ Assign Grains → a MOOSE case that fixes and pulls two faces by their names; gu
 › From a CAD part to a mesh and a solver case (`cad_mesh`). Not done then (done in iteration 81): tetrahedral meshes
 of a CAD surface (Tet Mesh) keep numbered patches instead of face names. C9: keyboard (Ctrl+Enter
 applies, Delete removes the selected feature, F2 renames it, Alt+1 to Alt+5 the ribbon tabs; in
-the shortcuts window), hover help on the PropertyManager's fields, the Files tab's template
+the shortcuts window), hover help on the feature panel's fields, the Files tab's template
 menu as the gallery, the assistant's modelling workflow and keyboard help, README credits.
 Not done then (done in iteration 81): a gallery with pictures, the CAD video for the project page
 (`scripts/site/media/cad.py`), a picture per ribbon tab (the Modify, Features, Sketch and
@@ -962,6 +972,41 @@ streamed in pieces, GPU help for Slice and Contour, 3D Glyphs, culling and coars
 while moving (88). Still open in sections 0 to 10, by
 priority: piece readers for more formats, more GPU filters, localization, collaboration, in-situ
 coupling, VR and stereo, POV-Ray and HTML scene export, and the remaining catalog filters.
+
+Done in iteration 89 (2026-11-11), a review of the work of iterations 72 to 88 (the CAD
+environment against its design, the recent code for faults, the window for how a newcomer
+finds things, the documentation and the project page) and its fixes:
+
+- CAD faults: a refused edit left the part changed; two features could share a name (the
+  tree then acted on the wrong one) or an id; a new feature while rolled back was not built;
+  discarding after "apply, keep editing" lost an undo step; removing a modifier or a dimension
+  in use broke the part; a suppressed feature could still stop it; a sketch its dimensions make
+  impossible built anyway; the exact kernel dropped a feature-level mirror; the environment
+  always showed the distance-field kernel's part; the downstream check moved direction vectors
+  and missed nodes working on face numbers; deleting the part being edited left the pipeline
+  paused. All fixed, with tests. The guide's examples used face names the default plate does
+  not have. The panels are now called model tree and feature panel.
+- Finding one's way: filters suggested for the selected data (right-click in the Pipeline or
+  the 3D view, the Filters menu, the palette), with the reason, and the ones unlikely to work
+  faded with what they need; a right-click menu in the 3D view with cuts through the clicked
+  point; a Welcome window, a fuller Help menu and a Model menu; in the CAD environment a
+  "Next" strip that follows what the user does, a command search at the pointer (S), a
+  right-click menu on faces, keys for the sketch tools, undo inside a sketch, reasons on greyed
+  buttons, the failing feature marked in the tree, a distance measure and an Export button,
+  configurations made in the window; for the Geometry source, menus that insert its commands
+  and the steps from bodies to a mesh.
+- Faults in the code of iterations 85 to 88 (found by an independent reading): ghost cells
+  lost after 64 requests or with many streamed pieces; Surface Normals and Curvature failing
+  on volumes on a parallel server; blocks of a `.vtm` repeated once per process; units lost by
+  most filters and never written; a notebook crash when cells change while one runs; the coarse
+  copy of a big surface reaching screenshots; a stray connection stopping an MPI launch and the
+  launch token visible on the command line; weak checks when loading Rust plugins; GPU errors
+  not falling back. All fixed, with tests that fail without the fix.
+- New: a Python API reference generated from the module, an interactive web page as a scene
+  format, JPEG/BMP/TIFF screenshots, PBS and LSF beside Slurm, a local crash report and
+  autosave every half minute.
+- The project page gained a CAD and meshing section and the features of iterations 85 to 89;
+  its clips are all made in the light theme with their posters by the script.
 
 ## Status (2026-11-05)
 

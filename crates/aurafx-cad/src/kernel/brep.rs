@@ -132,8 +132,20 @@ fn placements(f: &Feature) -> Result<(Vec<Pl>, Vec<Modifier>), CadError> {
                 let d = DVec3::from_array(*by);
                 local.into_iter().map(|(o, q)| (o + d, q)).collect()
             }
-            // A mirror of a shape centered on its own origin is the shape itself: nothing to add.
-            Modifier::Mirror { .. } => local,
+            // A box or sphere sitting on its own origin is its own reflection: nothing to add.
+            // Any other shape (an off-centre outline, a cone) would need a reflected copy, which a
+            // placement cannot express: refuse, so the other kernel builds it and says why.
+            Modifier::Mirror { .. } => {
+                let symmetric =
+                    matches!(f.shape, Shape::Box { .. } | Shape::Sphere { .. }) && local.iter().all(|(o, q)| o.length() < 1e-12 && *q == DMat3::IDENTITY);
+                if !symmetric {
+                    return refuse(format!(
+                        "'{}' is mirrored as a feature, which the B-rep kernel does not build (use Mirror about a plane on the whole part)",
+                        f.name
+                    ));
+                }
+                local
+            }
             // Rounding and hollowing act on the feature's own body, before it joins the part.
             Modifier::Fillet { .. } | Modifier::Shell { .. } | Modifier::ShellOpen { .. } => {
                 body_mods.push(m.clone());

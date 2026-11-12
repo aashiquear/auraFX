@@ -1,4 +1,4 @@
-//! The PropertyManager: the selected feature's every field, in place of the Properties panel
+//! The feature panel: the selected feature's every field, in place of the Properties panel
 //! while the environment is open. Every number accepts an expression of the dimensions; typing
 //! one makes the field follow the dimension.
 
@@ -178,8 +178,20 @@ pub fn property_manager_ui(state: &mut State, ui: &mut egui::Ui) {
         let Some(e) = s.cad_edit.as_ref() else { return };
         (e.document.clone(), e.selected, e.error.clone())
     };
+    // An empty part has nothing to build yet: that is not an error to show.
+    let error = error.filter(|_| !doc.features.is_empty() || !doc.components.is_empty());
     if let Some(e) = &error {
-        ui.label(RichText::new(e).color(crate::theme::ERROR).small());
+        // Stays until the part builds again (the message in the corner goes away after a moment).
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.label(RichText::new(format!("{} The part does not build", crate::icons::WARNING)).color(crate::theme::ERROR).strong());
+            ui.add(egui::Label::new(RichText::new(e).color(crate::theme::ERROR).small()).wrap());
+            ui.horizontal(|ui| {
+                if ui.button("Undo the last change").on_hover_text("Ctrl+Z").clicked() {
+                    state.undo();
+                }
+                ui.label(RichText::new("or change the feature marked in the tree").weak().small());
+            });
+        });
     }
     if state.cad.pick.is_some() {
         super::pick::ui(state, ui);
@@ -202,7 +214,7 @@ pub fn property_manager_ui(state: &mut State, ui: &mut egui::Ui) {
 fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
     ui.label(RichText::new("Part").strong());
     ui.label(
-        RichText::new("Select a feature in the FeatureManager to edit it. Dimensions are listed there; a number anywhere may be an expression of them.")
+        RichText::new("Select a feature in the model tree to edit it. Dimensions are listed there; a number anywhere may be an expression of them.")
             .weak()
             .small(),
     );

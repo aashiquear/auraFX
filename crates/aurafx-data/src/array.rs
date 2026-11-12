@@ -323,6 +323,15 @@ impl fmt::Debug for ArrayData {
     }
 }
 
+/// The version of the layout of the data types as they are serialized (what a server sends, and
+/// what Rust plugins exchange with the app, which checks this number when a plugin loads).
+///
+/// **Bump it whenever a serialized data type changes**: a field or variant added, removed,
+/// reordered or given another type in [`Array`], [`ArrayData`], [`ScalarType`], the attribute
+/// sets, the cells, or any dataset type. A plugin built before the change then says so when it
+/// is loaded; without the bump it would read garbage.
+pub const DATA_LAYOUT_VERSION: u32 = 3;
+
 /// A named, multi-component array (e.g. "velocity" with 3 components).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Array {

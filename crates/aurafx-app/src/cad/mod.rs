@@ -1,12 +1,13 @@
 //! The CAD modeling environment's part of the app (roadmap section 13). One mode of the one
 //! window: while a CAD Model is being edited the toolbar becomes the **ribbon**, the Pipeline
-//! panel the **FeatureManager**, Properties the **PropertyManager**, a **timeline bar** appears
+//! panel the **Model tree**, Properties the **Feature panel**, a **timeline bar** appears
 //! at the bottom, and everything else is marked stale because the pipeline is paused. The
 //! document being edited lives in the session (`CadEdit`); this module draws it and turns
 //! clicks into the same operations Python makes (`aurafx_cad::edit`).
 
 mod conflicts;
 mod feature_manager;
+mod guide;
 mod pick;
 mod planes;
 mod property_manager;
@@ -32,6 +33,8 @@ pub use sketch::{begin_on_frame as sketch_on_frame, Tool as SketchTool};
 pub fn open_plane_form(state: &mut State) {
     state.cad.plane_form = Some(planes::PlaneForm::default());
 }
+pub use guide::{face_menu, Search as CommandSearch};
+pub use pick::face_under;
 pub use property_manager::property_manager_ui;
 pub use ribbon::{check_fit, ribbon_ui};
 pub use sketch::{begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, canvas_ui as sketch_canvas_ui, sketching};
@@ -51,6 +54,17 @@ pub enum RibbonTab {
 
 impl RibbonTab {
     pub const ALL: [RibbonTab; 6] = [RibbonTab::Sketch, RibbonTab::Features, RibbonTab::Modify, RibbonTab::Inspect, RibbonTab::Assemble, RibbonTab::Files];
+    /// What the tab is for (its tooltip).
+    pub fn about(self) -> &'static str {
+        match self {
+            RibbonTab::Sketch => "Draw outlines on a plane or a face and turn them into solids",
+            RibbonTab::Features => "Ready shapes, holes and threads placed on the part",
+            RibbonTab::Modify => "Round, chamfer, hollow, taper, pattern and mirror what is there",
+            RibbonTab::Inspect => "Volume, mass, a section's area, the distance between faces",
+            RibbonTab::Assemble => "Other parts beside this one, combined with it, and their fit",
+            RibbonTab::Files => "Templates, opening, saving and exporting the part",
+        }
+    }
     pub fn label(self) -> &'static str {
         match self {
             RibbonTab::Sketch => "Sketch",
@@ -79,7 +93,7 @@ pub struct CadUi {
     pub density: f64,
     pub section_z: f64,
     pub section_area: Option<f64>,
-    /// A feature being renamed in the FeatureManager.
+    /// A feature being renamed in the model tree.
     pub rename: Option<(Id, String)>,
     pub new_param: (String, String),
     /// Apply is waiting for the user's answer about the nodes below the part.
@@ -92,10 +106,22 @@ pub struct CadUi {
     pub pick: Option<pick::Pick>,
     /// The New reference plane form.
     pub plane_form: Option<planes::PlaneForm>,
-    /// The component selected in the FeatureManager (by name).
+    /// The component selected in the model tree (by name).
     pub component: Option<String>,
     /// The overlaps found by the last "Check fit": the two parts and the volume in mm³.
     pub fit: Option<Vec<(String, String, f64)>>,
+    /// A component being renamed in the model tree (its name, the text).
+    pub component_rename: Option<(String, String)>,
+    /// The name typed for a new configuration.
+    pub new_configuration: String,
+    /// The command search box (S), when open.
+    pub search: Option<guide::Search>,
+    /// The last "what next" sentence put in the status bar.
+    pub last_hint: String,
+    /// The two faces of the Inspect tab's distance measure, and its result.
+    pub measure: (String, String, Option<String>),
+    /// The face the 3D view's right-click menu was opened on.
+    pub menu_face: Option<aurafx_pipeline::CadFace>,
 }
 
 impl Default for CadUi {
@@ -120,6 +146,12 @@ impl Default for CadUi {
             plane_form: None,
             component: None,
             fit: None,
+            component_rename: None,
+            new_configuration: String::new(),
+            search: None,
+            last_hint: String::new(),
+            measure: Default::default(),
+            menu_face: None,
         }
     }
 }
@@ -138,6 +170,11 @@ pub fn enter(state: &mut State, id: NodeId) {
             state.cad.running = false;
             state.layout_actions.push(LayoutAction::Show(Pane::Pipeline));
             state.layout_actions.push(LayoutAction::Show(Pane::Properties));
+            // An empty part starts with a sketch; a part with features opens on them.
+            let empty = state.session.lock().cad_edit.as_ref().is_some_and(|e| e.document.features.is_empty());
+            state.cad.tab = if empty { RibbonTab::Sketch } else { RibbonTab::Features };
+            state.cad.last_hint.clear();
+            state.cad.search = None;
             state.status = "CAD environment: the pipeline is paused until you apply or discard".into();
         }
         Err(e) => state.toast(format!("{e:#}"), true),
@@ -168,6 +205,14 @@ pub fn op(state: &mut State, name: &str, args: Value) -> Option<Value> {
 /// affected a dialog asks what to do.
 pub fn apply(state: &mut State, keep: bool) {
     state.cad.leave_dialog = false;
+    // An open sketch is not part of the model yet: do not throw it away.
+    if state.cad.sketch.is_some() {
+        state.toast(
+            "A sketch is open: extrude or apply it, or cancel it, before applying the part (buttons at the bottom of the right panel).".to_string(),
+            true,
+        );
+        return;
+    }
     conflicts::request_apply(state, keep);
 }
 
@@ -216,9 +261,9 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
         return;
     };
     if rev != state.cad.requested && !state.cad.running {
-        let res = {
+        let (res, kernel) = {
             let s = state.session.lock();
-            s.nodes.get(&node).map(|n| n.params.i64("resolution", 64)).unwrap_or(64).clamp(24, 96) as usize
+            (s.nodes.get(&node).map(|n| n.params.i64("resolution", 64)).unwrap_or(64).clamp(24, 96) as usize, s.cad_kernel(node))
         };
         state.cad.requested = rev;
         state.cad.running = true;
@@ -227,7 +272,7 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
         std::thread::Builder::new()
             .name("aurafx-cad".into())
             .spawn(move || {
-                let r = aurafx_pipeline::cad_edit::evaluate_document(doc, &overrides, res);
+                let r = aurafx_pipeline::cad_edit::evaluate_document_with(doc, &overrides, res, kernel);
                 let _ = tx.send((node, rev, r));
                 ctx2.request_repaint();
             })
@@ -236,6 +281,7 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
     if state.cad.running {
         ctx.request_repaint_after(std::time::Duration::from_millis(60));
     }
+    guide::keys(state, ctx);
     // Keyboard: Alt+1..6 ribbon tabs, Ctrl+Enter apply, Delete removes the selected feature, F2 renames it.
     if !ctx.text_edit_focused() && !state.cad.dialog_open() && !state.cad.leave_dialog {
         let keys = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5, egui::Key::Num6];
@@ -272,6 +318,11 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
 
 /// The "leave the CAD environment?" dialog (Esc).
 pub fn dialogs_ui(state: &mut State, ctx: &egui::Context) {
+    if editing(state) {
+        guide::search_ui(state, ctx);
+    } else {
+        state.cad.search = None;
+    }
     conflicts::dialog_ui(state, ctx);
     if !state.cad.leave_dialog || !editing(state) {
         state.cad.leave_dialog = false;

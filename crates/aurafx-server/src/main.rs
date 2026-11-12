@@ -23,10 +23,12 @@ fn main() -> anyhow::Result<()> {
     let stream: Option<usize> = take_value(&mut args, "--stream").and_then(|v| v.trim().parse().ok()).filter(|&n| n > 1);
     // --launcher mpirun|srun|TEMPLATE: start the N workers through MPI or Slurm (they connect back).
     let launcher = take_value(&mut args, "--launcher");
-    // --connect HOST:PORT --token T: a worker started by an MPI or Slurm launch (its rank and size
-    // from the launcher's environment) that connects back to the coordinator.
+    // --connect HOST:PORT: a worker started by an MPI or Slurm launch (its rank and size from
+    // the launcher's environment) that connects back to the coordinator, with the one-time
+    // token in AURAFX_RANK_TOKEN (not on the command line, which other users of the machine
+    // can read; --token T is still accepted).
     let connect = take_value(&mut args, "--connect");
-    let token = take_value(&mut args, "--token").unwrap_or_default();
+    let token = take_value(&mut args, "--token").or_else(|| std::env::var(RANK_TOKEN).ok()).unwrap_or_default();
     let no_gpu = match args.iter().position(|a| a == "--no-gpu") {
         Some(i) => {
             args.remove(i);
@@ -82,11 +84,15 @@ fn main() -> anyhow::Result<()> {
             aurafx_pipeline::remote::serve_opts(std::io::stdin().lock(), std::io::stdout().lock(), opts)
         }
         Some(other) => {
-            eprintln!("usage: aurafx-server [--stdio | --version [--gpu]] [--threads N] [--no-gpu] [--workers N|host:N,...] [--launcher mpirun|srun|TEMPLATE] [--stream N] [--piece k/n] [--connect HOST:PORT --token T]   (unknown argument {other})");
+            eprintln!("usage: aurafx-server [--stdio | --version [--gpu]] [--threads N] [--no-gpu] [--workers N|host:N,...] [--launcher mpirun|srun|TEMPLATE] [--stream N] [--piece k/n] [--connect HOST:PORT]   (unknown argument {other})");
             std::process::exit(2);
         }
     }
 }
+
+/// The environment variable that carries the one-time token from the coordinator to the ranks
+/// a launcher starts.
+const RANK_TOKEN: &str = "AURAFX_RANK_TOKEN";
 
 fn take_value(args: &mut Vec<String>, flag: &str) -> Option<String> {
     let i = args.iter().position(|a| a == flag)?;
@@ -207,8 +213,12 @@ fn reachable_host() -> String {
 /// Start `n` workers with an MPI or Slurm launcher (`mpirun`, `srun`, or a template with `{n}` and
 /// `{cmd}`): they connect back to a port of this process with a one-time token, and each serves
 /// the piece of its rank.
+///
+/// The token travels in the environment of the launch (`AURAFX_RANK_TOKEN`), never on a command
+/// line and never in a message. Slurm and most MPI launchers hand the environment to every
+/// rank; Open MPI is told to through `OMPI_MCA_mca_base_env_list`. A launcher that drops the
+/// environment on other nodes needs it forwarded in the template (e.g. `-x AURAFX_RANK_TOKEN`).
 fn launch_ranks(n: usize, launcher: &str, no_gpu: bool) -> anyhow::Result<Vec<std::sync::Arc<aurafx_pipeline::remote::RemoteClient>>> {
-    use std::io::BufRead;
     anyhow::ensure!(n >= 1, "--workers needs at least one process");
     let listener = std::net::TcpListener::bind(("0.0.0.0", 0))?;
     let port = listener.local_addr()?.port();
@@ -221,7 +231,7 @@ fn launch_ranks(n: usize, launcher: &str, no_gpu: bool) -> anyhow::Result<Vec<st
         b.iter().map(|x| format!("{x:02x}")).collect()
     };
     let exe = std::env::current_exe()?;
-    let cmd = format!("'{}' --connect {}:{} --token {}{}", exe.display(), reachable_host(), port, token, if no_gpu { " --no-gpu" } else { "" });
+    let cmd = format!("'{}' --connect {}:{}{}", exe.display(), reachable_host(), port, if no_gpu { " --no-gpu" } else { "" });
     let full = match launcher.trim() {
         "mpirun" | "mpiexec" => format!("{} -np {n} {cmd}", launcher.trim()),
         "srun" => format!("srun -n {n} {cmd}"),
@@ -229,50 +239,86 @@ fn launch_ranks(n: usize, launcher: &str, no_gpu: bool) -> anyhow::Result<Vec<st
         t => format!("{t} {cmd}"),
     };
     eprintln!("aurafx-server: starting {n} workers: {full}");
-    let mut child = std::process::Command::new("sh").arg("-c").arg(&full).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).spawn()?;
-    // Wait for every rank (60 s), checking that the launch has not failed.
+    let mut launch = std::process::Command::new("sh");
+    launch.arg("-c").arg(&full).env(RANK_TOKEN, &token).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null());
+    if std::env::var_os("OMPI_MCA_mca_base_env_list").is_none() {
+        launch.env("OMPI_MCA_mca_base_env_list", RANK_TOKEN);
+    }
+    let mut child = launch.spawn()?;
+    // Whatever goes wrong from here on, the launch does not outlive it.
+    let streams = accept_ranks(&listener, &mut child, n, &token, &full)
+        .and_then(|ranks| ranks.into_iter().map(|s| Ok((s.try_clone()?, s))).collect::<anyhow::Result<Vec<_>>>());
+    let streams = match streams {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
+    };
+    // The launcher ends when the workers do (they leave when this server closes their connection).
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(streams
+        .into_iter()
+        .enumerate()
+        .map(|(r, (read, write))| aurafx_pipeline::remote::RemoteClient::from_streams(&format!("rank {r}"), read, write))
+        .collect())
+}
+
+/// What a connection to the coordinator's port says first: `AURAFX token rank size`. The rank
+/// when it is one of this launch's `n`; None for anything else (another program that found the
+/// port, a line that is not text, a connection that says nothing for 2 s).
+fn greet(stream: &std::net::TcpStream, n: usize, token: &str) -> Option<usize> {
+    use std::io::{BufRead, Read};
+    stream.set_nonblocking(false).ok()?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).ok()?;
+    let mut line = String::new();
+    // (A rank sends nothing after its line until it is asked, so nothing is lost in the buffer.)
+    std::io::BufReader::new(stream.try_clone().ok()?.take(256)).read_line(&mut line).ok()?;
+    let w: Vec<&str> = line.split_whitespace().collect();
+    let rank = match w[..] {
+        ["AURAFX", t, r, size] if !token.is_empty() && t == token && size.parse() == Ok(n) => r.parse::<usize>().ok().filter(|r| *r < n)?,
+        _ => return None,
+    };
+    stream.set_read_timeout(None).ok()?;
+    stream.set_nodelay(true).ok()?;
+    Some(rank)
+}
+
+/// Wait (60 s) until every rank of the launch has connected; connections that are not ranks
+/// are dropped.
+fn accept_ranks(
+    listener: &std::net::TcpListener,
+    child: &mut std::process::Child,
+    n: usize,
+    token: &str,
+    full: &str,
+) -> anyhow::Result<Vec<std::net::TcpStream>> {
     listener.set_nonblocking(true)?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     let mut ranks: Vec<Option<std::net::TcpStream>> = (0..n).map(|_| None).collect();
     while ranks.iter().any(|r| r.is_none()) {
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!("only {} of {n} workers connected within 60 s: {full}", ranks.iter().filter(|r| r.is_some()).count());
+        }
         match listener.accept() {
             Ok((stream, _)) => {
-                stream.set_nonblocking(false)?;
-                stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
-                let mut line = String::new();
-                std::io::BufReader::new(stream.try_clone()?).read_line(&mut line)?;
-                let w: Vec<&str> = line.split_whitespace().collect();
-                if w.len() == 4 && w[0] == "AURAFX" && w[1] == token && w[3].parse() == Ok(n) {
-                    if let Ok(r) = w[2].parse::<usize>() {
-                        if r < n {
-                            stream.set_read_timeout(None)?;
-                            stream.set_nodelay(true)?;
-                            ranks[r] = Some(stream);
-                        }
-                    }
+                if let Some(r) = greet(&stream, n, token) {
+                    ranks[r] = Some(stream);
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if let Ok(Some(st)) = child.try_wait() {
                     anyhow::bail!("the launcher ended ({st}) before all {n} workers connected: {full}");
                 }
-                if std::time::Instant::now() > deadline {
-                    let _ = child.kill();
-                    anyhow::bail!("only {} of {n} workers connected within 60 s: {full}", ranks.iter().filter(|r| r.is_some()).count());
-                }
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
+            // A connection that failed while it was being accepted: the next one may be a rank.
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::Interrupted) => {}
             Err(e) => return Err(e.into()),
         }
     }
-    // The launcher ends when the workers do (they leave when this server closes their connection).
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    let mut out = Vec::new();
-    for (r, s) in ranks.into_iter().enumerate() {
-        let s = s.unwrap();
-        out.push(aurafx_pipeline::remote::RemoteClient::from_streams(&format!("rank {r}"), s.try_clone()?, s));
-    }
-    Ok(out)
+    Ok(ranks.into_iter().flatten().collect())
 }

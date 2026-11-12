@@ -134,3 +134,23 @@ fn names_inside_command_text_are_found_whole_and_the_rerun_can_wait() {
     s.update_blocking();
     assert!(!s.nodes[&g].dirty);
 }
+
+/// A direction is not a position: a clip's normal that happens to lie inside the old part's box
+/// is left alone when the part shrinks, and a node working on face numbers is told when they
+/// shifted.
+#[test]
+fn directions_are_left_alone_and_face_numbers_are_flagged() {
+    let (mut s, m, _, _) = pipeline();
+    let clip = s.add_filter("clip", m).unwrap();
+    s.set_param_json(clip, "normal", &json!([1.0, 0.0, 0.0]));
+    let th = s.add_filter("threshold", m).unwrap();
+    s.set_param_json(th, "array", &json!({"assoc": "Cells", "name": "FaceId"}));
+    s.update_blocking();
+    s.cad_enter(m).unwrap();
+    s.cad_env_edit("parameter", &json!({"name": "width", "expr": 1})).unwrap();
+    s.cad_env_edit("remove", &json!({"feature": "Bore"})).unwrap();
+    let r = s.cad_check().unwrap();
+    assert!(!r.conflicts.iter().any(|c| c.node == clip), "{:?}", r.conflicts.iter().filter(|c| c.node == clip).collect::<Vec<_>>());
+    let c = r.conflicts.iter().find(|c| c.node == th).expect("the threshold on FaceId");
+    assert!(matches!(c.kind, ConflictKind::Renumbered { faces: true, .. }) && c.fix.is_none(), "{c:?}");
+}

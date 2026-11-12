@@ -71,6 +71,66 @@ fn glyphs_are_drawn_per_point() {
     assert!(heights[4] > 3 * heights[0], "{heights:?}");
 }
 
+fn glyph_display() -> DisplayProps {
+    DisplayProps {
+        representation: Representation::Glyphs,
+        glyph_orient: "V".into(),
+        glyph_scale_by: "s".into(),
+        glyph_scale: 2.0,
+        color_by: None,
+        ..Default::default()
+    }
+}
+
+fn points_with(sizes: &[f64], vectors: &[[f64; 3]], x0: f64) -> DataSet {
+    let n = sizes.len();
+    let mut pd = PolyData { points: Points::new_f64((0..n).flat_map(|i| [x0 + i as f64, 0.0, 0.0]).collect()), ..Default::default() };
+    pd.point_data.insert(Array::new("V", 3, ArrayData::F64(vectors.iter().flatten().copied().collect())));
+    pd.point_data.insert(Array::scalars_f64("s", sizes.to_vec()));
+    DataSet::PolyData(pd)
+}
+
+/// The blocks of an object share one scale: the same magnitude gives the same length in every
+/// block. Points whose vector or size is not a number get no glyph.
+#[test]
+fn blocks_share_one_scale() {
+    let up = [0.0, 1.0, 0.0];
+    let mut mb = MultiBlock::default();
+    mb.blocks.push(("small".into(), Some(points_with(&[1.0, 2.0], &[up, up], 0.0))));
+    mb.blocks.push(("large".into(), Some(points_with(&[2.0, 4.0, f64::NAN, 3.0, 1.0], &[up, up, up, [f64::NAN, 0.0, 0.0], [f64::INFINITY, 0.0, 0.0]], 10.0))));
+    let mesh = tessellate::tessellate(&DataSet::MultiBlock(mb), &glyph_display());
+    let g = mesh.glyphs.as_ref().expect("glyphs");
+    assert_eq!(g.stride, 1);
+    let sizes: Vec<f32> = g.instances.iter().map(|i| i[7]).collect();
+    // 4 is the largest (2.0 long); the 2 of either block is half of that.
+    assert_eq!(sizes, vec![0.5, 1.0, 1.0, 2.0], "sizes over both blocks; the three that are not numbers are left out");
+    assert!(g.instances.iter().all(|i| i.iter().all(|v| v.is_finite())));
+}
+
+/// More points than glyphs are drawn for: every n-th point gets one, evenly over the blocks.
+#[test]
+fn glyphs_are_capped() {
+    let per_block = tessellate::MAX_GLYPHS * 5 / 8;
+    let block = |x0: f64| {
+        let pd = PolyData { points: Points::new_f32((0..per_block).flat_map(|i| [x0 as f32 + i as f32 * 1e-3, 0.0, 0.0]).collect()), ..Default::default() };
+        DataSet::PolyData(pd)
+    };
+    let mut mb = MultiBlock::default();
+    mb.blocks.push(("a".into(), Some(block(0.0))));
+    mb.blocks.push(("b".into(), Some(block(5000.0))));
+    let d = DisplayProps { representation: Representation::Glyphs, color_by: None, ..Default::default() };
+    let mesh = tessellate::tessellate(&DataSet::MultiBlock(mb), &d);
+    let g = mesh.glyphs.as_ref().expect("glyphs");
+    assert_eq!(g.stride, 2, "1.25 times the most: every second point");
+    assert_eq!(g.instances.len(), per_block, "half of both blocks' points");
+    assert!(g.instances.len() <= tessellate::MAX_GLYPHS);
+    // Both blocks are thinned alike (their points lie left and right of the middle).
+    let left = g.instances.iter().filter(|i| i[0] < 0.0).count();
+    assert!(left.abs_diff(g.instances.len() - left) <= 1, "{left} of {}", g.instances.len());
+    // The automatic size follows the glyphs drawn, one size for all.
+    assert!(g.instances.iter().all(|i| i[7] == g.instances[0][7] && i[7] > 0.0));
+}
+
 #[test]
 fn glyph_memory_compared_with_geometry() {
     // A million arrows: instances are 32 bytes each, the shape is drawn from one copy.

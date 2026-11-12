@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>auraFX — scientific visualization, analysis and simulation</title>
-<meta name="description" content="auraFX is a fast, open-source workbench for scientific data: it reads the files your solvers write, renders them on any GPU, analyses grains and meshes, runs simulations locally or over SSH, and comes with an AI assistant and embedded Python.">
+<meta name="description" content="auraFX is a fast, open-source workbench for scientific data: it reads the files your solvers write, renders them on any GPU, models parts in a parametric CAD environment, builds hexahedral and tetrahedral meshes, analyses grains, runs simulations locally or over SSH, and comes with an AI assistant and embedded Python.">
 <link rel="icon" href="assets/icons/aurafx-64.png">
 <meta property="og:title" content="auraFX">
 <meta property="og:description" content="Scientific visualization, analysis and simulation in one fast window.">
-<meta property="og:image" content="docs/images/screenshot.png">
+<meta property="og:image" content="https://aashiquear.github.io/auraFX/docs/images/screenshot.png">
 <style>
 :root {
   --bg: #0e1117; --bg2: #151a23; --card: #1a2030; --line: #273043; --fg: #e6e9ef; --muted: #9aa4b5;
@@ -22,6 +22,7 @@ html { scroll-behavior: smooth; }
 body { margin: 0; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; background: var(--bg); color: var(--fg); }
 a { color: var(--accent2); text-decoration: none; }
 a:hover { text-decoration: underline; }
+kbd { font: 0.85em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--bg2); }
 code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
 pre { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0; }
 .wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
@@ -88,6 +89,7 @@ footer .notice { background: var(--bg2); border: 1px solid var(--line); border-l
       <img src="assets/branding/logo-wordmark.png" alt="auraFX"></picture></a>
     <nav>
       <a href="#applications">Applications</a>
+      <a href="#model">CAD and meshing</a>
       <a href="#easy">Easy</a>
       <a href="#fast">Fast</a>
       <a href="#simulate">Simulations</a>
@@ -123,13 +125,14 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
       <span class="tag">Rust + wgpu</span>
       <span class="tag">Python 3 built in</span>
       <span class="tag">120+ file formats</span>
+      <span class="tag">Parametric CAD · hex and tet meshing</span>
     </div>
   </div>
   <div class="hero-side">
     <picture class="hero-logo">
       <source media="(prefers-color-scheme: light)" srcset="assets/branding/logo-wordmark-light.png">
       <img src="assets/branding/logo-wordmark.png" alt="auraFX"></picture>
-    <img src="docs/userguide/src/images/main_window.png" alt="The auraFX main window: pipeline, properties, 3D view, Python console, assistant">
+    <img src="docs/userguide/src/images/main_window.png" alt="The auraFX main window: pipeline, properties, 3D view with stream lines and a contour, Python console, assistant">
   </div>
 </div>
 
@@ -181,6 +184,31 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
   </div>
 </section>
 
+<section id="model">
+  <div class="wrap">
+    <h2>Model the part, mesh it, hand it to a solver</h2>
+    <p class="sub">A parametric CAD modeler and a mesh generator live in the same window as the results they lead to. A part made here keeps
+      its named faces all the way down: change a dimension and the mesh, the boundary conditions and the solver case below it follow.</p>
+    <div class="split">
+      <img src="docs/userguide/src/images/cad_sketch.png" alt="A constrained sketch in the CAD environment: an outline with dimensions, snapping and guide lines">
+      <div>
+        <ul class="plain">
+          <li><strong>Sketch, extrude, refine.</strong> Constrained sketches on planes and faces with snapping, guide lines and dimensions you can drag and type into; extrusions, revolves, holes, threads, fillets, chamfers, shells, drafts, patterns and mirrors in a feature history you can roll back, reorder and suppress.</li>
+          <li><strong>It tells you what to do next.</strong> A strip at the top of the model tree follows what you are doing and offers the next steps; <kbd>S</kbd> searches every command at the pointer; right-clicking a face lists what can be done with it; a greyed button says why.</li>
+          <li><strong>Two kernels, one set of names.</strong> An exact B-rep kernel for STEP-quality geometry and a distance-field kernel that never fails on a hard combination, both naming faces the same way.</li>
+          <li><strong>Nothing breaks silently.</strong> Before an edit is applied, auraFX checks every node below the part that refers to a face, a body or a position that changed, proposes fixes, and applies the lot as one undo step.</li>
+          <li><strong>STEP, IGES and 3MF in and out</strong>, assemblies with a fit check, mass properties, and the distance and angle between faces.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="grid g3" style="margin-top:28px">
+      <div class="card"><img class="shot" src="docs/userguide/src/images/cad_next_steps.png" alt="An empty part in the CAD environment with the Next strip offering the first steps"><div class="body"><div class="kicker">Guidance</div><p>An empty part is not a blank stare: the first steps are buttons, and the status bar says what the next click does.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/geometry_steps.png" alt="Geometry commands with Insert menus and the steps from geometry to a mesh"><div class="body"><div class="kicker">Meshing</div><p>Solids from short commands with menus that write them, then six ticked steps to a hexahedral or tetrahedral mesh with named sets.</p></div></div>
+      <div class="card"><img class="shot" src="docs/userguide/src/images/cad_mesh.png" alt="A CAD part meshed into hexahedra with its faces as side sets"><div class="body"><div class="kicker">CAD to solver</div><p>A CAD part becomes hexahedra with one side set per named face, grains if you want them, and a solver case written from the pipeline.</p></div></div>
+    </div>
+  </div>
+</section>
+
 <section id="easy">
   <div class="wrap">
     <h2>Easy to use</h2>
@@ -191,11 +219,13 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
         <ul class="plain">
           <li><strong>Ask for it.</strong> The AI assistant sees your pipeline and writes runnable code: “slice through the middle and color by temperature”, “plot the maximum stress over time”. Agent mode runs the code and iterates on what it sees. Works with Claude, any OpenAI-compatible API, or local models through Ollama.</li>
           <li><strong>One line per idea.</strong> <code>afx.load("run.e").slice(normal=(1,0,0)).set(color_by="Temp")</code>. NumPy in and out, a console with completion, scripts at startup, a trace of everything you clicked.</li>
-          <li><strong>Command palette</strong> (Ctrl+K) for every filter, source and view; undo and redo; sessions saved as one file; dark, light or system theme.</li>
+          <li><strong>It suggests what fits your data.</strong> Right-click an object, in the pipeline or in the 3D view, for the filters that make sense for it (and cuts through the point you clicked); the command palette (Ctrl+K) ranks the same way, and a filter that will not work says what it needs.</li>
+          <li><strong>Notebooks.</strong> A Notebook panel that opens and saves <code>.ipynb</code> files, and a Jupyter kernel that drives the window from JupyterLab, pictures included.</li>
+          <li><strong>A welcome that gets out of the way</strong>, undo and redo everywhere, sessions saved as one file, keyboard shortcuts you can change, dark, light, high-contrast or system theme.</li>
           <li><strong>Every feature is documented</strong> in a user guide with a screenshot per feature, generated from the repository, so the pictures always match the app.</li>
         </ul>
       </div>
-      <img src="docs/userguide/src/images/assistant.png" alt="The AI assistant panel writing and running a visualization script">
+      <img src="docs/userguide/src/images/suggestions_palette.png" alt="The command palette on a volume: the filters suggested for this data come first, each with its reason">
     </div>
     <div class="grid g3" style="margin-top:28px">
       <div class="card feature"><h3>Python that reads like notes</h3><pre><code>d = afx.load("run.e")
@@ -203,10 +233,11 @@ d.contour(array="Temp", values=[400])
    .set(color_by="Temp", metallic=1)
 afx.over_time(d, "Temp", stat="max")
 afx.save_animation("turn.mp4", orbit=72)</code></pre></div>
-      <div class="card feature"><h3>Plugins in Python</h3><p>Add a filter, source or reader with a decorator; the app reloads it when the file is saved and the assistant learns it.</p><pre style="margin-top:10px"><code>@afx.filter("Double it")
-def double(ds, factor=2.0):
-    ds["T"] = ds["T"] * factor
-    return ds</code></pre></div>
+      <div class="card feature"><h3>Plugins in Python or Rust</h3><p>Add a filter, source, reader or a panel of your own controls with a decorator; the app reloads it when the file is saved and the assistant learns it. Compiled filters load as shared libraries.</p><pre style="margin-top:10px"><code>@afx.filter(category="Flow")
+def speed(data, vectors=afx.ArrayParam(vector=True)):
+    v = data.point_data[vectors]
+    data.point_data["speed"] = np.linalg.norm(v, axis=1)
+    return data</code></pre></div>
       <div class="card feature"><h3>Generated meshes, in words</h3><pre><code>brick x 4 y 2 z 1
 cylinder radius 0.4 height 2
 subtract body 2 from body 1
@@ -220,11 +251,12 @@ sideset 1 add face 6 name 'top'</code></pre></div>
   <div class="wrap">
     <h2>Fast by construction</h2>
     <p class="sub">Rust, no garbage collector, every core for the filters, and a wgpu renderer that speaks Vulkan, Metal and DX12 natively.
-      Big data stays where it is: a server reads and filters it on the cluster and sends back only what you look at.</p>
+      Big data stays where it is: a server reads and filters it on the cluster and sends back only what you look at,
+      and a file larger than memory is streamed through in pieces.</p>
     <div class="grid g4">
       <div class="card feature"><div class="num">~80 ms</div><h3>4-million-cell slice</h3><p>Slice, Contour, Clip, Threshold, Extract Surface, Stream Tracer and Gradient run on all cores and give the same answer on any thread count.</p></div>
-      <div class="card feature"><div class="num">GPU</div><h3>Volumes and millions of points</h3><p>GPU volume rendering merged with surfaces, instanced glyphs, order-independent transparency, 60 fps interaction on laptop GPUs.</p></div>
-      <div class="card feature"><div class="num">0 copies</div><h3>Remote data</h3><p><code>afx.load(path, host="cluster")</code> runs the pipeline where the file is; only the visible surface comes over, or just pictures when even that is too big.</p></div>
+      <div class="card feature"><div class="num">GPU</div><h3>Drawing and computing</h3><p>Volume rendering merged with surfaces, a million arrows drawn from one shape, big surfaces culled and drawn coarse while you move. Slices of big grids let the GPU find the cells to cut: 0.23 s instead of 2.1 s on 64 million points, same numbers.</p></div>
+      <div class="card feature"><div class="num">0 copies</div><h3>Remote and huge data</h3><p><code>afx.load(path, host="cluster", processes=64, launcher="srun")</code> runs the pipeline where the file is, over many processes with ghost layers between them; <code>stream=16</code> reads a file bigger than memory piece by piece.</p></div>
       <div class="card feature"><div class="num">1 file</div><h3>Nothing to install around it</h3><p>Packages bundle Python 3.12 and NumPy. No Qt, no VTK, no environment to set up. The portable Linux tarball runs from any folder.</p></div>
     </div>
   </div>
@@ -258,12 +290,14 @@ afx.run_case(poly, "pinnacle", "~/runs/plate", host="cluster",
     <h2>Reads what your codes write</h2>
     <p class="sub">All readers are written in Rust and checked against reference implementations; writers are read back and compared.</p>
     <table>
-      <tr><th>Meshes and fields</th><td>Exodus II, VTK legacy and XML (all types, parallel, multiblock, <code>.pvd</code>), VTKHDF, OpenFOAM (ASCII/binary/gzip, decomposed), EnSight Gold, CGNS (HDF5 and ADF), Xdmf 2/3, Tecplot, PLOT3D, Abaqus and Gmsh (written), STL, PLY, OBJ, CSV</td></tr>
+      <tr><th>Meshes and fields</th><td>Exodus II, VTK legacy and XML (all types, parallel, multiblock, <code>.pvd</code>), VTKHDF, OpenFOAM (ASCII/binary/gzip, decomposed), EnSight Gold, CGNS (HDF5 and ADF), Xdmf 2/3, Tecplot, PLOT3D, LS-DYNA d3plot, Fluent, Nastran, Nek5000, Abaqus and Gmsh (written), STL, PLY, OBJ, glTF, VRML, Houdini <code>.geo</code>, CSV</td></tr>
+      <tr><th>CAD</th><td>STEP, IGES, 3MF and SolidCraft <code>.sc</code> designs, read as parts you can edit and written back; auraFX's own <code>.afxcad</code> documents</td></tr>
+      <tr><th>Images and point clouds</th><td>DICOM, NRRD, MetaImage, MRC, OME-TIFF, NIfTI and image stacks as volumes; LAS/LAZ, H5Part and PTS point clouds</td></tr>
       <tr><th>Particles and molecules</th><td>LAMMPS dumps and data files, XYZ / extended XYZ, PDB, VASP, Gaussian cube, CML</td></tr>
       <tr><th>Climate, ocean, GIS</th><td>NetCDF (CF, POP, CAM-SE, MPAS), GeoTIFF, Esri ASCII grid, ERDAS Imagine, Shapefile, GeoJSON, KML/KMZ, GeoPackage, FlatGeobuf, GML, MapInfo, file geodatabases</td></tr>
       <tr><th>Adaptive and special grids</th><td>AMReX plotfiles, FLASH, Enzo, Chombo (1-D to 4-D) with particles; hyper tree grids; discontinuous-Galerkin cell grids; Lagrange and Bezier cells of any order, drawn curved</td></tr>
       <tr><th>Materials</th><td>EBSD maps (<code>.ang</code>, <code>.ctf</code>, <code>.h5ebsd</code>, EDAX and Bruker <code>.h5</code>), <code>.dream3d</code> volumes and meshes (read and written, with the pipeline that made them), SPPARKS site files, orientation <code>.tex</code> files</td></tr>
-      <tr><th>Writers</th><td>VTK XML and legacy, VTKHDF, Exodus II, EnSight, Xdmf, CGNS, Abaqus <code>.inp</code>, Gmsh <code>.msh</code>, <code>.dream3d</code>, STL, PLY, CSV; glTF, OBJ, X3D and VRML scenes; PNG, SVG, GIF and MP4</td></tr>
+      <tr><th>Writers</th><td>VTK XML and legacy, VTKHDF, Exodus II, EnSight, Xdmf, CGNS, Abaqus <code>.inp</code>, Gmsh <code>.msh</code>, Nastran, Fluent, <code>.dream3d</code>, STEP, IGES, 3MF, STL, PLY, CSV; glTF, OBJ, X3D and VRML scenes; PNG, SVG, GIF, MP4 and WebM</td></tr>
     </table>
   </div>
 </section>
@@ -281,7 +315,7 @@ afx.run_case(poly, "pinnacle", "~/runs/plate", host="cluster",
       <tr><td>Android 8+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-android.apk"><code>.apk</code></a> (viewer build)</td><td>download and open the APK</td></tr>
       <tr><td>iOS / iPadOS 15+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-ios-unsigned.ipa">unsigned <code>.ipa</code></a> (viewer build)</td><td>sign and install with Xcode, AltStore or Sideloadly</td></tr>
       <tr><td>Remote data server</td><td><code>aurafx-server</code> (in every desktop package)</td><td><strong>File › Open on Server… › Install server</strong> copies it to a host over SSH; see <a href="docs/userguide/book/client-server.html">Data on another machine</a></td></tr>
-      <tr><td>From source</td><td>Rust 1.85+, Python 3.10+ headers</td><td><code>cargo build --release</code> then <code>target/release/aurafx</code></td></tr>
+      <tr><td>From source</td><td>Rust 1.95+, Python 3.10+ headers</td><td><code>cargo build --release</code> then <code>target/release/aurafx</code></td></tr>
     </table>
     <p class="note" style="margin-top:12px">The mobile builds are viewers (no embedded Python, no simulations). Release packages are built by GitHub Actions from the tagged source; checksums are in <code>SHA256SUMS</code> next to them.</p>
   </div>
@@ -292,14 +326,14 @@ afx.run_case(poly, "pinnacle", "~/runs/plate", host="cluster",
     <h2>Documentation</h2>
     <p class="sub">One user guide, three formats, all generated from the same Markdown sources in the repository.</p>
     <div class="grid g3 docs">
-      <a class="doc" href="docs/userguide/book/index.html"><strong>User guide — online book</strong><span>Searchable HTML with every chapter: getting started, filters, color maps, views, time and animation, rendering, Python, the assistant, plugins, file formats, simulations, remote data, grains and crystals, geometry and meshing.</span></a>
+      <a class="doc" href="docs/userguide/book/index.html"><strong>User guide — online book</strong><span>Searchable HTML with every chapter: getting started, filters, color maps, views, time and animation, rendering, Python and notebooks, the assistant, plugins, tutorials, file formats, simulations, remote and huge data, grains and crystals, geometry and meshing, CAD modeling, a reference of every filter, and benchmarks.</span></a>
       <a class="doc" href="docs/userguide/auraFX-user-guide.pdf"><strong>User guide — PDF</strong><span>The same book as one printable file.</span></a>
       <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/userguide/src/SUMMARY.md"><strong>User guide — Markdown</strong><span>The sources on GitHub, chapter by chapter.</span></a>
       <a class="doc" href="https://github.com/aashiquear/auraFX/tree/main/examples"><strong>Examples and tutorials</strong><span>Heat diffusion, spinodal decomposition and grain growth as Python pipelines; geometry-to-polycrystal and EBSD-analysis tutorial scripts.</span></a>
       <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/README.md"><strong>README and feature table</strong><span>What works today, in one page.</span></a>
       <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/ROADMAP.md"><strong>Roadmap</strong><span>Every reader, filter and view of the catalog mapped to a delivery phase, with the status of each.</span></a>
       <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/ARCHITECTURE.md"><strong>Architecture</strong><span>The crates, the data model, the pipeline and the renderer, for contributors.</span></a>
-      <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/plugins.md"><strong>Plugins</strong><span>Writing filters, sources and readers in Python.</span></a>
+      <a class="doc" href="docs/userguide/book/plugins.html"><strong>Plugins</strong><span>Writing filters, sources, readers and panels in Python, and filters in Rust.</span></a>
       <a class="doc" href="https://github.com/aashiquear/auraFX/blob/main/docs/reference/verification.md"><strong>Verification notes</strong><span>How each reader, writer, filter and mesher was checked against a reference.</span></a>
     </div>
   </div>
@@ -310,9 +344,9 @@ afx.run_case(poly, "pinnacle", "~/runs/plate", host="cluster",
   <div class="wrap">
     <p><strong>License.</strong> auraFX is free software, dual-licensed under the <a href="https://github.com/aashiquear/auraFX/blob/main/LICENSE-MIT">MIT License</a> or the
       <a href="https://github.com/aashiquear/auraFX/blob/main/LICENSE-APACHE">Apache License 2.0</a>, at your option. Third-party crates keep their own licenses. The bundled Python is CPython (PSF license) with NumPy (BSD).
-      auraFX is inspired by ParaView, DREAM.3D and Cubit and shares no code with them; test data from public sources is credited in <code>testdata/README.md</code>.</p>
-    <p><strong>How it was built.</strong> auraFX was developed with Anthropic's Claude models, Opus 5.5 and Fable 5.1, working from a written roadmap and design, with
-      every reader, writer, filter and mesher checked against a reference implementation where one exists (see the verification notes) and a test suite of over two hundred tests run on every change.</p>
+      Part of the CAD environment builds on the open-source SolidCraft and solidcore projects (credited in the README); test data from public sources is credited in <code>testdata/README.md</code>.</p>
+    <p><strong>How it was built.</strong> auraFX was developed with Anthropic's Claude models, working from a written roadmap and design, with
+      every reader, writer, filter and mesher checked against a reference implementation where one exists (see the verification notes) and a test suite of about five hundred tests run on every change.</p>
     <div class="notice">
       <strong>Please read before relying on results.</strong> auraFX is software written largely by AI systems. Use it with care and with the judgement you would apply to any new scientific tool.
       It is provided “as is”, without warranty of any kind. The distributor accepts no liability for its use and makes no claim about the validity of any result, picture,

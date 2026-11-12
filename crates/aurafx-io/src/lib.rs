@@ -470,6 +470,19 @@ fn with_piece<T>(piece: Option<(usize, usize)>, f: impl FnOnce() -> Result<T>) -
     r.map(|v| (v, pieced))
 }
 
+/// Run `f` (a read of a file that is part of the one being read: a block of a multi-block
+/// file, a piece file) as an ordinary whole read. Only the file a piece was asked of cuts
+/// itself; a part that cut itself too would lose data, and its mark would tell the caller that
+/// parts read whole were cut as well.
+pub(crate) fn without_piece<T>(f: impl FnOnce() -> T) -> T {
+    let piece = PIECE.with(|p| p.replace(None));
+    let pieced = PIECED.with(|p| p.get());
+    let r = f();
+    PIECED.with(|p| p.set(pieced));
+    PIECE.with(|p| p.set(piece));
+    r
+}
+
 /// Read piece `k` of `n` of a file (for parallel servers). Partitioned formats (`.pvtu` and
 /// the other parallel VTK files) read only the piece files of this piece; other data is read
 /// and then split with [`aurafx_data::pieces::split`].

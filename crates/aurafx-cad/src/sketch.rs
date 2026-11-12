@@ -1,13 +1,13 @@
 //! Ported from EZ-YX-craft (`ezyx-cad`, MIT OR Apache-2.0), the user's own project.
 //!
-//! 2D constrained sketcher (SolveSpace / SolidWorks style).
+//! 2D constrained sketcher.
 //!
 //! A [`Sketch`] is points + entities that reference points by index + geometric/dimensional
 //! [`Constraint`]s. [`Sketch::solve`] runs a damped Gauss-Newton (Levenberg–Marquardt) solve over all
 //! free scalars (coordinates of non-fixed points and circle radii) with a central-difference Jacobian;
 //! sketches are small (< a few hundred unknowns) so dense linear algebra is fine. The rank of the
 //! Jacobian at the solution gives the remaining degrees of freedom, so the GUI can colour a sketch
-//! under/fully/over-defined like SolidWorks does.
+//! under/fully/over-defined.
 //!
 //! Profiles for features come from [`Sketch::profiles`]: non-construction lines, arcs and open
 //! splines are chained by shared point indices (or `Coincident` constraints) into closed loops;

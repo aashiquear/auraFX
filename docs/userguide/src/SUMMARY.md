@@ -37,4 +37,5 @@
 
 - [Settings and keyboard shortcuts](settings.md)
 - [Filter reference](filter-reference.md)
+- [Python API reference](python-api.md)
 - [Benchmarks](benchmarks.md)

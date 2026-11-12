@@ -72,6 +72,10 @@ impl Document {
         let vars = |n: &str| vals.get(n).copied();
         let mut out = self.clone();
         for f in &mut out.features {
+            // A switched-off feature is not built: a problem in it must not stop the part.
+            if f.suppressed {
+                continue;
+            }
             if !f.bindings.is_empty() {
                 let err = |path: &str, reason: String| CadError::Binding { feature: f.name.clone(), path: path.to_string(), reason };
                 let mut v = serde_json::to_value(&*f).map_err(|e| err("", e.to_string()))?;
@@ -92,7 +96,15 @@ impl Document {
                 *f = serde_json::from_value(v).map_err(|e| CadError::Binding { feature: name, path: String::new(), reason: e.to_string() })?;
             }
             if let Some(sk) = f.shape.sketch_mut() {
-                sk.solve_with(&vals).map_err(|source: ExprError| CadError::Expr { name: format!("{} sketch", f.name), source })?;
+                let report = sk.solve_with(&vals).map_err(|source: ExprError| CadError::Expr { name: format!("{} sketch", f.name), source })?;
+                // Constraints or dimensions that contradict each other leave the outline wherever
+                // the solver stopped: refuse, instead of building a shape nobody asked for.
+                if !report.converged && report.max_residual > 1e-6 {
+                    return Err(CadError::Edit(format!(
+                        "the sketch of '{}' cannot be solved: its constraints and dimensions contradict each other (off by {:.3}); edit the sketch or the dimension changed last",
+                        f.name, report.max_residual
+                    )));
+                }
             }
         }
         Ok(out)

@@ -25,17 +25,17 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let k = c / (cx * cy);
     var lo = 3.4e38;
     var hi = -3.4e38;
-    var nan = false;
     for (var q = 0u; q < 8u; q++) {
         let ii = i + (q & 1u);
         let jj = j + ((q >> 1u) & 1u);
         let kk = k + (q >> 2u);
         let v = vals[ii + p.nx * (jj + p.ny * kk)];
-        if (v != v) { nan = true; }
         lo = min(lo, v);
         hi = max(hi, v);
     }
-    var hit = nan;
+    // (Values that are not numbers never get here: the caller keeps such data on the CPU,
+    // because shaders may assume there are none.)
+    var hit = false;
     for (var r = 0u; r < p.nranges; r++) {
         if (lo <= ranges[r].y && hi >= ranges[r].x) { hit = true; }
     }
@@ -158,7 +158,8 @@ impl Gpu {
         use wgpu::util::DeviceExt;
         self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(label),
-            contents: if bytes.is_empty() { &[0u8; 4] } else { bytes },
+            // (Never empty, and at least one element of the widest array bound.)
+            contents: if bytes.len() < 8 { &[0u8; 8] } else { bytes },
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         })
     }
@@ -166,6 +167,23 @@ impl Gpu {
     fn uniform(&self, bytes: &[u8]) -> wgpu::Buffer {
         use wgpu::util::DeviceExt;
         self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("params"), contents: bytes, usage: wgpu::BufferUsages::UNIFORM })
+    }
+
+    /// Run `f` (work on the device) and give what the device reported while it ran (a rejected
+    /// call, memory that ran out, a driver failure) as an error, so the caller falls back to
+    /// the CPU. Without this such reports end the program.
+    fn checked<T>(&self, f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+        let memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let internal = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
+        let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let r = f();
+        // The scopes end in the reverse order (all of them, whatever they report).
+        let reports = [block(validation.pop()), block(internal.pop()), block(memory.pop())];
+        match reports.into_iter().flatten().next() {
+            Some(wgpu::Error::OutOfMemory { .. }) => anyhow::bail!("the GPU is out of memory"),
+            Some(e) => anyhow::bail!("{e}"),
+            None => r,
+        }
     }
 
     /// Run `pipe` over `n` items with these buffers bound in order; read back `out`.
@@ -244,9 +262,14 @@ impl Gpu {
     }
 
     fn try_grid_candidates(&self, values: &[f32], dims: [usize; 3], ranges: &[(f32, f32)]) -> anyhow::Result<Vec<u32>> {
+        self.checked(|| self.grid_candidates_unchecked(values, dims, ranges))
+    }
+
+    fn grid_candidates_unchecked(&self, values: &[f32], dims: [usize; 3], ranges: &[(f32, f32)]) -> anyhow::Result<Vec<u32>> {
         let [nx, ny, nz] = dims;
         anyhow::ensure!(nx >= 2 && ny >= 2 && nz >= 2 && values.len() == nx * ny * nz, "not a 3-D grid");
         anyhow::ensure!((nx - 1) * (ny - 1) * (nz - 1) < u32::MAX as usize, "too many cells");
+        anyhow::ensure!(!ranges.is_empty(), "no ranges");
         let [pipe, _] = self.pipelines();
         let ranges_b: Vec<[f32; 2]> = ranges.iter().map(|&(a, b)| [a, b]).collect();
         let rb = self.storage(bytemuck::cast_slice(&ranges_b), "ranges");
@@ -275,9 +298,23 @@ impl Gpu {
         normal: [f64; 3],
         margin: f64,
     ) -> anyhow::Result<Vec<u32>> {
+        self.checked(|| self.plane_candidates_unchecked(extent, origin, spacing, plane, normal, margin))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn plane_candidates_unchecked(
+        &self,
+        extent: [i64; 6],
+        origin: [f64; 3],
+        spacing: [f64; 3],
+        plane: [f64; 3],
+        normal: [f64; 3],
+        margin: f64,
+    ) -> anyhow::Result<Vec<u32>> {
         let dims: [usize; 3] = std::array::from_fn(|a| (extent[2 * a + 1] - extent[2 * a] + 1).max(0) as usize);
         let [nx, ny, nz] = dims;
         anyhow::ensure!(nx >= 2 && ny >= 2 && nz >= 2, "not a 3-D grid");
+        anyhow::ensure!((nx - 1) * (ny - 1) * (nz - 1) < u32::MAX as usize, "too many cells");
         let [_, pipe] = self.pipelines();
         let cpp = (nx - 1) * (ny - 1);
         // Output bits only: chunks bounded by the binding size of the bit buffer.
@@ -304,6 +341,11 @@ impl GpuKernels for Gpu {
         self.name.clone()
     }
     fn grid_candidates(&self, values: &[f32], dims: [usize; 3], ranges: &[(f32, f32)]) -> Option<Vec<u32>> {
+        // Nothing to look for, or values that are not numbers (which a shader may not tell
+        // from numbers): the CPU does it.
+        if ranges.is_empty() || values.iter().any(|v| v.is_nan()) {
+            return None;
+        }
         self.try_grid_candidates(values, dims, ranges).map_err(|e| tracing::warn!("GPU contour cells: {e:#}; using the CPU")).ok()
     }
     fn image_plane_candidates(
@@ -316,5 +358,39 @@ impl GpuKernels for Gpu {
         margin: f64,
     ) -> Option<Vec<u32>> {
         self.try_plane_candidates(extent, origin, spacing, plane, normal, margin).map_err(|e| tracing::warn!("GPU slice cells: {e:#}; using the CPU")).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the device rejects comes back as an error (the caller then uses the CPU), and the
+    /// device still works afterwards. Skipped without a GPU.
+    #[test]
+    fn device_errors_are_returned() {
+        let Ok(g) = Gpu::new() else {
+            eprintln!("no GPU: skipped");
+            return;
+        };
+        let r = g.checked(|| {
+            // A buffer that may be mapped for reading cannot also be a storage buffer.
+            let _ = g.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("rejected"),
+                size: 64,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+            Ok(())
+        });
+        assert!(r.is_err(), "a rejected call is an error");
+        // No ranges, or values that are not numbers: left to the CPU.
+        let vals = vec![0.0f32; 27];
+        assert!(g.grid_candidates(&vals, [3, 3, 3], &[]).is_none());
+        let mut nan = vals.clone();
+        nan[13] = f32::NAN;
+        assert!(g.grid_candidates(&nan, [3, 3, 3], &[(-1.0, 1.0)]).is_none());
+        assert_eq!(g.grid_candidates(&vals, [3, 3, 3], &[(-1.0, 1.0)]).map(|c| c.len()), Some(8), "the device still works");
+        assert_eq!(g.grid_candidates(&vals, [3, 3, 3], &[(1.0, 2.0)]).map(|c| c.len()), Some(0));
     }
 }

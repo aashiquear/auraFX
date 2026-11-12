@@ -251,6 +251,23 @@ pub enum Scheduler {
     Direct,
     /// Submit with `sbatch` and poll `squeue`.
     Slurm { partition: String, time: String, nodes: u32, tasks: u32, extra: String },
+    /// Submit with `qsub` and poll `qstat` (PBS Professional, OpenPBS, Torque).
+    Pbs { queue: String, time: String, nodes: u32, tasks: u32, extra: String },
+    /// Submit with `bsub` and poll `bjobs` (LSF).
+    Lsf { queue: String, time: String, nodes: u32, tasks: u32, extra: String },
+}
+
+impl Scheduler {
+    /// A batch scheduler by name ("slurm", "pbs", "lsf") with its settings.
+    pub fn batch(system: &str, queue: &str, time: &str, nodes: u32, tasks: u32, extra: &str) -> Option<Scheduler> {
+        let (queue, time, extra) = (queue.to_string(), time.to_string(), extra.to_string());
+        match system.trim().to_ascii_lowercase().as_str() {
+            "slurm" | "sbatch" => Some(Scheduler::Slurm { partition: queue, time, nodes, tasks, extra }),
+            "pbs" | "torque" | "qsub" | "openpbs" => Some(Scheduler::Pbs { queue, time, nodes, tasks, extra }),
+            "lsf" | "bsub" => Some(Scheduler::Lsf { queue, time, nodes, tasks, extra }),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -309,6 +326,64 @@ impl JobSpec {
         s += &format!("cd {} || exit 97\n", shell_quote(&self.workdir));
         s += &self.command;
         s.push('\n');
+        s
+    }
+
+    /// The script submitted to PBS: `select` chunks of the tasks spread over the nodes.
+    pub fn pbs_script(&self, queue: &str, time: &str, nodes: u32, tasks: u32, extra: &str) -> String {
+        let (nodes, tasks) = (nodes.max(1), tasks.max(1));
+        let per_node = tasks.div_ceil(nodes);
+        let mut s = String::from("#!/bin/bash\n");
+        s += &format!("#PBS -N {}\n", self.name.replace(' ', "_"));
+        s += &format!("#PBS -j oe\n#PBS -o {}/aurafx-pbs.log\n", self.workdir);
+        if !queue.is_empty() {
+            s += &format!("#PBS -q {queue}\n");
+        }
+        if !time.is_empty() {
+            s += &format!("#PBS -l walltime={time}\n");
+        }
+        let gpus = if self.gpu.count() > 0 { format!(":ngpus={}", self.gpu.count()) } else { String::new() };
+        s += &format!("#PBS -l select={nodes}:ncpus={per_node}:mpiprocs={per_node}{gpus}\n");
+        for l in extra.lines().filter(|l| !l.trim().is_empty()) {
+            s += &format!("#PBS {}\n", l.trim().trim_start_matches("#PBS").trim());
+        }
+        if !self.host.setup.trim().is_empty() {
+            s += &self.host.setup;
+            s.push('\n');
+        }
+        s += &self.script();
+        s
+    }
+
+    /// The script submitted to LSF (through `bsub <`).
+    pub fn lsf_script(&self, queue: &str, time: &str, nodes: u32, tasks: u32, extra: &str) -> String {
+        let (nodes, tasks) = (nodes.max(1), tasks.max(1));
+        let mut s = String::from("#!/bin/bash\n");
+        s += &format!("#BSUB -J {}\n", self.name.replace(' ', "_"));
+        s += &format!("#BSUB -o {}/aurafx-lsf.log\n", self.workdir);
+        if !queue.is_empty() {
+            s += &format!("#BSUB -q {queue}\n");
+        }
+        if !time.is_empty() {
+            // LSF takes hours:minutes.
+            let hm: Vec<&str> = time.split(':').collect();
+            s += &format!("#BSUB -W {}\n", if hm.len() >= 2 { format!("{}:{}", hm[0], hm[1]) } else { time.to_string() });
+        }
+        s += &format!("#BSUB -n {tasks}\n");
+        if nodes > 1 {
+            s += &format!("#BSUB -R \"span[ptile={}]\"\n", tasks.div_ceil(nodes));
+        }
+        if self.gpu.count() > 0 {
+            s += &format!("#BSUB -gpu \"num={}\"\n", self.gpu.count());
+        }
+        for l in extra.lines().filter(|l| !l.trim().is_empty()) {
+            s += &format!("#BSUB {}\n", l.trim().trim_start_matches("#BSUB").trim());
+        }
+        if !self.host.setup.trim().is_empty() {
+            s += &self.host.setup;
+            s.push('\n');
+        }
+        s += &self.script();
         s
     }
 
@@ -466,6 +541,8 @@ pub fn submit(jobs: &SharedJobs, spec: JobSpec) -> JobId {
             let r = stage_inputs(&jobs2, id, &spec).and_then(|_| match &spec.scheduler {
                 Scheduler::Direct => run_direct(&jobs2, id, &spec),
                 Scheduler::Slurm { partition, time, nodes, tasks, extra } => run_slurm(&jobs2, id, &spec, partition, time, *nodes, *tasks, extra),
+                Scheduler::Pbs { queue, time, nodes, tasks, extra } => run_queue(&jobs2, id, &spec, &PBS, spec.pbs_script(queue, time, *nodes, *tasks, extra)),
+                Scheduler::Lsf { queue, time, nodes, tasks, extra } => run_queue(&jobs2, id, &spec, &LSF, spec.lsf_script(queue, time, *nodes, *tasks, extra)),
             });
             if let Err(e) = r {
                 push_log(&jobs2, id, format!("[auraFX] error: {e:#}"));
@@ -605,6 +682,104 @@ fn run_slurm(jobs: &SharedJobs, id: JobId, spec: &JobSpec, partition: &str, time
             return Ok(());
         }
         std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
+/// How a batch system is talked to: every command gets the job id where `{id}` stands.
+struct QueueSystem {
+    name: &'static str,
+    /// Submits the script file `{file}`; its output holds the job id.
+    submit: &'static str,
+    /// Prints the job's state as one word (empty when the system no longer knows the job).
+    status: &'static str,
+    running: &'static [&'static str],
+    /// States that mean the job is over.
+    finished: &'static [&'static str],
+    /// Prints the job's exit code, when the system keeps it.
+    exit_code: &'static str,
+    cancel: &'static str,
+    log: &'static str,
+}
+
+const PBS: QueueSystem = QueueSystem {
+    name: "PBS",
+    submit: "qsub {file}",
+    // The job_state line of the full status: Q, R, E, F... (-x also shows finished jobs where kept).
+    status: "(qstat -xf {id} 2>/dev/null || qstat -f {id} 2>/dev/null) | sed -n 's/^ *job_state = *//p' | head -1",
+    running: &["R", "E"],
+    finished: &["F", "C"],
+    exit_code: "(qstat -xf {id} 2>/dev/null || qstat -f {id} 2>/dev/null) | sed -n 's/^ *[Ee]xit_status = *//p' | head -1",
+    cancel: "qdel {id}",
+    log: "aurafx-pbs.log",
+};
+
+const LSF: QueueSystem = QueueSystem {
+    name: "LSF",
+    submit: "bsub < {file}",
+    status: "bjobs -noheader -o stat {id} 2>/dev/null | head -1",
+    running: &["RUN"],
+    finished: &["DONE", "EXIT"],
+    exit_code: "bjobs -noheader -o exit_code {id} 2>/dev/null | head -1",
+    cancel: "bkill {id}",
+    log: "aurafx-lsf.log",
+};
+
+/// The job id in what a submit command printed: "123.server" (PBS) or "Job <123> is submitted..." (LSF).
+fn queue_job_id(out: &str) -> Option<String> {
+    let t = out.trim();
+    if let Some(rest) = t.split_once("Job <").map(|x| x.1) {
+        return rest.split('>').next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    }
+    t.lines().last().map(|l| l.trim().to_string()).filter(|l| !l.is_empty() && !l.contains(' '))
+}
+
+/// Submit to a batch system and follow the job: its state, its log, its exit code.
+fn run_queue(jobs: &SharedJobs, id: JobId, spec: &JobSpec, q: &QueueSystem, script: String) -> Result<()> {
+    let file = format!(".aurafx_job_{id}.sh");
+    let submit = format!(
+        "mkdir -p {wd} && cd {wd} && cat > {file} <<'AURAFX_EOF'\n{script}AURAFX_EOF\n{}",
+        q.submit.replace("{file}", &file),
+        wd = shell_quote(&spec.workdir)
+    );
+    let bare = Host { setup: String::new(), ..spec.host.clone() };
+    let out = bare.run_capture(&submit, Duration::from_secs(60))?;
+    let Some(job) = queue_job_id(&out) else { bail!("{} did not return a job id: {out}", q.name) };
+    push_log(jobs, id, format!("[auraFX] submitted {} job {job}", q.name));
+    set_state(jobs, id, JobState::Submitted(job.clone()));
+    let log_path = format!("{}/{}", spec.workdir, q.log);
+    let cmd = |c: &str| c.replace("{id}", &shell_quote(&job));
+    let mut shown = 0usize;
+    let mut unknown = 0;
+    loop {
+        if jobs.lock().jobs.iter().find(|j| j.id == id).map(|j| j.state == JobState::Cancelled).unwrap_or(true) {
+            let _ = bare.run_capture(&cmd(q.cancel), Duration::from_secs(30));
+            return Ok(());
+        }
+        let st = bare.run_capture(&format!("{}; true", cmd(q.status)), Duration::from_secs(30)).unwrap_or_default();
+        let st = st.trim().to_string();
+        if q.running.contains(&st.as_str()) {
+            set_state(jobs, id, JobState::Running);
+        }
+        if let Ok(text) = bare.run_capture(&format!("tail -n +{} {} 2>/dev/null; true", shown + 1, shell_quote(&log_path)), Duration::from_secs(30)) {
+            for l in text.lines() {
+                push_log(jobs, id, l.to_string());
+                shown += 1;
+            }
+        }
+        // Over: the system says so, or has forgotten the job (twice in a row, so a slow
+        // scheduler that has not listed the new job yet is not taken for a finished one).
+        unknown = if st.is_empty() { unknown + 1 } else { 0 };
+        if q.finished.contains(&st.as_str()) || unknown >= 2 {
+            let code = bare
+                .run_capture(&format!("{}; true", cmd(q.exit_code)), Duration::from_secs(30))
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok())
+                .unwrap_or(if st == "EXIT" { 1 } else { 0 });
+            push_log(jobs, id, format!("[auraFX] {} job {job} finished (exit {code})", q.name));
+            set_state(jobs, id, JobState::Finished(code));
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_secs(if std::env::var_os("AURAFX_QUEUE_POLL_FAST").is_some() { 1 } else { 5 }));
     }
 }
 

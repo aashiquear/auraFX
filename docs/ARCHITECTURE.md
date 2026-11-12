@@ -109,14 +109,38 @@ mapping other programs' numbered steps to auraFX filters; `cases.rs` writes solv
 which the job templates in `aurafx-jobs/templates.rs` stage into the working directory,
 uploading them to remote hosts. See `docs/design/grains-and-meshing.md`.
 
-## CAD modeling environment (in progress, branch `feat/CAD-modeling-environment`)
+## CAD modeling environment
 
 `aurafx-cad` holds a parametric CAD document (feature timeline, constrained sketches,
 parameters with unit-aware expressions, configurations) that is plain serde data, and the
-kernels that evaluate it: an implicit kernel on `aurafx-mesh` (always built) and, behind the
-cargo feature `brep`, a B-rep kernel and the STEP/IGES/3MF/`.sc` formats through the SolidCraft
-crates (pinned git dependencies; its UI is not pulled in). The app's `cad/` module is the
-environment: a mode of the one window with its own ribbon, FeatureManager and PropertyManager,
+kernels that evaluate it: an implicit kernel on `aurafx-mesh` and a B-rep kernel with the
+STEP/IGES/3MF/`.sc` formats through the SolidCraft crates carried in `vendor/` (path
+dependencies, always built; its UI is not pulled in). The app's `cad/` module is the
+environment: a mode of the one window with its own ribbon, Model tree and Feature panel,
 while other views are stale; applying runs the downstream check in
 `aurafx-pipeline/src/cad_check.rs` (reference collection, geometry diff, default fixers, an
 assistant prompt) before the pipeline re-runs. Design and stages: `docs/design/cad-environment.md`.
+
+## Scale: servers, pieces and the GPU
+
+`aurafx-server` is the pipeline without the window: the app sends it the recipe of a node
+(`aurafx-pipeline/src/remote.rs`, a length-prefixed binary protocol over SSH's standard streams)
+and gets back a summary, the data, its outer surface or pictures. A parallel server is a
+coordinator with workers that each hold one piece (`cluster.rs`): cell-by-cell filters run on
+every piece, filters that look at neighbours get a layer of ghost cells first
+(`aurafx-filters/src/ghost_exchange.rs`), and anything else runs on the gathered data. Workers
+are the server's own processes, ranks started by `mpirun`/`srun` that connect back, or (for
+files larger than memory) pieces read one after another in one process.
+
+`aurafx-gpu` holds compute kernels (wgpu) that filters may use through
+`aurafx-filters/src/gpu.rs`. The GPU works in 32-bit and only narrows down which cells a cut
+can touch; the CPU finishes them in 64-bit, so results do not depend on the GPU.
+
+## Plugins and notebooks
+
+Python plugins register filters, sources, readers and panels from the embedded interpreter
+(`aurafx-python/src/plugins.rs`). Rust plugins are shared libraries written against
+`aurafx-plugin`: one exported C table, data passed as bytes, versions checked at load
+(`aurafx-filters/src/rust_plugins.rs`). The app is also a Jupyter kernel
+(`aurafx-app/src/jupyter.rs`, the messaging protocol over ZeroMQ) and has a Notebook panel that
+reads and writes `.ipynb` files.

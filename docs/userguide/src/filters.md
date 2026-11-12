@@ -534,10 +534,12 @@ aligned = afx.iterative_closest_point(moved, target, iterations=100)
 An array can say what units its values are in (K, m/s, MPa). The color legend then reads
 "sst (K)", the Information panel lists the units after each array's range, and the
 spreadsheet's column headings carry them. Readers fill them in where the file says (NetCDF
-files, from each variable's `units`); for other arrays, **Filters › Data › Set Units** sets them
+files, from each variable's `units`; VTK XML files written by auraFX, which keep them in a
+`Units` attribute of each array); for other arrays, **Filters › Data › Set Units** sets them
 (pick the array, type the units; an empty box clears them). Units are a label: auraFX does not
-convert between them, and arrays made by filters (a Calculator result, a gradient) start
-without units.
+convert between them. Filters that pass or interpolate an array (Slice, Contour, Clip, a
+server's pieces put together) keep its units; arrays a filter computes (a Calculator result, a
+gradient) start without.
 
 ```python
 t = d.set_units(array="T", units="K")

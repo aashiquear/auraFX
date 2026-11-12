@@ -26,6 +26,8 @@ pub struct JobsPanel {
     pub gpu: GpuChoice,
     pub gpu_ids: String,
     pub slurm: bool,
+    /// Which batch system when `slurm` (run through a scheduler) is on: Slurm, PBS or LSF.
+    pub batch: String,
     pub partition: String,
     pub time: String,
     pub nodes: u32,
@@ -82,6 +84,7 @@ impl Default for JobsPanel {
             gpu: GpuChoice::None,
             gpu_ids: "0".into(),
             slurm: false,
+            batch: "Slurm".into(),
             partition: String::new(),
             time: "01:00:00".into(),
             nodes: 1,
@@ -261,7 +264,14 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.selectable_value(&mut p.host, i, &h.name);
                         }
                     });
-                    ui.checkbox(&mut p.slurm, "via Slurm");
+                    ui.checkbox(&mut p.slurm, "through a scheduler").on_hover_text("Submit the job to the machine's batch system instead of running it directly");
+                    if p.slurm {
+                        egui::ComboBox::from_id_salt("batch system").selected_text(p.batch.clone()).width(70.0).show_ui(ui, |ui| {
+                            for (name, tip) in [("Slurm", "sbatch, squeue"), ("PBS", "qsub, qstat (PBS Professional, OpenPBS, Torque)"), ("LSF", "bsub, bjobs")] {
+                                ui.selectable_value(&mut p.batch, name.to_string(), name).on_hover_text(tip);
+                            }
+                        });
+                    }
                 });
                 ui.end_row();
                 ui.label("Name");
@@ -337,16 +347,21 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                 });
                 ui.end_row();
                 if p.slurm {
-                    ui.label("Partition / time");
+                    ui.label(if p.batch == "Slurm" { "Partition / time" } else { "Queue / time" });
                     ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut p.partition).hint_text("partition").desired_width(100.0));
+                        ui.add(egui::TextEdit::singleline(&mut p.partition).hint_text(if p.batch == "Slurm" { "partition" } else { "queue" }).desired_width(100.0));
                         ui.add(egui::TextEdit::singleline(&mut p.time).desired_width(80.0));
                         ui.label("nodes");
                         ui.add(egui::DragValue::new(&mut p.nodes).range(1..=10000));
                     });
                     ui.end_row();
-                    ui.label("Extra #SBATCH");
-                    ui.add(egui::TextEdit::multiline(&mut p.extra).desired_rows(1).hint_text("--account=myproj"));
+                    let (tag, hint) = match p.batch.as_str() {
+                        "PBS" => ("Extra #PBS", "-A myproj"),
+                        "LSF" => ("Extra #BSUB", "-P myproj"),
+                        _ => ("Extra #SBATCH", "--account=myproj"),
+                    };
+                    ui.label(tag);
+                    ui.add(egui::TextEdit::multiline(&mut p.extra).desired_rows(1).hint_text(hint));
                     ui.end_row();
                 }
                 ui.label("Environment");
@@ -390,8 +405,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                         .filter(|(k, _)| !k.is_empty())
                         .collect();
                     if p.slurm {
-                        spec.scheduler =
-                            Scheduler::Slurm { partition: p.partition.clone(), time: p.time.clone(), nodes: p.nodes, tasks: p.np, extra: p.extra.clone() };
+                        spec.scheduler = Scheduler::batch(&p.batch, &p.partition, &p.time, p.nodes, p.np, &p.extra).unwrap_or_default();
                     }
                     // Case templates: write the case from the selected data (here, or into a
                     // folder whose files are uploaded to the host).

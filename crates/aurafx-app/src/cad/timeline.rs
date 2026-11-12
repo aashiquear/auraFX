@@ -88,7 +88,9 @@ pub fn timeline_ui(state: &mut State, ui: &mut egui::Ui) {
                     state.session.lock().cad_env_rollback(if upto + 1 >= n { None } else { Some(upto + 1) });
                 }
             }
-            if let Some(e) = &error {
+            if n == 0 {
+                ui.label(RichText::new("an empty part").weak().small());
+            } else if let Some(e) = &error {
                 ui.label(RichText::new(e).color(crate::theme::ERROR).small());
             } else if building {
                 ui.label(RichText::new("building…").weak().small());

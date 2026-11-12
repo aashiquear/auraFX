@@ -173,3 +173,106 @@ fn the_environments_preview_shows_every_part_of_an_assembly() {
     assert!(both.faces.iter().any(|f| f.name.starts_with("Far/")), "faces of a part are named Part/Face");
     s.cad_discard().unwrap();
 }
+
+/// Faults found in a review of the environment: each case failed before its fix.
+#[test]
+fn edits_are_all_or_nothing_and_features_stay_distinct() {
+    let mut s = Session::new();
+    let m = s.add_source("cad_model").unwrap();
+    s.update_blocking();
+    s.cad_enter(m).unwrap();
+
+    // A refused edit leaves the working copy exactly as it was (a parameter cycle used to stay).
+    s.cad_env_edit("parameter", &json!({"name": "a", "expr": "10"})).unwrap();
+    let before = s.cad_document(m).unwrap();
+    assert!(s.cad_env_edit("parameter", &json!({"name": "a", "expr": "a + 1"})).is_err(), "a cycle");
+    assert!(s.cad_env_edit("remove_parameter", &json!({"name": "nope"})).is_err());
+    assert_eq!(s.cad_document(m).unwrap(), before);
+
+    // Two features never share a name: the second fillet, mirror or combine gets its own, so
+    // the tree's actions reach the one clicked.
+    s.cad_env_edit("mirror_plane", &json!({"origin": [0, 0, 0], "normal": [1, 0, 0]})).unwrap();
+    s.cad_env_edit("mirror_plane", &json!({"origin": [0, 0, 0], "normal": [0, 1, 0]})).unwrap();
+    let d = s.cad_document(m).unwrap();
+    let names: Vec<&str> = d.features.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(&names[1..], ["Mirror", "Mirror 2"], "{names:?}");
+    assert!(s.cad_env_edit("rename", &json!({"feature": "Mirror 2", "to": "Mirror"})).is_err(), "a taken name");
+    assert!(s.cad_env_edit("rename", &json!({"feature": "Mirror 2", "to": "  "})).is_err(), "an empty name");
+    s.cad_env_edit("remove", &json!({"feature": "Mirror"})).unwrap();
+    s.cad_env_edit("remove", &json!({"feature": "Mirror 2"})).unwrap();
+
+    // A dimension in use cannot be removed; one that is not can.
+    s.cad_env_edit("add", &json!({"kind": "cylinder", "name": "Post", "radius": "a / 2", "height": 5, "at": [0, 0, 8]})).unwrap();
+    let e = s.cad_env_edit("remove_parameter", &json!({"name": "a"})).unwrap_err().to_string();
+    assert!(e.contains("still used"), "{e}");
+    assert!(s.cad_document(m).unwrap().parameters.iter().any(|p| p.name == "a"));
+
+    // Removing a modifier drops its bindings and renumbers the later ones: the part still builds.
+    s.cad_env_edit("modifier", &json!({"feature": "Post", "modifier": {"kind": "Offset", "by": [1, 0, 0]}})).unwrap();
+    s.cad_env_edit("modifier", &json!({"feature": "Post", "modifier": {"kind": "LinearPattern", "count": 2, "step": [10, 0, 0]}})).unwrap();
+    s.cad_env_edit("bind", &json!({"feature": "Post", "path": "/modifiers/1/count", "expr": "a / 5"})).unwrap();
+    s.cad_env_edit("remove_modifier", &json!({"feature": "Post", "index": 0})).unwrap();
+    let d = s.cad_document(m).unwrap();
+    let post = d.features.iter().find(|f| f.name == "Post").unwrap();
+    assert!(post.bindings.iter().any(|b| b.path == "/modifiers/0/count"), "{:?}", post.bindings);
+    d.resolved().expect("still resolves");
+
+    // A suppressed feature with a broken expression does not stop the part.
+    s.cad_env_edit("suppress", &json!({"feature": "Post"})).unwrap();
+    s.cad_env_evaluate(32).unwrap();
+
+    // While rolled back, a new feature goes in at the marker and is built.
+    s.cad_env_edit("suppress", &json!({"feature": "Post", "suppressed": false})).unwrap();
+    s.cad_env_rollback(Some(1));
+    s.cad_env_edit("add", &json!({"kind": "hole", "name": "Bore", "diameter": 4, "depth": 3, "at": [0, 0, 8]})).unwrap();
+    let d = s.cad_document(m).unwrap();
+    let names: Vec<&str> = d.features.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["Base", "Bore", "Post"]);
+    assert_eq!(s.cad_edit.as_ref().unwrap().rollback, Some(2));
+    let sum = s.cad_env_evaluate(48).unwrap();
+    assert!(
+        sum.faces.iter().any(|f| f.name.starts_with("Bore")) && !sum.faces.iter().any(|f| f.name.starts_with("Post")),
+        "{:?}",
+        sum.faces.iter().map(|f| &f.name).collect::<Vec<_>>()
+    );
+    s.cad_env_rollback(None);
+
+    // Apply and keep editing, then discard: the applied part stays undoable as one step.
+    s.cad_apply(true).unwrap();
+    assert_eq!(s.undo_label(), Some("Edit CAD"));
+    s.cad_env_edit("add", &json!({"kind": "box", "name": "Extra"})).unwrap();
+    s.cad_discard().unwrap();
+    assert_eq!(s.undo_label(), Some("Edit CAD"), "the step of the applied edit survives the discard");
+    assert_eq!(s.cad_document(m).unwrap().features.len(), 3, "the applied part, without the discarded box");
+
+    // Deleting the part while it is being edited closes the environment.
+    s.cad_enter(m).unwrap();
+    s.remove_node(m);
+    assert_eq!(s.cad_editing(), None);
+}
+
+/// Features written without ids, or with the same id twice, get ids of their own on reading.
+#[test]
+fn ids_are_made_unique_on_load() {
+    let mut doc = aurafx_cad::Document::new("p");
+    doc.push(aurafx_cad::Feature::new("a", aurafx_cad::BooleanOp::Add, aurafx_cad::Shape::Sphere { radius: 1.0 }));
+    doc.push(aurafx_cad::Feature::new("b", aurafx_cad::BooleanOp::Add, aurafx_cad::Shape::Sphere { radius: 2.0 }));
+    let mut v: serde_json::Value = serde_json::from_str(&doc.to_json()).unwrap();
+    for f in v["features"].as_array_mut().unwrap() {
+        f.as_object_mut().unwrap().remove("id");
+    }
+    let back = aurafx_cad::Document::from_json(&v.to_string()).unwrap();
+    assert!(
+        back.features[0].id != back.features[1].id && back.features.iter().all(|f| f.id.0 != 0),
+        "{:?}",
+        back.features.iter().map(|f| f.id).collect::<Vec<_>>()
+    );
+    // Every template has distinct feature ids and names.
+    for (title, t) in aurafx_cad::templates() {
+        let mut ids: Vec<u64> = t.features.iter().map(|f| f.id.0).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), t.features.len(), "{title}: an id used twice");
+        assert!(!ids.contains(&0), "{title}: a feature without an id");
+    }
+}

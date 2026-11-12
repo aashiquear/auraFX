@@ -24,8 +24,8 @@ document is edited; *commit* = handing the edited geometry back to the pipeline.
   first feature is the command journal (section 5.4); any other surface becomes a mesh body.
 - **In the environment** the window changes: the menu bar gains a **CAD** menu, the toolbar is
   replaced by the CAD ribbon (tabs Sketch, Features, Modify, Assemble, Inspect, Files), the
-  Pipeline panel is replaced by the **FeatureManager** (timeline tree: origin planes, sketches,
-  features, bodies, parameters, configurations), Properties becomes the **PropertyManager** of
+  Pipeline panel is replaced by the **Model tree** (timeline tree: origin planes, sketches,
+  features, bodies, parameters, configurations), Properties becomes the **Feature panel** of
   the selected feature or sketch entity, the active 3D view shows the document (with the sketch
   canvas when a sketch is open), and the bottom hosts the **timeline bar** (rollback marker,
   suppress, reorder). Every other 3D view, chart or spreadsheet that was open stays as it was
@@ -69,7 +69,7 @@ which today reads STL only).
 | `aurafx-filters` | the **CAD Model** source (`cad_model`): a FilterDef whose parameters are the document's parameters, plus `cad_import` (STEP/IGES/3MF/`.sc` as a static read when no editing is wanted) | `aurafx-cad` |
 | `aurafx-io` | readers for `.step .stp .igs .iges .3mf .sc .afxcad` (through `aurafx-cad`), writers for `.step .igs .3mf .afxcad .sc` | `aurafx-cad` |
 | `aurafx-pipeline` | the CAD Model is a Source node whose `document` parameter holds the `.afxcad` text (so state, undo and the trace carry it; no new node kind), with `Session::cad_edit` / `cad_set_parameter`; `Session::enter_cad / commit_cad / discard_cad`; the **downstream check** (`cad_check.rs`): reference collection, diff, default fixers, AI prompt | `aurafx-cad` |
-| `aurafx-app/src/cad/` | the environment: mode switch, ribbon, FeatureManager, PropertyManager, timeline bar, sketch canvas, pick in the 3D view, the Apply/Discard flow and the conflict dialog | |
+| `aurafx-app/src/cad/` | the environment: mode switch, ribbon, Model tree, Feature panel, timeline bar, sketch canvas, pick in the 3D view, the Apply/Discard flow and the conflict dialog | |
 | `aurafx-python` | `afx.cad_model()`, `node.edit_cad()`, `node.cad` (document API: parameters, features, sketches, `apply()`), `afx.cad_check(node)` | |
 | `aurafx-ai` | help text for the above; the conflict-fix prompt template lives in `aurafx-pipeline` and is called through the assistant | |
 
@@ -186,7 +186,7 @@ headless CAD core and a desktop UI for it. Port, do not rewrite:
 | `crates/ezyx-cad/src/sdf.rs` | `aurafx-cad/src/kernel/implicit.rs` | 847 lines | re-targeted onto `aurafx-mesh::implicit` (same mathematics; the `Sdf` enum maps onto the existing `Shape`/CSG tree) |
 | `crates/ezyx-cad/src/analysis.rs`, `assembly.rs` | `aurafx-cad/src/analysis.rs`, `assembly.rs` | 300 lines | mass properties, interference, sections, components |
 | `crates/ezyx-cad/src/templates.rs` | `aurafx-cad/src/templates.rs` | 258 lines | starter parts |
-| `crates/ezyx-app/src/solid/{mod,props,sketch_ui}.rs` | `aurafx-app/src/cad/{mod,property_manager,sketch_canvas}.rs` | 2336 lines | the ribbon, FeatureManager, PropertyManager and sketch canvas; ez-yx-craft's `ribbon`, `viewport::Projector` and `theme` helpers become auraFX's `widgets`, the view's camera and `theme` |
+| `crates/ezyx-app/src/solid/{mod,props,sketch_ui}.rs` | `aurafx-app/src/cad/{mod,property_manager,sketch_canvas}.rs` | 2336 lines | the ribbon, Model tree, Feature panel and sketch canvas; ez-yx-craft's `ribbon`, `viewport::Projector` and `theme` helpers become auraFX's `widgets`, the view's camera and `theme` |
 
 Keep the file headers' origin note ("ported from EZ-YX-craft, MIT OR Apache-2.0"). ez-yx-craft's
 "send to pipeline / update with merge report" is the ancestor of section 4.
@@ -319,7 +319,7 @@ node.edit_cad()                                  # enter the environment in the 
 ### 5.4 The Geometry source and the CAD Model
 
 - `Edit in CAD` on a Geometry node makes a document with one `Journal` feature holding the
-  commands; the environment shows it as a feature whose PropertyManager is the command text
+  commands; the environment shows it as a feature whose Feature panel is the command text
   (with the existing command help), and the user can add parametric features after it.
 - A CAD Model can be used in a journal: `import 'part.afxcad'` and `import 'part.step'` in the
   command language (today `import` reads STL) evaluate the document and take its surface.
@@ -338,13 +338,13 @@ counts to help a small agent budget the work.
 | **C0** (this branch's first commit) | crate skeleton, `expr.rs` ported, this design, roadmap section 13 | `crates/aurafx-cad/{Cargo.toml,src/lib.rs,src/expr.rs,src/kernel/mod.rs}` | `expr` unit tests (ported) | done |
 | **C1 Document** | `document.rs`, `sketch.rs`, `path.rs`, `params`, `templates.rs`, `analysis.rs`, `assembly.rs` ported; `.afxcad` read/write; `Document::resolved()` | `aurafx-cad/src/*` | ez-yx-craft's unit tests ported; a round trip of every template through JSON | 3 000 |
 | **C2 Implicit kernel** | `kernel/implicit.rs` on `aurafx-mesh`; `Evaluated` with face ids and names; `cad_model` FilterDef (parameters = document parameters); `NodeKind::Cad`; `.afx` state keeps the document | `aurafx-cad/src/kernel/implicit.rs`, `aurafx-filters/src/cad.rs`, `aurafx-pipeline/src/session.rs`, `state.rs` | every template evaluates; volumes of box/cylinder/sphere/extrude/revolve within 1 % of analytic values (ez-yx-craft's `analysis` tests give the numbers); Mesh Quality acceptable on an overlay mesh of a template | 1 500 |
-| **C3 Environment shell** | mode switch (`Session.cad_editing`, stale banners, scheduler pause), CAD menu, ribbon with tabs, FeatureManager, PropertyManager for every Feature/Modifier/Parameter, timeline bar, Apply/Apply-keep/Discard, `node.edit_cad()`; undo groups | `aurafx-app/src/cad/{mod,ribbon,feature_manager,property_manager,timeline}.rs`, `app.rs` (menu, layout) | an app-driven script test (like `scripts/userguide/shots`) that enters, adds a feature, applies; `cargo test` of the pipeline part | 2 500 (ported) |
+| **C3 Environment shell** | mode switch (`Session.cad_editing`, stale banners, scheduler pause), CAD menu, ribbon with tabs, Model tree, Feature panel for every Feature/Modifier/Parameter, timeline bar, Apply/Apply-keep/Discard, `node.edit_cad()`; undo groups | `aurafx-app/src/cad/{mod,ribbon,feature_manager,property_manager,timeline}.rs`, `app.rs` (menu, layout) | an app-driven script test (like `scripts/userguide/shots`) that enters, adds a feature, applies; `cargo test` of the pipeline part | 2 500 (ported) |
 | **C4 Sketching** | sketch canvas in the 3D view (plane-aligned camera, grid, snapping), entities, constraints and dimensions with the solver's DOF status, sketch on a face | `aurafx-app/src/cad/sketch_canvas.rs` (ported `sketch_ui.rs`), `aurafx-cad/src/sketch.rs` | solver tests ported (fully constrained rectangle, over-constrained rejection, tangent arcs); canvas script test | 1 200 |
 | **C5 Downstream check** | `cad_check.rs`: reference collection, `aurafx-cad::diff`, kinds, default fixers, the dialog, re-run confirmation, Python `afx.cad_check`, assistant prompt and parser | `aurafx-pipeline/src/cad_check.rs`, `aurafx-cad/src/diff.rs`, `aurafx-app/src/cad/conflicts.rs` | a plate with a hole → `extract_set("hole")` → rename the hole feature: `Renamed` fixed by default; delete it: `Removed` offered; move a `refine_region` box: `Moved`; canned assistant answer parsed and applied | 1 200 |
 | **C6 B-rep kernel** | `vendor/solidcraft` and `vendor/solidcore` copied at a tag and pruned (`vendor/UPSTREAM.toml`); `vendor/README.md`, `docs/reference/third-party.md`, `scripts/cad/upstream-{pull,diff}.sh`, `scripts/licences.sh`; workspace `rust-version` 1.95; `kernel/brep.rs` mapping every Shape/Modifier to SolidCraft commands run in process; exact faces and edges with ids; STEP AP242, IGES, 3MF, `.sc` read and write; STEP/IGES import as `Brep` base feature; the faceted STEP writer | `vendor/`, `aurafx-cad/src/kernel/brep.rs`, `aurafx-cad/src/io/*`, `aurafx-io` registrations, `Cargo.toml`s, CI cache | the same templates evaluate on both kernels with volumes within 1 %; a STEP written here measures the same through the vendored engine's measure command and, where installed, in an independent STEP reader; `testdata/cad/` gets small STEP/IGES files with their provenance in `testdata/README.md`; the Linux package script builds offline from a clean clone | 2 500 |
 | **C7 Edge operations and assemblies** | fillet/chamfer on picked edges and faces (B-rep), draft, shell with picked open faces, patterns on faces, mirror about faces, combine; components with placements, interference, mass properties panel; measure tool | `aurafx-app/src/cad/pick.rs` (edges/faces from the B-rep tessellation), `aurafx-cad/src/assembly.rs` | B-rep fillet volume against SolidCraft's measure; interference volume of two overlapping boxes analytic | 1 500 |
 | **C8 Meshing from CAD** | `mesh body` commands accept CAD bodies; face names to side sets; `import 'x.step'` in journals; CAD Model → tet mesh / overlay mesh / Assign Grains / solver case end to end; the guide's worked example extended (STEP → mesh → grains → case) | `aurafx-mesh/src/model.rs`, `bodymesh.rs`, `aurafx-filters/src/mesh_gen.rs` | the worked example as a test (as `worked_example` in `grains_on_mesh.rs`) from a STEP file in testdata | 600 |
-| **C9 Polish** | templates gallery, keyboard shortcuts, PropertyManager help texts, the assistant modelling in the environment through the same commands (`afx.cad` from agent mode), the project page's CAD video | docs, `scripts/site/media/cad.py` | guide complete; screenshot per ribbon tab | 500 |
+| **C9 Polish** | templates gallery, keyboard shortcuts, Feature panel help texts, the assistant modelling in the environment through the same commands (`afx.cad` from agent mode), the project page's CAD video | docs, `scripts/site/media/cad.py` | guide complete; screenshot per ribbon tab | 500 |
 
 Order: C1 → C2 → C3 → C5 → C4 → C6 → C7 → C8 → C9. C5 comes before C4 on purpose: the
 commit/check loop is the part that is new to auraFX and must be solid before the environment

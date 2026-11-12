@@ -41,7 +41,8 @@ pub fn export(path: &Path, objects: &[ExportObject]) -> Result<()> {
         "obj" => write_obj(path, &objects),
         "x3d" => write_x3d(path, &objects, false),
         "wrl" | "vrml" => write_x3d(path, &objects, true),
-        _ => bail!("unknown scene format .{ext} (use .glb, .obj, .x3d or .wrl)"),
+        "html" | "htm" => write_html(path, &objects),
+        _ => bail!("unknown scene format .{ext} (use .glb, .obj, .x3d, .wrl or .html)"),
     }
 }
 
@@ -230,6 +231,161 @@ fn write_obj(path: &Path, objects: &[&ExportObject]) -> Result<()> {
     f.flush()?;
     Ok(())
 }
+
+/// A web page that shows the scene and lets it be turned, moved and zoomed with the mouse or
+/// a finger: one file with the geometry inside (no server, no other files, nothing loaded from
+/// the network), drawn with WebGL by a small viewer written for this purpose.
+fn write_html(path: &Path, objects: &[&ExportObject]) -> Result<()> {
+    use base64::Engine;
+    // Everything in one set of arrays per kind: positions about the scene's centre, colors in sRGB.
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for o in objects {
+        let m = &o.draw.mesh;
+        for v in m.tris.iter().chain(&m.lines).chain(&m.points) {
+            for k in 0..3 {
+                let x = v.pos[k] as f64 + m.origin[k];
+                lo[k] = lo[k].min(x);
+                hi[k] = hi[k].max(x);
+            }
+        }
+    }
+    if lo[0] > hi[0] {
+        bail!("nothing to export");
+    }
+    let centre: [f64; 3] = std::array::from_fn(|k| (lo[k] + hi[k]) / 2.0);
+    let radius = (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum::<f64>().sqrt().max(1e-30) / 2.0;
+    let mut bufs: [Vec<f32>; 3] = Default::default(); // triangles, lines, points: x y z nx ny nz r g b lit
+    for o in objects {
+        let d = o.draw;
+        let mat = Material::of(d);
+        let lit = if d.display.lighting { 1.0 } else { 0.0 };
+        for (k, verts) in [&d.mesh.tris, &d.mesh.lines, &d.mesh.points].into_iter().enumerate() {
+            for v in verts.iter() {
+                let c = mat.color(v.scalar);
+                let n = if k == 0 { v.normal } else { [0.0; 3] };
+                bufs[k].extend((0..3).map(|a| ((v.pos[a] as f64 + d.mesh.origin[a] - centre[a]) / radius) as f32));
+                bufs[k].extend(n);
+                bufs[k].extend([linear_to_srgb(c.x), linear_to_srgb(c.y), linear_to_srgb(c.z), if k == 0 { lit } else { 0.0 }]);
+            }
+        }
+    }
+    let b64 = |v: &[f32]| base64::engine::general_purpose::STANDARD.encode(bytemuck::cast_slice::<f32, u8>(v));
+    let names: Vec<String> = objects.iter().map(|o| o.name.replace(['<', '>', '&'], " ")).collect();
+    let title = if names.len() == 1 { names[0].clone() } else { format!("{} objects", names.len()) };
+    let page = HTML_VIEWER
+        .replace("@TITLE@", &title)
+        .replace("@VERSION@", env!("CARGO_PKG_VERSION"))
+        .replace("@RADIUS@", &format!("{:.4}", radius * 2.0))
+        .replace("@TRIS@", &b64(&bufs[0]))
+        .replace("@LINES@", &b64(&bufs[1]))
+        .replace("@POINTS@", &b64(&bufs[2]));
+    std::fs::write(path, page).with_context(|| format!("writing {}", path.display()))
+}
+
+/// The page of [`write_html`]: the arrays are interleaved 32-bit floats (10 per vertex).
+const HTML_VIEWER: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@TITLE@</title>
+<style>
+html, body { margin: 0; height: 100%; background: #f4f5f7; font: 13px system-ui, sans-serif; color: #333; overflow: hidden; }
+canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#note { position: fixed; left: 10px; bottom: 8px; opacity: .7; user-select: none; }
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="note">@TITLE@ · drag to turn, Shift+drag or two fingers to move, wheel or pinch to zoom, double-click to reset · made with auraFX @VERSION@ (the scene is @RADIUS@ across)</div>
+<script>
+"use strict";
+const data = { tris: "@TRIS@", lines: "@LINES@", points: "@POINTS@" };
+function floats(b64) {
+  const s = atob(b64), bytes = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+  return new Float32Array(bytes.buffer);
+}
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl", { antialias: true });
+if (!gl) { document.getElementById("note").textContent = "This browser cannot draw 3D (WebGL is not available)."; throw new Error("no WebGL"); }
+const vs = `attribute vec3 p; attribute vec3 n; attribute vec4 c; uniform mat4 mvp; uniform mat3 rot; uniform float size;
+varying vec3 vn; varying vec4 vc;
+void main() { vn = rot * n; vc = c; gl_Position = mvp * vec4(p, 1.0); gl_PointSize = size; }`;
+const fs = `precision mediump float; varying vec3 vn; varying vec4 vc;
+void main() {
+  vec3 col = vc.rgb;
+  if (vc.a > 0.5) {
+    vec3 nn = normalize(vn);
+    float d = abs(dot(nn, normalize(vec3(0.3, 0.4, 0.86))));
+    col = col * (0.35 + 0.65 * d) + vec3(0.12) * pow(d, 24.0);
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+function shader(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, shader(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog); gl.useProgram(prog);
+const loc = { p: gl.getAttribLocation(prog, "p"), n: gl.getAttribLocation(prog, "n"), c: gl.getAttribLocation(prog, "c"),
+  mvp: gl.getUniformLocation(prog, "mvp"), rot: gl.getUniformLocation(prog, "rot"), size: gl.getUniformLocation(prog, "size") };
+const sets = [["tris", gl.TRIANGLES], ["lines", gl.LINES], ["points", gl.POINTS]].map(([k, mode]) => {
+  const a = floats(data[k]), buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, a, gl.STATIC_DRAW);
+  return { buf, mode, count: a.length / 10 };
+});
+window.sceneCounts = sets.map(s => s.count);
+// The view: a rotation (a 3x3 matrix), a pan and a distance.
+let R = [1, 0, 0, 0, 1, 0, 0, 0, 1], pan = [0, 0], dist = 3.2;
+function mul3(a, b) { const o = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[3 * i + j] = a[3 * i] * b[j] + a[3 * i + 1] * b[3 + j] + a[3 * i + 2] * b[6 + j]; return o; }
+function rotX(t) { const c = Math.cos(t), s = Math.sin(t); return [1, 0, 0, 0, c, -s, 0, s, c]; }
+function rotY(t) { const c = Math.cos(t), s = Math.sin(t); return [c, 0, s, 0, 1, 0, -s, 0, c]; }
+function reset() { R = mul3(rotX(-1.05), [0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 0, 0, 1]); pan = [0, 0]; dist = 3.2; draw(); }
+function draw() {
+  const dpr = window.devicePixelRatio || 1, w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h); gl.clearColor(0.957, 0.961, 0.969, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+  const f = 1 / Math.tan(0.35), asp = w / Math.max(h, 1), near = Math.max(dist - 2.5, 0.01), far = dist + 2.5;
+  // Column-major: projection * translate(pan, -dist) * rotation.
+  const m = new Float32Array(16);
+  for (let j = 0; j < 3; j++) {
+    m[4 * j] = f / asp * R[j]; m[4 * j + 1] = f * R[3 + j];
+    m[4 * j + 2] = (far + near) / (near - far) * R[6 + j]; m[4 * j + 3] = -R[6 + j];
+  }
+  m[12] = f / asp * pan[0]; m[13] = f * pan[1]; m[14] = (far + near) / (near - far) * (-dist) + 2 * far * near / (near - far); m[15] = dist;
+  gl.uniformMatrix4fv(loc.mvp, false, m);
+  gl.uniformMatrix3fv(loc.rot, false, new Float32Array([R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]]));
+  gl.uniform1f(loc.size, 4 * dpr);
+  for (const s of sets) {
+    if (!s.count) continue;
+    gl.bindBuffer(gl.ARRAY_BUFFER, s.buf);
+    gl.enableVertexAttribArray(loc.p); gl.vertexAttribPointer(loc.p, 3, gl.FLOAT, false, 40, 0);
+    gl.enableVertexAttribArray(loc.n); gl.vertexAttribPointer(loc.n, 3, gl.FLOAT, false, 40, 12);
+    gl.enableVertexAttribArray(loc.c); gl.vertexAttribPointer(loc.c, 4, gl.FLOAT, false, 40, 24);
+    gl.drawArrays(s.mode, 0, s.count);
+  }
+}
+const ptrs = new Map(); let pinch = 0;
+canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0; });
+canvas.addEventListener("pointerup", e => { ptrs.delete(e.pointerId); pinch = 0; });
+canvas.addEventListener("pointermove", e => {
+  const last = ptrs.get(e.pointerId); if (!last) return;
+  const dx = e.clientX - last[0], dy = e.clientY - last[1]; ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch) dist = Math.min(40, Math.max(0.2, dist * pinch / d));
+    pinch = d; pan[0] += dx * dist / canvas.clientHeight * 0.35; pan[1] -= dy * dist / canvas.clientHeight * 0.35;
+  } else if (e.shiftKey || e.buttons === 4) {
+    pan[0] += dx * dist / canvas.clientHeight * 0.7; pan[1] -= dy * dist / canvas.clientHeight * 0.7;
+  } else {
+    R = mul3(mul3(rotX(dy * 0.008), rotY(dx * 0.008)), R);
+  }
+  draw();
+});
+canvas.addEventListener("wheel", e => { e.preventDefault(); dist = Math.min(40, Math.max(0.2, dist * Math.exp(e.deltaY * 0.001))); draw(); }, { passive: false });
+canvas.addEventListener("dblclick", reset);
+window.addEventListener("resize", draw);
+reset();
+</script></body></html>
+"##;
 
 /// X3D (XML) or VRML 2.0: one shape per kind of geometry, vertex colors, absolute coordinates
 /// (some readers ignore transforms). Unlit objects get no material (drawn flat).

@@ -1,6 +1,6 @@
 //! The ribbon: tabs of buttons that add features and modifiers with sensible defaults (placed
 //! on the top of the part, sized for a small part); their numbers are then edited in the
-//! PropertyManager.
+//! Feature panel.
 
 use super::{editing, op, RibbonTab};
 use crate::app::State;
@@ -9,7 +9,7 @@ use egui::RichText;
 use serde_json::{json, Value};
 
 /// Where a new feature goes by default: the middle of the top of the part built so far.
-fn top_center(state: &State) -> ([f64; 3], bool) {
+pub(super) fn top_center(state: &State) -> ([f64; 3], bool) {
     let s = state.session.lock();
     match s.cad_edit.as_ref().and_then(|e| e.summary.as_ref()).filter(|_| s.cad_edit.as_ref().is_some_and(|e| !e.document.features.is_empty())) {
         Some(sum) => {
@@ -21,7 +21,7 @@ fn top_center(state: &State) -> ([f64; 3], bool) {
 }
 
 /// A feature name not used yet: "Box", "Box 2", ...
-fn unique(state: &State, base: &str) -> String {
+pub(super) fn unique(state: &State, base: &str) -> String {
     let s = state.session.lock();
     let names: Vec<String> = s.cad_edit.as_ref().map(|e| e.document.features.iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
     if !names.iter().any(|n| n == base) {
@@ -30,7 +30,7 @@ fn unique(state: &State, base: &str) -> String {
     (2..).map(|k| format!("{base} {k}")).find(|n| !names.contains(n)).unwrap()
 }
 
-fn selected_name(state: &State) -> Option<String> {
+pub(super) fn selected_name(state: &State) -> Option<String> {
     let s = state.session.lock();
     let e = s.cad_edit.as_ref()?;
     let id = e.selected?;
@@ -51,24 +51,43 @@ pub fn ribbon_ui(state: &mut State, ui: &mut egui::Ui) {
     };
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("{} CAD", crate::icons::CUBE)).strong().color(crate::theme::ACCENT));
-        for t in RibbonTab::ALL {
-            if ui.selectable_label(state.cad.tab == t, crate::icons::with(t.label())).clicked() {
+        for (k, t) in RibbonTab::ALL.into_iter().enumerate() {
+            if ui.selectable_label(state.cad.tab == t, crate::icons::with(t.label())).on_hover_text(format!("{}  (Alt+{})", t.about(), k + 1)).clicked() {
                 state.cad.tab = t;
             }
+        }
+        if ui
+            .button(format!("{} Search", crate::icons::MAGNIFYING_GLASS))
+            .on_hover_text("Every CAD command by name: press S in the 3D view (or Ctrl+K), type a few letters, Enter")
+            .clicked()
+        {
+            state.cad.search = Some(super::guide::Search::default());
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button(crate::icons::with("Discard")).on_hover_text("Leave the CAD environment; the part is as it was (Esc)").clicked() {
                 super::discard(state);
             }
+            let empty = state.session.lock().cad_edit.as_ref().is_some_and(|e| e.document.features.is_empty() && e.document.components.is_empty());
+            let why_not = if empty {
+                "The part is empty: add a sketch or a shape first (the Next strip at the top left offers them)."
+            } else {
+                "The part does not build (the reason is in red at the top of the right panel): fix or undo the last change first."
+            };
             if ui
                 .add_enabled(can_apply, egui::Button::new(crate::icons::with("Apply, keep editing")))
                 .on_hover_text("Hand the part to the pipeline and stay here")
+                .on_disabled_hover_text(why_not)
                 .clicked()
             {
                 super::apply(state, true);
             }
             let apply = egui::Button::new(RichText::new(format!("{} Apply", crate::icons::CHECK_CIRCLE)).strong());
-            if ui.add_enabled(can_apply, apply).on_hover_text("Hand the part to the pipeline and leave; the nodes below it re-run").clicked() {
+            if ui
+                .add_enabled(can_apply, apply)
+                .on_hover_text("Hand the part to the pipeline and leave; the nodes below it re-run (Ctrl+Enter)")
+                .on_disabled_hover_text(why_not)
+                .clicked()
+            {
                 super::apply(state, false);
             }
             if changed {
@@ -296,6 +315,42 @@ fn inspect_tab(state: &mut State, ui: &mut egui::Ui) {
     if let Some(a) = state.cad.section_area {
         ui.label(format!("= {} mm²", super::num_text(a)));
     }
+    ui.separator();
+    // The distance and angle between two faces.
+    ui.label("between");
+    let names: Vec<String> = s.faces.iter().map(|f| f.name.clone()).collect();
+    let (a, b, _) = &mut state.cad.measure;
+    for (k, slot) in [a, b].into_iter().enumerate() {
+        egui::ComboBox::from_id_salt(("cad measure", k))
+            .width(110.0)
+            .selected_text(if slot.is_empty() { "a face…".to_string() } else { slot.clone() })
+            .show_ui(ui, |ui| {
+                for n in &names {
+                    ui.selectable_value(slot, n.clone(), n);
+                }
+            });
+    }
+    let (a, b) = (state.cad.measure.0.clone(), state.cad.measure.1.clone());
+    if ui
+        .add_enabled(!a.is_empty() && !b.is_empty() && a != b, egui::Button::new(crate::icons::with("Distance")))
+        .on_hover_text("The distance and the angle between the two faces")
+        .on_disabled_hover_text("Choose two different faces in the lists (a face's name shows when you right-click it in the view)")
+        .clicked()
+    {
+        let doc = state.session.lock().cad_edit.as_ref().map(|e| e.document_to_build());
+        state.cad.measure.2 = Some(match doc.map(|d| aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &d, 64, true)) {
+            Some(Ok(ev)) => match aurafx_cad::measure_faces(&ev, &a, &b) {
+                Some(m) if m.parallel => format!("parallel, {} mm apart", super::num_text(m.distance)),
+                Some(m) => format!("{}° apart, centers {} mm apart", super::num_text(m.angle_deg), super::num_text(m.center_distance)),
+                None => "those faces are not on the part as built".to_string(),
+            },
+            Some(Err(e)) => format!("{e:#}"),
+            None => String::new(),
+        });
+    }
+    if let Some(t) = &state.cad.measure.2 {
+        ui.label(format!("= {t}"));
+    }
 }
 
 /// File types a part can be placed from.
@@ -354,7 +409,7 @@ pub fn check_fit(state: &mut State) {
 fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
     ui.scroll_menu(crate::icons::with("Insert part"), |ui| part_menu(state, ui, "component_add", json!({"at": [0, 0, 0]})))
         .response
-        .on_hover_text("Place another part beside this one: a template, a blank part or a CAD file. It keeps its own features; move it in the FeatureManager.");
+        .on_hover_text("Place another part beside this one: a template, a blank part or a CAD file. It keeps its own features; move it in the model tree.");
     for (label, how, tip) in [
         ("Add part", "add", "Join another part to this one (a boolean union of the two solids)"),
         ("Cut with part", "subtract", "Remove another part's volume from this one"),
@@ -367,6 +422,7 @@ fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
     if ui
         .add_enabled(has, egui::Button::new(crate::icons::with("Check fit")))
         .on_hover_text("Find the parts that overlap, with the overlap volume (the parts of the assembly, two at a time)")
+        .on_disabled_hover_text("Needs at least two parts: insert one first")
         .clicked()
     {
         check_fit(state);
@@ -406,6 +462,44 @@ fn files_tab(state: &mut State, ui: &mut egui::Ui) {
     }
     if button(ui, "Save as .afxcad…", "Write the part being edited to a file") {
         save_as(state);
+    }
+    if button(ui, "Export…", "Write the part as STEP or IGES (for another CAD program), 3MF or STL (for a printer), OBJ or .sc") {
+        export_as(state);
+    }
+}
+
+/// Write the working copy in an exchange format chosen by the file's extension.
+pub fn export_as(state: &mut State) {
+    let (doc, kernel) = {
+        let s = state.session.lock();
+        match s.cad_edit.as_ref() {
+            Some(e) => (e.document.clone(), s.cad_kernel(e.node)),
+            None => return,
+        }
+    };
+    let Some(p) = crate::dialogs::FileDialog::new()
+        .add_filter("STEP", &["step", "stp"])
+        .add_filter("IGES", &["igs", "iges"])
+        .add_filter("3MF", &["3mf"])
+        .add_filter("STL", &["stl"])
+        .add_filter("Wavefront OBJ", &["obj"])
+        .add_filter("SolidCraft design", &["sc"])
+        .set_file_name("part.step")
+        .save_file()
+    else {
+        return;
+    };
+    let p = if p.extension().is_none() { p.with_extension("step") } else { p };
+    match aurafx_cad::io::export_file(&doc, &p, kernel) {
+        Ok(r) => {
+            let how = if r.exact {
+                "exact geometry".to_string()
+            } else {
+                format!("as facets{}", if r.note.is_empty() { String::new() } else { format!(": {}", r.note) })
+            };
+            state.toast(format!("Exported {} ({how})", p.display()), false);
+        }
+        Err(e) => state.toast(format!("{e}"), true),
     }
 }
 

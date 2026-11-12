@@ -81,6 +81,12 @@ impl Session {
 
     /// Replace the pipeline with `snap`, keeping computed outputs of nodes that did not change.
     pub fn apply_snapshot(&mut self, snap: &Snapshot) -> Result<()> {
+        // Undo, redo or opening a state replaces the nodes: an open CAD edit ends here (its
+        // working copy belongs to a pipeline that is being replaced).
+        if self.cad_edit.take().is_some() {
+            self.log(LogLevel::Warn, "CAD environment closed: the pipeline was replaced");
+        }
+        self.cad_hold = None;
         let mut old = std::mem::take(&mut self.nodes);
         let mut changed: Vec<NodeId> = Vec::new();
         let mut errors = Vec::new();
@@ -205,6 +211,9 @@ impl Session {
     // ------------------------------------------------------------------ state files
 
     pub fn save_state(&self, path: &Path, camera: Option<CameraState>) -> Result<()> {
+        if self.cad_edit.as_ref().is_some_and(|e| e.changed) {
+            tracing::warn!("saving while the CAD environment has changes that are not applied: the file holds the part as last applied");
+        }
         let base = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
         let nodes: Vec<serde_json::Value> = self
             .nodes

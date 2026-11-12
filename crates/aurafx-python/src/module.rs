@@ -1040,8 +1040,8 @@ fn screenshot(
 #[pyfunction]
 fn export_scene(py: Python<'_>, path: String) -> PyResult<()> {
     let ext = std::path::Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl") {
-        return Err(PyValueError::new_err("export_scene writes .glb, .obj, .x3d or .wrl files (afx.screenshot('fig.svg') for a vector picture)"));
+    if !matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl" | "html") {
+        return Err(PyValueError::new_err("export_scene writes .glb, .obj, .x3d, .wrl or .html files (afx.screenshot('fig.svg') for a vector picture)"));
     }
     screenshot(py, path, None, None, false, true, None, false)
 }
@@ -2704,6 +2704,17 @@ fn case_options(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<aurafx_pipeline:
     Ok(o)
 }
 
+/// The batch scheduler a `slurm={...}` (or `scheduler={...}`) dictionary asks for: "system" is
+/// "slurm" (the default), "pbs" or "lsf"; "partition" or "queue", "time", "nodes", "extra".
+fn batch_scheduler(sl: &std::collections::HashMap<String, String>, tasks: u32) -> PyResult<aurafx_jobs::Scheduler> {
+    let system = sl.get("system").map(String::as_str).unwrap_or("slurm");
+    let queue = sl.get("partition").or(sl.get("queue")).cloned().unwrap_or_default();
+    let time = sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into());
+    let nodes = sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1);
+    aurafx_jobs::Scheduler::batch(system, &queue, &time, nodes, tasks, sl.get("extra").map(String::as_str).unwrap_or(""))
+        .ok_or_else(|| PyValueError::new_err(format!("unknown batch system '{system}': slurm, pbs or lsf")))
+}
+
 /// Write a simulation case from a node's data into `folder`: solver "moose" (a grain mesh:
 /// mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt,
 /// polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts) or "pinnacle"
@@ -2768,13 +2779,7 @@ fn run_case(
     spec.auto_load = auto_load;
     spec.inputs = if spec.host.is_local() { Vec::new() } else { c.files.clone() };
     if let Some(sl) = slurm {
-        spec.scheduler = aurafx_jobs::Scheduler::Slurm {
-            partition: sl.get("partition").cloned().unwrap_or_default(),
-            time: sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into()),
-            nodes: sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1),
-            tasks: np,
-            extra: sl.get("extra").cloned().unwrap_or_default(),
-        };
+        spec.scheduler = batch_scheduler(&sl, np)?;
     }
     let jobs = aurafx_jobs::global();
     let id = aurafx_jobs::submit(&jobs, spec);
@@ -2821,13 +2826,7 @@ fn submit(
     spec.auto_load = auto_load;
     spec.env = env.unwrap_or_default().into_iter().collect();
     if let Some(sl) = slurm {
-        spec.scheduler = aurafx_jobs::Scheduler::Slurm {
-            partition: sl.get("partition").cloned().unwrap_or_default(),
-            time: sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into()),
-            nodes: sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1),
-            tasks: sl.get("tasks").and_then(|v| v.parse().ok()).unwrap_or(1),
-            extra: sl.get("extra").cloned().unwrap_or_default(),
-        };
+        spec.scheduler = batch_scheduler(&sl, sl.get("tasks").and_then(|v| v.parse().ok()).unwrap_or(1))?;
     }
     let jobs = aurafx_jobs::global();
     let id = aurafx_jobs::submit(&jobs, spec);

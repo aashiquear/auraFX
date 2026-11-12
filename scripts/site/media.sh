@@ -11,6 +11,10 @@ cfg="$HOME/.config/aurafx/settings.toml"; ron="$HOME/.local/share/aurafx/app.ron
 [ -f "$cfg" ] && cp "$cfg" "$tmp/bak/settings.toml"; [ -f "$ron" ] && cp "$ron" "$tmp/bak/app.ron"
 restore() { [ -f "$tmp/bak/settings.toml" ] && cp "$tmp/bak/settings.toml" "$cfg"; [ -f "$tmp/bak/app.ron" ] && cp "$tmp/bak/app.ron" "$ron"; return 0; }
 trap 'pkill -x aurafx 2>/dev/null; restore; rm -rf "$tmp"' EXIT
+# The page's clips all use the light theme, whatever the user's own setting is (restored on exit).
+if [ -f "$cfg" ]; then
+  sed -i 's/^theme = .*/theme = "Light"/; s/^dark_theme = .*/dark_theme = false/' "$cfg"
+fi
 names=("$@")
 [ ${#names[@]} -eq 0 ] && names=($(ls "$root/scripts/site/media/"*.py | xargs -n1 basename | sed 's/\.py$//'))
 for name in "${names[@]}"; do
@@ -20,5 +24,11 @@ for name in "${names[@]}"; do
   ( cd "$root" && AURAFX_PLUGIN_PATH="$tmp/plugins_empty" env -u WAYLAND_DISPLAY "$app" --script "$tmp/run.py" > "$tmp/$name.log" 2>&1 & )
   for i in $(seq 1 "${MEDIA_WAIT:-600}"); do [ -f "$mp4" ] && break; sleep 1; done
   sleep 2; pkill -x aurafx 2>/dev/null; sleep 0.5
-  if [ -f "$mp4" ]; then echo "$name: $(du -h "$mp4" | cut -f1)"; else echo "$name: FAILED"; tail -5 "$tmp/$name.log"; fi
+  if [ -f "$mp4" ]; then
+    # The poster shown before the clip loads: its first frame.
+    ffmpeg -loglevel error -y -i "$mp4" -frames:v 1 -q:v 3 "$out/$name.jpg"
+    echo "$name: $(du -h "$mp4" | cut -f1)"
+  else
+    echo "$name: FAILED"; tail -5 "$tmp/$name.log"
+  fi
 done

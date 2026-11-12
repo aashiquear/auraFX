@@ -10,6 +10,10 @@ pub const CHUNK_TRIS: usize = 16 * 1024;
 pub const LOD_MIN_TRIS: usize = 1_000_000;
 /// About this many triangles in the coarse copy.
 pub const LOD_TARGET_TRIS: usize = 400_000;
+/// A surface gets its coarse copy once it was drawn this many times unchanged and has been
+/// there this long (a surface that changes every frame, as in an animation, never gets one).
+pub const LOD_SETTLE_FRAMES: u32 = 3;
+pub const LOD_SETTLE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// A run of triangles in one vertex buffer and its bounding box (mesh-local coordinates).
 #[derive(Debug, Clone, Copy)]
@@ -64,8 +68,14 @@ pub fn in_view(vp: &glam::Mat4, min: [f32; 3], max: [f32; 3]) -> bool {
 /// vertices, triangles that collapse dropped, each cell's vertices averaged (the first one's
 /// value kept when values are packed texture coordinates or colors).
 pub fn coarse(tris: &[Vertex], target: usize, average_scalar: bool) -> Vec<Vertex> {
+    coarse_until(tris, target, average_scalar, &std::sync::atomic::AtomicBool::new(false)).unwrap_or_default()
+}
+
+/// [`coarse`], given up (None) soon after `stop` is set: the surface it is for was replaced.
+pub fn coarse_until(tris: &[Vertex], target: usize, average_scalar: bool, stop: &std::sync::atomic::AtomicBool) -> Option<Vec<Vertex>> {
+    let stopped = |i: usize| i % (1 << 16) == 0 && stop.load(std::sync::atomic::Ordering::Relaxed);
     if tris.len() < 3 {
-        return tris.to_vec();
+        return Some(tris.to_vec());
     }
     let (mut min, mut max) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
     for v in tris {
@@ -85,7 +95,10 @@ pub fn coarse(tris: &[Vertex], target: usize, average_scalar: bool) -> Vec<Verte
     let mut ids: HashMap<u64, u32> = HashMap::new();
     let mut sums: Vec<([f32; 3], [f32; 3], f32, f32, u32)> = Vec::new();
     let mut corner = Vec::with_capacity(tris.len());
-    for v in tris {
+    for (i, v) in tris.iter().enumerate() {
+        if stopped(i) {
+            return None;
+        }
         let next = sums.len() as u32;
         let id = *ids.entry(key(v.pos)).or_insert(next);
         if id == next {
@@ -115,7 +128,10 @@ pub fn coarse(tris: &[Vertex], target: usize, average_scalar: bool) -> Vec<Verte
         .collect();
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for t in corner.chunks_exact(3) {
+    for (i, t) in corner.chunks_exact(3).enumerate() {
+        if stopped(i) {
+            return None;
+        }
         if t[0] == t[1] || t[1] == t[2] || t[0] == t[2] {
             continue;
         }
@@ -125,7 +141,7 @@ pub fn coarse(tris: &[Vertex], target: usize, average_scalar: bool) -> Vec<Verte
             out.extend(t.iter().map(|&i| rep[i as usize]));
         }
     }
-    out
+    Some(out)
 }
 
 #[cfg(test)]
@@ -149,6 +165,11 @@ mod tests {
             }
         }
         let c = coarse(&tris, 20_000, true);
+        // Stopped before it starts: nothing; never stopped: the same copy.
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        assert!(coarse_until(&tris, 20_000, true, &stop).is_none());
+        stop.store(false, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(coarse_until(&tris, 20_000, true, &stop).map(|v| v.len()), Some(c.len()));
         let nt = c.len() / 3;
         assert!(nt > 5_000 && nt < 40_000, "{nt} triangles");
         assert!(c.iter().all(|v| v.pos[0] >= 0.0 && v.pos[0] <= n as f32 && v.normal[2] > 0.99));

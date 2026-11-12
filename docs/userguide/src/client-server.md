@@ -116,7 +116,9 @@ On a cluster, choose **started by** next to Processes: *mpirun* (MPI), *srun* (S
 command* with `{n}` for the number of processes and `{cmd}` for the worker command (for example
 `mpiexec -n {n} -hostfile hosts {cmd}`). The server opens a port, runs the launcher, and each
 rank (from `OMPI_COMM_WORLD_RANK`, `PMI_RANK`, `PMIX_RANK` or `SLURM_PROCID`) connects back with
-a one-time token and holds its piece. The ranks must be able to reach the server's machine
+a one-time token and holds its piece. The token travels in the environment
+(`AURAFX_RANK_TOKEN`), not on the command line; a launcher that does not pass the environment
+on to other nodes needs it named in the command (for Open MPI, `-x AURAFX_RANK_TOKEN`). The ranks must be able to reach the server's machine
 (`AURAFX_CONNECT_HOST` sets the address they use, by default its host name); a launch that ends
 early, or ranks that do not connect within 60 seconds, give an error naming the command.
 

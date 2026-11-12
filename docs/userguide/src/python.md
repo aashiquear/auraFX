@@ -104,7 +104,8 @@ auraFX runs Jupyter notebooks two ways:
   **auraFX (Python)** as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
   that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through `afx`,
   and their output, values, errors and pictures come back to the notebook. Tab completes names;
-  shutting the kernel down closes the window.
+  shutting the kernel down closes the window. A running cell cannot be interrupted yet (the
+  request is answered with an error saying so); shutting down works while a cell runs.
 
 In either, `afx.snapshot()` shows a picture of the 3D view in the notebook (`views="all"`: every
 view as laid out) and `afx.display(x)` shows a picture file, PNG bytes or any object as text.
@@ -116,6 +117,9 @@ afx.snapshot(width=640, height=400)
 ```
 
 ![The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()](images/notebook_panel.png)
+
+Every function and method, with its arguments and the text `help()` shows, is in the
+[Python API reference](python-api.md), generated from the module itself.
 
 The **Help › Python API cheat sheet** window lists the same calls inside the app, and every
 function has a docstring (`help(afx.lighting)`).

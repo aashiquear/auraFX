@@ -138,7 +138,12 @@ aurafx-plugin-example` builds it.
   that layout.
 - Errors returned by the plugin show as the filter's error; a panic in the plugin is caught and
   shown the same way.
-- A library loads once per run: after rebuilding a plugin, restart auraFX.
+- In a plugin folder only libraries with `aurafx` in their file name are loaded
+  (`libaurafx_my_filters.so`), so other shared libraries lying there are left alone; a library
+  with any name can be added as a file (Edit › Plugins › Add file, or `afx.load_plugin(path)`).
+- A library loads once per run: after rebuilding a plugin, restart auraFX. After updating
+  auraFX, rebuild your plugins: one built for another version of the data layout is refused
+  with a message that says so.
 - Load only libraries you trust: a plugin runs with the same rights as auraFX.
 
 ![The Plugins window listing an example Rust plugin, and its Spiral source scaled by its Scale Points filter](images/rust_plugin.png)

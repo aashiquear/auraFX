@@ -13,7 +13,15 @@ have their own generators, and bricks and cylinders built with commands can be m
 
 Add it with **Sources › Geometry**. Its Properties show:
 
-- **Commands**: the command list, edited in the box and applied with **Apply**.
+- **Commands**: the command list, edited in the box and applied with **Apply**. The **Insert**
+  menus under the box (*Shape*, *Outline*, *Combine*, *Move*, *Mesh*, *Names and sets*) add a
+  command with example numbers at the end, each with a line saying what it does, so the
+  commands need not be remembered: insert, change the numbers, Apply.
+- **From geometry to a mesh**: the six steps as a checklist with a button each. *Mesh every
+  body* writes the mesh command, sized to a twentieth of the model, and shows the hexahedra;
+  *Surface / Hex mesh / Tet mesh* switch what is shown; *Mesh Quality* adds the filter that
+  finds distorted elements; *Save data…* writes the mesh with its blocks and sets for a solver.
+  A tick appears as each step is done. **Model › New geometry** adds the source and opens here.
 - **Bodies**: a tree of the bodies the commands make. It shows how each body was built and
   lists its faces with their numbers and names. A mistake in a command shows here, with the
   line it is on.
@@ -29,6 +37,8 @@ The surface output carries the cell arrays `BodyId` and `FaceId`. Its field arra
 ![A plate with two holes, a revolved and rounded boss, a swept pipe and a torus, built with commands and colored by face](images/geometry_part.png)
 
 ![The Geometry source in the window: its commands, the Bodies tree with how each body was made, and the result colored by face](images/geometry_panel.png)
+
+![The Insert menus under the commands and the steps from geometry to a mesh, after Mesh every body](images/geometry_steps.png)
 
 ## Commands
 

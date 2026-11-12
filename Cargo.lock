@@ -702,6 +702,7 @@ dependencies = [
  "aurafx-io",
  "aurafx-jobs",
  "aurafx-pipeline",
+ "base64 0.22.1",
  "bytemuck",
  "glam",
  "half",

@@ -1,5 +1,5 @@
 //! Picking edges and faces of the exact part from lists (stage C7): the ribbon's Modify tab opens a
-//! picker in the PropertyManager that lists the edges (with the faces on either side, their
+//! picker in the feature panel that lists the edges (with the faces on either side, their
 //! length and a point on each) or the faces of the part as the B-rep kernel builds it; the chosen
 //! ones become a *Fillet*, *Chamfer*, *Shell*, *Draft*, *Mirror* or *Pattern on a face* feature
 //! after the features before them.
@@ -25,6 +25,18 @@ pub enum PickKind {
 }
 
 impl PickKind {
+    /// What the picker is for, in a few words.
+    pub fn title(self) -> &'static str {
+        match self {
+            PickKind::Fillet => "Fillet edges",
+            PickKind::Chamfer => "Chamfer edges",
+            PickKind::Shell => "Shell: choose the faces to open",
+            PickKind::Draft => "Draft: choose the faces to taper",
+            PickKind::MirrorFace => "Mirror: choose the flat face to reflect about",
+            PickKind::PatternFace => "Pattern: choose the flat face to put the holes on",
+            PickKind::SketchFace => "Sketch: choose the flat face to draw on",
+        }
+    }
     /// One face is chosen (a radio list), not several.
     fn single(self) -> bool {
         matches!(self, PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace)
@@ -307,6 +319,14 @@ fn face_at(ds: &aurafx_data::DataSet, p: [f64; 3]) -> Option<String> {
     }
     let (_, ci) = best?;
     names.get(ids.get(ci, 0) as usize).cloned()
+}
+
+/// The face of the part being edited under a point of its surface.
+pub fn face_under(state: &State, node: aurafx_pipeline::NodeId, world: [f64; 3]) -> Option<aurafx_pipeline::CadFace> {
+    let s = state.session.lock();
+    let e = s.cad_edit.as_ref().filter(|e| e.node == node)?;
+    let name = face_at(s.nodes.get(&node)?.output.as_ref()?, world)?;
+    e.summary.as_ref()?.faces.iter().find(|f| f.name == name).cloned()
 }
 
 /// Whether a picker is open (a click in the 3D view then chooses an edge or a face).

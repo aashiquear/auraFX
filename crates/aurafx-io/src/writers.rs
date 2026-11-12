@@ -201,9 +201,16 @@ fn esc(s: &str) -> String {
 }
 
 fn data_array(out: &mut String, app: &mut Appended, name: &str, ncomp: usize, d: &ArrayData) {
+    data_array_units(out, app, name, ncomp, d, None)
+}
+
+/// A `DataArray` element; `units` ("K", "m/s") are kept in a `Units` attribute, which our
+/// reader gives back to the array.
+fn data_array_units(out: &mut String, app: &mut Appended, name: &str, ncomp: usize, d: &ArrayData, units: Option<&str>) {
     let off = app.add(&le_bytes(d));
+    let units = units.map(|u| format!(" Units=\"{}\"", esc(u))).unwrap_or_default();
     out.push_str(&format!(
-        "        <DataArray type=\"{}\" Name=\"{}\" NumberOfComponents=\"{}\" format=\"appended\" offset=\"{}\"/>\n",
+        "        <DataArray type=\"{}\" Name=\"{}\" NumberOfComponents=\"{}\"{units} format=\"appended\" offset=\"{}\"/>\n",
         type_name(d),
         esc(name),
         ncomp,
@@ -233,7 +240,7 @@ fn attributes(out: &mut String, app: &mut Appended, tag: &str, a: &Attributes) {
     }
     out.push_str(&format!("      <{tag}{act}>\n"));
     for arr in a.iter() {
-        data_array(out, app, &arr.name, arr.ncomp, &arr.data);
+        data_array_units(out, app, &arr.name, arr.ncomp, &arr.data, arr.units.as_deref());
     }
     out.push_str(&format!("      </{tag}>\n"));
 }

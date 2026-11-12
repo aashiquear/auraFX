@@ -40,6 +40,8 @@ pub struct Settings {
     pub shortcuts: crate::shortcuts::Shortcuts,
     /// Let filters use the GPU (the results are the same; only faster on big grids).
     pub gpu_filters: bool,
+    /// Show the welcome window at start.
+    pub show_welcome: bool,
 }
 
 impl Default for Settings {
@@ -66,6 +68,7 @@ impl Default for Settings {
             ask_source_settings: true,
             shortcuts: Default::default(),
             gpu_filters: true,
+            show_welcome: true,
         }
     }
 }

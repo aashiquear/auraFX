@@ -1,6 +1,6 @@
 [package]
 name = "aurafx-cad"
-description = "auraFX's parametric CAD document: feature timeline, constrained sketches, parameters and expressions, with an implicit kernel and (feature brep) a B-rep kernel through SolidCraft"
+description = "auraFX's parametric CAD document: feature timeline, constrained sketches, parameters and expressions, with an implicit kernel and a B-rep kernel through SolidCraft"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

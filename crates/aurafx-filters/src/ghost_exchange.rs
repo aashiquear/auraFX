@@ -11,7 +11,8 @@
 //! Explicit meshes get the ghost cells after their own cells and points (own points keep their
 //! order, so splitting cells into simplices is unchanged); image, rectilinear and structured
 //! grids grow by the neighbouring slabs, so their filters still see a grid. Multi-block pieces
-//! are handled block by block (blocks matched by name).
+//! are handled block by block (blocks matched by name, or by position when names repeat or are
+//! empty). Meshes with polyhedron cells get no ghosts.
 
 use crate::registry::{FilterDef, MultiInput};
 use anyhow::{anyhow, bail, Result};
@@ -22,25 +23,56 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// Marks ghost cells (1) while a filter runs; never left in a result.
 const MARK: &str = "__aurafx_ghost";
 
-/// Ghost candidates handed to this process, by key (the newest 64).
+/// Start of the error a process gives when it was asked to add ghosts it does not hold (it was
+/// restarted, or dropped them). The coordinator sends them again when it sees this.
+pub const NOT_SENT: &str = "the ghost cells of this piece were not sent";
+
+/// The most ghost sets a process keeps. The coordinator says when a set is no longer needed
+/// ([`forget`]); this bound only matters when it never does.
+const MOST: usize = 4096;
+
+/// Ghost candidates handed to this process, by key, oldest first.
 fn table() -> &'static Mutex<Vec<(String, Arc<DataSet>)>> {
     static T: OnceLock<Mutex<Vec<(String, Arc<DataSet>)>>> = OnceLock::new();
     T.get_or_init(Default::default)
 }
 
-/// Keep the border cells of the other pieces under `key`.
+fn lock() -> std::sync::MutexGuard<'static, Vec<(String, Arc<DataSet>)>> {
+    table().lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Keep the border cells of the other pieces under `key` until [`forget`] names it.
 pub fn store(key: &str, ds: DataSet) {
-    let mut t = table().lock().unwrap();
+    let mut t = lock();
     t.retain(|(k, _)| k != key);
     t.push((key.to_string(), Arc::new(ds)));
     let n = t.len();
-    if n > 64 {
-        t.drain(..n - 64);
+    if n > MOST {
+        t.drain(..n - MOST);
     }
 }
 
+/// Drop the border cells kept under these keys.
+pub fn forget(keys: &[String]) {
+    lock().retain(|(k, _)| !keys.contains(k));
+}
+
+/// Drop every set of border cells this process holds (as a restarted process would have).
+pub fn forget_all() {
+    lock().clear();
+}
+
+/// How many sets of border cells this process holds.
+pub fn held() -> usize {
+    lock().len()
+}
+
 fn fetch(key: &str) -> Option<Arc<DataSet>> {
-    table().lock().unwrap().iter().find(|(k, _)| k == key).map(|(_, d)| d.clone())
+    lock().iter().find(|(k, _)| k == key).map(|(_, d)| d.clone())
+}
+
+fn has_polyhedra(u: &UnstructuredGrid) -> bool {
+    u.cells.polyhedron_faces.is_some() || u.cells.types.contains(&CellType::Polyhedron)
 }
 
 fn extent(ds: &DataSet) -> Option<[i64; 6]> {
@@ -194,12 +226,20 @@ pub fn append_ghosts(own: &DataSet, cands: &DataSet, layers: usize) -> Result<Da
     append_in(own, &pieces, layers)
 }
 
-/// The block `name` of each candidate piece (those that have it).
-fn sub_blocks<'a>(pieces: &[&'a DataSet], name: &str) -> Vec<&'a DataSet> {
+/// Whether every block has a name of its own (so blocks can be matched by name).
+fn distinct_names(mb: &MultiBlock) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    mb.blocks.iter().all(|b| !b.0.is_empty() && seen.insert(b.0.as_str()))
+}
+
+/// The block of each candidate piece that matches block `i` (called `name`) of the own piece:
+/// by name when both sides name every block differently, else by position.
+fn sub_blocks<'a>(pieces: &[&'a DataSet], i: usize, name: &str, by_name: bool) -> Vec<&'a DataSet> {
     pieces
         .iter()
         .filter_map(|p| match p {
-            DataSet::MultiBlock(mb) => mb.blocks.iter().find(|b| b.0 == name).and_then(|b| b.1.as_ref()),
+            DataSet::MultiBlock(mb) if by_name && distinct_names(mb) => mb.blocks.iter().find(|b| b.0 == name).and_then(|b| b.1.as_ref()),
+            DataSet::MultiBlock(mb) => mb.blocks.get(i).and_then(|b| b.1.as_ref()),
             _ => None,
         })
         .collect()
@@ -208,8 +248,9 @@ fn sub_blocks<'a>(pieces: &[&'a DataSet], name: &str) -> Vec<&'a DataSet> {
 fn append_in(own: &DataSet, pieces: &[&DataSet], layers: usize) -> Result<DataSet> {
     if let DataSet::MultiBlock(mb) = own {
         let mut out = MultiBlock { field_data: mb.field_data.clone(), ..Default::default() };
-        for (name, b) in &mb.blocks {
-            let sub = sub_blocks(pieces, name);
+        let by_name = distinct_names(mb);
+        for (i, (name, b)) in mb.blocks.iter().enumerate() {
+            let sub = sub_blocks(pieces, i, name, by_name);
             out.blocks.push((name.clone(), b.as_ref().map(|b| append_in(b, &sub, layers)).transpose()?));
         }
         return Ok(DataSet::MultiBlock(out));
@@ -253,6 +294,10 @@ fn append_in(own: &DataSet, pieces: &[&DataSet], layers: usize) -> Result<DataSe
     if others.is_empty() {
         return Ok(own.clone());
     }
+    // Polyhedron faces index points on their own; such pieces run without ghosts.
+    if has_polyhedra(&u) || others.iter().any(has_polyhedra) {
+        return Ok(own.clone());
+    }
     let mut b = own.bounds();
     for g in &others {
         let gb = DataSet::UnstructuredGrid(g.clone()).bounds();
@@ -261,8 +306,11 @@ fn append_in(own: &DataSet, pieces: &[&DataSet], layers: usize) -> Result<DataSe
             b.max[a] = b.max[a].max(gb.max[a]);
         }
     }
+    // Positions are compared relative to the corner of the box around everything, so a small
+    // part far from the origin still has distinct keys (at most 1e12 along an axis).
     let tol = (b.diagonal() * 1e-12).max(1e-300);
-    let key = |q: [f64; 3]| [(q[0] / tol).round() as i64, (q[1] / tol).round() as i64, (q[2] / tol).round() as i64];
+    let o = b.min;
+    let key = |q: [f64; 3]| -> [i64; 3] { std::array::from_fn(|a| ((q[a] - o[a]) / tol).round() as i64) };
     let mut index: HashMap<[i64; 3], u32> = HashMap::with_capacity(u.points.len());
     for i in 0..u.points.len() {
         index.entry(key(u.points.get(i))).or_insert(i as u32);
@@ -346,7 +394,17 @@ fn append_in(own: &DataSet, pieces: &[&DataSet], layers: usize) -> Result<DataSe
         for name in names {
             let a = own_attrs.get(&name).unwrap();
             if a.scalar_type() == ScalarType::String {
-                out.remove(&name);
+                // Text: the ghosts' own, or empty where a neighbour has none.
+                let mut vals: Vec<String> = Vec::with_capacity(picks.len() * a.ncomp);
+                for &(g, i) in picks {
+                    match sets[g].get(&name).filter(|o| o.ncomp == a.ncomp).and_then(|o| o.as_slice::<String>()) {
+                        Some(o) => vals.extend_from_slice(&o[i * a.ncomp..(i + 1) * a.ncomp]),
+                        None => vals.extend(std::iter::repeat_n(String::new(), a.ncomp)),
+                    }
+                }
+                let mut b = a.clone();
+                let _ = b.data.append(&ArrayData::String(vals));
+                out.insert(b);
                 continue;
             }
             let mut vals = Vec::with_capacity(picks.len() * a.ncomp);
@@ -479,7 +537,11 @@ pub fn drop_ghosts(gx: &DataSet, own: &DataSet) -> Result<DataSet> {
     let pick = |from: Option<&Attributes>, mine: Option<&Attributes>, idx: &[usize]| -> Attributes {
         let mut res = Attributes::new();
         let Some(from) = from else { return res };
+        let need = idx.iter().copied().max().map_or(0, |m| m + 1);
         for a in from.iter().filter(|a| !a.name.starts_with("__aurafx")) {
+            if a.len() < need {
+                continue; // not one value per point or cell of the piece with ghosts
+            }
             let g = a.gather(idx);
             let same = mine.and_then(|m| m.get(&a.name)).filter(|m| m.ncomp == g.ncomp && m.len() == g.len() && m.data.to_f64_vec() == g.data.to_f64_vec());
             res.insert(match same {
@@ -531,7 +593,7 @@ pub fn internal_defs() -> Vec<FilterDef> {
             params: vec![layers(), crate::registry::s("key", "Key", "")],
             apply: |input, p| {
                 let key = p.str("key");
-                let cands = fetch(&key).ok_or_else(|| anyhow!("the ghost cells of this piece were not sent ({key}); try again"))?;
+                let cands = fetch(&key).ok_or_else(|| anyhow!("{NOT_SENT} ({key}); try again"))?;
                 append_ghosts(input.unwrap(), &cands, p.i64("layers", 1) as usize)
             },
         },
@@ -609,5 +671,75 @@ mod tests {
         let pc = crate::find("point_data_to_cell_data").unwrap();
         let cells = pc.run(Some(&ug), &pc.default_params()).unwrap();
         assert!(worst(&cells, 3, "cell_data_to_point_data", &[]) < 1e-9, "cell to point");
+    }
+
+    fn wavelet_mesh() -> UnstructuredGrid {
+        let src = crate::find("wavelet").unwrap();
+        src.run(None, &src.default_params()).unwrap().to_unstructured().unwrap()
+    }
+
+    fn moved(u: &UnstructuredGrid, by: f64) -> UnstructuredGrid {
+        let mut u = u.clone();
+        u.points = Points::new_f64(u.points.data.to_f64_vec().chunks(3).flat_map(|p| [p[0] + by, p[1], p[2]]).collect());
+        u
+    }
+
+    /// A small part far from the origin: its points are still told apart.
+    #[test]
+    fn far_from_the_origin() {
+        let ug = DataSet::UnstructuredGrid(moved(&wavelet_mesh(), 2e9));
+        let rt = crate::ParamValue::Array { assoc: crate::Association::Points, name: "RTData".into() };
+        assert!(worst(&ug, 4, "gradient", &[("array", rt)]) < 1e-6);
+    }
+
+    /// Text arrays and units come through; blocks with the same name are matched by position;
+    /// polyhedra get no ghosts.
+    #[test]
+    fn text_units_blocks_and_polyhedra() {
+        let mut u = wavelet_mesh();
+        let rt = u.point_data.get("RTData").unwrap().clone().with_units("K");
+        u.point_data.insert(rt);
+        let n = u.points.len();
+        u.point_data.insert(Array::new("label", 1, ArrayData::String((0..n).map(|i| format!("p{i}")).collect())));
+        let whole = DataSet::UnstructuredGrid(u.clone());
+        let pieces: Vec<DataSet> = (0..3).map(|k| aurafx_data::pieces::split(&whole, k, 3)).collect();
+        let border = |skip: usize, of: &[DataSet]| {
+            let mut mb = MultiBlock::default();
+            for (j, p) in of.iter().enumerate().filter(|(j, _)| *j != skip) {
+                mb.blocks.push((format!("piece {j}"), Some(piece_border(p, 1).unwrap())));
+            }
+            DataSet::MultiBlock(mb)
+        };
+        let g = append_ghosts(&pieces[1], &border(1, &pieces), 1).unwrap();
+        assert!(g.n_cells() > pieces[1].n_cells());
+        let labels = g.point_data().unwrap().get("label").expect("the text array is kept with ghosts");
+        assert_eq!(labels.len(), g.n_points());
+        let def = crate::find("gradient").unwrap();
+        let mut p = def.default_params();
+        p.0.insert("array".into(), crate::ParamValue::Array { assoc: crate::Association::Points, name: "RTData".into() });
+        let r = drop_ghosts(&def.run(Some(&g), &p).unwrap(), &pieces[1]).unwrap();
+        let (got, own) = (r.point_data().unwrap(), pieces[1].point_data().unwrap());
+        assert_eq!(got.get("label"), own.get("label"), "text array");
+        assert_eq!(got.get("RTData").unwrap().units.as_deref(), Some("K"), "units");
+
+        // Two blocks without names, the second one elsewhere: each gets ghosts from its own.
+        let mut mb = MultiBlock::default();
+        mb.blocks.push((String::new(), Some(whole.clone())));
+        mb.blocks.push((String::new(), Some(DataSet::UnstructuredGrid(moved(&u, 1000.0)))));
+        let mb = DataSet::MultiBlock(mb);
+        let parts: Vec<DataSet> = (0..3).map(|k| aurafx_data::pieces::split(&mb, k, 3)).collect();
+        let g = append_ghosts(&parts[1], &border(1, &parts), 1).unwrap();
+        let (DataSet::MultiBlock(g), DataSet::MultiBlock(own)) = (&g, &parts[1]) else { panic!() };
+        for b in 0..2 {
+            let (with, without) = (g.blocks[b].1.as_ref().unwrap(), own.blocks[b].1.as_ref().unwrap());
+            assert!(with.n_cells() > without.n_cells(), "block {b} got ghosts");
+            assert_eq!(with.n_cells(), g.blocks[0].1.as_ref().unwrap().n_cells(), "block {b}: as many as the first");
+        }
+
+        // Polyhedra: the piece is left alone.
+        let DataSet::UnstructuredGrid(mut poly) = pieces[1].clone() else { panic!() };
+        poly.cells.polyhedron_faces = Some(vec![Vec::new(); poly.cells.len()]);
+        let poly = DataSet::UnstructuredGrid(poly);
+        assert_eq!(append_ghosts(&poly, &border(1, &pieces), 1).unwrap().n_cells(), poly.n_cells());
     }
 }

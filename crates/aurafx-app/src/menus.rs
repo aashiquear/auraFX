@@ -44,6 +44,39 @@ pub fn categories(defs: &[Arc<FilterDef>], sources: bool) -> Vec<&'static str> {
 /// The filters that `keep` accepts, one submenu per category, each filter once. Returns the id of
 /// the one clicked.
 pub fn filter_menu(ui: &mut Ui, keep: impl Fn(&FilterDef) -> bool) -> Option<&'static str> {
+    filter_menu_for(ui, None, keep)
+}
+
+/// The summary of a node's data and whether it has time steps: what the suggestions go by.
+pub fn node_context(state: &crate::app::State, id: Option<aurafx_pipeline::NodeId>) -> Option<(aurafx_data::DataSetInfo, bool)> {
+    let s = state.session.lock();
+    let id = id.or(s.active)?;
+    let info = s.nodes.get(&id)?.info.clone()?;
+    let timed = s.node_times(id, 0).len() > 1;
+    Some((info, timed))
+}
+
+/// The few filters that fit this data best, as buttons that say why. Returns the one clicked.
+pub fn suggestion_buttons(ui: &mut Ui, info: &aurafx_data::DataSetInfo, has_time: bool) -> Option<&'static str> {
+    let list = aurafx_filters::suggest::suggestions(info, has_time);
+    if list.is_empty() {
+        return None;
+    }
+    let mut picked = None;
+    ui.label(egui::RichText::new(format!("{} Suggested for this data", crate::icons::SPARKLE)).weak().small());
+    for s in list {
+        if ui.button(crate::icons::with(s.def.label)).on_hover_text(format!("{}\n\n{}", s.reason, s.def.description)).clicked() {
+            ui.close();
+            picked = Some(s.def.id);
+        }
+    }
+    ui.separator();
+    picked
+}
+
+/// [`filter_menu`] for data with this summary: filters that are unlikely to work on it are shown
+/// faded and say what they need (they can still be chosen).
+pub fn filter_menu_for(ui: &mut Ui, info: Option<&aurafx_data::DataSetInfo>, keep: impl Fn(&FilterDef) -> bool) -> Option<&'static str> {
     let defs = aurafx_filters::registry();
     let mut picked = None;
     for cat in categories(&defs, false) {
@@ -53,7 +86,12 @@ pub fn filter_menu(ui: &mut Ui, keep: impl Fn(&FilterDef) -> bool) -> Option<&'s
         }
         ui.scroll_menu(cat, |ui| {
             for f in items {
-                if ui.button(f.label).on_hover_text(f.description).clicked() {
+                let why_not = info.and_then(|i| aurafx_filters::suggest::applicable(f, i).err());
+                let r = match &why_not {
+                    Some(w) => ui.button(egui::RichText::new(f.label).weak()).on_hover_text(format!("May not work on this data: {w}.\n\n{}", f.description)),
+                    None => ui.button(f.label).on_hover_text(f.description),
+                };
+                if r.clicked() {
                     ui.close();
                     picked = Some(f.id);
                 }

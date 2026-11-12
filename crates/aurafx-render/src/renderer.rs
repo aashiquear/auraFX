@@ -109,12 +109,49 @@ struct GpuNode {
     chunks: Vec<crate::lod::Chunk>,
     visible: Vec<bool>,
     /// A coarse copy of a very big surface (drawn while the camera moves), and the thread
-    /// making it.
+    /// making it (one at a time; started once the surface has stayed the same for a moment).
     lod: Vec<(wgpu::Buffer, u32)>,
-    lod_rx: Option<std::sync::mpsc::Receiver<Vec<Vertex>>>,
+    lod_job: Option<LodJob>,
+    /// The coarse copy of this mesh was made (it is not made twice, also when it came out empty).
+    lod_made: bool,
+    /// How often this mesh was drawn, and when it arrived.
+    frames_same: u32,
+    since: std::time::Instant,
     /// 3D Glyphs: the shape, and the instances in buffers.
     glyph_shape: Option<(wgpu::Buffer, u32)>,
     glyph_instances: Vec<(wgpu::Buffer, u32)>,
+}
+
+/// A thread making the coarse copy of a surface.
+struct LodJob {
+    rx: std::sync::mpsc::Receiver<Option<Vec<Vertex>>>,
+    /// Tells the thread to give up.
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    /// The surface was replaced: the result is not wanted (the thread is still winding down).
+    stale: bool,
+}
+
+impl LodJob {
+    fn start(mesh: Arc<MeshData>) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::lod::coarse_until(&mesh.tris, crate::lod::LOD_TARGET_TRIS, !mesh.textured && !mesh.direct_rgb, &flag));
+        });
+        Self { rx, stop, stale: false }
+    }
+
+    fn cancel(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.stale = true;
+    }
+}
+
+impl Drop for LodJob {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 pub struct Renderer {
@@ -1699,15 +1736,8 @@ impl Renderer {
             let lens: Vec<usize> = tris.iter().map(|t| t.1 as usize).collect();
             let chunks = crate::lod::chunks(&draw.mesh.tris, &lens);
             let visible = vec![true; chunks.len()];
-            // A coarse copy of a very big surface, made in the background.
-            let lod_rx = (draw.mesh.tris.len() >= 3 * crate::lod::LOD_MIN_TRIS && draw.mesh.lic.is_empty()).then(|| {
-                let (tx, rx) = std::sync::mpsc::channel();
-                let mesh = draw.mesh.clone();
-                std::thread::spawn(move || {
-                    let _ = tx.send(crate::lod::coarse(&mesh.tris, crate::lod::LOD_TARGET_TRIS, !mesh.textured && !mesh.direct_rgb));
-                });
-                rx
-            });
+            // (The coarse copy of a very big surface is made later, in `render`, once the
+            // surface has stayed the same for a moment.)
             match self.nodes.get_mut(&draw.id) {
                 Some(g) => {
                     g.chunks = chunks;
@@ -1715,7 +1745,14 @@ impl Renderer {
                     g.glyph_shape = glyph_shape;
                     g.glyph_instances = glyph_instances;
                     g.lod = Vec::new();
-                    g.lod_rx = lod_rx;
+                    // A copy being made is of the old surface: stop it. Until its thread has
+                    // ended no other is started.
+                    if let Some(j) = g.lod_job.as_mut() {
+                        j.cancel();
+                    }
+                    g.lod_made = false;
+                    g.frames_same = 0;
+                    g.since = std::time::Instant::now();
                     g.lic = lic;
                     g.volume = volume;
                     g.tris = tris;
@@ -1768,7 +1805,10 @@ impl Renderer {
                             chunks,
                             visible,
                             lod: Vec::new(),
-                            lod_rx,
+                            lod_job: None,
+                            lod_made: false,
+                            frames_same: 0,
+                            since: std::time::Instant::now(),
                             glyph_shape,
                             glyph_instances,
                         },
@@ -1807,14 +1847,31 @@ impl Renderer {
             self.sync_node(d);
         }
         self.interacting = settings.interacting;
-        // Coarse copies that are ready.
-        let ready: Vec<(NodeId, Vec<Vertex>)> =
-            self.nodes.iter().filter_map(|(id, g)| g.lod_rx.as_ref().and_then(|rx| rx.try_recv().ok()).map(|v| (*id, v))).collect();
+        // Coarse copies: those that are ready, and new ones for very big surfaces that have
+        // stayed the same for a moment (one thread per surface at a time).
+        let mut ready: Vec<(NodeId, Vec<Vertex>)> = Vec::new();
+        for (id, g) in self.nodes.iter_mut() {
+            g.frames_same = g.frames_same.saturating_add(1);
+            if let Some(job) = &g.lod_job {
+                match job.rx.try_recv() {
+                    Ok(Some(v)) if !job.stale => {
+                        ready.push((*id, v));
+                        g.lod_made = true;
+                        g.lod_job = None;
+                    }
+                    Ok(_) | Err(std::sync::mpsc::TryRecvError::Disconnected) => g.lod_job = None,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                }
+            }
+            let wanted = !g.lod_made && g.mesh.tris.len() >= 3 * crate::lod::LOD_MIN_TRIS && g.mesh.lic.is_empty();
+            if wanted && g.lod_job.is_none() && g.frames_same >= crate::lod::LOD_SETTLE_FRAMES && g.since.elapsed() >= crate::lod::LOD_SETTLE {
+                g.lod_job = Some(LodJob::start(g.mesh.clone()));
+            }
+        }
         for (id, v) in ready {
             let bufs = self.upload("coarse tris", &v, 3);
             if let Some(g) = self.nodes.get_mut(&id) {
                 g.lod = bufs;
-                g.lod_rx = None;
             }
         }
         // Which runs of triangles are in view.

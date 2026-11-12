@@ -880,6 +880,11 @@ impl Session {
     }
 
     pub fn remove_node(&mut self, id: NodeId) {
+        // Deleting the part being edited closes the CAD environment first (or the pipeline
+        // would stay paused for a node that is gone).
+        if self.cad_edit.as_ref().is_some_and(|e| e.node == id) {
+            let _ = self.cad_discard();
+        }
         if let Some(n) = self.nodes.get(&id) {
             let label = format!("Delete {}", n.name);
             self.checkpoint(label);

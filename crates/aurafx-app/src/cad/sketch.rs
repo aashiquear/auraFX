@@ -56,9 +56,59 @@ pub struct SketchEdit {
     /// Where the cursor is taken to be when the mouse is not over the canvas (sketch units; for
     /// scripted pictures).
     pub demo_cursor: Option<DVec2>,
+    /// Earlier states of the sketch (Ctrl+Z while sketching), and the state last recorded.
+    undo: Vec<Sketch>,
+    redo: Vec<Sketch>,
+    recorded: Option<Sketch>,
 }
 
 impl SketchEdit {
+    /// Record the sketch when it changed since the last call (called once a frame while no
+    /// mouse button is down, so a drag is one step).
+    fn record(&mut self) {
+        match &self.recorded {
+            Some(r) if *r == self.sketch => {}
+            Some(r) => {
+                self.undo.push(r.clone());
+                if self.undo.len() > 200 {
+                    self.undo.remove(0);
+                }
+                self.redo.clear();
+                self.recorded = Some(self.sketch.clone());
+            }
+            None => self.recorded = Some(self.sketch.clone()),
+        }
+    }
+    /// Take back the last change of the sketch (true when there was one).
+    pub fn undo(&mut self) -> bool {
+        self.record();
+        let Some(prev) = self.undo.pop() else { return false };
+        self.redo.push(std::mem::replace(&mut self.sketch, prev));
+        self.after_history();
+        true
+    }
+    pub fn redo(&mut self) -> bool {
+        let Some(next) = self.redo.pop() else { return false };
+        self.undo.push(std::mem::replace(&mut self.sketch, next));
+        self.after_history();
+        true
+    }
+    fn after_history(&mut self) {
+        self.recorded = Some(self.sketch.clone());
+        self.sel_pts.clear();
+        self.sel_ents.clear();
+        self.chain = None;
+        self.pending.clear();
+        self.drag = None;
+        self.dim_edit = None;
+        self.report = Some(self.sketch.solve());
+    }
+    /// Switch the drawing tool (ending a line chain or a half-drawn shape).
+    pub fn select_tool(&mut self, t: Tool) {
+        self.tool = t;
+        self.chain = None;
+        self.pending.clear();
+    }
     /// Continue a line chain from point `p`.
     pub fn set_chain(&mut self, p: Option<usize>) {
         self.chain = p.filter(|i| *i < self.sketch.points.len());
@@ -89,6 +139,9 @@ impl SketchEdit {
             dim_drag: None,
             dim_edit: None,
             demo_cursor: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            recorded: None,
         }
     }
 }
@@ -450,6 +503,9 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
     let mut changed = false;
     {
         let Some(e) = state.cad.sketch.as_mut() else { return };
+        if !ui.input(|i| i.pointer.any_down()) {
+            e.record();
+        }
         if !e.fitted {
             e.fitted = true;
             let mut lo = DVec2::splat(-40.0);
@@ -949,13 +1005,13 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
     let Some(e) = state.cad.sketch.as_mut() else { return };
     ui.label(RichText::new(if e.feature.is_some() { "Edit sketch:" } else { "New sketch:" }).strong());
     for (t, l, tip) in [
-        (Tool::Select, "Select", "Select points and shapes (Shift adds); drag a point to move it"),
-        (Tool::Line, "Line", "Click points to draw connected lines; right-click ends the chain"),
-        (Tool::Rect, "Rectangle", "Click two opposite corners"),
-        (Tool::Circle, "Circle", "Click the center, then a point on the circle"),
-        (Tool::Arc, "Arc", "Click the center, the start, then the end (counter-clockwise)"),
+        (Tool::Select, "Select", "Select points and shapes (Shift adds); drag a point to move it  (Esc)"),
+        (Tool::Line, "Line", "Click points to draw connected lines; right-click ends the chain  (L)"),
+        (Tool::Rect, "Rectangle", "Click two opposite corners  (R)"),
+        (Tool::Circle, "Circle", "Click the center, then a point on the circle  (C)"),
+        (Tool::Arc, "Arc", "Click the center, the start, then the end (counter-clockwise)  (A)"),
         (Tool::Spline, "Spline", "Click control points; double-click or Enter finishes"),
-        (Tool::Point, "Point", "Place a point"),
+        (Tool::Point, "Point", "Place a point  (P)"),
     ] {
         if ui.selectable_label(e.tool == t, crate::icons::with(l)).on_hover_text(tip).clicked() {
             e.tool = t;
@@ -974,7 +1030,12 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
     let rounds: Vec<usize> = ents.iter().copied().filter(|i| is_round(sk, *i)).collect();
     let mut add: Vec<Constraint> = Vec::new();
     let mut b = |ui: &mut egui::Ui, ok: bool, label: &str, tip: &str, c: &dyn Fn() -> Vec<Constraint>| {
-        if ui.add_enabled(ok, egui::Button::new(crate::icons::with(label))).on_hover_text(tip).clicked() {
+        if ui
+            .add_enabled(ok, egui::Button::new(crate::icons::with(label)))
+            .on_hover_text(tip)
+            .on_disabled_hover_text(format!("{tip}.\nSelect what it applies to first (the Select tool; Shift adds to the selection)."))
+            .clicked()
+        {
             add.extend(c());
         }
     };
@@ -1076,7 +1137,7 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
 
 // ------------------------------------------------------------------------------- properties
 
-/// The sketch's properties in the PropertyManager: plane, the list of constraints with their
+/// The sketch's properties in the feature panel: plane, the list of constraints with their
 /// dimensions (values or expressions), the outline count, and how to finish.
 pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
     let feature_name = state

@@ -76,6 +76,9 @@ theme (and can be set per theme). **UI scale** enlarges the whole interface. Fro
 **Ctrl+K** (or Ctrl+Space, or the **Search** button) opens the palette: type a few letters of
 a filter, a source, a panel or an action (open, save screenshot, reset camera, undo, light
 theme, ask the AI…) and press Enter. It is the fastest way to reach anything in the app.
+Before you type, the list starts with the filters suggested for the selected object, each with
+the reason; a result that is unlikely to work on that object is lower and says what it needs.
+While a CAD part is being edited, Ctrl+K searches the CAD commands instead.
 
 ## Undo, redo and state
 

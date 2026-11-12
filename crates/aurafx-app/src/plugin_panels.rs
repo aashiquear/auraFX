@@ -14,7 +14,10 @@ pub struct PanelView {
     pub items: Vec<Value>,
     pub error: Option<String>,
     pending: Option<Receiver<String>>,
-    /// Values being edited (a text field before Enter), by name.
+    /// An event that happened while the panel's function was still running for an earlier one
+    /// (the latest such): sent when that answer arrives.
+    queued: Option<String>,
+    /// Values being edited (a text field before Enter) or set and not yet answered, by name.
     edits: BTreeMap<String, Value>,
     textures: BTreeMap<String, egui::TextureHandle>,
 }
@@ -49,6 +52,57 @@ fn send(v: &mut PanelView, title: &str, event: &str, python: &std::sync::mpsc::S
     }
 }
 
+impl PanelView {
+    /// Something was pressed or changed: run the panel's function with it, now or (while it
+    /// still runs for an earlier event) as soon as that answer is here. Of several events
+    /// that wait, the latest is sent.
+    fn event(&mut self, title: &str, event: &Value, python: &std::sync::mpsc::Sender<PythonRequest>) {
+        if event["kind"] == "set" {
+            // Shown as set until the function has answered for it.
+            if let Some(name) = event["name"].as_str() {
+                self.edits.insert(name.to_string(), event["value"].clone());
+            }
+        }
+        if self.pending.is_some() {
+            self.queued = Some(event.to_string());
+        } else {
+            self.textures.clear();
+            send(self, title, &event.to_string(), python);
+        }
+    }
+
+    /// Take the function's answer if it has arrived (and send the event that waited for it).
+    /// Returns whether an answer is still awaited.
+    fn poll(&mut self, title: &str, python: &std::sync::mpsc::Sender<PythonRequest>) -> bool {
+        let Some(rx) = &self.pending else { return false };
+        match rx.try_recv() {
+            Ok(text) => {
+                let r: Value = serde_json::from_str(&text).unwrap_or(json!({"items": [], "error": "the panel gave no answer"}));
+                self.items = r["items"].as_array().cloned().unwrap_or_default();
+                self.error = r["error"].as_str().map(str::to_string);
+                self.pending = None;
+                match self.queued.take() {
+                    // What was changed meanwhile stays as the user left it until the function
+                    // has seen it.
+                    Some(e) => {
+                        self.textures.clear();
+                        send(self, title, &e, python);
+                    }
+                    None => self.edits.clear(),
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(_) => {
+                self.pending = None;
+                if let Some(e) = self.queued.take() {
+                    send(self, title, &e, python);
+                }
+            }
+        }
+        self.pending.is_some()
+    }
+}
+
 /// Draw the open plugin panels.
 pub fn panels_ui(state: &mut State, ctx: &egui::Context) {
     let python = state.python.sender();
@@ -63,18 +117,8 @@ pub fn panels_ui(state: &mut State, ctx: &egui::Context) {
     let titles: Vec<String> = pp.open.keys().cloned().collect();
     for title in titles {
         let v = pp.open.get_mut(&title).unwrap();
-        if let Some(rx) = &v.pending {
-            match rx.try_recv() {
-                Ok(text) => {
-                    let r: Value = serde_json::from_str(&text).unwrap_or(json!({"items": [], "error": "the panel gave no answer"}));
-                    v.items = r["items"].as_array().cloned().unwrap_or_default();
-                    v.error = r["error"].as_str().map(str::to_string);
-                    v.pending = None;
-                    v.edits.clear();
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(50)),
-                Err(_) => v.pending = None,
-            }
+        if v.poll(&title, &python) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
         let mut open = true;
         let mut event: Option<Value> = None;
@@ -127,7 +171,7 @@ pub fn panels_ui(state: &mut State, ctx: &egui::Context) {
                         });
                     }
                     "checkbox" => {
-                        let mut b = it["value"].as_bool().unwrap_or(false);
+                        let mut b = v.edits.get(&name).and_then(|e| e.as_bool()).unwrap_or_else(|| it["value"].as_bool().unwrap_or(false));
                         if ui.checkbox(&mut b, &name).changed() {
                             event = Some(json!({"kind": "set", "name": name, "value": b}));
                         }
@@ -147,7 +191,8 @@ pub fn panels_ui(state: &mut State, ctx: &egui::Context) {
                         });
                     }
                     "choice" => {
-                        let cur = it["value"].as_str().unwrap_or("").to_string();
+                        let cur =
+                            v.edits.get(&name).and_then(|e| e.as_str().map(str::to_string)).unwrap_or_else(|| it["value"].as_str().unwrap_or("").to_string());
                         let opts: Vec<String> =
                             it["options"].as_array().map(|a| a.iter().filter_map(|o| o.as_str().map(str::to_string)).collect()).unwrap_or_default();
                         ui.horizontal(|ui| {
@@ -191,10 +236,7 @@ pub fn panels_ui(state: &mut State, ctx: &egui::Context) {
             }
         });
         if let Some(e) = event {
-            if v.pending.is_none() {
-                v.textures.clear();
-                send(v, &title, &e.to_string(), &python);
-            }
+            v.event(&title, &e, &python);
         }
         if !open {
             close.push(title);
@@ -202,5 +244,43 @@ pub fn panels_ui(state: &mut State, ctx: &egui::Context) {
     }
     for t in close {
         pp.open.remove(&t);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A change made while the panel's function still runs is not lost: it is sent when the
+    /// answer arrives (the latest of several), and stays shown until then.
+    #[test]
+    fn events_wait_for_the_pending_answer() {
+        let (python, requests) = std::sync::mpsc::channel::<PythonRequest>();
+        let next = || match requests.try_recv() {
+            Ok(PythonRequest::Panel(_, event, reply)) => Some((event, reply)),
+            _ => None,
+        };
+        let mut v = PanelView::default();
+        v.event("P", &json!({"kind": "set", "name": "n", "value": 1}), &python);
+        let (first, reply) = next().expect("the first event is sent at once");
+        assert!(first.contains("\"value\":1"));
+        // Two more while the first is not answered: nothing is sent yet.
+        v.event("P", &json!({"kind": "set", "name": "n", "value": 2}), &python);
+        v.event("P", &json!({"kind": "set", "name": "n", "value": 3}), &python);
+        assert!(next().is_none());
+        assert!(v.poll("P", &python), "still waiting");
+        assert_eq!(v.edits["n"], json!(3), "the panel shows what was set last");
+        // The answer (for value 1) arrives: the latest event goes out, the edit stays.
+        reply.send(json!({"items": [{"kind": "number", "name": "n", "value": 1}]}).to_string()).unwrap();
+        assert!(v.poll("P", &python), "waiting for the answer to the queued event");
+        assert_eq!(v.items[0]["value"], json!(1));
+        assert_eq!(v.edits["n"], json!(3));
+        let (second, reply) = next().expect("the queued event is sent");
+        assert!(second.contains("\"value\":3"), "{second}");
+        assert!(next().is_none(), "the one in between is skipped");
+        reply.send(json!({"items": [{"kind": "number", "name": "n", "value": 3}]}).to_string()).unwrap();
+        assert!(!v.poll("P", &python));
+        assert_eq!(v.items[0]["value"], json!(3));
+        assert!(v.edits.is_empty() && v.queued.is_none());
     }
 }

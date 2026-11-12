@@ -145,15 +145,53 @@ impl Kernel {
         })
     }
 
-    /// Run a cell in the app's Python and wait for its output.
-    async fn run(&self, code: String) -> RunOutput {
+    /// Run a cell in the app's Python and wait for its output. (The future holds nothing of
+    /// the kernel, so control messages are answered while it waits.)
+    async fn run(python: Sender<PythonRequest>, code: String) -> RunOutput {
         let (tx, rx) = std::sync::mpsc::channel();
-        if self.python.send(PythonRequest::RunFor(code, tx)).is_err() {
+        if python.send(PythonRequest::RunFor(code, tx)).is_err() {
             return RunOutput { error: Some("the Python of auraFX is not running".into()), ..Default::default() };
         }
         tokio::task::spawn_blocking(move || rx.recv().unwrap_or_else(|_| RunOutput { error: Some("Python stopped".into()), ..Default::default() }))
             .await
             .unwrap_or_default()
+    }
+
+    /// Run a cell; meanwhile answer what arrives on the control channel. None: the notebook
+    /// shut the kernel down while the cell ran (the cell is left to itself).
+    async fn run_answering_control(&mut self, code: String) -> Option<RunOutput> {
+        let run = Self::run(self.python.clone(), code);
+        tokio::pin!(run);
+        loop {
+            let m = tokio::select! {
+                out = &mut run => return Some(out),
+                m = self.control.recv() => m,
+            };
+            let msg = match m.map_err(anyhow::Error::from).and_then(|m| parse(m.into_vec(), &self.key)) {
+                Ok(msg) => msg,
+                Err(e) => {
+                    tracing::warn!("jupyter: dropped a control message: {e:#}");
+                    continue;
+                }
+            };
+            // (No busy/idle status for these: the kernel stays busy with the cell.)
+            match msg.header["msg_type"].as_str().unwrap_or("") {
+                "kernel_info_request" => self.reply(true, "kernel_info_reply", &msg, Self::info()).await,
+                "interrupt_request" => self.reply(true, "interrupt_reply", &msg, Self::no_interrupt()).await,
+                "shutdown_request" => {
+                    let restart = msg.content["restart"].as_bool().unwrap_or(false);
+                    self.reply(true, "shutdown_reply", &msg, json!({"status": "ok", "restart": restart})).await;
+                    return None;
+                }
+                other => tracing::debug!("jupyter: {other} not handled while a cell runs"),
+            }
+        }
+    }
+
+    /// The answer to a request to stop the running cell: the app's Python cannot be stopped
+    /// from outside yet, and the notebook is told so.
+    fn no_interrupt() -> Value {
+        json!({"status": "error", "ename": "NotImplementedError", "evalue": "interrupt is not supported yet", "traceback": []})
     }
 
     async fn handle(&mut self, control: bool, msg: Msg) -> bool {
@@ -170,7 +208,19 @@ impl Kernel {
                 }
                 let n = self.count;
                 self.publish("execute_input", &msg, json!({"code": code, "execution_count": n})).await;
-                let out = if code.trim().is_empty() { RunOutput::default() } else { self.run(code).await };
+                let out = if code.trim().is_empty() {
+                    RunOutput::default()
+                } else {
+                    match self.run_answering_control(code).await {
+                        Some(out) => out,
+                        None => {
+                            // Shut down while the cell ran.
+                            self.reply(control, "execute_reply", &msg, json!({"status": "aborted", "execution_count": n})).await;
+                            self.publish("status", &msg, json!({"execution_state": "idle"})).await;
+                            return false;
+                        }
+                    }
+                };
                 if !silent {
                     if !out.stdout.is_empty() {
                         self.publish("stream", &msg, json!({"name": "stdout", "text": out.stdout})).await;
@@ -218,7 +268,7 @@ impl Kernel {
                 let code = msg.content["code"].as_str().unwrap_or("");
                 let pos = (msg.content["cursor_pos"].as_u64().unwrap_or(code.len() as u64) as usize).min(code.chars().count());
                 let before: String = code.chars().take(pos).collect();
-                let start = before.rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.')).map(|i| i + 1).unwrap_or(0);
+                let start = word_start(&before);
                 let word = before[start..].to_string();
                 let (tx, rx) = std::sync::mpsc::channel();
                 let matches: Vec<String> = if self.python.send(PythonRequest::Complete(word.clone(), tx)).is_ok() {
@@ -244,6 +294,8 @@ impl Kernel {
             "inspect_request" => self.reply(control, "inspect_reply", &msg, json!({"status": "ok", "found": false, "data": {}, "metadata": {}})).await,
             "history_request" => self.reply(control, "history_reply", &msg, json!({"status": "ok", "history": []})).await,
             "comm_info_request" => self.reply(control, "comm_info_reply", &msg, json!({"status": "ok", "comms": {}})).await,
+            // (No cell runs when a request gets here: requests that arrive while one runs are
+            // answered by `run_answering_control`.)
             "interrupt_request" => self.reply(control, "interrupt_reply", &msg, json!({"status": "ok"})).await,
             "shutdown_request" => {
                 let restart = msg.content["restart"].as_bool().unwrap_or(false);
@@ -255,6 +307,11 @@ impl Kernel {
         self.publish("status", &msg, json!({"execution_state": "idle"})).await;
         keep
     }
+}
+
+/// Where the word that ends `before` (names and dots) starts, in bytes.
+fn word_start(before: &str) -> usize {
+    before.char_indices().rev().find(|(_, c)| !(c.is_alphanumeric() || *c == '_' || *c == '.')).map(|(i, c)| i + c.len_utf8()).unwrap_or(0)
 }
 
 fn now_iso() -> String {
@@ -398,5 +455,25 @@ mod tests {
         // HMAC-SHA256 of a known message (RFC 4231 test case 2).
         assert_eq!(sign(b"Jefe", &[b"what do ya want ", b"for nothing?"]), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
         assert_eq!(now_iso().len(), 27);
+    }
+
+    /// The word to complete starts after the last character that cannot be part of a name,
+    /// however many bytes that character takes.
+    #[test]
+    fn completion_word_after_any_character() {
+        for (before, word) in [
+            ("afx.wav", "afx.wav"),
+            ("x = afx.wav", "afx.wav"),
+            ("print(\"π·\"·afx.wav", "afx.wav"),
+            ("α→afx.wav", "afx.wav"),
+            ("a = 1 € ", ""),
+            ("größe.re", "größe.re"),
+            ("", ""),
+        ] {
+            let start = word_start(before);
+            assert!(before.is_char_boundary(start), "{before:?}");
+            assert_eq!(&before[start..], word, "{before:?}");
+        }
+        assert_eq!(Kernel::no_interrupt()["evalue"], "interrupt is not supported yet");
     }
 }

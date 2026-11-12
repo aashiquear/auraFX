@@ -35,6 +35,8 @@ pub struct CadSummary {
     pub bounds: ([f64; 3], [f64; 3]),
     pub faces: Vec<CadFace>,
     pub ms: f64,
+    /// Features this kernel could only build roughly, or not at all (the timeline flags them).
+    pub approximate: Vec<String>,
 }
 
 /// The state of a CAD edit in progress.
@@ -51,7 +53,7 @@ pub struct CadEdit {
     pub revision: u64,
     /// Only the first `n` features are built (the timeline's rollback marker); `None`: all.
     pub rollback: Option<usize>,
-    /// The feature selected in the FeatureManager.
+    /// The feature selected in the model tree.
     pub selected: Option<Id>,
     pub undo: Vec<Document>,
     pub redo: Vec<Document>,
@@ -63,6 +65,9 @@ pub struct CadEdit {
     pub changed: bool,
     /// The part as the nodes below it were built against (for the downstream check).
     pub baseline: Option<GeometrySnapshot>,
+    /// Apply was used while staying in the environment: the undo step recorded on entry then
+    /// holds applied work and must survive a later Discard.
+    pub(crate) applied: bool,
 }
 
 impl CadEdit {
@@ -129,6 +134,7 @@ impl Session {
             error: None,
             changed: false,
             baseline,
+            applied: false,
         };
         n.visible = true;
         self.active = Some(id);
@@ -148,6 +154,16 @@ impl Session {
         let e = self.edit_mut()?;
         let before = e.document.clone();
         let out = aurafx_cad::edit::apply_op(&mut e.document, op, args).map_err(|x| anyhow!("{x}"))?;
+        // While rolled back, a new feature goes in at the marker (after the features that are
+        // built), not at the end of the history, and the marker moves past it.
+        if let Some(n) = e.rollback {
+            let len = e.document.features.len();
+            if len == before.features.len() + 1 && n < len - 1 && e.document.features[..len - 1].iter().zip(&before.features).all(|(a, b)| a.id == b.id) {
+                let f = e.document.features.pop().unwrap();
+                e.document.features.insert(n, f);
+                e.rollback = Some(n + 1);
+            }
+        }
         if e.document != before {
             e.undo.push(before);
             if e.undo.len() > 200 {
@@ -156,10 +172,6 @@ impl Session {
             e.redo.clear();
             e.revision += 1;
             e.changed = true;
-            // A new feature appears at the end: build everything again.
-            if matches!(op, "add" | "sketch_extrude" | "sketch_revolve") {
-                e.rollback = None;
-            }
             if let Some(id) = out.get("id").and_then(|i| i.as_u64()) {
                 e.selected = Some(Id(id));
             }
@@ -170,7 +182,7 @@ impl Session {
         Ok(out)
     }
 
-    /// Replace the whole working copy (the PropertyManager's raw edits, Open in the Files tab).
+    /// Replace the whole working copy (the feature panel's raw edits, Open in the Files tab).
     pub fn cad_env_set_document(&mut self, doc: Document) -> Result<()> {
         let e = self.edit_mut()?;
         if e.document != doc {
@@ -229,8 +241,14 @@ impl Session {
             let e = self.cad_edit.as_ref().ok_or_else(|| anyhow!("the CAD environment is not open"))?;
             (e.document_to_build(), self.cad_overrides(e.node), e.revision, e.node)
         };
-        let result = evaluate_document(doc, &overrides, resolution);
+        let result = evaluate_document_with(doc, &overrides, resolution, self.cad_kernel(node));
         self.cad_env_deliver(node, rev, result)
+    }
+
+    /// The kernel the node asks for (Auto: the exact one when it builds the part): the
+    /// environment shows the part as the pipeline will get it.
+    pub fn cad_kernel(&self, node: NodeId) -> aurafx_cad::KernelChoice {
+        self.nodes.get(&node).and_then(|n| aurafx_cad::KernelChoice::parse(&n.params.str("kernel"))).unwrap_or(aurafx_cad::KernelChoice::Auto)
     }
 
     /// The input of an off-thread evaluation: the document to build, the overrides, the revision.
@@ -268,6 +286,17 @@ impl Session {
             }
             Err(msg) => {
                 e.error = Some(msg.clone());
+                // An empty part shows nothing (not the part as it was before its last feature went).
+                let empty = e.document_to_build().features.iter().all(|f| f.suppressed) && e.document.components.is_empty();
+                if empty {
+                    e.summary = None;
+                    if let Some(n) = self.nodes.get_mut(&node) {
+                        let nothing = DataSet::PolyData(Default::default());
+                        n.info = Some(DataSetInfo::of(&nothing));
+                        n.output = Some(Arc::new(nothing));
+                    }
+                    self.data_revision += 1;
+                }
                 self.touch();
                 bail!("{msg}")
             }
@@ -308,7 +337,7 @@ impl Session {
         let (node, doc) = (e.node, e.document.clone());
         // The model must build, or the pipeline would only show an error.
         let overrides = self.cad_overrides(node);
-        evaluate_document(doc.clone(), &overrides, 16).map_err(|m| anyhow!("the part does not build: {m}"))?;
+        evaluate_document_with(doc.clone(), &overrides, 16, self.cad_kernel(node)).map_err(|m| anyhow!("the part does not build: {m}"))?;
         let fixes = match fix {
             FixMode::None => Vec::new(),
             FixMode::Fixes(f) => f,
@@ -336,6 +365,7 @@ impl Session {
             e.original_output = None;
             e.original_info = None;
             e.changed = false;
+            e.applied = true;
             if let Some(ev) = ev {
                 let d = e.document.clone();
                 e.baseline = Some(GeometrySnapshot::of(&ev, &d));
@@ -375,7 +405,7 @@ impl Session {
             n.dirty = n.output.is_none();
         }
         // The undo step recorded on entry has nothing to undo any more.
-        if self.undo_label() == Some("Edit CAD") {
+        if !e.applied && self.undo_label() == Some("Edit CAD") {
             self.undo_stack.pop();
         }
         self.data_revision += 1;
@@ -385,16 +415,37 @@ impl Session {
     }
 }
 
-/// Build `doc` (with parameter overrides) on the implicit kernel: its surface and a summary.
-/// A free function so a worker thread can run it without the session.
-pub fn evaluate_document(mut doc: Document, overrides: &[(String, String)], resolution: usize) -> Result<(DataSet, CadSummary), String> {
+/// Build `doc` (with parameter overrides) on the quick implicit kernel: its surface and a summary.
+pub fn evaluate_document(doc: Document, overrides: &[(String, String)], resolution: usize) -> Result<(DataSet, CadSummary), String> {
+    evaluate_document_with(doc, overrides, resolution, aurafx_cad::KernelChoice::Implicit)
+}
+
+/// Build `doc` (with parameter overrides) on the chosen kernel: its surface and a summary.
+/// A free function so a worker thread can run it without the session; a failure inside a
+/// kernel comes back as an error, never as a thread that died.
+pub fn evaluate_document_with(
+    doc: Document,
+    overrides: &[(String, String)],
+    resolution: usize,
+    kernel: aurafx_cad::KernelChoice,
+) -> Result<(DataSet, CadSummary), String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(doc, overrides, resolution, kernel))) {
+        Ok(r) => r,
+        Err(p) => {
+            let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "unknown".into());
+            Err(format!("the kernel failed on this part ({msg}); undo the last change"))
+        }
+    }
+}
+
+fn build(mut doc: Document, overrides: &[(String, String)], resolution: usize, kernel: aurafx_cad::KernelChoice) -> Result<(DataSet, CadSummary), String> {
     let t0 = std::time::Instant::now();
     for (name, expr) in overrides {
         if doc.parameters.iter().any(|p| &p.name == name) {
             doc.set_parameter(name, expr);
         }
     }
-    let ev = aurafx_filters::cad::evaluate(&doc, resolution, true).map_err(|e| format!("{e:#}"))?;
+    let ev = aurafx_filters::cad::evaluate_with(kernel, &doc, resolution, true).map_err(|e| format!("{e:#}"))?;
     if ev.bodies.is_empty() {
         return Err("the part has no body".to_string());
     }
@@ -427,6 +478,7 @@ pub fn evaluate_document(mut doc: Document, overrides: &[(String, String)], reso
             })
             .collect(),
         ms: t0.elapsed().as_secs_f64() * 1000.0,
+        approximate: ev.approximate.clone(),
     };
     Ok((ev.surface, summary))
 }

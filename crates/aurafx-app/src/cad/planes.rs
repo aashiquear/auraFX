@@ -37,7 +37,7 @@ fn num(t: &str) -> f64 {
     t.trim().parse().unwrap_or(0.0)
 }
 
-/// The form in the PropertyManager.
+/// The form in the feature panel.
 pub fn form_ui(state: &mut State, ui: &mut egui::Ui) {
     let (planes, faces) = {
         let s = state.session.lock();
@@ -157,7 +157,7 @@ pub fn form_ui(state: &mut State, ui: &mut egui::Ui) {
     op(state, "plane", a);
 }
 
-/// The reference planes in the PropertyManager's part page: sketch on one, or remove it.
+/// The reference planes in the feature panel's part page: sketch on one, or remove it.
 pub fn list_ui(state: &mut State, ui: &mut egui::Ui) {
     let planes = state.session.lock().cad_edit.as_ref().map(|e| e.document.planes.clone()).unwrap_or_default();
     ui.add_space(6.0);

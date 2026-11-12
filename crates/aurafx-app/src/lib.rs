@@ -9,6 +9,7 @@ mod capture;
 mod charts;
 mod colormap_editor;
 mod console;
+mod crash;
 mod dialogs;
 mod goal_stats;
 mod icons;
@@ -16,6 +17,7 @@ mod jobs_panel;
 mod jupyter;
 mod lighting_ui;
 mod menus;
+mod mesh_guide;
 mod notebook;
 mod overlays;
 mod palette;
@@ -31,8 +33,10 @@ mod shortcuts;
 mod source_dialog;
 mod svg_export;
 mod theme;
+mod view_menu;
 mod viewport;
 mod views;
+mod welcome;
 mod widgets;
 mod widgets3d;
 mod worker;
@@ -101,6 +105,7 @@ pub fn main_desktop() -> eframe::Result<()> {
         }
         return Ok(());
     }
+    crash::install();
     let settings = crate::settings::Settings::load();
     aurafx_filters::init_threads(settings.threads);
     // The GPU for filters, found in the background (it takes a moment).

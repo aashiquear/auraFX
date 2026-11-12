@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
-pub const PROTOCOL: u32 = 13;
+pub const PROTOCOL: u32 = 14;
 
 /// One node of the recipe the client sends, keyed by the client's node id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -186,6 +186,10 @@ pub enum Request {
         key: String,
     },
     Shutdown,
+    /// A parallel server's worker: drop the border cells kept under these keys.
+    DropGhosts {
+        keys: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,7 +313,11 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
     let piece = opts.piece;
     let forget = opts.forget;
     let sequential = opts.sequential;
-    let cluster = (!opts.workers.is_empty()).then(|| crate::cluster::Cluster { sequential, ..crate::cluster::Cluster::new(opts.workers) });
+    let cluster = (!opts.workers.is_empty()).then(|| {
+        let mut c = crate::cluster::Cluster::new(opts.workers);
+        c.sequential = sequential;
+        c
+    });
     let mut srv = Server { hook: opts.hook, gpu: opts.gpu, cluster, ..Server::default() };
     srv.session.piece = piece;
     loop {
@@ -333,6 +341,10 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
                 }
                 Err(e) => (Reply::Error { message: format!("could not read the ghost cells: {e:#}") }, vec![]),
             },
+            Request::DropGhosts { keys } => {
+                aurafx_filters::ghost_exchange::forget(&keys);
+                (Reply::Ok, vec![])
+            }
             other => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| srv.handle(other))) {
                 Ok(r) => r,
                 Err(p) => {
@@ -342,9 +354,7 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
                     srv = Server { hook: srv.hook.take(), gpu: srv.gpu.clone(), cluster: srv.cluster.take(), ..Server::default() };
                     srv.session.piece = piece;
                     if let Some(c) = srv.cluster.as_mut() {
-                        c.gathered.clear();
-                        c.infos.lock().clear();
-                        c.ghosts.lock().clear();
+                        c.reset();
                     }
                     (Reply::Error { message: format!("the server failed: {msg}") }, vec![])
                 }
@@ -398,7 +408,10 @@ impl Server {
             ),
             Request::Forget { ids } => {
                 if let Some(c) = &self.cluster {
-                    let _ = c.each(|w| w.request(&Request::Forget { ids: ids.clone() }).map(|_| ()));
+                    // The workers also hold the nodes a neighbour filter became there.
+                    let mut all = ids.clone();
+                    all.extend(ids.iter().flat_map(|&id| crate::cluster::ghost_ids(id)));
+                    let _ = c.each(|w| w.request(&Request::Forget { ids: all.clone() }).map(|_| ()));
                     for id in &ids {
                         if let Some(c) = self.cluster.as_mut() {
                             c.gathered.remove(id);
@@ -426,7 +439,7 @@ impl Server {
                 Ok(r) => r,
                 Err(e) => (Reply::Error { message: format!("{e:#}") }, vec![]),
             },
-            Request::Shutdown | Request::Ghosts { .. } => (Reply::Ok, vec![]),
+            Request::Shutdown | Request::Ghosts { .. } | Request::DropGhosts { .. } => (Reply::Ok, vec![]),
         }
     }
 
@@ -475,8 +488,8 @@ impl Server {
 
     fn render(&mut self, specs: &[NodeSpec], time: Option<f64>, job: &RenderJob) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
-        if self.cluster.is_some() {
-            let local = crate::cluster::piece_local(specs);
+        if let Some(cluster) = &self.cluster {
+            let local = cluster.local_nodes(specs, time);
             let (mine, theirs): (Vec<_>, Vec<_>) = job.targets.iter().cloned().partition(|(id, _)| local.contains(id));
             let mut image: Option<(Vec<u8>, Vec<f32>)> = None;
             if !mine.is_empty() {
@@ -603,7 +616,7 @@ impl Server {
     ) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
         if let Some(cluster) = &self.cluster {
-            let local = crate::cluster::piece_local(specs);
+            let local = cluster.local_nodes(specs, time);
             if local.contains(&target) {
                 let sub: Vec<NodeSpec> = specs.iter().filter(|s| local.contains(&s.id)).cloned().collect();
                 return cluster.compute_local(&sub, target, time, fetch, max_bytes, level, max_surface);
@@ -621,7 +634,16 @@ impl Server {
         if let Some(e) = &n.error {
             bail!("{e}");
         }
-        let out = n.output.clone().ok_or_else(|| anyhow!("no output"))?;
+        let Some(out) = n.output.clone() else {
+            // Nothing was computed because a node above failed: say why.
+            for s in specs {
+                let above = self.nodes.get(&s.id).and_then(|(sid, _)| self.session.nodes.get(sid));
+                if let Some(e) = above.and_then(|n| n.error.as_ref()) {
+                    bail!("{e}");
+                }
+            }
+            bail!("no output");
+        };
         let full_bytes = out.n_bytes() as u64;
         let times = self.session.node_times(sid, 0);
         let surface_useful = !matches!(&*out, DataSet::PolyData(_) | DataSet::Table(_));

@@ -26,6 +26,8 @@ pub enum ConflictKind {
     Ambiguous { candidates: Vec<String> },
     /// The node assumed a number of bodies.
     Count { was: usize, now: usize },
+    /// The node uses the face (or body) numbers, which changed with the features.
+    Renumbered { faces: bool, was: usize, now: usize },
 }
 
 impl ConflictKind {
@@ -36,6 +38,9 @@ impl ConflictKind {
             ConflictKind::Moved { outside } => if *outside { "now outside the part" } else { "moved" }.into(),
             ConflictKind::Ambiguous { candidates } => format!("one of: {}", candidates.join(", ")),
             ConflictKind::Count { was, now } => format!("bodies {was} -> {now}"),
+            ConflictKind::Renumbered { faces, was, now } => {
+                format!("{} are numbered differently now ({was} -> {now}): check the values this node uses", if *faces { "faces" } else { "bodies" })
+            }
         }
     }
 }
@@ -82,6 +87,15 @@ impl CheckReport {
     pub fn default_fixes(&self) -> Vec<Fix> {
         self.conflicts.iter().filter_map(|c| c.fix.clone()).collect()
     }
+}
+
+/// Whether a vector parameter is a position in space (by its key), not a direction or a size.
+fn is_position(key: &str) -> bool {
+    let k = key.to_ascii_lowercase();
+    ["origin", "center", "centre", "point", "position", "seed", "location", "start", "end", "p1", "p2", "probe", "box_min", "box_max", "corner"]
+        .iter()
+        .any(|w| k.contains(w))
+        && !["normal", "direction", "axis", "scale", "size", "spacing"].iter().any(|w| k.contains(w))
 }
 
 /// Whole-word occurrences of `name` in `text`: the byte ranges (a name is not found inside a
@@ -224,7 +238,8 @@ pub fn collect(session: &Session, cad: NodeId, old: &GeometrySnapshot, new: &Geo
                         });
                     }
                 }
-                (ParamKind::Vec3, ParamValue::Vec3(p)) if p.iter().all(|x| x.is_finite()) => {
+                // Positions only: a normal, a scale or a colour inside the old box means nothing.
+                (ParamKind::Vec3, ParamValue::Vec3(p)) if p.iter().all(|x| x.is_finite()) && is_position(&spec.key) => {
                     if inside(&old.bounds, *p, margin) && !inside(&new.bounds, *p, margin) {
                         let to = clamp(&new.bounds, *p);
                         conflicts.push(Conflict {
@@ -237,6 +252,31 @@ pub fn collect(session: &Session, cad: NodeId, old: &GeometrySnapshot, new: &Geo
                             kind: ConflictKind::Moved { outside: true },
                             fix: Some(Fix { node: id, param: spec.key.clone(), value: json!(to), reason: "moved onto the new bounds".into(), check: true }),
                             may_reference: false,
+                        });
+                    }
+                }
+                // A node that works on the face or body numbers (a threshold on FaceId, a color by
+                // BodyId): the numbers follow the order of the features, so say when they shifted.
+                (ParamKind::Array { .. }, ParamValue::Array { name, .. }) if name == "FaceId" || name == "BodyId" => {
+                    let faces = name == "FaceId";
+                    let shifted = if faces {
+                        old.faces.len() != new.faces.len()
+                            || old.faces.iter().any(|f| new.faces.iter().find(|g| g.name == f.name).is_none_or(|g| g.face_id != f.face_id))
+                    } else {
+                        old.bodies.len() != new.bodies.len()
+                    };
+                    if shifted {
+                        let (was, now) = if faces { (old.faces.len(), new.faces.len()) } else { (old.bodies.len(), new.bodies.len()) };
+                        conflicts.push(Conflict {
+                            node: id,
+                            node_name: n.name.clone(),
+                            param: spec.key.clone(),
+                            param_label: spec.label.clone(),
+                            value: name.clone(),
+                            reference: format!("{} numbers", if faces { "face" } else { "body" }),
+                            kind: ConflictKind::Renumbered { faces, was, now },
+                            fix: None,
+                            may_reference: true,
                         });
                     }
                 }

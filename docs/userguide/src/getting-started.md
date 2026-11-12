@@ -25,7 +25,7 @@ another machine](client-server.md): **File › Open on Server… › Install ser
 host over SSH). On Linux the installer also sets up the `.desktop` entry
 (`scripts/install-desktop.sh` does only that, for a build from source).
 
-To build from source you need Rust 1.85 or newer, Python 3.10+ with development headers, and a
+To build from source you need Rust 1.95 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:
 
 ```bash
@@ -85,6 +85,26 @@ When a filter is added, every object above it in the Pipeline is **hidden**, so 
 the new result alone; click an object's eye to show it again. Filters whose result is a table or a
 chart (Histogram, Plot Over Line, the statistics) leave their input shown.
 
+### What fits this data
+
+auraFX looks at the selected object (what kind of data it is, its cells and its arrays) and
+puts the filters that make sense for it first:
+
+- **Right-click** an object in the Pipeline, or right-click it in the 3D view, for a short list
+  *Suggested for this data*: Slice, Contour and Threshold for a volume with values, Stream
+  Tracer and Glyph when there are vectors, Surface Normals and Decimate for a surface, Table To
+  Points and Histogram for a table, Orientation Colors for an EBSD map. Hover over one to read
+  why it is offered. *All filters* below has the rest.
+- In the 3D view the menu is about the point you clicked: **Slice here** and **Clip here** put
+  the cut through that point, **Turn the view about this point** moves the center of rotation,
+  and *Draw as* and *Color by* change how the object looks. (Dragging with the right button
+  still zooms; the menu opens on a click.)
+- The **Filters** menu and the command palette show the same suggestions first. A filter that
+  is unlikely to work on this data is faded and says what it needs ("needs a vector array",
+  "needs a table"); you can still choose it. The toolbar's buttons fade the same way.
+
+![The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason](images/suggestions_palette.png)
+
 Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.
 
@@ -109,20 +129,34 @@ source** turns the window back on. Sources added from Python (`afx.sphere(radius
 - **File › Save State** (Ctrl+S) writes an `.afx` file holding the pipeline, every parameter,
   the display settings, the camera and any keyframes. **File › Open** reopens it, including
   objects that live on a remote server.
-- On the next start, **Restore last session** in the empty view brings back the last state.
+- On the next start, **Restore last session** in the empty view (or in the File menu) brings
+  back the last state. The state is also saved every half minute while you work, so little is
+  lost if the computer or the program stops.
+- If auraFX ever closes on an internal error, the next start says so and shows where the
+  **crash report** was written (a text file under `~/.cache/aurafx/crashes`, with what failed
+  and where). Nothing is sent anywhere; attach the file to a bug report. The same window offers
+  to restore the last session.
 - Right-click an object › **Save data…** writes its output to a file (see
   [File formats](file-formats.md)).
 - **Edit › Undo / Redo** cover every change to the pipeline and display settings.
 
 ## Getting help
 
+- The **Welcome** window opens at the first start (and from **Help › Welcome**): one button into
+  each kind of work (look at results, model a part, build a mesh, run and automate) and a few
+  things worth knowing. Untick *Show at start* when you no longer need it.
+- **Help › User guide** opens this guide in your browser.
+- The **Model** menu starts a CAD part or a Geometry source and lists the meshing filters.
 - **Help › Keyboard shortcuts** and **Help › Python API cheat sheet** open inside the app.
+- Hover over anything for what it does; right-click an object for what can be done with it.
 - The command palette (Ctrl+K) finds filters, sources and actions by name.
 - Menus with many entries (the Sources menu, a category of filters) scroll with the mouse wheel
   when they are taller than the window. Each filter appears once, under its category; the
-  Pipeline's right-click **Add filter** has the same categories.
+  Pipeline's right-click **All filters** has the same categories.
 - The AI assistant answers questions about the loaded data and the app (see
   [AI assistant](ai-assistant.md)).
+
+![The Welcome window: where to start, and a few things worth knowing](images/welcome.png)
 
 ## Open-source software in auraFX
 

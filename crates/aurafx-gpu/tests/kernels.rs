@@ -19,8 +19,10 @@ fn same(a: &PolyData, b: &PolyData, what: &str) {
     }
 }
 
-/// Run `f` without the GPU, then with it; time both.
+/// Run `f` without the GPU, then with it; time both. (One at a time: the switch is shared.)
 fn both<T>(f: impl Fn() -> T) -> (T, T, f64, f64) {
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     aurafx_filters::gpu::set_enabled(false);
     let t = std::time::Instant::now();
     let cpu = f();
@@ -48,6 +50,43 @@ fn gpu_results_equal_the_cpu() {
     for (o, n) in [([0.3, -1.2, 0.7], [0.2, 0.5, 1.0]), ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]), ([60.0, 0.0, 0.0], [1.0, 0.0, 0.0])] {
         let (c, g, tc, tg) = both(|| aurafx_filters::slice::slice_plane(&img, o, n).unwrap());
         same(&g, &c, &format!("slice {o:?} {n:?}"));
+        eprintln!("{name}: slice CPU {tc:.3} s, GPU {tg:.3} s");
+    }
+}
+
+/// 64-bit values far from zero (32-bit numbers cannot tell neighbouring values apart there),
+/// and an image that does not start at the origin with unequal spacing: still exactly the CPU.
+#[test]
+fn far_values_and_placed_images_equal_the_cpu() {
+    let Some(name) = aurafx_gpu::install() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let DataSet::ImageData(mut img) = wavelet(60) else { panic!("an image") };
+    assert!(img.n_cells() >= aurafx_filters::gpu::MIN_ITEMS);
+    let rt = img.point_data.get("RTData").unwrap();
+    let far: Vec<f64> = (0..rt.len()).map(|i| rt.get(i, 0) + 1e6).collect();
+    img.point_data.insert(aurafx_data::Array::scalars_f64("Far", far));
+    img.origin = [1000.5, -200.25, 3.0];
+    img.spacing = [0.1, 0.25, 0.5];
+    let img = DataSet::ImageData(img);
+    for vals in [vec![1e6 + 150.0], vec![1e6 + 90.0, 1e6 + 160.03, 1e6 + 230.0]] {
+        let (c, g, tc, tg) = both(|| aurafx_filters::contour::contour(&img, Association::Points, "Far", None, &vals).unwrap());
+        assert!(c.n_cells() > 1000);
+        same(&g, &c, &format!("contour of 64-bit values {vals:?}"));
+        eprintln!("{name}: contour {vals:?} CPU {tc:.3} s, GPU {tg:.3} s");
+    }
+    let b = img.bounds();
+    let mid: [f64; 3] = std::array::from_fn(|a| 0.5 * (b.min[a] + b.max[a]));
+    for (o, n) in [
+        (mid, [0.2, 0.5, 1.0]),
+        (mid, [1.0, 0.0, 0.0]),
+        ([b.max[0], mid[1], mid[2]], [1.0, 0.0, 0.0]),
+        ([mid[0] + 0.033, mid[1], b.min[2] + 0.5], [0.0, 0.1, 1.0]),
+    ] {
+        let (c, g, tc, tg) = both(|| aurafx_filters::slice::slice_plane(&img, o, n).unwrap());
+        assert!(c.n_cells() > 0, "slice {o:?} {n:?} cuts the image");
+        same(&g, &c, &format!("slice of a placed image {o:?} {n:?}"));
         eprintln!("{name}: slice CPU {tc:.3} s, GPU {tg:.3} s");
     }
 }

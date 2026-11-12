@@ -3,8 +3,8 @@
 import math
 import aurafx as afx
 m = afx.cad_model(template="flange")
-# The distance-field kernel rebuilds the part in a fraction of a second, so the animation runs at its own pace.
-m.set(color_by="FaceId", cmap="Turbo", resolution=128, kernel="Implicit")
+# The exact kernel: crisp edges on every frame.
+m.set(color_by="FaceId", cmap="Turbo", kernel="B-rep")
 afx.view([0.7, -1.0, 0.9], up=[0, 0, 1]); afx.reset_camera()
 n = 48
 

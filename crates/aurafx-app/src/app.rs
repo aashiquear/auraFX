@@ -92,9 +92,16 @@ pub struct State {
     pub assistant: Assistant,
     pub viewport: Viewport,
     pub palette: Palette,
+    /// What the 3D view's right-click menu was opened on.
+    pub view_menu_hit: crate::view_menu::ViewMenuHit,
     pub status: String,
     pub show_settings: bool,
     pub show_about: bool,
+    pub show_welcome: bool,
+    /// The report of a crash of the previous run, to tell the user about.
+    pub crash_report: Option<PathBuf>,
+    /// When the session was last saved for recovery, and its revision then.
+    pub autosaved: (std::time::Instant, u64),
     /// Help > About auraFX > Third-party licences, and its find box.
     pub show_licences: bool,
     pub licence_find: String,
@@ -349,6 +356,7 @@ pub fn default_tree() -> egui_tiles::Tree<Pane> {
 impl AuraApp {
     pub fn new(cc: &eframe::CreationContext<'_>, files: Vec<PathBuf>, script: Option<PathBuf>) -> Self {
         let settings = Settings::load();
+        let welcome_at_start = settings.show_welcome && files.is_empty() && script.is_none() && crate::JUPYTER_CONNECTION.get().is_none();
         aurafx_jobs::set_hosts(settings.hosts.clone());
         for m in &settings.user_colormaps {
             aurafx_pipeline::colormap::register_user(m.clone());
@@ -384,9 +392,14 @@ impl AuraApp {
             assistant,
             viewport,
             palette: Palette::default(),
+            view_menu_hit: Default::default(),
             status: "Ready. Open a file (Ctrl+O), add a source, or press Ctrl+K.".into(),
             show_settings: false,
             show_about: false,
+            // The welcome window at a plain start (not with a file, a script or as a kernel).
+            show_welcome: welcome_at_start,
+            crash_report: crate::crash::take_last(),
+            autosaved: (std::time::Instant::now(), 0),
             show_licences: false,
             licence_find: String::new(),
             show_shortcuts: false,
@@ -482,6 +495,11 @@ impl State {
     }
 
     pub fn undo(&mut self) {
+        // In an open sketch, undo is about the sketch.
+        if let Some(e) = self.cad.sketch.as_mut() {
+            self.status = if e.undo() { "Undid the last change of the sketch".into() } else { "Nothing to undo in this sketch".into() };
+            return;
+        }
         if crate::cad::editing(self) {
             let done = self.session.lock().cad_env_undo().is_some();
             self.status = if done { "Undid the last CAD edit".into() } else { "Nothing to undo in the CAD environment".into() };
@@ -494,6 +512,10 @@ impl State {
     }
 
     pub fn redo(&mut self) {
+        if let Some(e) = self.cad.sketch.as_mut() {
+            self.status = if e.redo() { "Redid the change of the sketch".into() } else { "Nothing to redo in this sketch".into() };
+            return;
+        }
         if crate::cad::editing(self) {
             let done = self.session.lock().cad_env_redo().is_some();
             self.status = if done { "Redid the CAD edit".into() } else { "Nothing to redo in the CAD environment".into() };
@@ -959,6 +981,7 @@ impl State {
                         .add_filter("Wavefront OBJ (vertex colors)", &["obj"])
                         .add_filter("X3D", &["x3d"])
                         .add_filter("VRML 2.0", &["wrl"])
+                .add_filter("Web page you can turn (HTML)", &["html"])
                         .set_file_name("scene.glb")
                         .save_file()
                     {
@@ -1039,7 +1062,19 @@ impl State {
                 ui.scroll_menu(RichText::new("CAD").color(crate::theme::ACCENT), |ui| crate::cad::menu_ui(self, ui));
             }
             ui.scroll_menu("Filters", |ui| {
-                if let Some(id) = crate::menus::filter_menu(ui, |_| true) {
+                let ctx_info = crate::menus::node_context(self, None);
+                match &ctx_info {
+                    Some((info, timed)) => {
+                        if let Some(id) = crate::menus::suggestion_buttons(ui, info, *timed) {
+                            self.add_filter(id);
+                        }
+                    }
+                    None => {
+                        ui.label(RichText::new("Open a file or add a source first: filters work on the selected object.").weak().small());
+                        ui.separator();
+                    }
+                }
+                if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |_| true) {
                     self.add_filter(id);
                 }
                 ui.separator();
@@ -1265,7 +1300,44 @@ impl State {
                     self.layout_actions.push(LayoutAction::Show(Pane::Jobs));
                 }
             });
+            ui.scroll_menu("Model", |ui| {
+                ui.label(RichText::new("Make what a solver needs").weak().small());
+                if ui
+                    .button(format!("{} New CAD part", crate::icons::CUBE))
+                    .on_hover_text("A parametric part: sketches, extrusions, holes, fillets. Opens the CAD environment, which says what to do next.")
+                    .clicked()
+                {
+                    ui.close();
+                    crate::welcome::new_cad_part(self);
+                }
+                if ui.button(format!("{} Open a CAD file…", crate::icons::FOLDER_OPEN)).on_hover_text("STEP, IGES, 3MF, .sc or .afxcad: opens as a CAD Model you can edit").clicked() {
+                    ui.close();
+                    self.open_file_dialog();
+                }
+                if ui
+                    .button(format!("{} New geometry (commands)", crate::icons::CUBE))
+                    .on_hover_text("Solids from short commands, with menus that insert them and the steps to a hexahedral or tetrahedral mesh")
+                    .clicked()
+                {
+                    ui.close();
+                    crate::welcome::new_geometry(self);
+                }
+                ui.separator();
+                ui.label(RichText::new("Meshing filters (on the selected object)").weak().small());
+                let ctx_info = crate::menus::node_context(self, None);
+                if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |f| f.category == "Mesh" || f.id == "mesh_quality") {
+                    self.add_filter(id);
+                }
+            });
             ui.scroll_menu("Help", |ui| {
+                if ui.button("Welcome").on_hover_text("Where to start, and a few things worth knowing").clicked() {
+                    ui.close();
+                    self.show_welcome = true;
+                }
+                if ui.button("User guide").on_hover_text("Every feature with pictures, in your browser").clicked() {
+                    ui.close();
+                    crate::welcome::open_guide(ui.ctx(), "index.html");
+                }
                 if ui.button("Keyboard shortcuts").clicked() {
                     ui.close();
                     self.show_shortcuts = true;
@@ -1299,6 +1371,7 @@ impl State {
                 self.open_file_dialog();
             }
             ui.separator();
+            let tool_ctx = crate::menus::node_context(self, None);
             for (label, id, tip) in [
                 ("Slice", "slice", "Cut with a plane"),
                 ("Clip", "clip", "Remove part of the data"),
@@ -1308,7 +1381,17 @@ impl State {
                 ("Glyph", "glyph", "Arrows at points"),
                 ("Warp", "warp_by_vector", "Deform by vectors"),
             ] {
-                if ui.button(crate::icons::with(label)).on_hover_text(tip).clicked() {
+                // Faded when it is unlikely to work on the selected object, with the reason.
+                let why_not = match (&tool_ctx, aurafx_filters::find(id)) {
+                    (Some((info, _)), Some(def)) => aurafx_filters::suggest::applicable(&def, info).err(),
+                    (None, _) => Some("select an object in the Pipeline first (open a file or add a source)".to_string()),
+                    _ => None,
+                };
+                let r = match &why_not {
+                    Some(w) => ui.button(RichText::new(crate::icons::with(label)).weak()).on_hover_text(format!("{tip}\nMay not work now: {w}.")),
+                    None => ui.button(crate::icons::with(label)).on_hover_text(tip),
+                };
+                if r.clicked() {
                     self.add_filter(id);
                 }
             }
@@ -1746,8 +1829,8 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
         }
         if crate::cad::editing(self.state) {
             match pane {
-                Pane::Pipeline => return format!("{} FeatureManager", pane.icon()).into(),
-                Pane::Properties => return format!("{} PropertyManager", pane.icon()).into(),
+                Pane::Pipeline => return format!("{} Model tree", pane.icon()).into(),
+                Pane::Properties => return format!("{} Feature panel", pane.icon()).into(),
                 _ => {}
             }
         }
@@ -1870,6 +1953,22 @@ impl eframe::App for AuraApp {
         }
 
         crate::cad::tick(st, ctx);
+        // Keep the pipeline on disk as it changes (at most every 30 s), so a crash or a power cut
+        // loses little: File > Restore Last Session brings it back.
+        if st.autosaved.0.elapsed().as_secs() >= 30 {
+            st.autosaved.0 = std::time::Instant::now();
+            let cam = st.camera_state();
+            let s = st.session.lock();
+            if s.revision != st.autosaved.1 && !s.nodes.is_empty() && s.cad_edit.is_none() {
+                let p = State::last_session_path();
+                if let Some(d) = p.parent() {
+                    let _ = std::fs::create_dir_all(d);
+                }
+                if s.save_state(&p, Some(cam)).is_ok() {
+                    st.autosaved.1 = s.revision;
+                }
+            }
+        }
         crate::source_dialog::window(st, ctx);
         crate::assistant::describe_window(st, ctx);
         {
@@ -1924,6 +2023,19 @@ impl eframe::App for AuraApp {
                     if let Some(p) = find(arg) {
                         self.state.layout_actions.push(LayoutAction::Hide(p));
                     }
+                }
+                "show" if arg.trim().eq_ignore_ascii_case("welcome") => self.state.show_welcome = true,
+                // "show cad search [text]": the CAD command search with that text typed.
+                "show" if arg.trim().to_ascii_lowercase().starts_with("cad search") => {
+                    if crate::cad::editing(&self.state) {
+                        self.state.cad.search =
+                            Some(crate::cad::CommandSearch { query: arg.trim()[10..].trim().to_string(), selected: 0, at: Some(egui::pos2(520.0, 230.0)) });
+                    }
+                }
+                // "show palette [text]": the command palette, with that text typed.
+                "show" if arg.trim().to_ascii_lowercase().starts_with("palette") => {
+                    self.state.palette.open = true;
+                    self.state.palette.query = arg.trim()[7..].trim().to_string();
                 }
                 "show" if arg.eq_ignore_ascii_case("plugins") => {
                     self.state.plugins.open = true;
@@ -2347,6 +2459,8 @@ impl eframe::App for AuraApp {
             st.open_file(p);
         }
         crate::cad::dialogs_ui(st, ctx);
+        crate::welcome::window(st, ctx);
+        crate::welcome::crash_window(st, ctx);
         crate::palette::palette_ui(st, ctx);
         st.settings_window(ctx);
         st.about_window(ctx);

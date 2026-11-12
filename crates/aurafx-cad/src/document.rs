@@ -377,7 +377,7 @@ pub struct Binding {
     pub expr: String,
 }
 
-/// A named set of parameter overrides (SolidWorks configurations / design table rows).
+/// A named set of parameter overrides: a variant of the part, like a row of a design table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Configuration {
     pub name: String,
@@ -488,6 +488,28 @@ impl Document {
         self.features.push(f);
         id
     }
+    /// Give every feature an id of its own: files written by hand or by older versions may
+    /// have none (0) or the same one twice, and faces, selections and the comparison of two
+    /// versions of a part all go by id. Features that already have a unique id keep it.
+    pub fn normalize_ids(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        let mut next = self.next_id.max(self.features.iter().map(|f| f.id.0).max().unwrap_or(0)).max(self.components.iter().map(|c| c.id.0).max().unwrap_or(0));
+        for f in &mut self.features {
+            if f.id.0 == 0 || !seen.insert(f.id) {
+                next += 1;
+                f.id = Id(next);
+                seen.insert(f.id);
+            }
+            if let Shape::Body { part } = &mut f.shape {
+                part.normalize_ids();
+            }
+        }
+        self.next_id = next;
+        for c in &mut self.components {
+            c.document.normalize_ids();
+        }
+    }
+
     /// The feature with the given id.
     pub fn feature(&self, id: Id) -> Option<&Feature> {
         self.features.iter().find(|f| f.id == id)
@@ -497,7 +519,10 @@ impl Document {
         serde_json::to_string_pretty(self).unwrap_or_default()
     }
     pub fn from_json(s: &str) -> Result<Document, serde_json::Error> {
-        serde_json::from_str(s)
+        serde_json::from_str(s).map(|mut d: Document| {
+            d.normalize_ids();
+            d
+        })
     }
 }
 
@@ -529,8 +554,8 @@ pub fn demo_part() -> Document {
     let mut hole2 = hole.clone();
     hole2.name = "Hole row 2".into();
     hole2.placement.translate[1] = 17.0;
-    p.features.push(hole);
-    p.features.push(hole2);
+    p.push(hole);
+    p.push(hole2);
     p.finish.push(Modifier::Fillet { radius: 0.8 });
     p
 }

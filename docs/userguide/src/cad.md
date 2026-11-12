@@ -55,25 +55,64 @@ is open:
 
 - the toolbar becomes the **ribbon** (every button with an icon and its name) with tabs *Sketch*, *Features*, *Modify*, *Inspect*,
   *Assemble* and *Files* (Alt+1 to Alt+6). Each button adds a feature with sensible sizes at
-  the top of the part; you then set its numbers in the PropertyManager. *Inspect* reads the part
+  the top of the part; you then set its numbers in the feature panel. *Inspect* reads the part
   (volume, surface, size, center, mass for a density, the area of a cross-section); *Assemble*
   places other parts (see below); *Files* starts from a template or opens and saves a document.
-- the Pipeline panel becomes the **FeatureManager**: the part's dimensions, its features in
+- the Pipeline panel becomes the **Model tree**: the part's dimensions, its features in
   order (the checkbox suppresses one; double-click renames; right-click for *Suppress*,
   *Roll back to here*, *Move up*, *Move down*, *Delete*), the modifiers on the whole part and
-  the configurations.
-- the Properties panel becomes the **PropertyManager**: every field of the selected feature.
+  the **configurations**: named sets of dimension values, variants of one part. Type a name and
+  press *Save values* to keep the dimensions' present values under it (saving under an existing
+  name replaces it), click a configuration to make it the active one, × removes it. The parts
+  of an assembly are listed under *Components*: click one to move or turn it, double-click to
+  rename it.
+- the Properties panel becomes the **Feature panel**: every field of the selected feature.
   Each number accepts an expression of the dimensions: type `width / 2` instead of a number
   and the field follows the dimension (the value it gives is shown beside it). Choices (the
   end condition of an extrusion, the type of a hole, a mirror plane) are menus. With no
   feature selected it shows the part itself and its faces.
 - the **timeline bar** at the bottom lists the features in order. The orange marker is the
   *rollback marker*: only the features before it are built, so you can look at the part as it
-  was after the third feature, or insert a hole earlier in the history. ◀ ▶ move it.
+  was after the third feature, or insert a hole earlier in the history: a feature added while
+  rolled back goes in at the marker. ◀ ▶ move it. Apply always hands over the whole part.
 - the menu bar gains a **CAD** menu, and the part is built again after every edit, in the
   background (the timeline shows the time it took and the part's volume).
 - **the pipeline is paused.** Other 3D views, charts and spreadsheets stay as they were and
   say so in a grey banner; nothing downstream re-runs on every edit.
+
+### Finding your way
+
+You do not need to know where a command is:
+
+- **Next**, at the top of the model tree, follows what you are doing and offers the steps that
+  make sense now as buttons: on an empty part *Sketch on the Top plane*, *Box* and *Start from a
+  template*; in a sketch it says whether the outline is closed and how many degrees of freedom
+  are left, and offers *Extrude*; when the part does not build it shows the reason and *Undo*.
+  The same sentence is in the status bar at the bottom of the window.
+- **Command search**: press **S** in the 3D view (or Ctrl+K, or the *Search* button beside the
+  tabs). A small box opens at the pointer; type a few letters (`fil`, `hole`, `export`) and
+  press Enter. Each result says which tab it is on, so you can find the button next time.
+- **Right-click a face** of the part in the 3D view: its name, kind and area, and what can be
+  done with it (*Sketch on this face*, *Fillet edges…*, *Shell*, *Pattern holes*, *Mirror*,
+  *Select its feature*). Right-click a feature in the tree or the timeline for *Suppress*,
+  *Roll back to here* and the rest.
+- **Hover** over any button for what it does; a greyed button says why it cannot be used yet
+  (*Apply* when the part does not build, a constraint without the right selection, *Extrude*
+  without a closed outline).
+- A feature that stops the part from building is **red with a warning sign** in the tree, and
+  the reason stays at the top of the feature panel, with an *Undo the last change* button,
+  until the part builds again. A feature marked **≈** is shown roughly by the kernel in use.
+- **Keys**: Alt+1…6 the tabs, Ctrl+Enter Apply, Esc leave, Delete and F2 on the selected feature,
+  Ctrl+Z / Ctrl+Shift+Z undo and redo (inside an open sketch they undo the sketch's own
+  changes); in a sketch L line, R rectangle, C circle, A arc, P point.
+
+![An empty part: the Next strip at the top of the model tree offers the first steps, and the Sketch tab is open](images/cad_next_steps.png)
+
+![The command search opened with S: typing "fil" lists the fillet commands and the tab each is on](images/cad_command_search.png)
+
+The part is shown as the node's **Kernel** setting builds it (*Auto*: the exact B-rep kernel
+when it can build the part, else the distance-field one, with the features it could only
+approximate marked ≈), so what you see is what the pipeline gets at Apply.
 
 ![The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline](images/cad_environment.png)
 
@@ -168,15 +207,15 @@ ribbon's **Sketch** tab:
 - **A face…** opens the face picker: click any flat face of the part in the 3D view (or tick it
   in the list) and press **Apply**. Slanted faces work too: the sketch lies on the face, its x
   axis along the world's x (or y) laid flat on it. With no feature selected, *Faces* in the
-  PropertyManager also has **Sketch here** next to each flat face.
+  Feature panel also has **Sketch here** next to each flat face.
 - A **reference plane** (each one has a button in the tab), made with **Plane…**.
 
-To change an existing feature's sketch, right-click it in the FeatureManager and choose **Edit
+To change an existing feature's sketch, right-click it in the model tree and choose **Edit
 sketch…**, or press **Edit sketch…** in its properties.
 
 ### Reference planes
 
-**Plane…** opens a form in the PropertyManager that makes a named plane, kept with the part:
+**Plane…** opens a form in the feature panel that makes a named plane, kept with the part:
 
 - **From a plane**: Top, Front, Right or another reference plane, moved by an **Offset** along its
   normal and turned by an **Angle** about its own x or y axis.
@@ -185,7 +224,7 @@ sketch…**, or press **Edit sketch…** in its properties.
   sketch's x axis runs from point 1 to point 2.
 
 The planes show as dashed squares with their names in the 3D view, and are listed under
-*Reference planes* in the PropertyManager (no feature selected) with **Sketch** and **×**
+*Reference planes* in the feature panel (no feature selected) with **Sketch** and **×**
 (remove; sketches already drawn on a plane keep their place). A sketch on a plane 20 above the
 top plane, turned 30° about its x axis, extrudes along the turned normal in both kernels.
 
@@ -210,7 +249,7 @@ The canvas takes the place of the 3D view while a sketch is open:
   **on curves**, and the **grid**. While drawing, dashed **guide lines** show when the cursor
   lines up horizontally or vertically with a point, also one far away or the last point of the
   shape, and the point lands on that line. Each kind is switched on or off under *Snap* in the
-  PropertyManager, with the grid step; hold `Ctrl` to place a point freely. A point placed on a
+  Feature panel, with the grid step; hold `Ctrl` to place a point freely. A point placed on a
   midpoint, a curve or an intersection is constrained there (midpoint, on line, on circle).
 - **Select** shapes and points by clicking (Shift adds); drag a point to move it. Right or
   middle mouse drag pans, the wheel zooms, `Esc` ends a chain, `Del` deletes.
@@ -223,7 +262,7 @@ The canvas takes the place of the 3D view while a sketch is open:
   expression of the part's dimensions (`width / 2`, `3 in`), and press `Enter`; the sketch follows
   the dimension from then on. Dimensions are drawn with extension lines and arrows (an arc for
   an angle, a leader for a radius or diameter). **Drag a label** to move it where it reads best,
-  and **double-click** it to change the value. The **Constraints** list in the PropertyManager
+  and **double-click** it to change the value. The **Constraints** list in the feature panel
   edits the same values.
 
 ![Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension's value open for typing](images/cad_snap.png)
@@ -232,7 +271,7 @@ The canvas takes the place of the 3D view while a sketch is open:
   defined, and **red** when constraints conflict (remove one). *Construction* turns the
   selected shapes into guides that are not part of the outline.
 
-Finish from the PropertyManager: **Extrude** (or **Cut**, for a pocket) with a depth that may be
+Finish from the feature panel: **Extrude** (or **Cut**, for a pocket) with a depth that may be
 an expression, **reverse** to go against the plane's normal, **Revolve** about the plane's
 vertical axis (draw on the Front plane with x as the radius), or **Apply sketch** when you
 edited the sketch of an existing feature. The sketch then becomes a feature with named faces:
@@ -296,7 +335,7 @@ While one of these pickers is open you can also **click the part in the 3D view*
 the face under the pointer, or, for an edge, the edge of that face the click is nearest to (click
 again to un-choose). Chosen edges are drawn in orange and chosen faces are marked with a dot.
 
-- **Fillet edges…** and **Chamfer edges…** open a picker in the PropertyManager that **lists the
+- **Fillet edges…** and **Chamfer edges…** open a picker in the feature panel that **lists the
   part's edges**, each with the two faces it lies between (`Base z+ × Bore side`), its length and
   whether it is curved. Tick the edges, set the size (a number or an expression of the
   dimensions) and press **Apply**: a *Fillet* or *Chamfer* feature is added after the features it
@@ -327,22 +366,26 @@ mirrors work on both kernels.
 whole part.
 
 The **Inspect** tab and Python read the part: mass (volume, surface, center, bounds, mass for a
-density), the distance between two parallel flat faces and the angle between two faces, and the
-volume two parts overlap when one is placed against the other:
+density), the distance between two parallel flat faces and the angle between two faces (in the
+tab: choose the two faces in the lists after *between* and press **Distance**), and the
+volume two parts overlap when one is placed against the other. A sketch-extruded feature names
+its faces `top`, `bottom` and `side 1`, `side 2`… in the order its outline was drawn (the
+default plate: `Base side 1` at the front, then counter-clockwise); right-click a face in the
+3D view to read its name.
 
 ```python
 b = afx.cad_model()                                  # the default plate
 b.cad.edges()                                        # [{'index': 0, 'point': [...], 'length': 30.0,
                                                      #   'faces': ['Base bottom', 'Base side 1'], ...}, ...]
-b.cad.fillet_edges(("Base z+", "Base side 2"), size=2)   # the edge between two named faces
+b.cad.fillet_edges(("Base top", "Base side 2"), size=2)  # the edge between two named faces
 b.cad.chamfer_edges([0, 3, 5], size=1)               # edges by index (or a point on each)
-b.cad.shell_faces(["Base z+"], thickness=2)          # an open box
+b.cad.shell_faces(["Base top"], thickness=2)         # an open box
 b.cad.draft(["Base side 1"], angle=5)                # taper a face, fixed at the bottom plane
-b.cad.mirror_about("Base x-", (1, 0, 0))             # the reflection about that face, joined to the part
-b.cad.edit("face_pattern", face="Base z+", layout="circular", count=6, radius=12, diameter=4, depth=6)
+b.cad.mirror_about("Base side 4", (1, 0, 0))         # the reflection about that face (the one at x = -20)
+b.cad.edit("face_pattern", face="Base top", layout="circular", count=6, radius=12, diameter=4, depth=6)
 b.cad.edit("combine", template="flange", op="subtract", at=(0, 0, 4))   # cut another part from this one
 b.cad.mass(7.85)                                     # steel
-b.cad.measure_faces("Base x-", "Base x+")            # {'parallel': True, 'distance': 40.0, ...}
+b.cad.measure_faces("Base side 4", "Base side 2")    # {'parallel': True, 'distance': 40.0, ...}
 b.cad.interference(other, at=(12, 6, 0))             # overlap volume with another CAD Model placed there
 ```
 
@@ -450,9 +493,16 @@ Face names carry through: an extracted set or a boundary layer can name `Bore si
 
 ## Limits
 
-- The kernel used here describes the part as a distance field. It never fails on a hard
+- The Implicit kernel describes the part as a distance field. It never fails on a hard
   combination of features, but edges are not exact lines: the faces it reports are labelled
-  regions of the surface, and the same labels come back after every rebuild.
+  regions of the surface. The B-rep kernel is exact but refuses a few things (a feature-level
+  mirror of a shape that is not symmetric, a sweep): *Auto* then falls back and says so.
+- A sketch on a face is placed where the face was when you picked it; it does not follow the
+  face if an earlier feature later moves it. Deleting or adding a line of a sketch renumbers the
+  `side N` faces after it.
+- Sweeps and lofts exist in the document (the vase template uses one) but have no button yet.
+- A dimension that makes a sketch impossible (constraints that contradict each other) is
+  refused, and the part keeps its last valid state.
 - Sketches start on the principal planes, on reference planes and on flat faces; a curved face
   cannot be sketched on.
 - Components are placed rigidly, by position and turn; there are no mates or motion. A component

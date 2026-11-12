@@ -31,8 +31,51 @@ use std::ffi::{c_char, CStr, CString};
 
 /// The version of the C table.
 pub const ABI_VERSION: u32 = 1;
-/// The version of the data the plugin and auraFX exchange (the `aurafx-data` crate's).
-pub const DATA_VERSION: &str = concat!("aurafx-data ", env!("CARGO_PKG_VERSION"), " format 2\0");
+/// The version of the data the plugin and auraFX exchange: the version of the `aurafx-data`
+/// crate and the version of its serialized layout
+/// ([`aurafx_data::array::DATA_LAYOUT_VERSION`], which changes with the data types, also
+/// between releases). NUL-terminated.
+pub const DATA_VERSION: &str = match std::str::from_utf8(DATA_VERSION_TEXT.0.split_at(DATA_VERSION_TEXT.1).0) {
+    Ok(s) => s,
+    Err(_) => panic!("the data version is text"),
+};
+
+/// The bytes of [`DATA_VERSION`] and how many of them count (with the NUL).
+static DATA_VERSION_TEXT: ([u8; 96], usize) = data_version();
+
+const fn data_version() -> ([u8; 96], usize) {
+    let mut out = [0u8; 96];
+    let mut n = 0;
+    let parts: [&[u8]; 3] = [b"aurafx-data ", env!("CARGO_PKG_VERSION").as_bytes(), b" layout "];
+    let mut p = 0;
+    while p < parts.len() {
+        let mut i = 0;
+        while i < parts[p].len() {
+            out[n] = parts[p][i];
+            n += 1;
+            i += 1;
+        }
+        p += 1;
+    }
+    // The layout version in decimal.
+    let mut digits = [0u8; 10];
+    let (mut d, mut x) = (0, aurafx_data::array::DATA_LAYOUT_VERSION);
+    loop {
+        digits[d] = b'0' + (x % 10) as u8;
+        d += 1;
+        x /= 10;
+        if x == 0 {
+            break;
+        }
+    }
+    while d > 0 {
+        d -= 1;
+        out[n] = digits[d];
+        n += 1;
+    }
+    // (The byte after the text stays 0.)
+    (out, n + 1)
+}
 
 /// Bytes handed across the boundary; freed by the side that made them.
 #[repr(C)]
@@ -68,6 +111,7 @@ pub struct PluginTable {
     /// [`DATA_VERSION`] of the plugin's build (NUL-terminated).
     pub data_version: *const c_char,
     /// JSON describing the plugin and its filters ([`Description`]); free with `free_string`.
+    /// Null when the plugin could not describe itself (it panicked).
     pub describe: extern "C" fn() -> *mut c_char,
     /// Run filter `id` on `n` inputs (postcard bytes) with JSON settings; on success fills `out`
     /// (postcard bytes, free with `free_buf`) and returns 0, else sets `err` (free with
@@ -250,17 +294,53 @@ pub struct Registry {
 
 #[doc(hidden)]
 pub fn describe_json(r: &Registry) -> *mut c_char {
-    let d = Description { name: r.name.into(), filters: r.filters.iter().map(|f| f.desc.clone()).collect() };
-    CString::new(serde_json::to_string(&d).unwrap_or_default()).unwrap_or_default().into_raw()
+    describe_with(|| r)
+}
+
+/// The description of the plugin whose filters `registry` makes, as JSON; null when making
+/// them or describing them panics (a panic must not cross into the program that loaded the
+/// plugin).
+#[doc(hidden)]
+pub fn describe_with<'a>(registry: impl FnOnce() -> &'a Registry) -> *mut c_char {
+    let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let r = registry();
+        let d = Description { name: r.name.into(), filters: r.filters.iter().map(|f| f.desc.clone()).collect() };
+        serde_json::to_string(&d).ok().and_then(|t| CString::new(t).ok())
+    }));
+    match text {
+        Ok(Some(t)) => t.into_raw(),
+        _ => std::ptr::null_mut(),
+    }
 }
 
 #[doc(hidden)]
 pub fn run_filter(r: &Registry, id: *const c_char, params: *const c_char, inputs: *const Buf, n: usize, out: *mut Buf, err: *mut *mut c_char) -> i32 {
+    run_with(|| r, id, params, inputs, n, out, err)
+}
+
+/// Run filter `id` of the plugin whose filters `registry` makes (see [`PluginTable::run`]). A
+/// panic, also one while the filters are made, comes back as an error.
+#[doc(hidden)]
+pub fn run_with<'a>(
+    registry: impl FnOnce() -> &'a Registry,
+    id: *const c_char,
+    params: *const c_char,
+    inputs: *const Buf,
+    n: usize,
+    out: *mut Buf,
+    err: *mut *mut c_char,
+) -> i32 {
     let fail = |msg: String| {
-        unsafe { *err = CString::new(msg.replace('\0', " ")).unwrap_or_default().into_raw() };
+        if !err.is_null() {
+            unsafe { *err = CString::new(msg.replace('\0', " ")).unwrap_or_default().into_raw() };
+        }
         1
     };
+    if id.is_null() || params.is_null() || out.is_null() || (n > 0 && inputs.is_null()) {
+        return fail("the plugin was called without its arguments".into());
+    }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Vec<u8>, String> {
+        let r = registry();
         let id = unsafe { CStr::from_ptr(id) }.to_string_lossy().into_owned();
         let pj = unsafe { CStr::from_ptr(params) }.to_string_lossy().into_owned();
         let f = r.filters.iter().find(|f| f.desc.id == id).ok_or_else(|| format!("no filter {id} in this plugin"))?;
@@ -319,7 +399,7 @@ macro_rules! export_plugin {
             R.get_or_init(|| $crate::Registry { name: $name, filters: vec![$($f),*] })
         }
         extern "C" fn __aurafx_describe() -> *mut std::ffi::c_char {
-            $crate::describe_json(__aurafx_registry())
+            $crate::describe_with(__aurafx_registry)
         }
         extern "C" fn __aurafx_run(
             id: *const std::ffi::c_char,
@@ -329,7 +409,7 @@ macro_rules! export_plugin {
             out: *mut $crate::Buf,
             err: *mut *mut std::ffi::c_char,
         ) -> i32 {
-            $crate::run_filter(__aurafx_registry(), id, params, inputs, n, out, err)
+            $crate::run_with(__aurafx_registry, id, params, inputs, n, out, err)
         }
         static __AURAFX_TABLE: $crate::PluginTable = $crate::PluginTable {
             abi_version: $crate::ABI_VERSION,
@@ -345,4 +425,51 @@ macro_rules! export_plugin {
             &__AURAFX_TABLE
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_data_version_names_the_layout() {
+        assert!(DATA_VERSION.ends_with('\0'));
+        let text = DATA_VERSION.trim_end_matches('\0');
+        assert_eq!(text, format!("aurafx-data {} layout {}", env!("CARGO_PKG_VERSION"), aurafx_data::array::DATA_LAYOUT_VERSION));
+        assert!(!text.contains('\0'));
+        // As the program that loads a plugin reads it.
+        let c = unsafe { CStr::from_ptr(DATA_VERSION.as_ptr() as *const c_char) };
+        assert_eq!(c.to_str().unwrap(), text);
+    }
+
+    /// A plugin that panics while it makes or describes its filters gives no description (and an
+    /// error when run), not a crash of the program that loaded it.
+    #[test]
+    fn panics_do_not_cross_the_boundary() {
+        fn broken() -> &'static Registry {
+            panic!("this plugin cannot start")
+        }
+        let quiet = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let d = describe_with(broken);
+        let (id, params) = (CString::new("x").unwrap(), CString::new("{}").unwrap());
+        let mut out = Buf { ptr: std::ptr::null_mut(), len: 0, cap: 0 };
+        let mut err: *mut c_char = std::ptr::null_mut();
+        let rc = run_with(broken, id.as_ptr(), params.as_ptr(), std::ptr::null(), 0, &mut out, &mut err);
+        std::panic::set_hook(quiet);
+        assert!(d.is_null());
+        assert_eq!(rc, 1);
+        let msg = unsafe { CStr::from_ptr(err) }.to_string_lossy().into_owned();
+        free_string(err);
+        assert!(msg.contains("cannot start"), "{msg}");
+        // A working one describes itself.
+        static GOOD: std::sync::OnceLock<Registry> = std::sync::OnceLock::new();
+        let good = || GOOD.get_or_init(|| Registry { name: "good", filters: vec![Filter::new("f", "F", |i, _| Ok(i[0].clone()))] });
+        let d = describe_with(good);
+        assert!(!d.is_null());
+        let text = unsafe { CStr::from_ptr(d) }.to_string_lossy().into_owned();
+        free_string(d);
+        let desc: Description = serde_json::from_str(&text).unwrap();
+        assert_eq!((desc.name.as_str(), desc.filters.len()), ("good", 1));
+    }
 }

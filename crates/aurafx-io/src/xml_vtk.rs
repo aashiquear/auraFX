@@ -271,13 +271,22 @@ fn read_array_range(ctx: &FileCtx, node: &Node, range: Option<(usize, usize)>) -
         if comp_names.len() == nc && nc > 1 {
             arr.component_names = Some(comp_names);
         }
-        return Ok(arr);
+        return Ok(with_units(arr, node));
     }
+    // (Text arrays too: one string per value.)
     let whole = read_array_whole(ctx, node)?;
     Ok(match range {
-        Some((t0, t1)) if whole.scalar_type() != ScalarType::String => whole.gather(&(t0..t1.min(whole.len())).collect::<Vec<_>>()),
-        _ => whole,
+        Some((t0, t1)) => whole.gather(&(t0.min(whole.len())..t1.min(whole.len())).collect::<Vec<_>>()),
+        None => whole,
     })
+}
+
+/// `arr` with the units its element states (`Units="K"`), if any.
+fn with_units(arr: Array, node: &Node) -> Array {
+    match node.attr("Units") {
+        Some(u) => arr.with_units(u),
+        None => arr,
+    }
 }
 
 fn read_array_whole(ctx: &FileCtx, node: &Node) -> Result<Array> {
@@ -322,7 +331,7 @@ fn read_array_whole(ctx: &FileCtx, node: &Node) -> Result<Array> {
     if comp_names.len() == ncomp && ncomp > 1 {
         arr.component_names = Some(comp_names);
     }
-    Ok(arr)
+    Ok(with_units(arr, node))
 }
 
 fn decode_typed(ctx: &FileCtx, ty: ScalarType, raw: &[u8]) -> Result<ArrayData> {
@@ -472,8 +481,11 @@ pub fn read(path: &Path) -> Result<DataSet> {
     // the bytes of this piece's arrays are read from disk.
     if crate::current_piece().is_some_and(|p| p.1 > 1) {
         let f = std::fs::File::open(path).with_context(|| format!("reading {}", path.display()))?;
-        // SAFETY: the file is only read; a file changed by another program while it is mapped
-        // gives wrong values, not undefined behaviour in safe code that copies out of it.
+        // SAFETY: the map is only read, and nothing here keeps a reference into it after this
+        // call. What the map cannot rule out: another program changing the file while it is
+        // mapped gives wrong values, and one that truncates it ends this process (SIGBUS) at
+        // the first read past the new end. That is accepted for read-only data files; a file
+        // that may be rewritten while it is open should be read by one process, without pieces.
         if let Ok(map) = unsafe { memmap2::Mmap::map(&f) } {
             return read_bytes(&map, path).with_context(|| format!("reading VTK XML file {}", path.display()));
         }
@@ -495,6 +507,11 @@ fn read_grid_piece(ctx: &FileCtx, body: &Node, ty: &str, k: usize, n: usize) -> 
     };
     let Some(a) = (0..3).rev().find(|&a| e[2 * a + 1] > e[2 * a]) else { return Ok(None) };
     let cells_along = (e[2 * a + 1] - e[2 * a]) as usize;
+    // A grid thin along that axis (fewer cells than shares) cannot be cut this way into shares
+    // of similar size: the caller reads it whole and splits it along its longest axis.
+    if cells_along < n {
+        return Ok(None);
+    }
     let (c0, c1) = (k * cells_along / n, (k + 1) * cells_along / n);
     let mut sub = e;
     sub[2 * a] = e[2 * a] + c0 as i64;
@@ -832,14 +849,18 @@ fn read_multiblock(path: &Path, body: &Node) -> Result<DataSet> {
                 "DataSet" => match c.attr("file") {
                     Some(f) => {
                         let sub = crate::sibling(path, f);
-                        let ds = match crate::read_file_single(&sub)? {
-                            crate::Loaded::Static(d) => Arc::try_unwrap(d).unwrap_or_else(|a| (*a).clone()),
-                            crate::Loaded::Series(s) => {
-                                let first = s.steps.first().ok_or_else(|| anyhow!("empty series"))?;
-                                let d = crate::load_step(first)?;
-                                (*d).clone()
-                            }
-                        };
+                        // Blocks are read whole (the reader of the multi-block file shares
+                        // them out or splits them afterwards).
+                        let ds = crate::without_piece(|| -> Result<DataSet> {
+                            Ok(match crate::read_file_single(&sub)? {
+                                crate::Loaded::Static(d) => Arc::try_unwrap(d).unwrap_or_else(|a| (*a).clone()),
+                                crate::Loaded::Series(s) => {
+                                    let first = s.steps.first().ok_or_else(|| anyhow!("empty series"))?;
+                                    let d = crate::load_step(first)?;
+                                    (*d).clone()
+                                }
+                            })
+                        })?;
                         mb.blocks.push((name, Some(ds)));
                     }
                     None => mb.blocks.push((name, None)),
@@ -980,7 +1001,7 @@ fn read_amr(path: &Path, body: &Node, overlapping: bool) -> Result<DataSet> {
         }
         for d in b.children_named("DataSet") {
             let Some(f) = d.attr("file") else { continue };
-            let data = match crate::read_file_single(crate::sibling(path, f))? {
+            let data = match crate::without_piece(|| crate::read_file_single(crate::sibling(path, f)))? {
                 crate::Loaded::Static(ds) => match &*ds {
                     DataSet::ImageData(i) => i.clone(),
                     other => bail!("{f}: AMR blocks must be image data, not {}", other.type_name()),
@@ -1023,11 +1044,12 @@ fn read_parallel(path: &Path, body: &Node) -> Result<DataSet> {
         }
     }
     use rayon::prelude::*;
+    // Each piece file is read whole (also when this thread reads some of them itself).
     let pieces: Vec<DataSet> = sources
         .par_iter()
         .map(|s| {
             let sub = crate::sibling(path, s);
-            read(&sub)
+            crate::without_piece(|| read(&sub))
         })
         .collect::<Result<_>>()?;
     if crate::option("pieces").is_some_and(|v| v.eq_ignore_ascii_case("partitions")) && crate::current_piece().is_none() {

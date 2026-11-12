@@ -46,6 +46,48 @@ pub struct MeshData {
 pub struct GlyphData {
     pub shape: Vec<Vertex>,
     pub instances: Vec<[f32; 8]>,
+    /// Every `stride`-th point has a glyph (1: every point; more when the data has more than
+    /// [`MAX_GLYPHS`] points).
+    pub stride: usize,
+}
+
+/// The most glyphs drawn for one object; data with more points shows every n-th point.
+pub const MAX_GLYPHS: usize = 2_000_000;
+
+/// What the glyphs of all blocks of an object share: the largest magnitude of the scaling
+/// array, the size of the largest glyph, and which points get one.
+struct GlyphPlan {
+    max_mag: f64,
+    size: f64,
+    stride: usize,
+    /// Points passed so far (over all blocks).
+    seen: usize,
+}
+
+fn glyph_magnitude(a: &aurafx_data::Array, i: usize) -> f64 {
+    if a.ncomp == 1 {
+        a.get(i, 0).abs()
+    } else {
+        a.magnitude(i)
+    }
+}
+
+impl GlyphPlan {
+    fn new<'a>(blocks: impl Iterator<Item = &'a PolyData>, display: &DisplayProps, bounds: &Bounds) -> Self {
+        let (mut n, mut max_mag, mut scaled) = (0usize, 0.0f64, false);
+        for pd in blocks {
+            n += pd.points.len();
+            if let Some(a) = Some(display.glyph_scale_by.as_str()).filter(|s| !s.is_empty()).and_then(|s| pd.point_data.get(s)) {
+                scaled = true;
+                max_mag = (0..a.len()).map(|i| glyph_magnitude(a, i)).filter(|m| m.is_finite()).fold(max_mag, f64::max);
+            }
+        }
+        let stride = n.div_ceil(MAX_GLYPHS).max(1);
+        let shown = n.div_ceil(stride);
+        // Without a size: about the spacing of the glyphs if they filled the bounds.
+        let size = if display.glyph_scale > 0.0 { display.glyph_scale as f64 } else { bounds.diagonal() / (1.7 * (shown as f64).cbrt()).max(1.0) };
+        Self { max_mag: if scaled { max_mag.max(1e-300) } else { 1.0 }, size, stride, seen: 0 }
+    }
 }
 
 /// A scalar field on a uniform grid for ray casting. Values are normalized to [0, 1] over `range`
@@ -554,7 +596,10 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
         mesh.scalar_range = Some((-0.5, 127.5));
     }
 
-    for leaf in leaves(ds, display.representation, display.nonlinear_subdivision.min(6)) {
+    let all = leaves(ds, display.representation, display.nonlinear_subdivision.min(6));
+    // 3D Glyphs: one size and one largest magnitude for all blocks.
+    let mut glyph_plan = (display.representation == Representation::Glyphs).then(|| GlyphPlan::new(all.iter().map(|l| &l.pd), display, &mesh.bounds));
+    for leaf in all {
         let pd = &leaf.pd;
         let (pscal, cscal) = match &display.color_by {
             _ if mesh.textured => (tcoords(&pd.point_data).map(packed_tcoords), None),
@@ -608,8 +653,11 @@ pub fn tessellate(ds: &DataSet, display: &DisplayProps) -> MeshData {
                 emit_lines(pd, origin, ps, cs, pd.verts.len(), &mut mesh.lines);
             }
             Representation::Glyphs => {
-                let g = mesh.glyphs.get_or_insert_with(|| GlyphData { shape: glyph_shape(display.glyph_shape), instances: Vec::new() });
-                emit_glyph_instances(pd, origin, ps, display, &mesh.bounds, &mut g.instances);
+                if let Some(plan) = glyph_plan.as_mut() {
+                    let g =
+                        mesh.glyphs.get_or_insert_with(|| GlyphData { shape: glyph_shape(display.glyph_shape), instances: Vec::new(), stride: plan.stride });
+                    emit_glyph_instances(pd, origin, ps, display, plan, &mut g.instances);
+                }
             }
             Representation::Outline | Representation::Volume => unreachable!(),
         }
@@ -675,33 +723,38 @@ pub fn glyph_shape(shape: aurafx_pipeline::GlyphShape) -> Vec<Vertex> {
     out
 }
 
-/// Glyph instances for the points of `pd`: turned along `glyph_orient`, sized by
-/// `glyph_scale_by` (relative to its largest magnitude) times the glyph size.
-fn emit_glyph_instances(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, display: &DisplayProps, bounds: &Bounds, out: &mut Vec<[f32; 8]>) {
+/// Glyph instances for the points of `pd` (one block of an object): turned along
+/// `glyph_orient`, sized by `glyph_scale_by` (relative to its largest magnitude over all blocks)
+/// times the glyph size. Points whose position, vector or size is not a finite number get none.
+fn emit_glyph_instances(pd: &PolyData, origin: [f64; 3], pscal: Option<&[f32]>, display: &DisplayProps, plan: &mut GlyphPlan, out: &mut Vec<[f32; 8]>) {
     let n = pd.points.len();
     if n == 0 {
         return;
     }
     let orient = Some(display.glyph_orient.as_str()).filter(|s| !s.is_empty()).and_then(|s| pd.point_data.get(s)).filter(|a| a.ncomp == 3);
     let scale_by = Some(display.glyph_scale_by.as_str()).filter(|s| !s.is_empty()).and_then(|s| pd.point_data.get(s));
-    let mag = |a: &aurafx_data::Array, i: usize| if a.ncomp == 1 { a.get(i, 0).abs() } else { a.magnitude(i) };
-    let max_mag = scale_by.map(|a| (0..a.len()).map(|i| mag(a, i)).fold(0.0f64, f64::max)).unwrap_or(1.0).max(1e-300);
-    // Without a size: about the spacing of the points if they filled the bounds.
-    let size = if display.glyph_scale > 0.0 { display.glyph_scale as f64 } else { bounds.diagonal() / (1.7 * (n as f64).cbrt()).max(1.0) };
-    out.reserve(n);
+    out.reserve(n / plan.stride + 1);
     for i in 0..n {
+        let g = plan.seen + i;
+        if g % plan.stride != 0 {
+            continue;
+        }
         let p = pd.points.get(i);
         let mut d = orient.map(|a| [a.get(i, 0), a.get(i, 1), a.get(i, 2)]).unwrap_or([1.0, 0.0, 0.0]);
         let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let s = plan.size * scale_by.map(|a| glyph_magnitude(a, i) / plan.max_mag).unwrap_or(1.0);
+        if !(l.is_finite() && s.is_finite() && p.iter().all(|v| v.is_finite())) {
+            continue;
+        }
         if l > 0.0 {
             d = [d[0] / l, d[1] / l, d[2] / l];
         } else {
             d = [1.0, 0.0, 0.0];
         }
-        let s = size * scale_by.map(|a| mag(a, i) / max_mag).unwrap_or(1.0);
         let value = pscal.and_then(|v| v.get(i).copied()).unwrap_or(0.0);
         out.push([(p[0] - origin[0]) as f32, (p[1] - origin[1]) as f32, (p[2] - origin[2]) as f32, value, d[0] as f32, d[1] as f32, d[2] as f32, s as f32]);
     }
+    plan.seen += n;
 }
 
 /// Unit sphere triangles (normals = positions) with `rings` latitude bands.

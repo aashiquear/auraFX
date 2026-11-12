@@ -21,9 +21,12 @@ restore() { [ -f "$tmp/bak/settings.toml" ] && cp "$tmp/bak/settings.toml" "$cfg
 trap 'pkill -x aurafx 2>/dev/null; restore; rm -rf "$tmp"' EXIT
 # The guide's pictures use the light theme whatever the user's own setting is (restored on exit).
 # AFX_SHOT_THEME=dark takes the dark ones.
-if [ -f "$cfg" ] && [ "${AFX_SHOT_THEME:-light}" = light ]; then
-  sed -i 's/^theme = .*/theme = "Light"/; s/^dark_theme = .*/dark_theme = false/' "$cfg"
-fi
+# Set before every picture: a script that shows another theme must not change the next ones.
+light_theme() {
+  if [ -f "$cfg" ] && [ "${AFX_SHOT_THEME:-light}" = light ]; then
+    sed -i 's/^theme = .*/theme = "Light"/; s/^dark_theme = .*/dark_theme = false/' "$cfg"
+  fi
+}
 names=("$@")
 [ ${#names[@]} -eq 0 ] && names=($(ls "$root/scripts/userguide/shots/"*.py | xargs -n1 basename | sed 's/\.py$//'))
 for name in "${names[@]}"; do
@@ -34,6 +37,7 @@ for name in "${names[@]}"; do
   { echo "OUT = r'$png'"; echo "ROOT = r'$root'"; cat "$script"; } > "$tmp/run.py"
   pkill -x aurafx 2>/dev/null; sleep 0.5
   rm -f "$ron"   # a fresh default layout for every picture
+  light_theme
   ( cd "$root" && AURAFX_PLUGIN_PATH="$tmp/plugins_empty" env -u WAYLAND_DISPLAY "$app" --script "$tmp/run.py" > "$tmp/$name.log" 2>&1 & )
   if grep -q "afx.screenshot" "$script"; then
     for i in $(seq 1 120); do [ -f "$png" ] && break; sleep 0.5; done

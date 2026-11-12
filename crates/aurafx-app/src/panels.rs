@@ -138,7 +138,8 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                 if !r.extra.is_empty() {
                     hover += &format!("\nAlso reads: {}", r.extra.join(", "));
                 }
-                hover += "\nCtrl+click to select several (for Append and other multi-input filters)";
+                hover +=
+                    "\nRight-click: what you can do with it. Double-click: rename.\nCtrl+click to select several (for Append and other multi-input filters)";
                 let resp = resp.on_hover_text(hover);
                 if resp.clicked() {
                     let ctrl = ui.input(|i| i.modifiers.command);
@@ -246,8 +247,15 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                             }
                         });
                     }
-                    ui.scroll_menu("Add filter", |ui| {
-                        if let Some(id) = crate::menus::filter_menu(ui, |_| true) {
+                    let ctx_info = crate::menus::node_context(state, Some(r.id));
+                    if let Some((info, timed)) = &ctx_info {
+                        if let Some(id) = crate::menus::suggestion_buttons(ui, info, *timed) {
+                            state.session.lock().active = Some(r.id);
+                            state.add_filter(id);
+                        }
+                    }
+                    ui.scroll_menu("All filters", |ui| {
+                        if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |_| true) {
                             state.session.lock().active = Some(r.id);
                             state.add_filter(id);
                         }
@@ -816,13 +824,27 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         if let Some(nv) = text_param(ui, id, &spec.key, &value, TextKind::Code(14)) {
                             state.session.lock().set_param(id, &spec.key, ParamValue::Str(nv));
                         }
+                        // The Geometry source's commands: menus that write them.
+                        if def.id == "geometry" && spec.key == "commands" {
+                            if let Some(line) = crate::mesh_guide::insert_menu(ui) {
+                                let did = ui.make_persistent_id(("param_draft", id, spec.key.as_str()));
+                                let cur: String = ui.data(|d| d.get_temp::<String>(did)).unwrap_or_else(|| value.clone());
+                                ui.data_mut(|d| d.remove::<String>(did));
+                                let new = format!("{}\n{line}\n", cur.trim_end());
+                                state.session.lock().set_param(id, &spec.key, ParamValue::Str(new));
+                            }
+                        }
                     }
                     if def.id == "cad_model" {
                         crate::cad::properties_ui(state, ui, id);
                     }
                     if def.id == "geometry" {
                         let cmds = params.get("commands").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
-                        geometry_tree(ui, &cmds);
+                        // The steps first (they are what a newcomer needs), then the bodies.
+                        let ids = aurafx_mesh::Model::from_commands(&cmds, None).ok().map(|m| m.describe().iter().map(|b| b.0).collect::<Vec<u32>>());
+                        let output = params.get("output").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
+                        crate::mesh_guide::steps_ui(state, ui, id, &cmds, &output, ids.as_deref());
+                        let _ = geometry_tree(ui, &cmds);
                     }
                     if def.params.iter().any(|p| p.advanced) {
                         if ui.checkbox(&mut adv, "Show advanced").changed() {
@@ -1432,14 +1454,15 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
 type BodyList = Vec<(u32, String, Vec<String>, Vec<(u32, String)>)>;
 
 /// The bodies a Geometry source's commands make, how each was built and its faces, as a tree.
-fn geometry_tree(ui: &mut egui::Ui, commands: &str) {
+fn geometry_tree(ui: &mut egui::Ui, commands: &str) -> Option<Vec<u32>> {
     static CACHE: std::sync::Mutex<Option<(String, Result<BodyList, String>)>> = std::sync::Mutex::new(None);
     let mut cache = CACHE.lock().unwrap();
     if cache.as_ref().is_none_or(|(c, _)| c != commands) {
         let r = aurafx_mesh::Model::from_commands(commands, None).map(|m| m.describe()).map_err(|e| format!("{e:#}"));
         *cache = Some((commands.to_string(), r));
     }
-    let Some((_, result)) = cache.as_ref() else { return };
+    let Some((_, result)) = cache.as_ref() else { return None };
+    let ids = result.as_ref().ok().map(|b| b.iter().map(|x| x.0).collect::<Vec<u32>>());
     egui::CollapsingHeader::new(RichText::new("Bodies").strong()).default_open(true).show(ui, |ui| match result {
         Err(e) => {
             ui.label(RichText::new(e).color(crate::theme::ERROR));
@@ -1462,4 +1485,5 @@ fn geometry_tree(ui: &mut egui::Ui, commands: &str) {
             }
         }
     });
+    ids
 }

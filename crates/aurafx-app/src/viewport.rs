@@ -128,6 +128,11 @@ fn display_key(d: &DisplayProps) -> String {
 }
 
 impl Viewport {
+    /// The meshes this view has drawn, for finding what is under the pointer.
+    pub fn meshes_for_pick(&self) -> Vec<(NodeId, Arc<MeshData>)> {
+        self.meshes.iter().map(|(id, c)| (*id, c.mesh.clone())).collect()
+    }
+
     pub fn new(cc: &eframe::CreationContext<'_>, background: [f32; 3]) -> Self {
         Self::with_render_state(cc.wgpu_render_state.clone(), background, 0)
     }
@@ -215,7 +220,7 @@ impl Viewport {
             Some((o, width)) => self.offscreen.read(r, o, *width)?,
             None => r.read_pixels()?,
         };
-        image::save_buffer(path, &px, w, h, image::ColorType::Rgba8)?;
+        save_picture(path, &px, w, h)?;
         Ok(())
     }
 
@@ -496,6 +501,25 @@ fn do_pick(state: &mut State, rect: Rect, pos: Pos2) {
     }
 }
 
+/// Write RGBA pixels as a picture in the format the file's extension names: PNG (the default,
+/// keeps transparency), JPEG (no transparency: drawn over white), BMP or TIFF.
+pub fn save_picture(path: &std::path::Path, px: &[u8], w: u32, h: u32) -> anyhow::Result<()> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(ext.as_str(), "jpg" | "jpeg") {
+        let rgb: Vec<u8> = px
+            .chunks_exact(4)
+            .flat_map(|p| {
+                let a = p[3] as u32;
+                [0, 1, 2].map(|k| ((p[k] as u32 * a + 255 * (255 - a)) / 255) as u8)
+            })
+            .collect();
+        image::save_buffer(path, &rgb, w, h, image::ColorType::Rgb8)?;
+    } else {
+        image::save_buffer(path, px, w, h, image::ColorType::Rgba8)?;
+    }
+    Ok(())
+}
+
 /// Draw the view currently in `state.viewport`. Returns true when the user started interacting
 /// with it (used to make a view active).
 pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> bool {
@@ -684,6 +708,8 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             }
         }
     }
+    // Right-click (without dragging): what can be done here.
+    crate::view_menu::view_context_menu(state, &response, rect);
     // Click to pick (Pick mode, or Ctrl+click in any mode).
     if response.clicked() && (state.viewport.mode == InteractMode::Pick || (mods.command && !selecting) || crate::cad::picking(state)) {
         if let Some(pos) = response.interact_pointer_pos() {
@@ -739,6 +765,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         (draws.clone(), None)
     };
     if state.viewport.renderer.is_some() {
+        // A picture of this frame is being taken (a screenshot, a capture of the window, an
+        // animation frame): it shows the full surfaces, also right after the camera moved.
+        let pictured =
+            state.viewport.screenshot.is_some() || state.capture.busy() || state.anim_job.is_some() || state.session.lock().screenshot_request.is_some();
         let vp = &mut state.viewport;
         // The camera moved within the last moment: draw very big surfaces coarse, and come
         // back for a full picture when it stops.
@@ -748,7 +778,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             vp.camera_moved = Some(Instant::now());
         }
         let moving = vp.camera_moved.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(180));
-        vp.settings.interacting = moving;
+        vp.settings.interacting = moving && !pictured;
         if moving {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -812,7 +842,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 let bg = (!req.transparent).then_some(vp.settings.background);
                 let res = crate::svg_export::write(&req.path, &prims, sw, sh, bg, ov.as_ref().map(|(s, k)| (s.as_slice(), *k)));
                 outcome = Some((req.clone(), res));
-            } else if matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl") {
+            } else if matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl" | "html") {
                 // Scene export: the objects as drawn, named as in the pipeline.
                 let s = state.session.lock();
                 let objects: Vec<aurafx_render::scene_export::ExportObject> = draws
@@ -828,7 +858,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             } else if as_shown {
                 let r = vp.renderer.as_ref().unwrap();
                 let res = if req.overlays { vp.offscreen.read(r, &overlays, rect.width()) } else { r.read_pixels() }
-                    .and_then(|(w, h, px)| image::save_buffer(&req.path, &px, w, h, image::ColorType::Rgba8).map_err(Into::into));
+                    .and_then(|(w, h, px)| save_picture(&req.path, &px, w, h));
                 outcome = Some((req.clone(), res));
             } else if sw == 0 || sh == 0 || sw.max(sh) > max {
                 outcome = Some((req.clone(), Err(anyhow::anyhow!("{sw}x{sh} pixels: this GPU draws at most {max}x{max}"))));
@@ -864,7 +894,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                             if req.transparent {
                                 aurafx_render::renderer::unpremultiply(&mut px);
                             }
-                            image::save_buffer(&req.path, &px, w, h, image::ColorType::Rgba8).map_err(Into::into)
+                            save_picture(&req.path, &px, w, h)
                         });
                         r.resize(w, h);
                         r.set_layers(&layers);

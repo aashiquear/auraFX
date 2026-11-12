@@ -241,7 +241,7 @@ impl Session {
             let e = self.cad_edit.as_ref().ok_or_else(|| anyhow!("the CAD environment is not open"))?;
             (e.document_to_build(), self.cad_overrides(e.node), e.revision, e.node)
         };
-        let result = evaluate_document_with(doc, &overrides, resolution, self.cad_kernel(node));
+        let result = evaluate_document_with(doc, &overrides, resolution, self.cad_preview_kernel(node));
         self.cad_env_deliver(node, rev, result)
     }
 
@@ -249,6 +249,29 @@ impl Session {
     /// environment shows the part as the pipeline will get it.
     pub fn cad_kernel(&self, node: NodeId) -> aurafx_cad::KernelChoice {
         self.nodes.get(&node).and_then(|n| aurafx_cad::KernelChoice::parse(&n.params.str("kernel"))).unwrap_or(aurafx_cad::KernelChoice::Auto)
+    }
+
+    /// The kernel the environment builds with while editing. With the node on Auto, the quick
+    /// distance-field kernel, unless the part has features only the exact kernel can show
+    /// (edges or faces that were picked: fillets, chamfers, drafts, shells with open faces);
+    /// a kernel chosen on the node is used as it is.
+    pub fn cad_preview_kernel(&self, node: NodeId) -> aurafx_cad::KernelChoice {
+        match self.cad_kernel(node) {
+            aurafx_cad::KernelChoice::Auto => {
+                let exact = self.cad_edit.as_ref().filter(|e| e.node == node).is_some_and(|e| {
+                    e.document_to_build().features.iter().any(|f| {
+                        !f.suppressed
+                            && matches!(f.shape, aurafx_cad::Shape::EdgeBlend { .. } | aurafx_cad::Shape::ShellFaces { .. } | aurafx_cad::Shape::Draft { .. })
+                    })
+                });
+                if exact {
+                    aurafx_cad::KernelChoice::Auto
+                } else {
+                    aurafx_cad::KernelChoice::Implicit
+                }
+            }
+            k => k,
+        }
     }
 
     /// The input of an off-thread evaluation: the document to build, the overrides, the revision.

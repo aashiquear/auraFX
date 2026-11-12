@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -185,6 +185,8 @@
 <strong>keep the view’s shape</strong> ties width and height together. Point sizes and line widths are
 in pixels, so they look thinner in a larger picture.</li>
 <li><strong>Background › transparent</strong> saves a PNG with an alpha channel, with clean edges.</li>
+<li>The file’s extension chooses the format: <strong>PNG</strong> (the default), <strong>JPEG</strong> (smaller, no
+transparency), <strong>BMP</strong>, <strong>TIFF</strong>, or <strong>SVG</strong> for a vector picture.</li>
 <li><strong>Annotations</strong> includes the legend, axes-grid labels, time label, text annotations and
 the orientation axes, laid out as on screen and scaled with the picture.</li>
 <li><strong>PNG</strong> or <strong>SVG</strong>: an SVG holds the surfaces as shaded polygons sorted back to front, the
@@ -196,6 +198,7 @@ if needed).</li>
 <pre><code class="language-python">afx.screenshot("fig.png")                               # the view as shown
 afx.screenshot("fig.png", width=3840, transparent=True) # keeps the view's shape
 afx.screenshot("fig.png", width=1600, height=900, annotations=False)
+afx.screenshot("fig.jpg")                               # JPEG, BMP (.bmp) or TIFF (.tif) by the extension
 afx.screenshot("fig.svg")
 </code></pre>
 <p><code>afx.screenshot</code> returns only when the file is written, so a script can change the camera or
@@ -226,10 +229,12 @@ their colors, as:</p>
 <tr><td><strong>glTF binary</strong> (<code>.glb</code>)</td><td>for Blender, three.js, PowerPoint, Windows 3D Viewer; vertex colors, normals, translucency, materials (metallic, roughness)</td></tr>
 <tr><td><strong>OBJ</strong> (<code>.obj</code>)</td><td>with vertex colors after the coordinates (Blender and MeshLab read them)</td></tr>
 <tr><td><strong>X3D</strong> (<code>.x3d</code>), <strong>VRML</strong> (<code>.wrl</code>)</td><td>absolute coordinates, vertex colors</td></tr>
+<tr><td><strong>Web page</strong> (<code>.html</code>)</td><td>one file that opens in any browser and shows the scene in 3D: drag to turn it, Shift+drag (or two fingers) to move, wheel or pinch to zoom, double-click to reset. Everything is inside the file (no server, nothing loaded from the network), so it can be mailed or put on a web site as it is. Surfaces, lines and points with their colors; simple lighting; the size grows with the number of triangles (about 55 bytes each vertex)</td></tr>
 </tbody>
 </table>
 </div>
 <p>Volumes are not exported (they are not geometry).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/export_html.png" alt="A scene exported as a web page, open in a browser"><span class="img-wrapper"><img src="images/export_html.png" alt="A scene exported as a web page, open in a browser"></span></label></p>
 <h2 id="animations"><a class="header" href="#animations">Animations</a></h2>
 <p><strong>File › Animation…</strong> records the time steps, a turntable or the keyframes as <strong>GIF</strong>, <strong>MP4</strong> or
 <strong>WebM</strong> (VP9, for web pages; both need <code>ffmpeg</code> on the PATH) or a folder of PNG frames, of the active 3D view or of all views as laid

@@ -110,9 +110,12 @@ You do not need to know where a command is:
 
 ![The command search opened with S: typing "fil" lists the fillet commands and the tab each is on](images/cad_command_search.png)
 
-The part is shown as the node's **Kernel** setting builds it (*Auto*: the exact B-rep kernel
-when it can build the part, else the distance-field one, with the features it could only
-approximate marked ≈), so what you see is what the pipeline gets at Apply.
+While you edit, the part is rebuilt after every change. With the node's **Kernel** on *Auto*
+the quick distance-field kernel does that, unless the part has features only the exact kernel
+can show (fillets, chamfers and drafts on picked edges or faces, shells with picked open
+faces): then the exact B-rep kernel builds it, which can take a few seconds, and a feature it
+could only approximate is marked ≈. A kernel chosen on the node (*B-rep* or *Implicit*) is
+used as it is. Apply always builds with the node's setting.
 
 ![The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline](images/cad_environment.png)
 

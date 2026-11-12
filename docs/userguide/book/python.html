@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -260,7 +260,8 @@ so a notebook moves between this panel and Jupyter.</li>
 <strong>auraFX (Python)</strong> as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
 that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through <code>afx</code>,
 and their output, values, errors and pictures come back to the notebook. Tab completes names;
-shutting the kernel down closes the window.</li>
+shutting the kernel down closes the window. A running cell cannot be interrupted yet (the
+request is answered with an error saying so); shutting down works while a cell runs.</li>
 </ul>
 <p>In either, <code>afx.snapshot()</code> shows a picture of the 3D view in the notebook (<code>views="all"</code>: every
 view as laid out) and <code>afx.display(x)</code> shows a picture file, PNG bytes or any object as text.</p>
@@ -269,6 +270,8 @@ w.slice(normal=[0, 0, 1]).set(color_by="RTData")
 afx.snapshot(width=640, height=400)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"><span class="img-wrapper"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"></span></label></p>
+<p>Every function and method, with its arguments and the text <code>help()</code> shows, is in the
+<a href="python-api.html">Python API reference</a>, generated from the module itself.</p>
 <p>The <strong>Help › Python API cheat sheet</strong> window lists the same calls inside the app, and every
 function has a docstring (<code>help(afx.lighting)</code>).</p>
 

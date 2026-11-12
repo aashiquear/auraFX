@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -204,7 +204,7 @@ the packages carry <code>aurafx-server</code> as well, for reading data on anoth
 another machine</a>: <strong>File › Open on Server… › Install server</strong> copies it to a
 host over SSH). On Linux the installer also sets up the <code>.desktop</code> entry
 (<code>scripts/install-desktop.sh</code> does only that, for a build from source).</p>
-<p>To build from source you need Rust 1.85 or newer, Python 3.10+ with development headers, and a
+<p>To build from source you need Rust 1.95 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:</p>
 <pre><code class="language-bash">cargo build --release
 ./target/release/aurafx                   # start
@@ -257,6 +257,24 @@ recomputation and <strong>Reset to defaults</strong> restores the defaults.</p>
 <p>When a filter is added, every object above it in the Pipeline is <strong>hidden</strong>, so the view shows
 the new result alone; click an object’s eye to show it again. Filters whose result is a table or a
 chart (Histogram, Plot Over Line, the statistics) leave their input shown.</p>
+<h3 id="what-fits-this-data"><a class="header" href="#what-fits-this-data">What fits this data</a></h3>
+<p>auraFX looks at the selected object (what kind of data it is, its cells and its arrays) and
+puts the filters that make sense for it first:</p>
+<ul>
+<li><strong>Right-click</strong> an object in the Pipeline, or right-click it in the 3D view, for a short list
+<em>Suggested for this data</em>: Slice, Contour and Threshold for a volume with values, Stream
+Tracer and Glyph when there are vectors, Surface Normals and Decimate for a surface, Table To
+Points and Histogram for a table, Orientation Colors for an EBSD map. Hover over one to read
+why it is offered. <em>All filters</em> below has the rest.</li>
+<li>In the 3D view the menu is about the point you clicked: <strong>Slice here</strong> and <strong>Clip here</strong> put
+the cut through that point, <strong>Turn the view about this point</strong> moves the center of rotation,
+and <em>Draw as</em> and <em>Color by</em> change how the object looks. (Dragging with the right button
+still zooms; the menu opens on a click.)</li>
+<li>The <strong>Filters</strong> menu and the command palette show the same suggestions first. A filter that
+is unlikely to work on this data is faded and says what it needs (“needs a vector array”,
+“needs a table”); you can still choose it. The toolbar’s buttons fade the same way.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/suggestions_palette.png" alt="The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason"><span class="img-wrapper"><img src="images/suggestions_palette.png" alt="The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason"></span></label></p>
 <p>Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.</p>
 <h2 id="adding-a-source"><a class="header" href="#adding-a-source">Adding a source</a></h2>
@@ -277,21 +295,34 @@ source</strong> turns the window back on. Sources added from Python (<code>afx.s
 <li><strong>File › Save State</strong> (Ctrl+S) writes an <code>.afx</code> file holding the pipeline, every parameter,
 the display settings, the camera and any keyframes. <strong>File › Open</strong> reopens it, including
 objects that live on a remote server.</li>
-<li>On the next start, <strong>Restore last session</strong> in the empty view brings back the last state.</li>
+<li>On the next start, <strong>Restore last session</strong> in the empty view (or in the File menu) brings
+back the last state. The state is also saved every half minute while you work, so little is
+lost if the computer or the program stops.</li>
+<li>If auraFX ever closes on an internal error, the next start says so and shows where the
+<strong>crash report</strong> was written (a text file under <code>~/.cache/aurafx/crashes</code>, with what failed
+and where). Nothing is sent anywhere; attach the file to a bug report. The same window offers
+to restore the last session.</li>
 <li>Right-click an object › <strong>Save data…</strong> writes its output to a file (see
 <a href="file-formats.html">File formats</a>).</li>
 <li><strong>Edit › Undo / Redo</strong> cover every change to the pipeline and display settings.</li>
 </ul>
 <h2 id="getting-help"><a class="header" href="#getting-help">Getting help</a></h2>
 <ul>
+<li>The <strong>Welcome</strong> window opens at the first start (and from <strong>Help › Welcome</strong>): one button into
+each kind of work (look at results, model a part, build a mesh, run and automate) and a few
+things worth knowing. Untick <em>Show at start</em> when you no longer need it.</li>
+<li><strong>Help › User guide</strong> opens this guide in your browser.</li>
+<li>The <strong>Model</strong> menu starts a CAD part or a Geometry source and lists the meshing filters.</li>
 <li><strong>Help › Keyboard shortcuts</strong> and <strong>Help › Python API cheat sheet</strong> open inside the app.</li>
+<li>Hover over anything for what it does; right-click an object for what can be done with it.</li>
 <li>The command palette (Ctrl+K) finds filters, sources and actions by name.</li>
 <li>Menus with many entries (the Sources menu, a category of filters) scroll with the mouse wheel
 when they are taller than the window. Each filter appears once, under its category; the
-Pipeline’s right-click <strong>Add filter</strong> has the same categories.</li>
+Pipeline’s right-click <strong>All filters</strong> has the same categories.</li>
 <li>The AI assistant answers questions about the loaded data and the app (see
 <a href="ai-assistant.html">AI assistant</a>).</li>
 </ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"><span class="img-wrapper"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"></span></label></p>
 <h2 id="open-source-software-in-aurafx"><a class="header" href="#open-source-software-in-aurafx">Open-source software in auraFX</a></h2>
 <p><strong>Help › About auraFX</strong> shows the version, the graphics card in use and the Python version.
 auraFX includes open-source software: the CAD environment’s B-rep kernel and its CAD file formats

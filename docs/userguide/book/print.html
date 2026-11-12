@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -189,6 +189,9 @@ measure them with the usual filters, and adds three things next to the 3D view:<
 <li>a <strong>simulation runner</strong> that launches solvers locally, over SSH or through Slurm and opens
 the results when they finish.</li>
 </ul>
+<p>It also builds what solvers need: a <strong>parametric CAD modeler</strong>, a <strong>geometry and mesh
+generator</strong> and a <strong>grain workbench</strong> for microstructures live in the same window, and Jupyter
+notebooks can drive all of it.</p>
 <p>This guide walks through every feature. Each chapter says where a feature is in the window,
 how to call it from Python, and what its limits are.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/main_window.png" alt="The main window"><span class="img-wrapper"><img src="images/main_window.png" alt="The main window"></span></label></p>
@@ -201,9 +204,9 @@ how to call it from Python, and what its limits are.</p>
 <tbody>
 <tr><td>Basics</td><td>opening files, the pipeline, filters, coloring, views, selection, time and animation</td></tr>
 <tr><td>Rendering</td><td>lighting, shadows, ambient occlusion, ray tracing, materials, volumes, point clouds</td></tr>
-<tr><td>Scripting</td><td>the Python API, the AI assistant, writing plugins</td></tr>
-<tr><td>Data</td><td>every file format read and written, exporting pictures and scenes, running simulations, working on remote machines</td></tr>
-<tr><td>Reference</td><td>settings and keyboard shortcuts</td></tr>
+<tr><td>Scripting</td><td>the Python API and notebooks, the AI assistant, writing plugins in Python or Rust, tutorials</td></tr>
+<tr><td>Data</td><td>every file format read and written, exporting pictures and scenes, running simulations, working on remote machines and with files larger than memory, grains and crystals, geometry and meshing, CAD modeling</td></tr>
+<tr><td>Reference</td><td>settings and keyboard shortcuts, every filter with its settings, benchmarks</td></tr>
 </tbody>
 </table>
 </div>
@@ -239,7 +242,7 @@ the packages carry <code>aurafx-server</code> as well, for reading data on anoth
 another machine</a>: <strong>File › Open on Server… › Install server</strong> copies it to a
 host over SSH). On Linux the installer also sets up the <code>.desktop</code> entry
 (<code>scripts/install-desktop.sh</code> does only that, for a build from source).</p>
-<p>To build from source you need Rust 1.85 or newer, Python 3.10+ with development headers, and a
+<p>To build from source you need Rust 1.95 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:</p>
 <pre><code class="language-bash">cargo build --release
 ./target/release/aurafx                   # start
@@ -292,6 +295,24 @@ recomputation and <strong>Reset to defaults</strong> restores the defaults.</p>
 <p>When a filter is added, every object above it in the Pipeline is <strong>hidden</strong>, so the view shows
 the new result alone; click an object’s eye to show it again. Filters whose result is a table or a
 chart (Histogram, Plot Over Line, the statistics) leave their input shown.</p>
+<h3 id="what-fits-this-data"><a class="header" href="#what-fits-this-data">What fits this data</a></h3>
+<p>auraFX looks at the selected object (what kind of data it is, its cells and its arrays) and
+puts the filters that make sense for it first:</p>
+<ul>
+<li><strong>Right-click</strong> an object in the Pipeline, or right-click it in the 3D view, for a short list
+<em>Suggested for this data</em>: Slice, Contour and Threshold for a volume with values, Stream
+Tracer and Glyph when there are vectors, Surface Normals and Decimate for a surface, Table To
+Points and Histogram for a table, Orientation Colors for an EBSD map. Hover over one to read
+why it is offered. <em>All filters</em> below has the rest.</li>
+<li>In the 3D view the menu is about the point you clicked: <strong>Slice here</strong> and <strong>Clip here</strong> put
+the cut through that point, <strong>Turn the view about this point</strong> moves the center of rotation,
+and <em>Draw as</em> and <em>Color by</em> change how the object looks. (Dragging with the right button
+still zooms; the menu opens on a click.)</li>
+<li>The <strong>Filters</strong> menu and the command palette show the same suggestions first. A filter that
+is unlikely to work on this data is faded and says what it needs (“needs a vector array”,
+“needs a table”); you can still choose it. The toolbar’s buttons fade the same way.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/suggestions_palette.png" alt="The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason"><span class="img-wrapper"><img src="images/suggestions_palette.png" alt="The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason"></span></label></p>
 <p>Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.</p>
 <h2 id="adding-a-source"><a class="header" href="#adding-a-source">Adding a source</a></h2>
@@ -312,21 +333,34 @@ source</strong> turns the window back on. Sources added from Python (<code>afx.s
 <li><strong>File › Save State</strong> (Ctrl+S) writes an <code>.afx</code> file holding the pipeline, every parameter,
 the display settings, the camera and any keyframes. <strong>File › Open</strong> reopens it, including
 objects that live on a remote server.</li>
-<li>On the next start, <strong>Restore last session</strong> in the empty view brings back the last state.</li>
+<li>On the next start, <strong>Restore last session</strong> in the empty view (or in the File menu) brings
+back the last state. The state is also saved every half minute while you work, so little is
+lost if the computer or the program stops.</li>
+<li>If auraFX ever closes on an internal error, the next start says so and shows where the
+<strong>crash report</strong> was written (a text file under <code>~/.cache/aurafx/crashes</code>, with what failed
+and where). Nothing is sent anywhere; attach the file to a bug report. The same window offers
+to restore the last session.</li>
 <li>Right-click an object › <strong>Save data…</strong> writes its output to a file (see
 <a href="#file-formats">File formats</a>).</li>
 <li><strong>Edit › Undo / Redo</strong> cover every change to the pipeline and display settings.</li>
 </ul>
 <h2 id="getting-help"><a class="header" href="#getting-help">Getting help</a></h2>
 <ul>
+<li>The <strong>Welcome</strong> window opens at the first start (and from <strong>Help › Welcome</strong>): one button into
+each kind of work (look at results, model a part, build a mesh, run and automate) and a few
+things worth knowing. Untick <em>Show at start</em> when you no longer need it.</li>
+<li><strong>Help › User guide</strong> opens this guide in your browser.</li>
+<li>The <strong>Model</strong> menu starts a CAD part or a Geometry source and lists the meshing filters.</li>
 <li><strong>Help › Keyboard shortcuts</strong> and <strong>Help › Python API cheat sheet</strong> open inside the app.</li>
+<li>Hover over anything for what it does; right-click an object for what can be done with it.</li>
 <li>The command palette (Ctrl+K) finds filters, sources and actions by name.</li>
 <li>Menus with many entries (the Sources menu, a category of filters) scroll with the mouse wheel
 when they are taller than the window. Each filter appears once, under its category; the
-Pipeline’s right-click <strong>Add filter</strong> has the same categories.</li>
+Pipeline’s right-click <strong>All filters</strong> has the same categories.</li>
 <li>The AI assistant answers questions about the loaded data and the app (see
 <a href="#ai-assistant">AI assistant</a>).</li>
 </ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"><span class="img-wrapper"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"></span></label></p>
 <h2 id="open-source-software-in-aurafx"><a class="header" href="#open-source-software-in-aurafx">Open-source software in auraFX</a></h2>
 <p><strong>Help › About auraFX</strong> shows the version, the graphics card in use and the Python version.
 auraFX includes open-source software: the CAD environment’s B-rep kernel and its CAD file formats
@@ -807,10 +841,12 @@ aligned = afx.iterative_closest_point(moved, target, iterations=100)
 <p>An array can say what units its values are in (K, m/s, MPa). The color legend then reads
 “sst (K)”, the Information panel lists the units after each array’s range, and the
 spreadsheet’s column headings carry them. Readers fill them in where the file says (NetCDF
-files, from each variable’s <code>units</code>); for other arrays, <strong>Filters › Data › Set Units</strong> sets them
+files, from each variable’s <code>units</code>; VTK XML files written by auraFX, which keep them in a
+<code>Units</code> attribute of each array); for other arrays, <strong>Filters › Data › Set Units</strong> sets them
 (pick the array, type the units; an empty box clears them). Units are a label: auraFX does not
-convert between them, and arrays made by filters (a Calculator result, a gradient) start
-without units.</p>
+convert between them. Filters that pass or interpolate an array (Slice, Contour, Clip, a
+server’s pieces put together) keep its units; arrays a filter computes (a Calculator result, a
+gradient) start without.</p>
 <pre><code class="language-python">t = d.set_units(array="T", units="K")
 [a["units"] for a in t.info()["point_arrays"]]
 data = afx.make_points(xyz)
@@ -949,7 +985,10 @@ theme (and can be set per theme). <strong>UI scale</strong> enlarges the whole i
 <h2 id="command-palette"><a class="header" href="#command-palette">Command palette</a></h2>
 <p><strong>Ctrl+K</strong> (or Ctrl+Space, or the <strong>Search</strong> button) opens the palette: type a few letters of
 a filter, a source, a panel or an action (open, save screenshot, reset camera, undo, light
-theme, ask the AI…) and press Enter. It is the fastest way to reach anything in the app.</p>
+theme, ask the AI…) and press Enter. It is the fastest way to reach anything in the app.
+Before you type, the list starts with the filters suggested for the selected object, each with
+the reason; a result that is unlikely to work on that object is lower and says what it needs.
+While a CAD part is being edited, Ctrl+K searches the CAD commands instead.</p>
 <h2 id="undo-redo-and-state"><a class="header" href="#undo-redo-and-state">Undo, redo and state</a></h2>
 <p><strong>Edit › Undo / Redo</strong> (Ctrl+Z, Ctrl+Y) cover opening files, adding and deleting filters,
 parameter and display changes. <strong>File › Save State</strong> writes everything to an <code>.afx</code> file (see
@@ -1412,7 +1451,8 @@ so a notebook moves between this panel and Jupyter.</li>
 <strong>auraFX (Python)</strong> as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
 that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through <code>afx</code>,
 and their output, values, errors and pictures come back to the notebook. Tab completes names;
-shutting the kernel down closes the window.</li>
+shutting the kernel down closes the window. A running cell cannot be interrupted yet (the
+request is answered with an error saying so); shutting down works while a cell runs.</li>
 </ul>
 <p>In either, <code>afx.snapshot()</code> shows a picture of the 3D view in the notebook (<code>views="all"</code>: every
 view as laid out) and <code>afx.display(x)</code> shows a picture file, PNG bytes or any object as text.</p>
@@ -1421,6 +1461,8 @@ w.slice(normal=[0, 0, 1]).set(color_by="RTData")
 afx.snapshot(width=640, height=400)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"><span class="img-wrapper"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"></span></label></p>
+<p>Every function and method, with its arguments and the text <code>help()</code> shows, is in the
+<a href="#python-api-reference">Python API reference</a>, generated from the module itself.</p>
 <p>The <strong>Help › Python API cheat sheet</strong> window lists the same calls inside the app, and every
 function has a docstring (<code>help(afx.lighting)</code>).</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -1619,7 +1661,12 @@ auraFX’s data crate (the message says which), since the data passes between th
 that layout.</li>
 <li>Errors returned by the plugin show as the filter’s error; a panic in the plugin is caught and
 shown the same way.</li>
-<li>A library loads once per run: after rebuilding a plugin, restart auraFX.</li>
+<li>In a plugin folder only libraries with <code>aurafx</code> in their file name are loaded
+(<code>libaurafx_my_filters.so</code>), so other shared libraries lying there are left alone; a library
+with any name can be added as a file (Edit › Plugins › Add file, or <code>afx.load_plugin(path)</code>).</li>
+<li>A library loads once per run: after rebuilding a plugin, restart auraFX. After updating
+auraFX, rebuild your plugins: one built for another version of the data layout is refused
+with a message that says so.</li>
 <li>Load only libraries you trust: a plugin runs with the same rights as auraFX.</li>
 </ul>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/rust_plugin.png" alt="The Plugins window listing an example Rust plugin, and its Spiral source scaled by its Scale Points filter"><span class="img-wrapper"><img src="images/rust_plugin.png" alt="The Plugins window listing an example Rust plugin, and its Spiral source scaled by its Scale Points filter"></span></label></p>
@@ -2397,6 +2444,8 @@ takes precedence over the built-in reader for its extensions and appears in the 
 <strong>keep the view’s shape</strong> ties width and height together. Point sizes and line widths are
 in pixels, so they look thinner in a larger picture.</li>
 <li><strong>Background › transparent</strong> saves a PNG with an alpha channel, with clean edges.</li>
+<li>The file’s extension chooses the format: <strong>PNG</strong> (the default), <strong>JPEG</strong> (smaller, no
+transparency), <strong>BMP</strong>, <strong>TIFF</strong>, or <strong>SVG</strong> for a vector picture.</li>
 <li><strong>Annotations</strong> includes the legend, axes-grid labels, time label, text annotations and
 the orientation axes, laid out as on screen and scaled with the picture.</li>
 <li><strong>PNG</strong> or <strong>SVG</strong>: an SVG holds the surfaces as shaded polygons sorted back to front, the
@@ -2408,6 +2457,7 @@ if needed).</li>
 <pre><code class="language-python">afx.screenshot("fig.png")                               # the view as shown
 afx.screenshot("fig.png", width=3840, transparent=True) # keeps the view's shape
 afx.screenshot("fig.png", width=1600, height=900, annotations=False)
+afx.screenshot("fig.jpg")                               # JPEG, BMP (.bmp) or TIFF (.tif) by the extension
 afx.screenshot("fig.svg")
 </code></pre>
 <p><code>afx.screenshot</code> returns only when the file is written, so a script can change the camera or
@@ -2438,10 +2488,12 @@ their colors, as:</p>
 <tr><td><strong>glTF binary</strong> (<code>.glb</code>)</td><td>for Blender, three.js, PowerPoint, Windows 3D Viewer; vertex colors, normals, translucency, materials (metallic, roughness)</td></tr>
 <tr><td><strong>OBJ</strong> (<code>.obj</code>)</td><td>with vertex colors after the coordinates (Blender and MeshLab read them)</td></tr>
 <tr><td><strong>X3D</strong> (<code>.x3d</code>), <strong>VRML</strong> (<code>.wrl</code>)</td><td>absolute coordinates, vertex colors</td></tr>
+<tr><td><strong>Web page</strong> (<code>.html</code>)</td><td>one file that opens in any browser and shows the scene in 3D: drag to turn it, Shift+drag (or two fingers) to move, wheel or pinch to zoom, double-click to reset. Everything is inside the file (no server, nothing loaded from the network), so it can be mailed or put on a web site as it is. Surfaces, lines and points with their colors; simple lighting; the size grows with the number of triangles (about 55 bytes each vertex)</td></tr>
 </tbody>
 </table>
 </div>
 <p>Volumes are not exported (they are not geometry).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/export_html.png" alt="A scene exported as a web page, open in a browser"><span class="img-wrapper"><img src="images/export_html.png" alt="A scene exported as a web page, open in a browser"></span></label></p>
 <h2 id="animations"><a class="header" href="#animations">Animations</a></h2>
 <p><strong>File › Animation…</strong> records the time steps, a turntable or the keyframes as <strong>GIF</strong>, <strong>MP4</strong> or
 <strong>WebM</strong> (VP9, for web pages; both need <code>ffmpeg</code> on the PATH) or a folder of PNG frames, of the active 3D view or of all views as laid
@@ -2490,7 +2542,7 @@ EnSight, Xdmf, CGNS), the Save dialog writes every step.</p>
 </thead>
 <tbody>
 <tr><td><strong>Template</strong></td><td>LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, DAMASK, FFT texture file, LAMMPS polycrystal, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below)</td></tr>
-<tr><td><strong>Run on</strong></td><td>this computer, or a remote machine from the SSH list; <strong>via Slurm</strong> submits with <code>sbatch</code> there (partition, time and extra <code>#SBATCH</code> lines appear)</td></tr>
+<tr><td><strong>Run on</strong></td><td>this computer, or a remote machine from the SSH list; <strong>through a scheduler</strong> submits the job to the machine’s batch system instead: <strong>Slurm</strong> (<code>sbatch</code>), <strong>PBS</strong> (<code>qsub</code>; PBS Professional, OpenPBS, Torque) or <strong>LSF</strong> (<code>bsub</code>). The partition or queue, the time limit, the nodes and extra directive lines appear; auraFX follows the job’s state and log and collects its exit code</td></tr>
 <tr><td><strong>Name</strong>, <strong>Working directory</strong></td><td>where the run lives; a remote directory when running over SSH</td></tr>
 <tr><td><strong>Program</strong>, <strong>Input</strong>, <strong>MPI processes</strong></td><td>the command line is assembled from these and shown below, editable</td></tr>
 <tr><td><strong>GPU</strong></td><td>None, Any, NVIDIA or AMD; the panel finds the GPUs on the host and sets the solver’s flags (LAMMPS GPU package, <code>CUDA_VISIBLE_DEVICES</code> / <code>HIP_VISIBLE_DEVICES</code>)</td></tr>
@@ -2565,6 +2617,13 @@ v = afx.voronoi_grains(cells=[64, 64, 64], grains=200, periodic=True)
 afx.simulation_case(v, "damask", "~/runs/damask", material="Copper", strain=0.05, steps=100)
 afx.simulation_case(v, "fft", "~/runs/fft")
 afx.simulation_case(v, "lammps", "~/runs/md", material="Aluminium", angstrom_per_unit=5)
+</code></pre>
+<p><code>slurm</code> is the batch scheduler’s settings as a dictionary, for Slurm, PBS or LSF:</p>
+<pre><code class="language-python">afx.submit("mpirun lmp -in in.melt", host="cluster", workdir="~/runs/melt",
+           slurm={"partition": "short", "time": "00:30:00", "nodes": "2", "tasks": "64"})
+afx.submit("mpirun lmp -in in.melt", host="cluster", workdir="~/runs/melt",
+           slurm={"system": "pbs", "queue": "short", "time": "00:30:00", "nodes": "2", "tasks": "64",
+                  "extra": "-A myproject"})          # "system": "lsf" for LSF
 </code></pre>
 <p><code>run_case</code> takes <code>host</code>, <code>exe</code> (the solver program), <code>np</code>, <code>slurm</code>, <code>auto_load</code> and <code>wait</code> as
 <code>afx.submit</code> does, plus the case options: <code>material</code>, <code>axis</code>, <code>strain</code>, <code>steps</code>, <code>end_time</code>,
@@ -2707,7 +2766,9 @@ needs the whole data) run on the server’s main process with the pieces put tog
 command</em> with <code>{n}</code> for the number of processes and <code>{cmd}</code> for the worker command (for example
 <code>mpiexec -n {n} -hostfile hosts {cmd}</code>). The server opens a port, runs the launcher, and each
 rank (from <code>OMPI_COMM_WORLD_RANK</code>, <code>PMI_RANK</code>, <code>PMIX_RANK</code> or <code>SLURM_PROCID</code>) connects back with
-a one-time token and holds its piece. The ranks must be able to reach the server’s machine
+a one-time token and holds its piece. The token travels in the environment
+(<code>AURAFX_RANK_TOKEN</code>), not on the command line; a launcher that does not pass the environment
+on to other nodes needs it named in the command (for Open MPI, <code>-x AURAFX_RANK_TOKEN</code>). The ranks must be able to reach the server’s machine
 (<code>AURAFX_CONNECT_HOST</code> sets the address they use, by default its host name); a launch that ends
 early, or ranks that do not connect within 60 seconds, give an error naming the command.</p>
 <pre><code class="language-python">big = afx.load("/scratch/run/out.pvtu", host="cluster", processes=64, launcher="srun")
@@ -3594,7 +3655,15 @@ have their own generators, and bricks and cylinders built with commands can be m
 <h2 id="the-geometry-source"><a class="header" href="#the-geometry-source">The Geometry source</a></h2>
 <p>Add it with <strong>Sources › Geometry</strong>. Its Properties show:</p>
 <ul>
-<li><strong>Commands</strong>: the command list, edited in the box and applied with <strong>Apply</strong>.</li>
+<li><strong>Commands</strong>: the command list, edited in the box and applied with <strong>Apply</strong>. The <strong>Insert</strong>
+menus under the box (<em>Shape</em>, <em>Outline</em>, <em>Combine</em>, <em>Move</em>, <em>Mesh</em>, <em>Names and sets</em>) add a
+command with example numbers at the end, each with a line saying what it does, so the
+commands need not be remembered: insert, change the numbers, Apply.</li>
+<li><strong>From geometry to a mesh</strong>: the six steps as a checklist with a button each. <em>Mesh every
+body</em> writes the mesh command, sized to a twentieth of the model, and shows the hexahedra;
+<em>Surface / Hex mesh / Tet mesh</em> switch what is shown; <em>Mesh Quality</em> adds the filter that
+finds distorted elements; <em>Save data…</em> writes the mesh with its blocks and sets for a solver.
+A tick appears as each step is done. <strong>Model › New geometry</strong> adds the source and opens here.</li>
 <li><strong>Bodies</strong>: a tree of the bodies the commands make. It shows how each body was built and
 lists its faces with their numbers and names. A mistake in a command shows here, with the
 line it is on.</li>
@@ -3608,6 +3677,7 @@ each point.</li>
 <code>SurfaceArea</code>. Color by <code>FaceId</code> to see the faces.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_part.png" alt="A plate with two holes, a revolved and rounded boss, a swept pipe and a torus, built with commands and colored by face"><span class="img-wrapper"><img src="images/geometry_part.png" alt="A plate with two holes, a revolved and rounded boss, a swept pipe and a torus, built with commands and colored by face"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_panel.png" alt="The Geometry source in the window: its commands, the Bodies tree with how each body was made, and the result colored by face"><span class="img-wrapper"><img src="images/geometry_panel.png" alt="The Geometry source in the window: its commands, the Bodies tree with how each body was made, and the result colored by face"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_steps.png" alt="The Insert menus under the commands and the steps from geometry to a mesh, after Mesh every body"><span class="img-wrapper"><img src="images/geometry_steps.png" alt="The Insert menus under the commands and the steps from geometry to a mesh, after Mesh every body"></span></label></p>
 <h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
 <p>Write one command per line, or separate commands with <code>;</code>. Text after <code>#</code> is a comment.
 Bodies, outlines and faces are numbered from 1 in the order they are made. Sizes are in
@@ -4309,26 +4379,64 @@ is open:</p>
 <ul>
 <li>the toolbar becomes the <strong>ribbon</strong> (every button with an icon and its name) with tabs <em>Sketch</em>, <em>Features</em>, <em>Modify</em>, <em>Inspect</em>,
 <em>Assemble</em> and <em>Files</em> (Alt+1 to Alt+6). Each button adds a feature with sensible sizes at
-the top of the part; you then set its numbers in the PropertyManager. <em>Inspect</em> reads the part
+the top of the part; you then set its numbers in the feature panel. <em>Inspect</em> reads the part
 (volume, surface, size, center, mass for a density, the area of a cross-section); <em>Assemble</em>
 places other parts (see below); <em>Files</em> starts from a template or opens and saves a document.</li>
-<li>the Pipeline panel becomes the <strong>FeatureManager</strong>: the part’s dimensions, its features in
+<li>the Pipeline panel becomes the <strong>Model tree</strong>: the part’s dimensions, its features in
 order (the checkbox suppresses one; double-click renames; right-click for <em>Suppress</em>,
 <em>Roll back to here</em>, <em>Move up</em>, <em>Move down</em>, <em>Delete</em>), the modifiers on the whole part and
-the configurations.</li>
-<li>the Properties panel becomes the <strong>PropertyManager</strong>: every field of the selected feature.
+the <strong>configurations</strong>: named sets of dimension values, variants of one part. Type a name and
+press <em>Save values</em> to keep the dimensions’ present values under it (saving under an existing
+name replaces it), click a configuration to make it the active one, × removes it. The parts
+of an assembly are listed under <em>Components</em>: click one to move or turn it, double-click to
+rename it.</li>
+<li>the Properties panel becomes the <strong>Feature panel</strong>: every field of the selected feature.
 Each number accepts an expression of the dimensions: type <code>width / 2</code> instead of a number
 and the field follows the dimension (the value it gives is shown beside it). Choices (the
 end condition of an extrusion, the type of a hole, a mirror plane) are menus. With no
 feature selected it shows the part itself and its faces.</li>
 <li>the <strong>timeline bar</strong> at the bottom lists the features in order. The orange marker is the
 <em>rollback marker</em>: only the features before it are built, so you can look at the part as it
-was after the third feature, or insert a hole earlier in the history. ◀ ▶ move it.</li>
+was after the third feature, or insert a hole earlier in the history: a feature added while
+rolled back goes in at the marker. ◀ ▶ move it. Apply always hands over the whole part.</li>
 <li>the menu bar gains a <strong>CAD</strong> menu, and the part is built again after every edit, in the
 background (the timeline shows the time it took and the part’s volume).</li>
 <li><strong>the pipeline is paused.</strong> Other 3D views, charts and spreadsheets stay as they were and
 say so in a grey banner; nothing downstream re-runs on every edit.</li>
 </ul>
+<h3 id="finding-your-way"><a class="header" href="#finding-your-way">Finding your way</a></h3>
+<p>You do not need to know where a command is:</p>
+<ul>
+<li><strong>Next</strong>, at the top of the model tree, follows what you are doing and offers the steps that
+make sense now as buttons: on an empty part <em>Sketch on the Top plane</em>, <em>Box</em> and <em>Start from a
+template</em>; in a sketch it says whether the outline is closed and how many degrees of freedom
+are left, and offers <em>Extrude</em>; when the part does not build it shows the reason and <em>Undo</em>.
+The same sentence is in the status bar at the bottom of the window.</li>
+<li><strong>Command search</strong>: press <strong>S</strong> in the 3D view (or Ctrl+K, or the <em>Search</em> button beside the
+tabs). A small box opens at the pointer; type a few letters (<code>fil</code>, <code>hole</code>, <code>export</code>) and
+press Enter. Each result says which tab it is on, so you can find the button next time.</li>
+<li><strong>Right-click a face</strong> of the part in the 3D view: its name, kind and area, and what can be
+done with it (<em>Sketch on this face</em>, <em>Fillet edges…</em>, <em>Shell</em>, <em>Pattern holes</em>, <em>Mirror</em>,
+<em>Select its feature</em>). Right-click a feature in the tree or the timeline for <em>Suppress</em>,
+<em>Roll back to here</em> and the rest.</li>
+<li><strong>Hover</strong> over any button for what it does; a greyed button says why it cannot be used yet
+(<em>Apply</em> when the part does not build, a constraint without the right selection, <em>Extrude</em>
+without a closed outline).</li>
+<li>A feature that stops the part from building is <strong>red with a warning sign</strong> in the tree, and
+the reason stays at the top of the feature panel, with an <em>Undo the last change</em> button,
+until the part builds again. A feature marked <strong>≈</strong> is shown roughly by the kernel in use.</li>
+<li><strong>Keys</strong>: Alt+1…6 the tabs, Ctrl+Enter Apply, Esc leave, Delete and F2 on the selected feature,
+Ctrl+Z / Ctrl+Shift+Z undo and redo (inside an open sketch they undo the sketch’s own
+changes); in a sketch L line, R rectangle, C circle, A arc, P point.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_next_steps.png" alt="An empty part: the Next strip at the top of the model tree offers the first steps, and the Sketch tab is open"><span class="img-wrapper"><img src="images/cad_next_steps.png" alt="An empty part: the Next strip at the top of the model tree offers the first steps, and the Sketch tab is open"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_command_search.png" alt="The command search opened with S: typing “fil” lists the fillet commands and the tab each is on"><span class="img-wrapper"><img src="images/cad_command_search.png" alt="The command search opened with S: typing “fil” lists the fillet commands and the tab each is on"></span></label></p>
+<p>While you edit, the part is rebuilt after every change. With the node’s <strong>Kernel</strong> on <em>Auto</em>
+the quick distance-field kernel does that, unless the part has features only the exact kernel
+can show (fillets, chamfers and drafts on picked edges or faces, shells with picked open
+faces): then the exact B-rep kernel builds it, which can take a few seconds, and a feature it
+could only approximate is marked ≈. A kernel chosen on the node (<em>B-rep</em> or <em>Implicit</em>) is
+used as it is. Apply always builds with the node’s setting.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_environment.png" alt="The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline"><span class="img-wrapper"><img src="images/cad_environment.png" alt="The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_inspect.png" alt="The Inspect tab: the bracket template’s volume, surface, size, center of volume, mass for a density and a cross-section area"><span class="img-wrapper"><img src="images/cad_inspect.png" alt="The Inspect tab: the bracket template’s volume, surface, size, center of volume, mass for a density and a cross-section area"></span></label></p>
 <p><strong>Starter parts.</strong> <em>Files › New from template</em> (or <code>afx.cad_model(template="flange")</code>) replaces the
@@ -4405,13 +4513,13 @@ highest face, to add a boss or cut a pocket).</li>
 <li><strong>A face…</strong> opens the face picker: click any flat face of the part in the 3D view (or tick it
 in the list) and press <strong>Apply</strong>. Slanted faces work too: the sketch lies on the face, its x
 axis along the world’s x (or y) laid flat on it. With no feature selected, <em>Faces</em> in the
-PropertyManager also has <strong>Sketch here</strong> next to each flat face.</li>
+Feature panel also has <strong>Sketch here</strong> next to each flat face.</li>
 <li>A <strong>reference plane</strong> (each one has a button in the tab), made with <strong>Plane…</strong>.</li>
 </ul>
-<p>To change an existing feature’s sketch, right-click it in the FeatureManager and choose <strong>Edit
+<p>To change an existing feature’s sketch, right-click it in the model tree and choose <strong>Edit
 sketch…</strong>, or press <strong>Edit sketch…</strong> in its properties.</p>
 <h3 id="reference-planes"><a class="header" href="#reference-planes">Reference planes</a></h3>
-<p><strong>Plane…</strong> opens a form in the PropertyManager that makes a named plane, kept with the part:</p>
+<p><strong>Plane…</strong> opens a form in the feature panel that makes a named plane, kept with the part:</p>
 <ul>
 <li><strong>From a plane</strong>: Top, Front, Right or another reference plane, moved by an <strong>Offset</strong> along its
 normal and turned by an <strong>Angle</strong> about its own x or y axis.</li>
@@ -4420,7 +4528,7 @@ normal and turned by an <strong>Angle</strong> about its own x or y axis.</li>
 sketch’s x axis runs from point 1 to point 2.</li>
 </ul>
 <p>The planes show as dashed squares with their names in the 3D view, and are listed under
-<em>Reference planes</em> in the PropertyManager (no feature selected) with <strong>Sketch</strong> and <strong>×</strong>
+<em>Reference planes</em> in the feature panel (no feature selected) with <strong>Sketch</strong> and <strong>×</strong>
 (remove; sketches already drawn on a plane keep their place). A sketch on a plane 20 above the
 top plane, turned 30° about its x axis, extrudes along the turned normal in both kernels.</p>
 <pre><code class="language-python">m.cad.plane(name="Tilted", from_plane="XY", offset=20, angle=30, about="x")
@@ -4440,7 +4548,7 @@ arcs, <strong>midpoints</strong> of lines, <strong>quadrants</strong> of circles
 <strong>on curves</strong>, and the <strong>grid</strong>. While drawing, dashed <strong>guide lines</strong> show when the cursor
 lines up horizontally or vertically with a point, also one far away or the last point of the
 shape, and the point lands on that line. Each kind is switched on or off under <em>Snap</em> in the
-PropertyManager, with the grid step; hold <code>Ctrl</code> to place a point freely. A point placed on a
+Feature panel, with the grid step; hold <code>Ctrl</code> to place a point freely. A point placed on a
 midpoint, a curve or an intersection is constrained there (midpoint, on line, on circle).</li>
 <li><strong>Select</strong> shapes and points by clicking (Shift adds); drag a point to move it. Right or
 middle mouse drag pans, the wheel zooms, <code>Esc</code> ends a chain, <code>Del</code> deletes.</li>
@@ -4453,7 +4561,7 @@ equal, tangent, concentric, coincident, midpoint, on line, on circle, symmetric,
 expression of the part’s dimensions (<code>width / 2</code>, <code>3 in</code>), and press <code>Enter</code>; the sketch follows
 the dimension from then on. Dimensions are drawn with extension lines and arrows (an arc for
 an angle, a leader for a radius or diameter). <strong>Drag a label</strong> to move it where it reads best,
-and <strong>double-click</strong> it to change the value. The <strong>Constraints</strong> list in the PropertyManager
+and <strong>double-click</strong> it to change the value. The <strong>Constraints</strong> list in the feature panel
 edits the same values.</li>
 </ul>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_snap.png" alt="Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension’s value open for typing"><span class="img-wrapper"><img src="images/cad_snap.png" alt="Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension’s value open for typing"></span></label></p>
@@ -4463,7 +4571,7 @@ edits the same values.</li>
 defined, and <strong>red</strong> when constraints conflict (remove one). <em>Construction</em> turns the
 selected shapes into guides that are not part of the outline.</li>
 </ul>
-<p>Finish from the PropertyManager: <strong>Extrude</strong> (or <strong>Cut</strong>, for a pocket) with a depth that may be
+<p>Finish from the feature panel: <strong>Extrude</strong> (or <strong>Cut</strong>, for a pocket) with a depth that may be
 an expression, <strong>reverse</strong> to go against the plane’s normal, <strong>Revolve</strong> about the plane’s
 vertical axis (draw on the Front plane with x as the radius), or <strong>Apply sketch</strong> when you
 edited the sketch of an existing feature. The sketch then becomes a feature with named faces:
@@ -4516,7 +4624,7 @@ need that reader installed to run).</p>
 the face under the pointer, or, for an edge, the edge of that face the click is nearest to (click
 again to un-choose). Chosen edges are drawn in orange and chosen faces are marked with a dot.</p>
 <ul>
-<li><strong>Fillet edges…</strong> and <strong>Chamfer edges…</strong> open a picker in the PropertyManager that <strong>lists the
+<li><strong>Fillet edges…</strong> and <strong>Chamfer edges…</strong> open a picker in the feature panel that <strong>lists the
 part’s edges</strong>, each with the two faces it lies between (<code>Base z+ × Bore side</code>), its length and
 whether it is curved. Tick the edges, set the size (a number or an expression of the
 dimensions) and press <strong>Apply</strong>: a <em>Fillet</em> or <em>Chamfer</em> feature is added after the features it
@@ -4544,20 +4652,24 @@ mirrors work on both kernels.
 <strong>Fillet</strong> and <strong>Chamfer</strong> without a picker round every edge of the selected feature or of the
 whole part.</p>
 <p>The <strong>Inspect</strong> tab and Python read the part: mass (volume, surface, center, bounds, mass for a
-density), the distance between two parallel flat faces and the angle between two faces, and the
-volume two parts overlap when one is placed against the other:</p>
+density), the distance between two parallel flat faces and the angle between two faces (in the
+tab: choose the two faces in the lists after <em>between</em> and press <strong>Distance</strong>), and the
+volume two parts overlap when one is placed against the other. A sketch-extruded feature names
+its faces <code>top</code>, <code>bottom</code> and <code>side 1</code>, <code>side 2</code>… in the order its outline was drawn (the
+default plate: <code>Base side 1</code> at the front, then counter-clockwise); right-click a face in the
+3D view to read its name.</p>
 <pre><code class="language-python">b = afx.cad_model()                                  # the default plate
 b.cad.edges()                                        # [{'index': 0, 'point': [...], 'length': 30.0,
                                                      #   'faces': ['Base bottom', 'Base side 1'], ...}, ...]
-b.cad.fillet_edges(("Base z+", "Base side 2"), size=2)   # the edge between two named faces
+b.cad.fillet_edges(("Base top", "Base side 2"), size=2)  # the edge between two named faces
 b.cad.chamfer_edges([0, 3, 5], size=1)               # edges by index (or a point on each)
-b.cad.shell_faces(["Base z+"], thickness=2)          # an open box
+b.cad.shell_faces(["Base top"], thickness=2)         # an open box
 b.cad.draft(["Base side 1"], angle=5)                # taper a face, fixed at the bottom plane
-b.cad.mirror_about("Base x-", (1, 0, 0))             # the reflection about that face, joined to the part
-b.cad.edit("face_pattern", face="Base z+", layout="circular", count=6, radius=12, diameter=4, depth=6)
+b.cad.mirror_about("Base side 4", (1, 0, 0))         # the reflection about that face (the one at x = -20)
+b.cad.edit("face_pattern", face="Base top", layout="circular", count=6, radius=12, diameter=4, depth=6)
 b.cad.edit("combine", template="flange", op="subtract", at=(0, 0, 4))   # cut another part from this one
 b.cad.mass(7.85)                                     # steel
-b.cad.measure_faces("Base x-", "Base x+")            # {'parallel': True, 'distance': 40.0, ...}
+b.cad.measure_faces("Base side 4", "Base side 2")    # {'parallel': True, 'distance': 40.0, ...}
 b.cad.interference(other, at=(12, 6, 0))             # overlap volume with another CAD Model placed there
 </code></pre>
 <h2 id="assemblies"><a class="header" href="#assemblies">Assemblies</a></h2>
@@ -4649,9 +4761,16 @@ hexahedra, <strong>Tet Mesh</strong> into tetrahedra, <strong>Assign Grains</str
 Face names carry through: an extracted set or a boundary layer can name <code>Bore side</code>.</p>
 <h2 id="limits-2"><a class="header" href="#limits-2">Limits</a></h2>
 <ul>
-<li>The kernel used here describes the part as a distance field. It never fails on a hard
+<li>The Implicit kernel describes the part as a distance field. It never fails on a hard
 combination of features, but edges are not exact lines: the faces it reports are labelled
-regions of the surface, and the same labels come back after every rebuild.</li>
+regions of the surface. The B-rep kernel is exact but refuses a few things (a feature-level
+mirror of a shape that is not symmetric, a sweep): <em>Auto</em> then falls back and says so.</li>
+<li>A sketch on a face is placed where the face was when you picked it; it does not follow the
+face if an earlier feature later moves it. Deleting or adding a line of a sketch renumbers the
+<code>side N</code> faces after it.</li>
+<li>Sweeps and lofts exist in the document (the vase template uses one) but have no button yet.</li>
+<li>A dimension that makes a sketch impossible (constraints that contradict each other) is
+refused, and the part keeps its last valid state.</li>
 <li>Sketches start on the principal planes, on reference planes and on flat faces; a curved face
 cannot be sketched on.</li>
 <li>Components are placed rigidly, by position and turn; there are no mates or motion. A component
@@ -8572,6 +8691,282 @@ color blindness.</p>
 <h3 id="temporal-statistics"><a class="header" href="#temporal-statistics">Temporal Statistics</a></h3>
 <p>Average, minimum, maximum and standard deviation of every array over all time steps.</p>
 <p>Python: <code>temporal_statistics</code> · also found by: time average, mean over time, max over time, std over time</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="python-api-reference"><a class="header" href="#python-api-reference">Python API reference</a></h1>
+<!-- Generated from the aurafx module by crates/aurafx-python/tests/api_reference.rs; do not edit. -->
+<p>Every function of the <code>aurafx</code> module (<code>import aurafx as afx</code>) and every method of the objects it returns, with the text <code>help()</code> shows for it. Filters and sources are not repeated here: each is <code>node.&lt;name&gt;(...)</code> or <code>afx.&lt;name&gt;(...)</code> with the settings listed in the <a href="#filter-reference">filter reference</a>. The <a href="#python">Python chapter</a> introduces the API by task.</p>
+<h2 id="functions"><a class="header" href="#functions">Functions</a></h2>
+<ul>
+<li><code>afx.active()</code></li>
+<li><code>afx.active_view(index)</code>: Make a 3D view active by number (0 = main view, 1, 2, … = views added with split_view). Returns when the view is active, so <code>node.hide()</code> and the like that follow apply to it.</li>
+<li><code>afx.animation(frames=None, time=None)</code>: Keyframe animation settings: number of frames, and whether time steps play along.</li>
+<li><code>afx.animation_time(t)</code>: Show the keyframe animation at time t (0..1).</li>
+<li><code>afx.annotate(text, corner='upper left', size=16.0)</code>: Add a text label to the 3D views. corner: “upper left”, “upper right”, “lower right”, “upper center”, “lower center”.</li>
+<li><code>afx.apply(filter_id, input=None, **kwargs)</code></li>
+<li><code>afx.apply_multi(filter_id, inputs, **kwargs)</code>: Add a multi-input filter: <code>afx.apply_multi("append_datasets", [a, b, c])</code>.</li>
+<li><code>afx.ask(text, agent=False, view=False)</code>: Send a request to the AI assistant panel. With agent=True it runs its code and iterates; with view=True a picture of the 3D view goes with it (for models that see images).</li>
+<li><code>afx.assistant_prompt(name)</code>: Put a saved prompt (by name) in the assistant’s box, the selected object filled in.</li>
+<li><code>afx.assistant_status()</code>: The assistant panel’s state: busy (an answer is arriving), agent (agent mode is iterating), the number of messages, the last answer, the last error and the last messages as (role, text). Empty values without the app.</li>
+<li><code>afx.cad_check(node=None)</code>: The downstream check of the CAD environment that is open (see node.cad.check()).</li>
+<li><code>afx.cancel(id)</code></li>
+<li><code>afx.chart_view(node=None, y=None, x=None, style=None, data=None, log_x=None, log_y=None, title=None, view=None)</code>: Open a chart view, or change one: <code>afx.chart_view(line, y=["T", "p"], x="arc_length")</code>. <code>node</code> is the object it plots (None: whichever object is selected); <code>y</code> one array name or a list; <code>x</code> an array name or “index”; <code>style</code> “lines”, “points”, “markers” or “bars”; <code>data</code> “auto”, “points” or “cells”. With <code>view=n</code> the existing view n is changed (0 = the Charts panel). Returns the view’s number.</li>
+<li><code>afx.chart_views()</code>: The chart views: a list of dicts (view, node, x, y, style, data, log_x, log_y, title).</li>
+<li><code>afx.clear()</code></li>
+<li><code>afx.clear_annotations()</code></li>
+<li><code>afx.clear_keyframes()</code>: Remove every camera keyframe and parameter track.</li>
+<li><code>afx.clear_plots()</code></li>
+<li><code>afx.clear_selection()</code></li>
+<li><code>afx.close_chart_view(view)</code>: Close chart view <code>view</code> (0, the Charts panel, is hidden instead).</li>
+<li><code>afx.colormaps()</code>: Names of the available color maps (built-in and user presets).</li>
+<li><code>afx.define_colormap(name, points)</code>: Define (or replace) a user color map from [[t, r, g, b], …] with values in 0..1.</li>
+<li><code>afx.describe()</code></li>
+<li><code>afx.display(obj)</code>: Show something in the notebook when auraFX runs as a Jupyter kernel: a picture file (.png, .jpg, .gif, .svg), PNG bytes, or any object (as text). In the app’s console it prints a line.</li>
+<li><code>afx.export_scene(path)</code>: Export the visible objects as a 3D scene: <code>afx.export_scene("scene.glb")</code> (glTF binary, for Blender, three.js, PowerPoint, …) or <code>.obj</code> (with vertex colors).</li>
+<li><code>afx.filter(_fn=None, *, label=None, category='Plugins', description=None, params=None, inputs=1, keywords=(), id=None)</code>: Register a filter. The function gets an afx.Data (or a list of them when inputs != 1) and keyword parameters, and returns an afx.Data (or None after changing its input in place). inputs: 1, an exact count, or (min, max) with max None for any number.</li>
+<li><code>afx.filters()</code></li>
+<li><code>afx.get(name)</code></li>
+<li><code>afx.gpu_benchmark(half=100)</code>: Time Contour and Slice with and without the GPU on a wavelet of (2 half + 1)^3 points: a list of {“filter”, “cpu_s”, “gpu_s”} (empty without a GPU).</li>
+<li><code>afx.gpu_filters(on=None)</code>: Use the GPU for filters (Contour and Slice on big grids; the results are the same): <code>afx.gpu_filters(False)</code> turns it off; returns {“device”: name or None, “on”: bool}.</li>
+<li><code>afx.gpus(host=None)</code>: GPUs on a host (local by default): list of dicts.</li>
+<li><code>afx.help_filter(id)</code></li>
+<li><code>afx.hide_panel(name)</code>: Close a panel (it can be reopened from the Windows menu or with show_panel).</li>
+<li><code>afx.hosts()</code></li>
+<li><code>afx.import_colormaps(path)</code>: Load ParaView color map presets (.json) as user presets. Returns their names.</li>
+<li><code>afx.import_pipeline(path, input=None)</code>: Build a pipeline from a pipeline file: a .json pipeline (numbered steps, the layout .dream3d files record) or the pipeline inside a .dream3d file. Steps that read files open them when they exist; otherwise the pipeline starts from <code>input</code> (a node). Returns the new nodes; steps without an auraFX filter are listed in the console.</li>
+<li><code>afx.job(id, tail=50)</code>: Status of a job (dict with state, exit_code, log tail, outputs).</li>
+<li><code>afx.jobs()</code></li>
+<li><code>afx.key_camera(t, interp='linear')</code>: Keyframe the current 3D view camera at animation time t (0..1); <code>interp</code> says how it moves on to the next key: “linear”, “step”, “ease in”, “ease out”, “ease in-out”, “exponential”.</li>
+<li><code>afx.layout(name)</code>: Window layout preset: “full”, “visualize”, “analyze”, “script” or “simulate”.</li>
+<li><code>afx.lighting(**options)</code>: 3D view lighting and screen effects, e.g. <code>afx.lighting(shadows=True, ssao=True)</code>.  Options: light_kit, lights (list of dicts: direction, color, intensity, camera_relative, shadows; [] for the light kit), ambient, shadows, edl, edl_strength, ssao, ssao_strength, ssao_radius, fxaa, tone_mapping (“none”, “reinhard”, “aces”), exposure. <code>afx.lighting()</code> with no options returns the defaults.</li>
+<li><code>afx.link_views(on=True)</code>: Link (or unlink) the cameras of all 3D views.</li>
+<li><code>afx.load(path, host=None, processes=None, launcher=None, stream=None, **kwargs)</code>: Open a file. With <code>host=</code> (a host from the Simulations panel, an ssh alias or user@machine, or “local”) or an <code>ssh://host/path</code> URL, the file is read on that machine by aurafx-server and filters added below it run there too. <code>stream=N</code> reads a file larger than memory in N pieces one after another (on this computer unless <code>host=</code> says otherwise).</li>
+<li><code>afx.load_plugin(path)</code>: Load (or reload) a plugin file from Python: <code>afx.load_plugin("my_tools.py")</code>.</li>
+<li><code>afx.load_remote(host, path)</code>: Copy a file from a host into the local cache and open it.</li>
+<li><code>afx.load_state(path)</code>: Replace the pipeline with the contents of an .afx file.</li>
+<li><code>afx.make_grid(points, cells, types)</code>: An unstructured grid: <code>afx.make_grid(points, cells=[[...], ...], types=[12, ...])</code> with VTK cell type numbers (10 tetra, 12 hexahedron, 5 triangle, …); one type applies to all cells.</li>
+<li><code>afx.make_image(dims, spacing=Ellipsis, origin=Ellipsis)</code>: A uniform grid: <code>afx.make_image(dims=(nx, ny, nz), spacing=(1, 1, 1), origin=(0, 0, 0))</code>.</li>
+<li><code>afx.make_multiblock(blocks, names=None)</code>: A multi-block dataset from several pieces: <code>afx.make_multiblock([a, b], names=None)</code>.</li>
+<li><code>afx.make_points(xyz)</code>: A point cloud (one vertex per point): <code>afx.make_points(xyz)</code>.</li>
+<li><code>afx.make_polydata(points, polys=None, lines=None, verts=None)</code>: A surface: <code>afx.make_polydata(points, polys=[[0,1,2], ...], lines=[[...]], verts=[[...]])</code>.</li>
+<li><code>afx.match_views()</code>: Copy the active view’s camera to every other view once.</li>
+<li><code>afx.nodes()</code></li>
+<li><code>afx.over_time(node, array, stat='max', plot=True)</code>: Statistic of an array over every time step, plotted in the Charts panel. stat: “max”, “min”, “mean”, “sum” or “value” (for global/field variables). Returns (times, values).</li>
+<li><code>afx.panel(title)</code>: Add a panel to the window (Windows &gt; Plugin panels). The function gets a <code>ui</code> and is run when the panel opens and whenever a button is pressed or a value changes: ui.label(text), ui.button(text) -&gt; True on the run its press causes, ui.slider(name, value, lo, hi), ui.number(name, value), ui.checkbox(name, value), ui.text(name, value), ui.choice(name, options, value) give the current value, ui.image(path), ui.separator().</li>
+<li><code>afx.plot(x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=False, view=0)</code>: Add a line to the Charts panel: afx.plot(x, y, label=“T max”).</li>
+<li><code>afx.plugins()</code>: Loaded plugins: [{path, filters, readers, error, enabled}].</li>
+<li><code>afx.points_from(xyz, name='points', **arrays)</code>: Add a dataset built from NumPy arrays as a point cloud node: afx.points_from(xyz, temperature=t).</li>
+<li><code>afx.probe(node, point)</code>: Values of every array of <code>node</code> at a point: {“name”: value, …}. Points outside the data return {}.</li>
+<li><code>afx.reader(extensions, label=None)</code>: Register a reader for file extensions: a function of the path returning an afx.Data.</li>
+<li><code>afx.redo()</code></li>
+<li><code>afx.reset_camera()</code></li>
+<li><code>afx.run()</code></li>
+<li><code>afx.run_case(node, solver, workdir, host=None, exe=None, np=1, auto_load=True, wait=False, slurm=None, **kwargs)</code>: Write a simulation case from a node’s data (see simulation_case) and run it: on this computer in <code>workdir</code>, or on <code>host</code> (the case files are uploaded to <code>workdir</code> there). <code>exe</code> is the solver program (default: solid_mechanics-opt, spk_mpi, pinnacle), <code>np</code> the MPI processes. The results open when the run ends (auto_load). Returns the job id.</li>
+<li><code>afx.save_animation(path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None)</code>: Record an animation: keyframes if any were added (key_camera / node.key), otherwise time steps, or a 360° camera orbit with orbit=frames. The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).  With <code>cue</code>, a Python function called with the animation time t (0..1) before each frame (after the keyframes are applied), the script renders the frames itself and returns when the file is written: <code>afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))</code>.  <code>views="all"</code> records every visible 3D view and chart view as laid out in the window (“charts”, “3d”, “chart N” and “view N” as for <code>afx.screenshot</code>).</li>
+<li><code>afx.save_state(path)</code>: Save the pipeline, display settings and camera to an .afx file.</li>
+<li><code>afx.screenshot(path, width=None, height=None, transparent=False, annotations=True, views=None, controls=False)</code>: Save a picture of the active 3D view: <code>afx.screenshot("fig.png", width=1920)</code>. With <code>views</code>, a picture of several views as they are laid out in the window: “all” (every visible 3D view and chart view), “charts”, “3d”, “chart” (the Charts panel), “chart N” (the chart titled Chart N) or “view N”; <code>controls=True</code> keeps the charts’ boxes and buttons.</li>
+<li><code>afx.select(node, ids, assoc='cells')</code>: Select cells (or points) of a node by flattened index; shown highlighted in the 3D view.</li>
+<li><code>afx.selection()</code>: Current selection as (node, assoc, ids), or None.</li>
+<li><code>afx.servers()</code>: Servers this session talks to: name, whether connected, and the machine’s details.</li>
+<li><code>afx.set_shortcut(action=None, keys='', vim=None)</code>: Bind keys to an action of the window: <code>afx.set_shortcut("screenshot", "Ctrl+P")</code>, several keys with commas, “” for none; <code>vim=True</code> turns on the vim-style view keys (h j k l, + -, 0).</li>
+<li><code>afx.set_theme(mode)</code>: UI theme: “dark”, “light” or “system”.</li>
+<li><code>afx.show_panel(name)</code>: Bring a panel to the front: “3D View”, “Python”, “Assistant”, “Simulations”, “Spreadsheet”, “Log”, …</li>
+<li><code>afx.simulation_case(node, solver, folder, **kwargs)</code>: Write a simulation case from a node’s data into <code>folder</code>: solver “moose” (a grain mesh: mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt, polycrystal.i), “spparks” (a volume with FeatureIds: grains.spparks, in.potts) or “pinnacle” (a grain mesh: mesh.e, orientations_points.csv, case.i). Options: material, axis (‘x’, ‘y’, ‘z’), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature, dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.</li>
+<li><code>afx.simulation_template(name)</code>: Open the Simulations panel on a template: “lammps”, “moose”, “moose_polycrystal”, “spparks”, “pinnacle”, “openfoam”, “python”, “shell” (or its label).</li>
+<li><code>afx.snapshot(width=None, height=None, views=None)</code>: A picture of the active 3D view (views=“all”: every view as laid out) shown in the notebook.</li>
+<li><code>afx.source(_fn=None, *, label=None, category='Plugins', description=None, params=None, keywords=(), id=None)</code>: Register a source: a function of keyword parameters returning an afx.Data.</li>
+<li><code>afx.split_view(direction='right')</code>: Add a 3D view next to the active one: “right” (side by side) or “down” (above/below). The new view becomes active and starts with the same camera and visible objects. Returns its number once it exists (None without the app).</li>
+<li><code>afx.submit(command, host=None, workdir=None, gpu=None, outputs=None, auto_load=False, name=None, env=None, slurm=None, wait=False)</code>: Run a shell command as a job (locally, on an SSH host, or via Slurm). gpu: None, “any”, “nvidia”, “amd”, or e.g. “nvidia:0,1”. Returns the job id.</li>
+<li><code>afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)</code>: Parameter sweep: one job per value; “{var}” in the command is replaced and each run gets its own folder <workdir>/<var>_<value>. Returns the job ids.</value></var></workdir></li>
+<li><code>afx.time(index=None)</code></li>
+<li><code>afx.time_label(on=True)</code>: Show (or hide) the current time in the 3D views.</li>
+<li><code>afx.times()</code></li>
+<li><code>afx.undo()</code></li>
+<li><code>afx.view(direction, up=None)</code>: View from a named direction (“+x”, “-y”, “iso”, …) or a vector [x, y, z] pointing from the data to the camera.</li>
+</ul>
+<h2 id="arraymap"><a class="header" href="#arraymap">ArrayMap</a></h2>
+<p>Dict-like view of one attribute set; values are NumPy copies.</p>
+<ul>
+<li><code>append(value, name)</code>: <code>append(array, name)</code>, the same as <code>self[name] = array</code>.</li>
+<li><code>get(name)</code></li>
+<li><code>keys()</code></li>
+<li><code>set_units(name, units)</code>: Set the units of an array (an empty string clears them).</li>
+<li><code>units(name)</code>: The units of an array (“K”, “m/s”), or None.</li>
+</ul>
+<h2 id="arrayparam"><a class="header" href="#arrayparam">ArrayParam</a></h2>
+<p>A parameter naming an array of the input: array=afx.ArrayParam(vector=False).</p>
+<h2 id="choice"><a class="header" href="#choice">Choice</a></h2>
+<p>A parameter chosen from a list: mode=afx.Choice([“fast”, “accurate”]).</p>
+<h2 id="code"><a class="header" href="#code">Code</a></h2>
+<p>A multi-line text parameter edited in a code box.</p>
+<h2 id="data-1"><a class="header" href="#data-1">Data</a></h2>
+<p>A dataset: <code>points</code>, <code>point_data</code>, <code>cell_data</code>, <code>field_data</code> (NumPy), <code>n_points</code>, <code>n_cells</code>.</p>
+<ul>
+<li><code>CellData</code> (attribute)</li>
+<li><code>FieldData</code> (attribute)</li>
+<li><code>PointData</code> (attribute): ParaView-style names (<code>output.PointData.append(array, "name")</code>).</li>
+<li><code>blocks()</code>: The pieces of a multi-block dataset (copies), or [self] for other data.</li>
+<li><code>bounds</code> (attribute): (xmin, xmax, ymin, ymax, zmin, zmax)</li>
+<li><code>cell_data</code> (attribute)</li>
+<li><code>cells</code> (attribute): Cells as (connectivity offsets, connectivity, VTK cell types) NumPy arrays.</li>
+<li><code>copy()</code></li>
+<li><code>field_data</code> (attribute)</li>
+<li><code>n_cells</code> (attribute)</li>
+<li><code>n_points</code> (attribute)</li>
+<li><code>point_data</code> (attribute)</li>
+<li><code>points</code> (attribute): Point coordinates (N x 3, a copy). Assign to move the points of meshes with explicit points.</li>
+<li><code>type</code> (attribute): “Unstructured Grid”, “Polygonal Mesh”, “Image Data”, …</li>
+</ul>
+<h2 id="filtercall"><a class="header" href="#filtercall">FilterCall</a></h2>
+<p>Callable returned by <code>node.&lt;filter&gt;</code> so that <code>node.slice(normal=[0,0,1])</code> works.</p>
+<h2 id="node"><a class="header" href="#node">Node</a></h2>
+<p>A pipeline node handle.</p>
+<ul>
+<li><code>activate()</code>: Make this the active node (the one the Properties panel and new filters use).</li>
+<li><code>add_array(name, values, assoc='points')</code>: Add a NumPy array as point (or cell) data.</li>
+<li><code>array(name, assoc=None)</code>: Get an array as a NumPy array (copy). <code>assoc</code> is “points”, “cells” or “field”.</li>
+<li><code>arrays()</code>: Array names: {“points”: […], “cells”: […]}.</li>
+<li><code>cad</code> (attribute): The CAD document of a CAD Model node: <code>node.cad.parameter("width", 40)</code>, <code>node.cad.box(...)</code>.</li>
+<li><code>color_by(name=None, assoc=None, component=None, cmap=None, range=None)</code></li>
+<li><code>delete()</code></li>
+<li><code>edit_cad()</code>: Open the CAD environment on this node (a CAD Model): <code>m.edit_cad()</code>.</li>
+<li><code>hide()</code></li>
+<li><code>id</code> (attribute)</li>
+<li><code>info()</code>: Dataset summary as a dict (points, cells, bounds, arrays).</li>
+<li><code>inputs</code> (attribute): All inputs of this node: the pipeline input first, then the extra inputs of multi-input filters.</li>
+<li><code>key(param, t, value=None, interp='linear')</code>: Keyframe parameter <code>param</code> at animation time t (0..1). Without <code>value</code>, the current value is used. Display properties work too: “opacity”, “point_size”, “line_width”, “solid_color”, “edge_color”, “lic_strength”, “volume_opacity”, “volume_threshold”. <code>interp</code> says how the value moves on to the next key (“linear”, “step”, “ease in”, “ease out”, “ease in-out”, “exponential”).</li>
+<li><code>name</code> (attribute)</li>
+<li><code>params</code> (attribute)</li>
+<li><code>pipeline_json()</code>: The pipeline that makes this node, as JSON text (the form .dream3d files record).</li>
+<li><code>plot(*y, x=None, style=None, data=None, log_x=None, log_y=None, title=None)</code>: Plot this object’s arrays in a new chart view: <code>line.plot("T", "p", x="arc_length")</code>. Returns the view’s number (afx.chart_view changes it later).</li>
+<li><code>points</code> (attribute): Point coordinates as an (N, 3) NumPy array.</li>
+<li><code>save(path, all_times=False, pieces=4)</code>: Write this node’s data: .vtu .vtp .vti .vtr .vts .vtm .vtk .vtkhdf .exo .case (EnSight Gold) .xmf (Xdmf + .h5) .cgns .csv .stl .ply .dream3d (with the pipeline) .spparks .tex .inp (Abaqus) .msh (Gmsh) .cas (Fluent) .bdf (Nastran) .mha/.mhd (MetaImage) .png/.tif (image stacks) .pvtu/.pvtp/.pvti (parallel pieces; pieces=4) .pvd (format from the extension). all_times=True writes every time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one mesh), or as an EnSight, Xdmf or .pvd series.</li>
+<li><code>save_pole_figures(folder, families='100, 110, 111', projection='Stereographic', sigma=7.5, size=256, phase=0, structure='', mask='')</code>: Pole figures of every phase as PNG pictures in a folder (phase1_100.png, …): sample x to the right, y up, each phase’s MRD from 0 (dark blue) to its largest value (red). Returns the files written with their largest MRD.</li>
+<li><code>send_to_view(view, keep=False)</code>: Show this object in another 3D view. <code>view</code> is a view number (0 = main view) or “right”/“down” to open a new view holding only this object. By default it is moved (hidden in the other views); keep=True shows it there as well.</li>
+<li><code>set(**kwargs)</code>: Set parameters / display options: node.set(normal=[0,0,1], opacity=0.5).</li>
+<li><code>set_inputs(*nodes)</code>: Replace the extra inputs of a multi-input filter: <code>app.set_inputs(b, c)</code>.</li>
+<li><code>show()</code></li>
+<li><code>update()</code>: Run the pipeline up to this node and return the dataset summary.</li>
+<li><code>watch(on=True, follow_latest=True)</code>: Reload automatically when the file changes (live view of a running simulation).</li>
+</ul>
+<h2 id="nodecad-the-cad-document-of-a-cad-model"><a class="header" href="#nodecad-the-cad-document-of-a-cad-model">node.cad (the CAD document of a CAD Model)</a></h2>
+<p>The parametric document of a CAD Model node. Numbers can be expressions of the document’s parameters (“width / 2”): the geometry then follows the parameter.</p>
+<ul>
+<li><code>activate(name=None)</code></li>
+<li><code>apply(keep_editing=False, fix='default', run='now')</code>: Inside the CAD environment: hand the part to the node and leave (keep_editing=True stays), after the downstream check. fix: “default” (apply the default fixes), “none” (leave what the check found as it is), a list of {“node”, “param”, “value”} fixes, or the text of an assistant’s answer (a JSON list). run: “now”, or “later” (the nodes below wait for run_held()). Returns {“features”, “fixes”, “held”, “kept_editing”}. Outside the environment: bring the node up to date and return its summary.</li>
+<li><code>ask_apply(keep_editing=False)</code>: What the Apply button does in the window: run the downstream check and open its dialog when the nodes below are affected (only useful from a script running in the app).</li>
+<li><code>bind(feature, path, expr)</code>: Drive a numeric field of a feature by an expression; path is a JSON pointer such as /shape/size/0.</li>
+<li><code>box(size=(10, 10, 10), name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), corner_radius=0, blend=0)</code></li>
+<li><code>chamfer_edges(edges, size=1, name=None)</code>: Chamfer picked edges (see fillet_edges).</li>
+<li><code>check()</code>: The downstream check of the changes made in the environment: what changed, the nodes below the part, the conflicts (node, param, reference, what happened, the default fix) and the prompt to ask an assistant for more fixes.</li>
+<li><code>check_fit()</code>: Run the Assemble tab’s Check fit and show the overlaps. In the window only.</li>
+<li><code>circular_pattern(count, total_deg=360, axis='Z', feature=None)</code></li>
+<li><code>clear(name='Part')</code></li>
+<li><code>component_add(name=None, template=None, file=None, document=None, at=(0, 0, 0), rotate=(0, 0, 0))</code>: Place another part: a template (‘flange’), a CAD file (.afxcad, .step, .igs, .3mf, .sc), a document (a dict) or a blank part to model in with component_op(). at / rotate (degrees) place it.</li>
+<li><code>component_interference(resolution=0.5)</code>: The pairs of parts that overlap, with the overlap volume in mm3.</li>
+<li><code>component_move(component, at=None, rotate=None, by=None)</code>: Place a component at a position (and rotation in degrees), or move it by an offset.</li>
+<li><code>component_op(component, op, **args)</code>: Edit a component’s own part with any operation of this API, e.g. component_op(‘Plate’, ‘add’, kind=‘box’, size=[40, 40, 5]).</li>
+<li><code>component_remove(component)</code></li>
+<li><code>component_rename(component, to)</code></li>
+<li><code>component_visible(component, visible=True)</code></li>
+<li><code>components()</code>: The placed parts: name, position, rotation, visibility.</li>
+<li><code>cone(r_bottom=5, r_top=0, height=10, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>configuration(name, **overrides)</code></li>
+<li><code>cylinder(radius=5, height=10, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>discard()</code>: Leave the environment without applying.</li>
+<li><code>document()</code></li>
+<li><code>draft(faces, angle=3, neutral_origin=(0, 0, 0), neutral_normal=(0, 0, 1), name=None)</code>: Taper side faces (names from faces(), or points) by <code>angle</code> degrees about a neutral plane they stay fixed on. The exact kernel builds it; the implicit one leaves the faces vertical and says so.</li>
+<li><code>edges()</code>: The edges of the part as the exact (B-rep) kernel builds it: index, a point on the edge, length, straight, and the names of the faces on either side. Raises when the exact kernel cannot build it.</li>
+<li><code>edit(op, args=None, **kw)</code></li>
+<li><code>editing()</code>: True while the CAD environment is open on this node.</li>
+<li><code>evaluate(resolution=64, kernel='Auto')</code>: Build the part now: volume, area, centroid, bounds, the faces (name, kind, area, centroid, direction), the kernel that built it and notes on what it could not build exactly.</li>
+<li><code>extrude(sketch, depth=10, name=None, op='add', end='blind', draft=0, reverse=False, at=(0, 0, 0), top=None, bottom=None)</code>: Extrude a sketch along its plane’s normal. end: blind, midplane or through_all. top / bottom: {“fillet”: r} or {“chamfer”: d} on the cap edges.</li>
+<li><code>faces(resolution=64)</code></li>
+<li><code>features()</code></li>
+<li><code>fillet(radius, feature=None)</code></li>
+<li><code>fillet_edges(edges, size=1, name=None)</code>: Round picked edges (exact kernel): edges are indices from edges(), points on the edges, or a pair of face names (‘Base z+’, ‘Bore side’) for the edge between them.</li>
+<li><code>grid_pattern(counts, step, feature=None)</code></li>
+<li><code>hole(diameter=5, depth=10, kind='simple', name=None, at=(0, 0, 0), rotate=(0, 0, 0), **kw)</code>: A hole cut downward (-z) from <code>at</code>: kind simple, drilled, counterbore (cb_diameter, cb_depth), countersink (cs_diameter, cs_angle) or tapped (pitch).</li>
+<li><code>info()</code></li>
+<li><code>interference(other, at=(0, 0, 0), rotate=(0, 0, 0), resolution=0.5)</code>: The overlap volume with another CAD Model node placed at <code>at</code> (and rotated by <code>rotate</code> degrees).</li>
+<li><code>linear_pattern(count, step, feature=None)</code></li>
+<li><code>load(path)</code>: Replace the document by a file: .afxcad, or a solid (.step/.stp, .igs, .3mf, .sc, .stl, .obj) as the base feature of a new document.</li>
+<li><code>mass(density=7.85)</code>: Volume, surface, center, bounds and mass (density in g/cm3) of the built part.</li>
+<li><code>measure_faces(a, b)</code>: The distance between two parallel flat faces (or their centers), and the angle between them.</li>
+<li><code>mirror(plane='YZ', feature=None)</code></li>
+<li><code>mirror_about(origin, normal, name=None)</code>: Mirror the part so far about a plane, e.g. a flat face: origin is a point on it (or a face name from faces()), normal its direction. The reflection is joined to the part.</li>
+<li><code>modifier(kind, feature=None, **kw)</code></li>
+<li><code>move(feature, to)</code></li>
+<li><code>open_picker(kind='fillet')</code>: Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror or pattern.</li>
+<li><code>parameter(name, expr, comment='')</code></li>
+<li><code>parameters()</code></li>
+<li><code>plane(name=None, from_plane='XY', offset=0, angle=0, about='x', points=None, origin=None, normal=None, x_axis=None)</code>: A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference plane moved by offset and turned by angle about its x or y axis; or through three points; or by origin and normal. Sketch on it with sketch(plane=name).</li>
+<li><code>plane_form()</code>: Open the New reference plane form in the window.</li>
+<li><code>redo()</code></li>
+<li><code>remove(feature)</code></li>
+<li><code>remove_parameter(name)</code></li>
+<li><code>remove_plane(name)</code></li>
+<li><code>rename(feature, to)</code></li>
+<li><code>revolve(sketch, angle=360, name=None, op='add', at=(0, 0, 0))</code>: Revolve a sketch about its local y axis (on the XZ plane: the world z axis); x is the radius.</li>
+<li><code>rollback(features=None)</code>: Build only the first <code>features</code> features (None: all), like the timeline’s rollback marker.</li>
+<li><code>run_held()</code>: Run the nodes a postponed apply held back.</li>
+<li><code>save(path, kernel='Auto')</code>: Write the part by the file’s extension: .afxcad (the document), .step/.stp, .3mf, .stl, .obj or .sc (SolidCraft). Exact faces and edges when the B-rep kernel builds the part; otherwise a faceted tessellation (the result says which). Returns {“bytes”, “exact”, “note”}.</li>
+<li><code>scale(factor, feature=None)</code></li>
+<li><code>select(feature=None)</code></li>
+<li><code>select_component(name)</code>: Select a component in the feature tree (it shows its position and turn). In the window only.</li>
+<li><code>set(feature, path, value)</code></li>
+<li><code>shell(thickness, feature=None, open_top=None)</code></li>
+<li><code>shell_faces(faces=(), thickness=2, name=None)</code>: Hollow the part so far with this wall, removing the picked faces (names from faces(), or points); no faces: a closed hollow body.</li>
+<li><code>show_tab(name)</code>: Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window.</li>
+<li><code>sketch(plane='XY', offset=0)</code></li>
+<li><code>sketch_cursor(x, y, line_from=None)</code>: For pictures: where the sketch canvas takes the cursor to be (sketch units) when the mouse is elsewhere, optionally drawing a line from point line_from, so snaps and guides show.</li>
+<li><code>sketch_dim_edit(index='first')</code>: Open the value editor of the sketch’s dimension number index (as a double-click does); “first”: the first dimension.</li>
+<li><code>sketch_edit(feature)</code>: Open the sketch canvas on the sketch of an extruded or revolved feature.</li>
+<li><code>sketch_new(plane='XY', offset=0, items=None)</code>: Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready shapes (the items of cad.sketch()). Only useful from a script running in the app.</li>
+<li><code>sketch_on_face()</code>: Open the face picker to start a sketch on a flat face of the part (in the window).</li>
+<li><code>sphere(radius=5, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>split(plane='XY', offset=0, keep_positive=True, feature=None)</code></li>
+<li><code>state()</code></li>
+<li><code>suppress(feature, suppressed=True)</code></li>
+<li><code>template(name)</code>: Start from a template: enclosure, flange, knob, threaded rod, vase or bracket.</li>
+<li><code>thread(major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op='add', at=(0, 0, 0))</code></li>
+<li><code>torus(major=10, minor=2, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>undo()</code></li>
+<li><code>volume(resolution=64)</code></li>
+</ul>
+<h2 id="a-sketch-description-nodecadsketch"><a class="header" href="#a-sketch-description-nodecadsketch">A sketch description (node.cad.sketch)</a></h2>
+<p>A sketch described item by item; pass it to extrude() or revolve().</p>
+<ul>
+<li><code>circle(r, center=(0, 0))</code></li>
+<li><code>polygon(points)</code></li>
+<li><code>rectangle(w, h, corner=None, center=None)</code></li>
+<li><code>regular(sides, r, center=(0, 0))</code></li>
+<li><code>spec()</code></li>
+</ul>
+<h2 id="afxmesh-geometry-commands"><a class="header" href="#afxmesh-geometry-commands">afx.mesh (geometry commands)</a></h2>
+<p>Geometry and meshing. afx.mesh.geometry() starts geometry built from commands.</p>
+<ul>
+<li><code>geometry(commands='')</code></li>
+</ul>
+<h2 id="afxmeshgeometry-a-list-of-commands"><a class="header" href="#afxmeshgeometry-a-list-of-commands">afx.mesh.geometry() (a list of commands)</a></h2>
+<p>Geometry built from commands. g.cmd(‘brick x 2 y 1 z 1’) adds commands (checked at once), g.bodies() lists the bodies and their faces, g.journal() returns every command, g.result(resolution=64, output=‘Surface’) adds the Geometry source to the pipeline.</p>
+<ul>
+<li><code>bodies()</code></li>
+<li><code>cmd(text)</code></li>
+<li><code>journal()</code></li>
+<li><code>result(resolution=64, output='Surface')</code></li>
+</ul>
+<h2 id="ui-inside-an-afxpanel-function"><a class="header" href="#ui-inside-an-afxpanel-function">ui (inside an @afx.panel function)</a></h2>
+<ul>
+<li><code>button(text)</code></li>
+<li><code>checkbox(name, value=False)</code></li>
+<li><code>choice(name, options, value=None)</code></li>
+<li><code>image(path)</code></li>
+<li><code>label(text)</code></li>
+<li><code>number(name, value)</code></li>
+<li><code>separator()</code></li>
+<li><code>slider(name, value, lo, hi)</code></li>
+<li><code>text(name, value='')</code></li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="benchmarks"><a class="header" href="#benchmarks">Benchmarks</a></h1>
 <!-- Written by crates/aurafx-render/tests/benchmarks.rs; run it again to update. -->

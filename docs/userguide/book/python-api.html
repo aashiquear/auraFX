@@ -1,0 +1,512 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Python API reference - auraFX User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-dcbdab5c.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">auraFX User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/aashiquear/auraFX" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="python-api-reference"><a class="header" href="#python-api-reference">Python API reference</a></h1>
+<!-- Generated from the aurafx module by crates/aurafx-python/tests/api_reference.rs; do not edit. -->
+<p>Every function of the <code>aurafx</code> module (<code>import aurafx as afx</code>) and every method of the objects it returns, with the text <code>help()</code> shows for it. Filters and sources are not repeated here: each is <code>node.&lt;name&gt;(...)</code> or <code>afx.&lt;name&gt;(...)</code> with the settings listed in the <a href="filter-reference.html">filter reference</a>. The <a href="python.html">Python chapter</a> introduces the API by task.</p>
+<h2 id="functions"><a class="header" href="#functions">Functions</a></h2>
+<ul>
+<li><code>afx.active()</code></li>
+<li><code>afx.active_view(index)</code>: Make a 3D view active by number (0 = main view, 1, 2, … = views added with split_view). Returns when the view is active, so <code>node.hide()</code> and the like that follow apply to it.</li>
+<li><code>afx.animation(frames=None, time=None)</code>: Keyframe animation settings: number of frames, and whether time steps play along.</li>
+<li><code>afx.animation_time(t)</code>: Show the keyframe animation at time t (0..1).</li>
+<li><code>afx.annotate(text, corner='upper left', size=16.0)</code>: Add a text label to the 3D views. corner: “upper left”, “upper right”, “lower right”, “upper center”, “lower center”.</li>
+<li><code>afx.apply(filter_id, input=None, **kwargs)</code></li>
+<li><code>afx.apply_multi(filter_id, inputs, **kwargs)</code>: Add a multi-input filter: <code>afx.apply_multi("append_datasets", [a, b, c])</code>.</li>
+<li><code>afx.ask(text, agent=False, view=False)</code>: Send a request to the AI assistant panel. With agent=True it runs its code and iterates; with view=True a picture of the 3D view goes with it (for models that see images).</li>
+<li><code>afx.assistant_prompt(name)</code>: Put a saved prompt (by name) in the assistant’s box, the selected object filled in.</li>
+<li><code>afx.assistant_status()</code>: The assistant panel’s state: busy (an answer is arriving), agent (agent mode is iterating), the number of messages, the last answer, the last error and the last messages as (role, text). Empty values without the app.</li>
+<li><code>afx.cad_check(node=None)</code>: The downstream check of the CAD environment that is open (see node.cad.check()).</li>
+<li><code>afx.cancel(id)</code></li>
+<li><code>afx.chart_view(node=None, y=None, x=None, style=None, data=None, log_x=None, log_y=None, title=None, view=None)</code>: Open a chart view, or change one: <code>afx.chart_view(line, y=["T", "p"], x="arc_length")</code>. <code>node</code> is the object it plots (None: whichever object is selected); <code>y</code> one array name or a list; <code>x</code> an array name or “index”; <code>style</code> “lines”, “points”, “markers” or “bars”; <code>data</code> “auto”, “points” or “cells”. With <code>view=n</code> the existing view n is changed (0 = the Charts panel). Returns the view’s number.</li>
+<li><code>afx.chart_views()</code>: The chart views: a list of dicts (view, node, x, y, style, data, log_x, log_y, title).</li>
+<li><code>afx.clear()</code></li>
+<li><code>afx.clear_annotations()</code></li>
+<li><code>afx.clear_keyframes()</code>: Remove every camera keyframe and parameter track.</li>
+<li><code>afx.clear_plots()</code></li>
+<li><code>afx.clear_selection()</code></li>
+<li><code>afx.close_chart_view(view)</code>: Close chart view <code>view</code> (0, the Charts panel, is hidden instead).</li>
+<li><code>afx.colormaps()</code>: Names of the available color maps (built-in and user presets).</li>
+<li><code>afx.define_colormap(name, points)</code>: Define (or replace) a user color map from [[t, r, g, b], …] with values in 0..1.</li>
+<li><code>afx.describe()</code></li>
+<li><code>afx.display(obj)</code>: Show something in the notebook when auraFX runs as a Jupyter kernel: a picture file (.png, .jpg, .gif, .svg), PNG bytes, or any object (as text). In the app’s console it prints a line.</li>
+<li><code>afx.export_scene(path)</code>: Export the visible objects as a 3D scene: <code>afx.export_scene("scene.glb")</code> (glTF binary, for Blender, three.js, PowerPoint, …) or <code>.obj</code> (with vertex colors).</li>
+<li><code>afx.filter(_fn=None, *, label=None, category='Plugins', description=None, params=None, inputs=1, keywords=(), id=None)</code>: Register a filter. The function gets an afx.Data (or a list of them when inputs != 1) and keyword parameters, and returns an afx.Data (or None after changing its input in place). inputs: 1, an exact count, or (min, max) with max None for any number.</li>
+<li><code>afx.filters()</code></li>
+<li><code>afx.get(name)</code></li>
+<li><code>afx.gpu_benchmark(half=100)</code>: Time Contour and Slice with and without the GPU on a wavelet of (2 half + 1)^3 points: a list of {“filter”, “cpu_s”, “gpu_s”} (empty without a GPU).</li>
+<li><code>afx.gpu_filters(on=None)</code>: Use the GPU for filters (Contour and Slice on big grids; the results are the same): <code>afx.gpu_filters(False)</code> turns it off; returns {“device”: name or None, “on”: bool}.</li>
+<li><code>afx.gpus(host=None)</code>: GPUs on a host (local by default): list of dicts.</li>
+<li><code>afx.help_filter(id)</code></li>
+<li><code>afx.hide_panel(name)</code>: Close a panel (it can be reopened from the Windows menu or with show_panel).</li>
+<li><code>afx.hosts()</code></li>
+<li><code>afx.import_colormaps(path)</code>: Load ParaView color map presets (.json) as user presets. Returns their names.</li>
+<li><code>afx.import_pipeline(path, input=None)</code>: Build a pipeline from a pipeline file: a .json pipeline (numbered steps, the layout .dream3d files record) or the pipeline inside a .dream3d file. Steps that read files open them when they exist; otherwise the pipeline starts from <code>input</code> (a node). Returns the new nodes; steps without an auraFX filter are listed in the console.</li>
+<li><code>afx.job(id, tail=50)</code>: Status of a job (dict with state, exit_code, log tail, outputs).</li>
+<li><code>afx.jobs()</code></li>
+<li><code>afx.key_camera(t, interp='linear')</code>: Keyframe the current 3D view camera at animation time t (0..1); <code>interp</code> says how it moves on to the next key: “linear”, “step”, “ease in”, “ease out”, “ease in-out”, “exponential”.</li>
+<li><code>afx.layout(name)</code>: Window layout preset: “full”, “visualize”, “analyze”, “script” or “simulate”.</li>
+<li><code>afx.lighting(**options)</code>: 3D view lighting and screen effects, e.g. <code>afx.lighting(shadows=True, ssao=True)</code>.  Options: light_kit, lights (list of dicts: direction, color, intensity, camera_relative, shadows; [] for the light kit), ambient, shadows, edl, edl_strength, ssao, ssao_strength, ssao_radius, fxaa, tone_mapping (“none”, “reinhard”, “aces”), exposure. <code>afx.lighting()</code> with no options returns the defaults.</li>
+<li><code>afx.link_views(on=True)</code>: Link (or unlink) the cameras of all 3D views.</li>
+<li><code>afx.load(path, host=None, processes=None, launcher=None, stream=None, **kwargs)</code>: Open a file. With <code>host=</code> (a host from the Simulations panel, an ssh alias or user@machine, or “local”) or an <code>ssh://host/path</code> URL, the file is read on that machine by aurafx-server and filters added below it run there too. <code>stream=N</code> reads a file larger than memory in N pieces one after another (on this computer unless <code>host=</code> says otherwise).</li>
+<li><code>afx.load_plugin(path)</code>: Load (or reload) a plugin file from Python: <code>afx.load_plugin("my_tools.py")</code>.</li>
+<li><code>afx.load_remote(host, path)</code>: Copy a file from a host into the local cache and open it.</li>
+<li><code>afx.load_state(path)</code>: Replace the pipeline with the contents of an .afx file.</li>
+<li><code>afx.make_grid(points, cells, types)</code>: An unstructured grid: <code>afx.make_grid(points, cells=[[...], ...], types=[12, ...])</code> with VTK cell type numbers (10 tetra, 12 hexahedron, 5 triangle, …); one type applies to all cells.</li>
+<li><code>afx.make_image(dims, spacing=Ellipsis, origin=Ellipsis)</code>: A uniform grid: <code>afx.make_image(dims=(nx, ny, nz), spacing=(1, 1, 1), origin=(0, 0, 0))</code>.</li>
+<li><code>afx.make_multiblock(blocks, names=None)</code>: A multi-block dataset from several pieces: <code>afx.make_multiblock([a, b], names=None)</code>.</li>
+<li><code>afx.make_points(xyz)</code>: A point cloud (one vertex per point): <code>afx.make_points(xyz)</code>.</li>
+<li><code>afx.make_polydata(points, polys=None, lines=None, verts=None)</code>: A surface: <code>afx.make_polydata(points, polys=[[0,1,2], ...], lines=[[...]], verts=[[...]])</code>.</li>
+<li><code>afx.match_views()</code>: Copy the active view’s camera to every other view once.</li>
+<li><code>afx.nodes()</code></li>
+<li><code>afx.over_time(node, array, stat='max', plot=True)</code>: Statistic of an array over every time step, plotted in the Charts panel. stat: “max”, “min”, “mean”, “sum” or “value” (for global/field variables). Returns (times, values).</li>
+<li><code>afx.panel(title)</code>: Add a panel to the window (Windows &gt; Plugin panels). The function gets a <code>ui</code> and is run when the panel opens and whenever a button is pressed or a value changes: ui.label(text), ui.button(text) -&gt; True on the run its press causes, ui.slider(name, value, lo, hi), ui.number(name, value), ui.checkbox(name, value), ui.text(name, value), ui.choice(name, options, value) give the current value, ui.image(path), ui.separator().</li>
+<li><code>afx.plot(x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=False, view=0)</code>: Add a line to the Charts panel: afx.plot(x, y, label=“T max”).</li>
+<li><code>afx.plugins()</code>: Loaded plugins: [{path, filters, readers, error, enabled}].</li>
+<li><code>afx.points_from(xyz, name='points', **arrays)</code>: Add a dataset built from NumPy arrays as a point cloud node: afx.points_from(xyz, temperature=t).</li>
+<li><code>afx.probe(node, point)</code>: Values of every array of <code>node</code> at a point: {“name”: value, …}. Points outside the data return {}.</li>
+<li><code>afx.reader(extensions, label=None)</code>: Register a reader for file extensions: a function of the path returning an afx.Data.</li>
+<li><code>afx.redo()</code></li>
+<li><code>afx.reset_camera()</code></li>
+<li><code>afx.run()</code></li>
+<li><code>afx.run_case(node, solver, workdir, host=None, exe=None, np=1, auto_load=True, wait=False, slurm=None, **kwargs)</code>: Write a simulation case from a node’s data (see simulation_case) and run it: on this computer in <code>workdir</code>, or on <code>host</code> (the case files are uploaded to <code>workdir</code> there). <code>exe</code> is the solver program (default: solid_mechanics-opt, spk_mpi, pinnacle), <code>np</code> the MPI processes. The results open when the run ends (auto_load). Returns the job id.</li>
+<li><code>afx.save_animation(path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None)</code>: Record an animation: keyframes if any were added (key_camera / node.key), otherwise time steps, or a 360° camera orbit with orbit=frames. The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).  With <code>cue</code>, a Python function called with the animation time t (0..1) before each frame (after the keyframes are applied), the script renders the frames itself and returns when the file is written: <code>afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))</code>.  <code>views="all"</code> records every visible 3D view and chart view as laid out in the window (“charts”, “3d”, “chart N” and “view N” as for <code>afx.screenshot</code>).</li>
+<li><code>afx.save_state(path)</code>: Save the pipeline, display settings and camera to an .afx file.</li>
+<li><code>afx.screenshot(path, width=None, height=None, transparent=False, annotations=True, views=None, controls=False)</code>: Save a picture of the active 3D view: <code>afx.screenshot("fig.png", width=1920)</code>. With <code>views</code>, a picture of several views as they are laid out in the window: “all” (every visible 3D view and chart view), “charts”, “3d”, “chart” (the Charts panel), “chart N” (the chart titled Chart N) or “view N”; <code>controls=True</code> keeps the charts’ boxes and buttons.</li>
+<li><code>afx.select(node, ids, assoc='cells')</code>: Select cells (or points) of a node by flattened index; shown highlighted in the 3D view.</li>
+<li><code>afx.selection()</code>: Current selection as (node, assoc, ids), or None.</li>
+<li><code>afx.servers()</code>: Servers this session talks to: name, whether connected, and the machine’s details.</li>
+<li><code>afx.set_shortcut(action=None, keys='', vim=None)</code>: Bind keys to an action of the window: <code>afx.set_shortcut("screenshot", "Ctrl+P")</code>, several keys with commas, “” for none; <code>vim=True</code> turns on the vim-style view keys (h j k l, + -, 0).</li>
+<li><code>afx.set_theme(mode)</code>: UI theme: “dark”, “light” or “system”.</li>
+<li><code>afx.show_panel(name)</code>: Bring a panel to the front: “3D View”, “Python”, “Assistant”, “Simulations”, “Spreadsheet”, “Log”, …</li>
+<li><code>afx.simulation_case(node, solver, folder, **kwargs)</code>: Write a simulation case from a node’s data into <code>folder</code>: solver “moose” (a grain mesh: mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt, polycrystal.i), “spparks” (a volume with FeatureIds: grains.spparks, in.potts) or “pinnacle” (a grain mesh: mesh.e, orientations_points.csv, case.i). Options: material, axis (‘x’, ‘y’, ‘z’), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature, dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.</li>
+<li><code>afx.simulation_template(name)</code>: Open the Simulations panel on a template: “lammps”, “moose”, “moose_polycrystal”, “spparks”, “pinnacle”, “openfoam”, “python”, “shell” (or its label).</li>
+<li><code>afx.snapshot(width=None, height=None, views=None)</code>: A picture of the active 3D view (views=“all”: every view as laid out) shown in the notebook.</li>
+<li><code>afx.source(_fn=None, *, label=None, category='Plugins', description=None, params=None, keywords=(), id=None)</code>: Register a source: a function of keyword parameters returning an afx.Data.</li>
+<li><code>afx.split_view(direction='right')</code>: Add a 3D view next to the active one: “right” (side by side) or “down” (above/below). The new view becomes active and starts with the same camera and visible objects. Returns its number once it exists (None without the app).</li>
+<li><code>afx.submit(command, host=None, workdir=None, gpu=None, outputs=None, auto_load=False, name=None, env=None, slurm=None, wait=False)</code>: Run a shell command as a job (locally, on an SSH host, or via Slurm). gpu: None, “any”, “nvidia”, “amd”, or e.g. “nvidia:0,1”. Returns the job id.</li>
+<li><code>afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)</code>: Parameter sweep: one job per value; “{var}” in the command is replaced and each run gets its own folder <workdir>/<var>_<value>. Returns the job ids.</value></var></workdir></li>
+<li><code>afx.time(index=None)</code></li>
+<li><code>afx.time_label(on=True)</code>: Show (or hide) the current time in the 3D views.</li>
+<li><code>afx.times()</code></li>
+<li><code>afx.undo()</code></li>
+<li><code>afx.view(direction, up=None)</code>: View from a named direction (“+x”, “-y”, “iso”, …) or a vector [x, y, z] pointing from the data to the camera.</li>
+</ul>
+<h2 id="arraymap"><a class="header" href="#arraymap">ArrayMap</a></h2>
+<p>Dict-like view of one attribute set; values are NumPy copies.</p>
+<ul>
+<li><code>append(value, name)</code>: <code>append(array, name)</code>, the same as <code>self[name] = array</code>.</li>
+<li><code>get(name)</code></li>
+<li><code>keys()</code></li>
+<li><code>set_units(name, units)</code>: Set the units of an array (an empty string clears them).</li>
+<li><code>units(name)</code>: The units of an array (“K”, “m/s”), or None.</li>
+</ul>
+<h2 id="arrayparam"><a class="header" href="#arrayparam">ArrayParam</a></h2>
+<p>A parameter naming an array of the input: array=afx.ArrayParam(vector=False).</p>
+<h2 id="choice"><a class="header" href="#choice">Choice</a></h2>
+<p>A parameter chosen from a list: mode=afx.Choice([“fast”, “accurate”]).</p>
+<h2 id="code"><a class="header" href="#code">Code</a></h2>
+<p>A multi-line text parameter edited in a code box.</p>
+<h2 id="data"><a class="header" href="#data">Data</a></h2>
+<p>A dataset: <code>points</code>, <code>point_data</code>, <code>cell_data</code>, <code>field_data</code> (NumPy), <code>n_points</code>, <code>n_cells</code>.</p>
+<ul>
+<li><code>CellData</code> (attribute)</li>
+<li><code>FieldData</code> (attribute)</li>
+<li><code>PointData</code> (attribute): ParaView-style names (<code>output.PointData.append(array, "name")</code>).</li>
+<li><code>blocks()</code>: The pieces of a multi-block dataset (copies), or [self] for other data.</li>
+<li><code>bounds</code> (attribute): (xmin, xmax, ymin, ymax, zmin, zmax)</li>
+<li><code>cell_data</code> (attribute)</li>
+<li><code>cells</code> (attribute): Cells as (connectivity offsets, connectivity, VTK cell types) NumPy arrays.</li>
+<li><code>copy()</code></li>
+<li><code>field_data</code> (attribute)</li>
+<li><code>n_cells</code> (attribute)</li>
+<li><code>n_points</code> (attribute)</li>
+<li><code>point_data</code> (attribute)</li>
+<li><code>points</code> (attribute): Point coordinates (N x 3, a copy). Assign to move the points of meshes with explicit points.</li>
+<li><code>type</code> (attribute): “Unstructured Grid”, “Polygonal Mesh”, “Image Data”, …</li>
+</ul>
+<h2 id="filtercall"><a class="header" href="#filtercall">FilterCall</a></h2>
+<p>Callable returned by <code>node.&lt;filter&gt;</code> so that <code>node.slice(normal=[0,0,1])</code> works.</p>
+<h2 id="node"><a class="header" href="#node">Node</a></h2>
+<p>A pipeline node handle.</p>
+<ul>
+<li><code>activate()</code>: Make this the active node (the one the Properties panel and new filters use).</li>
+<li><code>add_array(name, values, assoc='points')</code>: Add a NumPy array as point (or cell) data.</li>
+<li><code>array(name, assoc=None)</code>: Get an array as a NumPy array (copy). <code>assoc</code> is “points”, “cells” or “field”.</li>
+<li><code>arrays()</code>: Array names: {“points”: […], “cells”: […]}.</li>
+<li><code>cad</code> (attribute): The CAD document of a CAD Model node: <code>node.cad.parameter("width", 40)</code>, <code>node.cad.box(...)</code>.</li>
+<li><code>color_by(name=None, assoc=None, component=None, cmap=None, range=None)</code></li>
+<li><code>delete()</code></li>
+<li><code>edit_cad()</code>: Open the CAD environment on this node (a CAD Model): <code>m.edit_cad()</code>.</li>
+<li><code>hide()</code></li>
+<li><code>id</code> (attribute)</li>
+<li><code>info()</code>: Dataset summary as a dict (points, cells, bounds, arrays).</li>
+<li><code>inputs</code> (attribute): All inputs of this node: the pipeline input first, then the extra inputs of multi-input filters.</li>
+<li><code>key(param, t, value=None, interp='linear')</code>: Keyframe parameter <code>param</code> at animation time t (0..1). Without <code>value</code>, the current value is used. Display properties work too: “opacity”, “point_size”, “line_width”, “solid_color”, “edge_color”, “lic_strength”, “volume_opacity”, “volume_threshold”. <code>interp</code> says how the value moves on to the next key (“linear”, “step”, “ease in”, “ease out”, “ease in-out”, “exponential”).</li>
+<li><code>name</code> (attribute)</li>
+<li><code>params</code> (attribute)</li>
+<li><code>pipeline_json()</code>: The pipeline that makes this node, as JSON text (the form .dream3d files record).</li>
+<li><code>plot(*y, x=None, style=None, data=None, log_x=None, log_y=None, title=None)</code>: Plot this object’s arrays in a new chart view: <code>line.plot("T", "p", x="arc_length")</code>. Returns the view’s number (afx.chart_view changes it later).</li>
+<li><code>points</code> (attribute): Point coordinates as an (N, 3) NumPy array.</li>
+<li><code>save(path, all_times=False, pieces=4)</code>: Write this node’s data: .vtu .vtp .vti .vtr .vts .vtm .vtk .vtkhdf .exo .case (EnSight Gold) .xmf (Xdmf + .h5) .cgns .csv .stl .ply .dream3d (with the pipeline) .spparks .tex .inp (Abaqus) .msh (Gmsh) .cas (Fluent) .bdf (Nastran) .mha/.mhd (MetaImage) .png/.tif (image stacks) .pvtu/.pvtp/.pvti (parallel pieces; pieces=4) .pvd (format from the extension). all_times=True writes every time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one mesh), or as an EnSight, Xdmf or .pvd series.</li>
+<li><code>save_pole_figures(folder, families='100, 110, 111', projection='Stereographic', sigma=7.5, size=256, phase=0, structure='', mask='')</code>: Pole figures of every phase as PNG pictures in a folder (phase1_100.png, …): sample x to the right, y up, each phase’s MRD from 0 (dark blue) to its largest value (red). Returns the files written with their largest MRD.</li>
+<li><code>send_to_view(view, keep=False)</code>: Show this object in another 3D view. <code>view</code> is a view number (0 = main view) or “right”/“down” to open a new view holding only this object. By default it is moved (hidden in the other views); keep=True shows it there as well.</li>
+<li><code>set(**kwargs)</code>: Set parameters / display options: node.set(normal=[0,0,1], opacity=0.5).</li>
+<li><code>set_inputs(*nodes)</code>: Replace the extra inputs of a multi-input filter: <code>app.set_inputs(b, c)</code>.</li>
+<li><code>show()</code></li>
+<li><code>update()</code>: Run the pipeline up to this node and return the dataset summary.</li>
+<li><code>watch(on=True, follow_latest=True)</code>: Reload automatically when the file changes (live view of a running simulation).</li>
+</ul>
+<h2 id="nodecad-the-cad-document-of-a-cad-model"><a class="header" href="#nodecad-the-cad-document-of-a-cad-model">node.cad (the CAD document of a CAD Model)</a></h2>
+<p>The parametric document of a CAD Model node. Numbers can be expressions of the document’s parameters (“width / 2”): the geometry then follows the parameter.</p>
+<ul>
+<li><code>activate(name=None)</code></li>
+<li><code>apply(keep_editing=False, fix='default', run='now')</code>: Inside the CAD environment: hand the part to the node and leave (keep_editing=True stays), after the downstream check. fix: “default” (apply the default fixes), “none” (leave what the check found as it is), a list of {“node”, “param”, “value”} fixes, or the text of an assistant’s answer (a JSON list). run: “now”, or “later” (the nodes below wait for run_held()). Returns {“features”, “fixes”, “held”, “kept_editing”}. Outside the environment: bring the node up to date and return its summary.</li>
+<li><code>ask_apply(keep_editing=False)</code>: What the Apply button does in the window: run the downstream check and open its dialog when the nodes below are affected (only useful from a script running in the app).</li>
+<li><code>bind(feature, path, expr)</code>: Drive a numeric field of a feature by an expression; path is a JSON pointer such as /shape/size/0.</li>
+<li><code>box(size=(10, 10, 10), name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), corner_radius=0, blend=0)</code></li>
+<li><code>chamfer_edges(edges, size=1, name=None)</code>: Chamfer picked edges (see fillet_edges).</li>
+<li><code>check()</code>: The downstream check of the changes made in the environment: what changed, the nodes below the part, the conflicts (node, param, reference, what happened, the default fix) and the prompt to ask an assistant for more fixes.</li>
+<li><code>check_fit()</code>: Run the Assemble tab’s Check fit and show the overlaps. In the window only.</li>
+<li><code>circular_pattern(count, total_deg=360, axis='Z', feature=None)</code></li>
+<li><code>clear(name='Part')</code></li>
+<li><code>component_add(name=None, template=None, file=None, document=None, at=(0, 0, 0), rotate=(0, 0, 0))</code>: Place another part: a template (‘flange’), a CAD file (.afxcad, .step, .igs, .3mf, .sc), a document (a dict) or a blank part to model in with component_op(). at / rotate (degrees) place it.</li>
+<li><code>component_interference(resolution=0.5)</code>: The pairs of parts that overlap, with the overlap volume in mm3.</li>
+<li><code>component_move(component, at=None, rotate=None, by=None)</code>: Place a component at a position (and rotation in degrees), or move it by an offset.</li>
+<li><code>component_op(component, op, **args)</code>: Edit a component’s own part with any operation of this API, e.g. component_op(‘Plate’, ‘add’, kind=‘box’, size=[40, 40, 5]).</li>
+<li><code>component_remove(component)</code></li>
+<li><code>component_rename(component, to)</code></li>
+<li><code>component_visible(component, visible=True)</code></li>
+<li><code>components()</code>: The placed parts: name, position, rotation, visibility.</li>
+<li><code>cone(r_bottom=5, r_top=0, height=10, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>configuration(name, **overrides)</code></li>
+<li><code>cylinder(radius=5, height=10, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>discard()</code>: Leave the environment without applying.</li>
+<li><code>document()</code></li>
+<li><code>draft(faces, angle=3, neutral_origin=(0, 0, 0), neutral_normal=(0, 0, 1), name=None)</code>: Taper side faces (names from faces(), or points) by <code>angle</code> degrees about a neutral plane they stay fixed on. The exact kernel builds it; the implicit one leaves the faces vertical and says so.</li>
+<li><code>edges()</code>: The edges of the part as the exact (B-rep) kernel builds it: index, a point on the edge, length, straight, and the names of the faces on either side. Raises when the exact kernel cannot build it.</li>
+<li><code>edit(op, args=None, **kw)</code></li>
+<li><code>editing()</code>: True while the CAD environment is open on this node.</li>
+<li><code>evaluate(resolution=64, kernel='Auto')</code>: Build the part now: volume, area, centroid, bounds, the faces (name, kind, area, centroid, direction), the kernel that built it and notes on what it could not build exactly.</li>
+<li><code>extrude(sketch, depth=10, name=None, op='add', end='blind', draft=0, reverse=False, at=(0, 0, 0), top=None, bottom=None)</code>: Extrude a sketch along its plane’s normal. end: blind, midplane or through_all. top / bottom: {“fillet”: r} or {“chamfer”: d} on the cap edges.</li>
+<li><code>faces(resolution=64)</code></li>
+<li><code>features()</code></li>
+<li><code>fillet(radius, feature=None)</code></li>
+<li><code>fillet_edges(edges, size=1, name=None)</code>: Round picked edges (exact kernel): edges are indices from edges(), points on the edges, or a pair of face names (‘Base z+’, ‘Bore side’) for the edge between them.</li>
+<li><code>grid_pattern(counts, step, feature=None)</code></li>
+<li><code>hole(diameter=5, depth=10, kind='simple', name=None, at=(0, 0, 0), rotate=(0, 0, 0), **kw)</code>: A hole cut downward (-z) from <code>at</code>: kind simple, drilled, counterbore (cb_diameter, cb_depth), countersink (cs_diameter, cs_angle) or tapped (pitch).</li>
+<li><code>info()</code></li>
+<li><code>interference(other, at=(0, 0, 0), rotate=(0, 0, 0), resolution=0.5)</code>: The overlap volume with another CAD Model node placed at <code>at</code> (and rotated by <code>rotate</code> degrees).</li>
+<li><code>linear_pattern(count, step, feature=None)</code></li>
+<li><code>load(path)</code>: Replace the document by a file: .afxcad, or a solid (.step/.stp, .igs, .3mf, .sc, .stl, .obj) as the base feature of a new document.</li>
+<li><code>mass(density=7.85)</code>: Volume, surface, center, bounds and mass (density in g/cm3) of the built part.</li>
+<li><code>measure_faces(a, b)</code>: The distance between two parallel flat faces (or their centers), and the angle between them.</li>
+<li><code>mirror(plane='YZ', feature=None)</code></li>
+<li><code>mirror_about(origin, normal, name=None)</code>: Mirror the part so far about a plane, e.g. a flat face: origin is a point on it (or a face name from faces()), normal its direction. The reflection is joined to the part.</li>
+<li><code>modifier(kind, feature=None, **kw)</code></li>
+<li><code>move(feature, to)</code></li>
+<li><code>open_picker(kind='fillet')</code>: Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror or pattern.</li>
+<li><code>parameter(name, expr, comment='')</code></li>
+<li><code>parameters()</code></li>
+<li><code>plane(name=None, from_plane='XY', offset=0, angle=0, about='x', points=None, origin=None, normal=None, x_axis=None)</code>: A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference plane moved by offset and turned by angle about its x or y axis; or through three points; or by origin and normal. Sketch on it with sketch(plane=name).</li>
+<li><code>plane_form()</code>: Open the New reference plane form in the window.</li>
+<li><code>redo()</code></li>
+<li><code>remove(feature)</code></li>
+<li><code>remove_parameter(name)</code></li>
+<li><code>remove_plane(name)</code></li>
+<li><code>rename(feature, to)</code></li>
+<li><code>revolve(sketch, angle=360, name=None, op='add', at=(0, 0, 0))</code>: Revolve a sketch about its local y axis (on the XZ plane: the world z axis); x is the radius.</li>
+<li><code>rollback(features=None)</code>: Build only the first <code>features</code> features (None: all), like the timeline’s rollback marker.</li>
+<li><code>run_held()</code>: Run the nodes a postponed apply held back.</li>
+<li><code>save(path, kernel='Auto')</code>: Write the part by the file’s extension: .afxcad (the document), .step/.stp, .3mf, .stl, .obj or .sc (SolidCraft). Exact faces and edges when the B-rep kernel builds the part; otherwise a faceted tessellation (the result says which). Returns {“bytes”, “exact”, “note”}.</li>
+<li><code>scale(factor, feature=None)</code></li>
+<li><code>select(feature=None)</code></li>
+<li><code>select_component(name)</code>: Select a component in the feature tree (it shows its position and turn). In the window only.</li>
+<li><code>set(feature, path, value)</code></li>
+<li><code>shell(thickness, feature=None, open_top=None)</code></li>
+<li><code>shell_faces(faces=(), thickness=2, name=None)</code>: Hollow the part so far with this wall, removing the picked faces (names from faces(), or points); no faces: a closed hollow body.</li>
+<li><code>show_tab(name)</code>: Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window.</li>
+<li><code>sketch(plane='XY', offset=0)</code></li>
+<li><code>sketch_cursor(x, y, line_from=None)</code>: For pictures: where the sketch canvas takes the cursor to be (sketch units) when the mouse is elsewhere, optionally drawing a line from point line_from, so snaps and guides show.</li>
+<li><code>sketch_dim_edit(index='first')</code>: Open the value editor of the sketch’s dimension number index (as a double-click does); “first”: the first dimension.</li>
+<li><code>sketch_edit(feature)</code>: Open the sketch canvas on the sketch of an extruded or revolved feature.</li>
+<li><code>sketch_new(plane='XY', offset=0, items=None)</code>: Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready shapes (the items of cad.sketch()). Only useful from a script running in the app.</li>
+<li><code>sketch_on_face()</code>: Open the face picker to start a sketch on a flat face of the part (in the window).</li>
+<li><code>sphere(radius=5, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>split(plane='XY', offset=0, keep_positive=True, feature=None)</code></li>
+<li><code>state()</code></li>
+<li><code>suppress(feature, suppressed=True)</code></li>
+<li><code>template(name)</code>: Start from a template: enclosure, flange, knob, threaded rod, vase or bracket.</li>
+<li><code>thread(major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op='add', at=(0, 0, 0))</code></li>
+<li><code>torus(major=10, minor=2, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
+<li><code>undo()</code></li>
+<li><code>volume(resolution=64)</code></li>
+</ul>
+<h2 id="a-sketch-description-nodecadsketch"><a class="header" href="#a-sketch-description-nodecadsketch">A sketch description (node.cad.sketch)</a></h2>
+<p>A sketch described item by item; pass it to extrude() or revolve().</p>
+<ul>
+<li><code>circle(r, center=(0, 0))</code></li>
+<li><code>polygon(points)</code></li>
+<li><code>rectangle(w, h, corner=None, center=None)</code></li>
+<li><code>regular(sides, r, center=(0, 0))</code></li>
+<li><code>spec()</code></li>
+</ul>
+<h2 id="afxmesh-geometry-commands"><a class="header" href="#afxmesh-geometry-commands">afx.mesh (geometry commands)</a></h2>
+<p>Geometry and meshing. afx.mesh.geometry() starts geometry built from commands.</p>
+<ul>
+<li><code>geometry(commands='')</code></li>
+</ul>
+<h2 id="afxmeshgeometry-a-list-of-commands"><a class="header" href="#afxmeshgeometry-a-list-of-commands">afx.mesh.geometry() (a list of commands)</a></h2>
+<p>Geometry built from commands. g.cmd(‘brick x 2 y 1 z 1’) adds commands (checked at once), g.bodies() lists the bodies and their faces, g.journal() returns every command, g.result(resolution=64, output=‘Surface’) adds the Geometry source to the pipeline.</p>
+<ul>
+<li><code>bodies()</code></li>
+<li><code>cmd(text)</code></li>
+<li><code>journal()</code></li>
+<li><code>result(resolution=64, output='Surface')</code></li>
+</ul>
+<h2 id="ui-inside-an-afxpanel-function"><a class="header" href="#ui-inside-an-afxpanel-function">ui (inside an @afx.panel function)</a></h2>
+<ul>
+<li><code>button(text)</code></li>
+<li><code>checkbox(name, value=False)</code></li>
+<li><code>choice(name, options, value=None)</code></li>
+<li><code>image(path)</code></li>
+<li><code>label(text)</code></li>
+<li><code>number(name, value)</code></li>
+<li><code>separator()</code></li>
+<li><code>slider(name, value, lo, hi)</code></li>
+<li><code>text(name, value='')</code></li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="filter-reference.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="benchmarks.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="filter-reference.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="benchmarks.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

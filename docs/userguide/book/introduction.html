@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,6 +188,9 @@ measure them with the usual filters, and adds three things next to the 3D view:<
 <li>a <strong>simulation runner</strong> that launches solvers locally, over SSH or through Slurm and opens
 the results when they finish.</li>
 </ul>
+<p>It also builds what solvers need: a <strong>parametric CAD modeler</strong>, a <strong>geometry and mesh
+generator</strong> and a <strong>grain workbench</strong> for microstructures live in the same window, and Jupyter
+notebooks can drive all of it.</p>
 <p>This guide walks through every feature. Each chapter says where a feature is in the window,
 how to call it from Python, and what its limits are.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/main_window.png" alt="The main window"><span class="img-wrapper"><img src="images/main_window.png" alt="The main window"></span></label></p>
@@ -200,9 +203,9 @@ how to call it from Python, and what its limits are.</p>
 <tbody>
 <tr><td>Basics</td><td>opening files, the pipeline, filters, coloring, views, selection, time and animation</td></tr>
 <tr><td>Rendering</td><td>lighting, shadows, ambient occlusion, ray tracing, materials, volumes, point clouds</td></tr>
-<tr><td>Scripting</td><td>the Python API, the AI assistant, writing plugins</td></tr>
-<tr><td>Data</td><td>every file format read and written, exporting pictures and scenes, running simulations, working on remote machines</td></tr>
-<tr><td>Reference</td><td>settings and keyboard shortcuts</td></tr>
+<tr><td>Scripting</td><td>the Python API and notebooks, the AI assistant, writing plugins in Python or Rust, tutorials</td></tr>
+<tr><td>Data</td><td>every file format read and written, exporting pictures and scenes, running simulations, working on remote machines and with files larger than memory, grains and crystals, geometry and meshing, CAD modeling</td></tr>
+<tr><td>Reference</td><td>settings and keyboard shortcuts, every filter with its settings, benchmarks</td></tr>
 </tbody>
 </table>
 </div>

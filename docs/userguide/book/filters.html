@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -646,10 +646,12 @@ aligned = afx.iterative_closest_point(moved, target, iterations=100)
 <p>An array can say what units its values are in (K, m/s, MPa). The color legend then reads
 “sst (K)”, the Information panel lists the units after each array’s range, and the
 spreadsheet’s column headings carry them. Readers fill them in where the file says (NetCDF
-files, from each variable’s <code>units</code>); for other arrays, <strong>Filters › Data › Set Units</strong> sets them
+files, from each variable’s <code>units</code>; VTK XML files written by auraFX, which keep them in a
+<code>Units</code> attribute of each array); for other arrays, <strong>Filters › Data › Set Units</strong> sets them
 (pick the array, type the units; an empty box clears them). Units are a label: auraFX does not
-convert between them, and arrays made by filters (a Calculator result, a gradient) start
-without units.</p>
+convert between them. Filters that pass or interpolate an array (Slice, Contour, Clip, a
+server’s pieces put together) keep its units; arrays a filter computes (a Calculator result, a
+gradient) start without.</p>
 <pre><code class="language-python">t = d.set_units(array="T", units="K")
 [a["units"] for a in t.info()["point_arrays"]]
 data = afx.make_points(xyz)

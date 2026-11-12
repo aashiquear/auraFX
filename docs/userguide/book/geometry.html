@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -189,7 +189,15 @@ have their own generators, and bricks and cylinders built with commands can be m
 <h2 id="the-geometry-source"><a class="header" href="#the-geometry-source">The Geometry source</a></h2>
 <p>Add it with <strong>Sources › Geometry</strong>. Its Properties show:</p>
 <ul>
-<li><strong>Commands</strong>: the command list, edited in the box and applied with <strong>Apply</strong>.</li>
+<li><strong>Commands</strong>: the command list, edited in the box and applied with <strong>Apply</strong>. The <strong>Insert</strong>
+menus under the box (<em>Shape</em>, <em>Outline</em>, <em>Combine</em>, <em>Move</em>, <em>Mesh</em>, <em>Names and sets</em>) add a
+command with example numbers at the end, each with a line saying what it does, so the
+commands need not be remembered: insert, change the numbers, Apply.</li>
+<li><strong>From geometry to a mesh</strong>: the six steps as a checklist with a button each. <em>Mesh every
+body</em> writes the mesh command, sized to a twentieth of the model, and shows the hexahedra;
+<em>Surface / Hex mesh / Tet mesh</em> switch what is shown; <em>Mesh Quality</em> adds the filter that
+finds distorted elements; <em>Save data…</em> writes the mesh with its blocks and sets for a solver.
+A tick appears as each step is done. <strong>Model › New geometry</strong> adds the source and opens here.</li>
 <li><strong>Bodies</strong>: a tree of the bodies the commands make. It shows how each body was built and
 lists its faces with their numbers and names. A mistake in a command shows here, with the
 line it is on.</li>
@@ -203,6 +211,7 @@ each point.</li>
 <code>SurfaceArea</code>. Color by <code>FaceId</code> to see the faces.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_part.png" alt="A plate with two holes, a revolved and rounded boss, a swept pipe and a torus, built with commands and colored by face"><span class="img-wrapper"><img src="images/geometry_part.png" alt="A plate with two holes, a revolved and rounded boss, a swept pipe and a torus, built with commands and colored by face"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_panel.png" alt="The Geometry source in the window: its commands, the Bodies tree with how each body was made, and the result colored by face"><span class="img-wrapper"><img src="images/geometry_panel.png" alt="The Geometry source in the window: its commands, the Bodies tree with how each body was made, and the result colored by face"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_steps.png" alt="The Insert menus under the commands and the steps from geometry to a mesh, after Mesh every body"><span class="img-wrapper"><img src="images/geometry_steps.png" alt="The Insert menus under the commands and the steps from geometry to a mesh, after Mesh every body"></span></label></p>
 <h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
 <p>Write one command per line, or separate commands with <code>;</code>. Text after <code>#</code> is a comment.
 Bodies, outlines and faces are numbered from 1 in the order they are made. Sizes are in

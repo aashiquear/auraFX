@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7148813c.js";
+            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8e704b6d.js"></script>
+        <script src="toc-dcbdab5c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -276,7 +276,9 @@ needs the whole data) run on the server’s main process with the pieces put tog
 command</em> with <code>{n}</code> for the number of processes and <code>{cmd}</code> for the worker command (for example
 <code>mpiexec -n {n} -hostfile hosts {cmd}</code>). The server opens a port, runs the launcher, and each
 rank (from <code>OMPI_COMM_WORLD_RANK</code>, <code>PMI_RANK</code>, <code>PMIX_RANK</code> or <code>SLURM_PROCID</code>) connects back with
-a one-time token and holds its piece. The ranks must be able to reach the server’s machine
+a one-time token and holds its piece. The token travels in the environment
+(<code>AURAFX_RANK_TOKEN</code>), not on the command line; a launcher that does not pass the environment
+on to other nodes needs it named in the command (for Open MPI, <code>-x AURAFX_RANK_TOKEN</code>). The ranks must be able to reach the server’s machine
 (<code>AURAFX_CONNECT_HOST</code> sets the address they use, by default its host name); a launch that ends
 early, or ranks that do not connect within 60 seconds, give an error naming the command.</p>
 <pre><code class="language-python">big = afx.load("/scratch/run/out.pvtu", host="cluster", processes=64, launcher="srun")

@@ -263,7 +263,7 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
     if rev != state.cad.requested && !state.cad.running {
         let (res, kernel) = {
             let s = state.session.lock();
-            (s.nodes.get(&node).map(|n| n.params.i64("resolution", 64)).unwrap_or(64).clamp(24, 96) as usize, s.cad_kernel(node))
+            (s.nodes.get(&node).map(|n| n.params.i64("resolution", 64)).unwrap_or(64).clamp(24, 96) as usize, s.cad_preview_kernel(node))
         };
         state.cad.requested = rev;
         state.cad.running = true;

@@ -33,22 +33,135 @@ struct Part {
     base: u64,
 }
 
-/// Evaluate the document's own features (when it has any) and every visible component.
-pub(super) fn evaluate_assembly(choice: KernelChoice, doc: &Document, resolution: usize, project: bool) -> Result<Evaluated, CadError> {
-    let mut parts: Vec<Part> = Vec::new();
-    if doc.features.iter().any(|f| !f.suppressed) {
+/// The last parts built, by their content, the kernel and the resolution: an assembly whose
+/// mates move (a distance or an angle dragged) builds its parts once and only places them again.
+static PARTS: std::sync::Mutex<Vec<(u64, Evaluated)>> = std::sync::Mutex::new(Vec::new());
+
+fn evaluate_part(choice: KernelChoice, doc: &Document, resolution: usize, project: bool) -> Result<Evaluated, CadError> {
+    let key = [choice as u64, resolution as u64, project as u64].iter().fold(doc.revision_hash(), |h, b| (h ^ b).wrapping_mul(0x0100_0000_01b3));
+    if let Ok(mut cache) = PARTS.lock() {
+        if let Some(i) = cache.iter().position(|(k, _)| *k == key) {
+            let hit = cache.remove(i);
+            let ev = hit.1.clone();
+            cache.insert(0, hit);
+            return Ok(ev);
+        }
+    }
+    let ev = evaluate_with(choice, doc, resolution, project)?;
+    if let Ok(mut cache) = PARTS.lock() {
+        cache.insert(0, (key, ev.clone()));
+        cache.truncate(16);
+    }
+    Ok(ev)
+}
+
+/// The parts of an assembly built each in its own coordinates, and where the mates put them.
+struct Built {
+    /// The assembly's own part (when it has features) and every visible component.
+    parts: Vec<Part>,
+    mates: Option<crate::mates::MateSolution>,
+    /// Name and solved placement of every component.
+    placements: Vec<(String, Placement)>,
+}
+
+fn build(choice: KernelChoice, doc: &Document, resolution: usize, project: bool) -> Result<Built, CadError> {
+    // Mate values that follow parameters are numbers here.
+    let resolved;
+    let doc = if doc.mates.iter().any(|m| m.expr.is_some()) {
+        let mut top = doc.clone();
+        top.features.clear();
+        match top.resolved() {
+            Ok(r) => {
+                resolved = Document { features: doc.features.clone(), ..r };
+                &resolved
+            }
+            Err(_) => doc,
+        }
+    } else {
+        doc
+    };
+    let own = if doc.features.iter().any(|f| !f.suppressed) {
         let mut own = doc.clone();
         own.components.clear();
-        parts.push(Part { name: String::new(), placement: Placement::default(), ev: evaluate_with(choice, &own, resolution, project)?, base: 0 });
+        own.mates.clear();
+        Some(evaluate_part(choice, &own, resolution, project)?)
+    } else {
+        None
+    };
+    // A hidden part is still built when a mate needs one of its faces.
+    let mated = |name: &str| doc.mates.iter().any(|m| !m.suppressed && (m.a.component == name || m.b.component == name));
+    let mut evs: Vec<Option<Evaluated>> = Vec::new();
+    for c in &doc.components {
+        evs.push(if c.visible || mated(&c.name) {
+            Some(evaluate_part(choice, &c.document, resolution, project).map_err(|e| CadError::Edit(format!("component '{}': {e}", c.name)))?)
+        } else {
+            None
+        });
     }
-    for c in doc.components.iter().filter(|c| c.visible) {
-        let ev = evaluate_with(choice, &c.document, resolution, project).map_err(|e| CadError::Edit(format!("component '{}': {e}", c.name)))?;
-        parts.push(Part { name: c.name.clone(), placement: c.placement.clone(), ev, base: c.id.0 * ID_STRIDE });
+    let active = doc.mates.iter().any(|m| !m.suppressed);
+    let mates = active.then(|| {
+        crate::mates::solve(doc, &|component, face| {
+            let ev = if component.is_empty() {
+                own.as_ref().ok_or_else(|| format!("the assembly has no part of its own with a face '{face}'"))?
+            } else {
+                let i = doc.components.iter().position(|c| c.name == component).ok_or_else(|| format!("the assembly has no part '{component}'"))?;
+                evs[i].as_ref().ok_or_else(|| format!("the part '{component}' is not built"))?
+            };
+            let g = crate::analysis::face_geometry(ev, face).ok_or_else(|| {
+                if component.is_empty() {
+                    format!("the assembly's own part has no face '{face}'")
+                } else {
+                    format!("the part '{component}' has no face '{face}' (it was removed or renamed): remove the mate or make it again")
+                }
+            })?;
+            if !g.flat && !g.round {
+                return Err(format!("the face '{face}' is neither flat nor round"));
+            }
+            Ok(crate::mates::MateFace { flat: g.flat, point: DVec3::from_array(g.point), dir: DVec3::from_array(g.dir) })
+        })
+    });
+    let placements: Vec<(String, Placement)> = doc
+        .components
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.name.clone(), mates.as_ref().map(|m| m.placements[i].clone()).unwrap_or_else(|| c.placement.clone())))
+        .collect();
+    let mut parts: Vec<Part> = Vec::new();
+    if let Some(ev) = own {
+        parts.push(Part { name: String::new(), placement: Placement::default(), ev, base: 0 });
     }
-    if parts.is_empty() {
+    for ((c, ev), (_, pl)) in doc.components.iter().zip(evs).zip(&placements) {
+        if let (true, Some(ev)) = (c.visible, ev) {
+            parts.push(Part { name: c.name.clone(), placement: pl.clone(), ev, base: c.id.0 * ID_STRIDE });
+        }
+    }
+    Ok(Built { parts, mates, placements })
+}
+
+/// Where the mates put every component of an assembly (name, placement), how each mate came
+/// out and the ways the mated parts can still move.
+pub fn solve_mates(
+    choice: KernelChoice,
+    doc: &Document,
+    resolution: usize,
+) -> Result<(Vec<(String, Placement)>, Option<crate::mates::MateSolution>), CadError> {
+    let b = build(choice, doc, resolution, true)?;
+    Ok((b.placements, b.mates))
+}
+
+/// Evaluate the document's own features (when it has any) and every visible component.
+pub(super) fn evaluate_assembly(choice: KernelChoice, doc: &Document, resolution: usize, project: bool) -> Result<Evaluated, CadError> {
+    let built = build(choice, doc, resolution, project)?;
+    if built.parts.is_empty() {
         return Err(CadError::Kernel { kernel: "assembly", reason: "the assembly has no visible part yet: add a component or a feature".into() });
     }
-    Ok(merge(parts))
+    let mut ev = merge(built.parts);
+    if let Some(m) = built.mates {
+        ev.mate_dof = Some(m.dof);
+        ev.mates = m.status;
+    }
+    ev.placements = built.placements;
+    Ok(ev)
 }
 
 fn merge(parts: Vec<Part>) -> Evaluated {
@@ -138,21 +251,24 @@ fn merge(parts: Vec<Part>) -> Evaluated {
             Arc::new(move |p: [f64; 3]| fs.iter().map(|(inv, t, d)| d((*inv * (DVec3::from_array(p) - *t)).to_array())).fold(f64::INFINITY, f64::min));
         f
     });
-    Evaluated { bodies, surface: DataSet::PolyData(pd), distance, kernel: if all_brep { "brep" } else { "implicit" }, approximate }
+    Evaluated {
+        bodies,
+        surface: DataSet::PolyData(pd),
+        distance,
+        kernel: if all_brep { "brep" } else { "implicit" },
+        approximate,
+        mates: Vec::new(),
+        mate_dof: None,
+        placements: Vec::new(),
+    }
 }
 
 /// The overlap volume (mm³) of every pair of visible parts of an assembly, the document's own
 /// part (called `(part)`) included: only the pairs that overlap are listed, largest first.
 pub fn component_interference(choice: KernelChoice, doc: &Document, resolution: f64) -> Result<Vec<(String, String, f64)>, CadError> {
-    let mut parts: Vec<(String, Placement, Evaluated)> = Vec::new();
-    if doc.features.iter().any(|f| !f.suppressed) {
-        let mut own = doc.clone();
-        own.components.clear();
-        parts.push(("(part)".into(), Placement::default(), evaluate_with(choice, &own, 64, true)?));
-    }
-    for c in doc.components.iter().filter(|c| c.visible) {
-        parts.push((c.name.clone(), c.placement.clone(), evaluate_with(choice, &c.document, 64, true)?));
-    }
+    let built = build(choice, doc, 64, true)?;
+    let parts: Vec<(String, Placement, Evaluated)> =
+        built.parts.into_iter().map(|p| (if p.name.is_empty() { "(part)".to_string() } else { p.name }, p.placement, p.ev)).collect();
     let mut out = Vec::new();
     for i in 0..parts.len() {
         for j in i + 1..parts.len() {

@@ -30,6 +30,8 @@ pub enum Tool {
 pub struct SketchEdit {
     /// The feature whose sketch this is (`None`: a new sketch, finished into a new feature).
     pub feature: Option<Id>,
+    /// The sketch kept with the part that is being changed, by its name.
+    pub saved: Option<String>,
     pub sketch: Sketch,
     pub tool: Tool,
     pub sel_pts: Vec<usize>,
@@ -119,6 +121,7 @@ impl SketchEdit {
     pub fn new(feature: Option<Id>, sketch: Sketch) -> Self {
         Self {
             feature,
+            saved: None,
             sketch,
             tool: Tool::Line,
             sel_pts: vec![],
@@ -164,20 +167,6 @@ pub fn begin_new(state: &mut State, plane: SketchPlane, offset: f64, reverse: bo
     solve(state);
 }
 
-/// The plane, offset and direction of a sketch on a flat face with an axis-aligned normal.
-pub fn plane_for_face(centroid: [f64; 3], direction: [f64; 3]) -> Option<(SketchPlane, f64, bool)> {
-    let a = [direction[0].abs(), direction[1].abs(), direction[2].abs()];
-    let k = (0..3).max_by(|i, j| a[*i].total_cmp(&a[*j]))?;
-    if a[k] < 0.999 {
-        return None;
-    }
-    let plane = [SketchPlane::YZ, SketchPlane::XZ, SketchPlane::XY][k];
-    let n = plane.normal().to_array();
-    let offset = (0..3).map(|i| centroid[i] * n[i]).sum::<f64>();
-    let reverse = (0..3).map(|i| direction[i] * n[i]).sum::<f64>() < 0.0;
-    Some((plane, offset, reverse))
-}
-
 /// A new sketch on a plane anywhere (a reference plane or a slanted face).
 pub fn begin_on_frame(state: &mut State, frame: PlaneFrame, name: Option<String>, reverse: bool) {
     state.cad.tab = super::RibbonTab::Sketch;
@@ -192,12 +181,20 @@ pub fn begin_on_frame(state: &mut State, frame: PlaneFrame, name: Option<String>
 /// principal plane when the normal is along x, y or z, otherwise on the face's own plane (x
 /// along world x, or y, laid flat on it), named after the face.
 pub fn begin_on_face_at(state: &mut State, point: [f64; 3], direction: [f64; 3], name: &str) {
-    match plane_for_face(point, direction) {
-        Some((plane, offset, reverse)) => begin_new(state, plane, offset, reverse),
-        None => match PlaneFrame::new(point, direction, None) {
-            Some(f) => begin_on_frame(state, f, Some(name.to_string()), false),
-            None => state.toast("That face has no direction".to_string(), true),
-        },
+    match Sketch::on_face(point, direction, name) {
+        Some((mut sk, reverse)) => {
+            // The sketch remembers its face and follows it. Not a face of a component seen from
+            // the assembly: the assembly's own part does not have it.
+            if name.contains('/') {
+                sk.face = None;
+            }
+            state.cad.tab = super::RibbonTab::Sketch;
+            let mut e = SketchEdit::new(None, sk);
+            e.reverse = reverse;
+            state.cad.sketch = Some(e);
+            solve(state);
+        }
+        None => state.toast("That face has no direction".to_string(), true),
     }
 }
 
@@ -211,7 +208,7 @@ pub fn begin_edit(state: &mut State, feature: Id) {
     state.cad.tab = super::RibbonTab::Sketch;
     let sk = {
         let s = state.session.lock();
-        s.cad_edit.as_ref().and_then(|e| e.document.feature(feature)).and_then(|f| match &f.shape {
+        s.cad_edit.as_ref().and_then(|e| e.active().feature(feature)).and_then(|f| match &f.shape {
             aurafx_cad::Shape::SketchExtrude { sketch, .. } | aurafx_cad::Shape::SketchRevolve { sketch, .. } => Some(sketch.clone()),
             _ => None,
         })
@@ -225,12 +222,45 @@ pub fn begin_edit(state: &mut State, feature: Id) {
     }
 }
 
+/// Change a sketch kept with the part (the profile or path of a sweep, a section of a loft).
+pub fn begin_saved(state: &mut State, name: &str) {
+    let sk = state.session.lock().cad_edit.as_ref().and_then(|e| e.active().saved_sketch(name).cloned());
+    match sk {
+        Some(sk) => {
+            state.cad.tab = super::RibbonTab::Sketch;
+            let mut e = SketchEdit::new(None, sk);
+            e.saved = Some(name.to_string());
+            state.cad.sketch = Some(e);
+            solve(state);
+        }
+        None => state.toast(format!("The part has no sketch named '{name}'"), true),
+    }
+}
+
+/// Finish the open sketch by keeping it with the part under a name, for a sweep or a loft.
+pub fn keep(state: &mut State) {
+    let Some(e) = state.cad.sketch.take() else { return };
+    if e.feature.is_some() || e.saved.is_some() {
+        state.cad.sketch = Some(e);
+        return finish(state, false);
+    }
+    let sketch_json = serde_json::to_value(&e.sketch).unwrap_or(serde_json::Value::Null);
+    match op(state, "sketch_add", json!({"sketch_json": sketch_json})) {
+        Some(made) => {
+            state.cad.tab = super::RibbonTab::Features;
+            state.status =
+                format!("Kept as '{}': use it in a Sweep or a Loft (Features tab), or draw the next sketch", made["sketch"].as_str().unwrap_or("a sketch"));
+        }
+        None => state.cad.sketch = Some(e),
+    }
+}
+
 /// Open a sketch from a description (Python: `e.sketch_new(items=[...])`).
 pub fn begin_from_spec(state: &mut State, spec: &serde_json::Value) {
     state.cad.tab = super::RibbonTab::Sketch;
     let built = {
         let s = state.session.lock();
-        s.cad_edit.as_ref().map(|e| aurafx_cad::edit::sketch_from_spec(&e.document, spec))
+        s.cad_edit.as_ref().map(|e| aurafx_cad::edit::sketch_from_spec(e.active(), spec))
     };
     match built {
         Some(Ok(sk)) => {
@@ -248,7 +278,7 @@ pub fn cancel(state: &mut State) {
 
 /// Re-solve after a change: the dimensions' expressions use the document's dimensions.
 pub fn solve(state: &mut State) {
-    let vars = state.session.lock().cad_edit.as_ref().and_then(|e| e.document.parameter_values().ok()).unwrap_or_default();
+    let vars = state.session.lock().cad_edit.as_ref().and_then(|e| e.active().parameter_values().ok()).unwrap_or_default();
     if let Some(e) = state.cad.sketch.as_mut() {
         match e.sketch.solve_with(&vars) {
             Ok(r) => {
@@ -404,6 +434,9 @@ pub fn delete_selection(e: &mut SketchEdit) {
             dead_e.push(i);
         }
     }
+    // The entities that stay keep their numbers (the faces made from them their names).
+    sk.normalize_entity_ids();
+    sk.entity_ids = sk.entity_ids.iter().enumerate().filter(|(i, _)| !dead_e.contains(i)).map(|(_, id)| *id).collect();
     let emap = |i: usize| (!dead_e.contains(&i)).then(|| i - dead_e.iter().filter(|d| **d < i).count());
     let pmap = |i: usize| (!dead_p.contains(&i)).then(|| i - dead_p.iter().filter(|d| **d < i).count());
     sk.constraints = sk.constraints.iter().filter_map(|c| remap(c, &emap, &pmap)).collect();
@@ -445,6 +478,9 @@ pub fn delete_selection(e: &mut SketchEdit) {
 /// The operation that makes the finished sketch part of the document.
 pub fn finish_op(e: &SketchEdit, name: &str, revolve: bool) -> (&'static str, serde_json::Value) {
     let sketch_json = serde_json::to_value(&e.sketch).unwrap_or(serde_json::Value::Null);
+    if let Some(kept) = &e.saved {
+        return ("sketch_set", json!({"name": kept, "sketch_json": sketch_json}));
+    }
     match (e.feature, revolve) {
         (Some(_), _) => ("set_sketch", json!({"feature": name, "sketch_json": sketch_json})),
         (None, true) => ("sketch_revolve", json!({"sketch_json": sketch_json, "angle": 360, "op": op_word(e.op)})),
@@ -466,9 +502,9 @@ fn op_word(o: BooleanOp) -> &'static str {
 /// Finish the sketch: as a new extrusion or revolve, or as the new sketch of its feature.
 pub fn finish(state: &mut State, revolve: bool) {
     let Some(e) = state.cad.sketch.take() else { return };
-    let name = e.feature.and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.document.feature(id).map(|f| f.name.clone()))).unwrap_or_default();
+    let name = e.feature.and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.active().feature(id).map(|f| f.name.clone()))).unwrap_or_default();
     let (opname, mut args) = finish_op(&e, &name, revolve);
-    if e.feature.is_none() {
+    if e.feature.is_none() && e.saved.is_none() {
         let base = if revolve {
             "Revolve"
         } else if e.op == BooleanOp::Cut {
@@ -486,7 +522,7 @@ pub fn finish(state: &mut State, revolve: bool) {
 
 fn unique_name(state: &State, base: &str) -> String {
     let s = state.session.lock();
-    let names: Vec<String> = s.cad_edit.as_ref().map(|e| e.document.features.iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
+    let names: Vec<String> = s.cad_edit.as_ref().map(|e| e.active().features.iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
     if !names.iter().any(|n| n == base) {
         return base.to_string();
     }
@@ -1145,13 +1181,21 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
         .sketch
         .as_ref()
         .and_then(|e| e.feature)
-        .and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.document.feature(id).map(|f| f.name.clone())));
+        .and_then(|id| state.session.lock().cad_edit.as_ref().and_then(|x| x.active().feature(id).map(|f| f.name.clone())));
     let Some(e) = state.cad.sketch.as_mut() else { return };
-    ui.label(RichText::new(if feature_name.is_some() { format!("Sketch of {}", feature_name.clone().unwrap()) } else { "New sketch".to_string() }).strong());
+    let title = match (&feature_name, &e.saved) {
+        (Some(f), _) => format!("Sketch of {f}"),
+        (None, Some(k)) => format!("Sketch '{k}'"),
+        (None, None) => "New sketch".to_string(),
+    };
+    ui.label(RichText::new(title).strong());
+    if let Some(face) = &e.sketch.face {
+        ui.label(RichText::new(format!("On the face {face}: it stays on that face when the part changes.")).weak().small());
+    }
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label("Plane");
-        if e.feature.is_none() && e.sketch.frame.is_none() {
+        if e.feature.is_none() && e.sketch.frame.is_none() && e.sketch.face.is_none() {
             for (pl, l) in [(SketchPlane::XY, "Top (XY)"), (SketchPlane::XZ, "Front (XZ)"), (SketchPlane::YZ, "Right (YZ)")] {
                 changed |= ui.selectable_value(&mut e.sketch.plane, pl, l).changed();
             }
@@ -1232,7 +1276,9 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
     ui.separator();
     ui.label(format!("{} closed outline(s), {} open path(s)", e.sketch.profiles().len(), e.sketch.open_paths().len()));
     let outlines = e.sketch.profiles().len();
-    let editing = e.feature.is_some();
+    let drawn = e.sketch.entities.iter().any(|x| !x.construction());
+    let kept = e.saved.is_some();
+    let editing = e.feature.is_some() || kept;
     if !editing {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut e.op, BooleanOp::Add, "Boss (adds)");
@@ -1245,13 +1291,28 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.checkbox(&mut e.reverse, "reverse").on_hover_text("Extrude against the sketch plane's normal");
         });
     }
-    let (mut extrude, mut revolve, mut apply, mut cancel_it) = (false, false, false, false);
-    ui.horizontal(|ui| {
+    let (mut extrude, mut revolve, mut apply, mut cancel_it, mut keep_it) = (false, false, false, false, false);
+    ui.horizontal_wrapped(|ui| {
         if editing {
-            if ui.add_enabled(outlines > 0, egui::Button::new(RichText::new(crate::icons::with("Apply sketch")).strong())).clicked() {
+            // A kept sketch may be an open path (of a sweep); a feature's needs a closed outline.
+            if ui
+                .add_enabled(if kept { drawn } else { outlines > 0 }, egui::Button::new(RichText::new(crate::icons::with("Apply sketch")).strong()))
+                .on_disabled_hover_text(if kept { "Draw something first" } else { "The sketch needs a closed outline" })
+                .clicked()
+            {
                 apply = true;
             }
         } else {
+            if ui
+                .add_enabled(drawn, egui::Button::new(crate::icons::with("Keep as a sketch")))
+                .on_hover_text(
+                    "Keep the sketch with the part without making a solid: as the profile or the path of a sweep, or a section of a loft (Features tab)",
+                )
+                .on_disabled_hover_text("Draw something first")
+                .clicked()
+            {
+                keep_it = true;
+            }
             if ui
                 .add_enabled(
                     outlines > 0,
@@ -1278,6 +1339,8 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
     }
     if cancel_it {
         cancel(state);
+    } else if keep_it {
+        keep(state);
     } else if extrude || apply {
         finish(state, false);
     } else if revolve {
@@ -1354,17 +1417,23 @@ mod tests {
 
     #[test]
     fn sketches_on_faces_use_the_matching_plane_offset_and_direction() {
+        // The plane, the offset and whether the face looks against the plane's normal; None: a plane of its own.
+        let on = |c: [f64; 3], d: [f64; 3]| {
+            let (s, against) = Sketch::on_face(c, d, "Face").unwrap();
+            assert_eq!(s.face.as_deref(), Some("Face"), "the sketch remembers its face");
+            s.frame.is_none().then_some((s.plane, s.offset, against))
+        };
         // Top of a plate at z = 8, pointing up: XY plane, offset 8, along the normal.
-        assert_eq!(plane_for_face([0.0, 0.0, 8.0], [0.0, 0.0, 1.0]), Some((SketchPlane::XY, 8.0, false)));
+        assert_eq!(on([0.0, 0.0, 8.0], [0.0, 0.0, 1.0]), Some((SketchPlane::XY, 8.0, false)));
         // The bottom looks down: the same plane, extruding against its normal.
-        assert_eq!(plane_for_face([0.0, 0.0, 0.0], [0.0, 0.0, -1.0]), Some((SketchPlane::XY, 0.0, true)));
+        assert_eq!(on([0.0, 0.0, 0.0], [0.0, 0.0, -1.0]), Some((SketchPlane::XY, 0.0, true)));
         // A face looking along +x is the YZ plane (normal +x).
-        assert_eq!(plane_for_face([20.0, 0.0, 4.0], [1.0, 0.0, 0.0]), Some((SketchPlane::YZ, 20.0, false)));
+        assert_eq!(on([20.0, 0.0, 4.0], [1.0, 0.0, 0.0]), Some((SketchPlane::YZ, 20.0, false)));
         // The front plane's normal is -y: a face looking along -y at y = -15 has offset 15.
-        assert_eq!(plane_for_face([0.0, -15.0, 4.0], [0.0, -1.0, 0.0]), Some((SketchPlane::XZ, 15.0, false)));
-        assert_eq!(plane_for_face([0.0, 15.0, 4.0], [0.0, 1.0, 0.0]), Some((SketchPlane::XZ, -15.0, true)));
-        // A slanted face is refused.
-        assert!(plane_for_face([0.0; 3], [0.0, 0.6, 0.8]).is_none());
+        assert_eq!(on([0.0, -15.0, 4.0], [0.0, -1.0, 0.0]), Some((SketchPlane::XZ, 15.0, false)));
+        assert_eq!(on([0.0, 15.0, 4.0], [0.0, 1.0, 0.0]), Some((SketchPlane::XZ, -15.0, true)));
+        // A slanted face gets a plane of its own.
+        assert!(on([0.0; 3], [0.0, 0.6, 0.8]).is_none());
     }
 
     #[test]

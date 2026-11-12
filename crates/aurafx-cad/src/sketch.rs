@@ -335,6 +335,22 @@ pub struct Sketch {
     /// The name of the reference plane or face the sketch was started on (for display).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plane_name: Option<String>,
+    /// The face of the part the sketch sits on, by its name: when the part is rebuilt the sketch
+    /// plane is put back on that face (`plane`, `offset` and `frame` hold where it was last).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<String>,
+    /// A stable number for every entity (same order as `entities`): it stays with its entity
+    /// when others are added or removed, and the faces a feature makes from the sketch are named
+    /// by it (`side 3`). Entities without one yet get theirs from [`Sketch::normalize_entity_ids`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entity_ids: Vec<u64>,
+    /// The largest entity number handed out so far (never reused).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub next_entity_id: u64,
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }
 
 /// Residual tolerance (mm) for convergence.
@@ -376,6 +392,145 @@ impl Sketch {
             (Some(n), _) => n.clone(),
             (None, Some(_)) => "a custom plane".into(),
             (None, None) => format!("the {:?} plane", self.plane),
+        }
+    }
+
+    // ---- entity numbers -------------------------------------------------------------------
+    /// The number of every entity as [`Sketch::normalize_entity_ids`] would leave it, and the
+    /// largest one. Entities that have none yet are numbered after the largest: first the
+    /// drawing entities in order, then the construction ones, so that a sketch that never had
+    /// numbers (an older file) names its faces as before: `side 1` is its first drawing entity.
+    fn assigned_ids(&self) -> (Vec<u64>, u64) {
+        let n = self.entities.len();
+        let mut ids: Vec<u64> = (0..n).map(|i| self.entity_ids.get(i).copied().unwrap_or(0)).collect();
+        let mut seen = std::collections::HashSet::new();
+        for id in ids.iter_mut() {
+            if *id != 0 && !seen.insert(*id) {
+                *id = 0;
+            }
+        }
+        let mut next = self.next_entity_id.max(ids.iter().copied().max().unwrap_or(0));
+        for construction in [false, true] {
+            for (i, e) in self.entities.iter().enumerate() {
+                if ids[i] == 0 && e.construction() == construction {
+                    next += 1;
+                    ids[i] = next;
+                }
+            }
+        }
+        (ids, next)
+    }
+    /// Give every entity a number of its own (kept when it has one already).
+    pub fn normalize_entity_ids(&mut self) {
+        let (ids, next) = self.assigned_ids();
+        self.entity_ids = ids;
+        self.next_entity_id = next;
+    }
+    /// The stable number of entity `i`.
+    pub fn entity_id(&self, i: usize) -> u64 {
+        self.assigned_ids().0.get(i).copied().unwrap_or(0)
+    }
+    /// The index of the entity with this number.
+    pub fn entity_by_id(&self, id: u64) -> Option<usize> {
+        self.assigned_ids().0.iter().position(|x| *x == id)
+    }
+    /// The numbers of the drawing (non-construction) entities, in the order of [`Sketch::entity_paths`].
+    pub fn drawing_ids(&self) -> Vec<u64> {
+        let ids = self.assigned_ids().0;
+        self.entities.iter().enumerate().filter(|(_, e)| !e.construction()).map(|(i, _)| ids[i]).collect()
+    }
+    /// Remove entity `i` (its number goes with it; the others keep theirs) and every constraint
+    /// that names it. Its points stay.
+    pub fn remove_entity(&mut self, i: usize) {
+        if i >= self.entities.len() {
+            return;
+        }
+        self.normalize_entity_ids();
+        self.entities.remove(i);
+        self.entity_ids.remove(i);
+        let shift = |e: usize| if e > i { e - 1 } else { e };
+        use Constraint::*;
+        self.constraints = std::mem::take(&mut self.constraints)
+            .into_iter()
+            .filter_map(|c| {
+                Some(match c {
+                    Horizontal(e) if e != i => Horizontal(shift(e)),
+                    Vertical(e) if e != i => Vertical(shift(e)),
+                    Length(e, d) if e != i => Length(shift(e), d),
+                    Radius(e, d) if e != i => Radius(shift(e), d),
+                    Diameter(e, d) if e != i => Diameter(shift(e), d),
+                    Angle(a, b, d) if a != i && b != i => Angle(shift(a), shift(b), d),
+                    Parallel(a, b) if a != i && b != i => Parallel(shift(a), shift(b)),
+                    Perpendicular(a, b) if a != i && b != i => Perpendicular(shift(a), shift(b)),
+                    Equal(a, b) if a != i && b != i => Equal(shift(a), shift(b)),
+                    Tangent(a, b) if a != i && b != i => Tangent(shift(a), shift(b)),
+                    Concentric(a, b) if a != i && b != i => Concentric(shift(a), shift(b)),
+                    PointOnLine(p, e) if e != i => PointOnLine(p, shift(e)),
+                    PointOnCircle(p, e) if e != i => PointOnCircle(p, shift(e)),
+                    Midpoint(p, e) if e != i => Midpoint(p, shift(e)),
+                    PointLineDistance(p, e, d) if e != i => PointLineDistance(p, shift(e), d),
+                    Symmetric(p, q, e) if e != i => Symmetric(p, q, shift(e)),
+                    c @ (Coincident(..) | Distance(..) | HorizontalDistance(..) | VerticalDistance(..) | Fix(..)) => c,
+                    _ => return None,
+                })
+            })
+            .collect();
+    }
+
+    // ---- placing on a face ----------------------------------------------------------------
+    /// A new sketch on a flat face given by a point on it and its outward direction: on the
+    /// matching principal plane when the face looks along x, y or z, otherwise on the face's own
+    /// plane. The second value says the face looks against the sketch plane's normal (a boss
+    /// then extrudes with `reverse`).
+    pub fn on_face(point: [f64; 3], direction: [f64; 3], name: &str) -> Option<(Sketch, bool)> {
+        let a = [direction[0].abs(), direction[1].abs(), direction[2].abs()];
+        let k = (0..3).max_by(|i, j| a[*i].total_cmp(&a[*j]))?;
+        let len = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+        if len < 1e-12 {
+            return None;
+        }
+        // Nearly along an axis is along it (a face's direction read off a rough build is not exact;
+        // the sketch is put on the face's true plane when the part is built).
+        if a[k] / len >= 0.999 {
+            let plane = [SketchPlane::YZ, SketchPlane::XZ, SketchPlane::XY][k];
+            let n = plane.normal().to_array();
+            let offset = (0..3).map(|i| point[i] * n[i]).sum::<f64>();
+            let reverse = (0..3).map(|i| direction[i] * n[i]).sum::<f64>() < 0.0;
+            let mut s = Sketch::new(plane);
+            s.offset = offset;
+            s.plane_name = Some(name.to_string());
+            s.face = Some(name.to_string());
+            return Some((s, reverse));
+        }
+        let mut s = Sketch::new(SketchPlane::XY).on_frame(PlaneFrame::new(point, direction, None)?, Some(name.to_string()));
+        s.face = Some(name.to_string());
+        Some((s, false))
+    }
+    /// Put the sketch plane back on its face, now through `point` with the outward direction
+    /// `direction`: a face that only moved along its normal moves the sketch with it; one that
+    /// turned takes the sketch plane with it, the sketch's origin and x axis staying as near to
+    /// where they were as the new plane allows.
+    pub fn follow_face(&mut self, point: [f64; 3], direction: [f64; 3]) {
+        let (r, o) = self.placement_frame();
+        let n = DVec3::from_array(direction).normalize_or_zero();
+        if n == DVec3::ZERO {
+            return;
+        }
+        let p = DVec3::from_array(point);
+        let along = r.z_axis.dot(n);
+        if along.abs() > 1.0 - 1e-9 {
+            let moved = (p - o).dot(r.z_axis);
+            if moved.abs() > 1e-9 {
+                self.offset += moved;
+            }
+            return;
+        }
+        // The side of the face the sketch's normal was on stays the same.
+        let normal = if along < 0.0 { -n } else { n };
+        let origin = o - n * (o - p).dot(n);
+        if let Some(f) = PlaneFrame::new(origin.to_array(), normal.to_array(), Some(r.x_axis.to_array())) {
+            self.frame = Some(f);
+            self.offset = 0.0;
         }
     }
 
@@ -965,7 +1120,7 @@ fn write_back(pvar: &[Option<usize>], rvar: &[Option<usize>], x: &[f64], sk: &mu
 }
 
 /// Solve a dense n×n system in place (Gaussian elimination, partial pivoting). `false` if singular.
-fn solve_dense(a: &mut [f64], b: &mut [f64], n: usize) -> bool {
+pub(crate) fn solve_dense(a: &mut [f64], b: &mut [f64], n: usize) -> bool {
     for col in 0..n {
         let piv = (col..n).max_by(|&i, &j| a[i * n + col].abs().total_cmp(&a[j * n + col].abs())).unwrap();
         if a[piv * n + col].abs() < 1e-300 {
@@ -1000,7 +1155,7 @@ fn solve_dense(a: &mut [f64], b: &mut [f64], n: usize) -> bool {
 }
 
 /// Numerical rank of an m×n row-major matrix (destroys it).
-fn matrix_rank(a: &mut [f64], m: usize, n: usize) -> usize {
+pub(crate) fn matrix_rank(a: &mut [f64], m: usize, n: usize) -> usize {
     let tol = 1e-7 * a.iter().fold(1.0f64, |acc, v| acc.max(v.abs()));
     let mut rank = 0;
     for col in 0..n {

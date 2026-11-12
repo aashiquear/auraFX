@@ -43,6 +43,19 @@ fn add_shape(state: &mut State, kind: &str, base: &str, extra: serde_json::Value
     op(state, "add", a);
 }
 
+/// Make a sweep or a loft from the sketches kept with the part, or say what is missing.
+fn swept(state: &mut State, sweep: bool) {
+    let (s, l) = ribbon::swept_choices(state);
+    let (opname, base, choice) = if sweep { ("sweep", "Sweep", s) } else { ("loft", "Loft", l) };
+    match choice {
+        Ok(mut a) => {
+            a["name"] = json!(ribbon::unique(state, base));
+            op(state, opname, a);
+        }
+        Err(why) => state.toast(why, true),
+    }
+}
+
 fn tool(state: &mut State, t: sketch::Tool) {
     if let Some(e) = state.cad.sketch.as_mut() {
         e.select_tool(t);
@@ -84,6 +97,15 @@ pub fn commands() -> Vec<Cmd> {
             sketch::finish(s, false)
         }),
         c("Revolve the sketch", "Sketch", "Finish the sketch turned about its vertical axis", "finish lathe turn", "", Some(true), |s| sketch::finish(s, true)),
+        c(
+            "Keep as a sketch",
+            "Sketch",
+            "Finish the sketch without making a solid: kept with the part as the profile or path of a sweep, or a section of a loft",
+            "save profile path section sweep loft",
+            "",
+            Some(true),
+            sketch::keep,
+        ),
         c("Cancel the sketch", "Sketch", "Close the sketch without changing the part", "close leave", "", Some(true), sketch::cancel),
         // Features.
         c("Box", "Features", "A 20 mm box on top of the part", "block brick cube", "", Some(false), |s| {
@@ -102,6 +124,24 @@ pub fn commands() -> Vec<Cmd> {
         c("Tapped hole", "Features", "A threaded hole", "thread screw", "", Some(false), |s| {
             add_shape(s, "hole", "Hole", json!({"hole": "tapped", "diameter": 8, "depth": 10, "pitch": 1.25}))
         }),
+        c(
+            "Sweep",
+            "Features",
+            "Sweep the closed outline of one kept sketch along the open path of another",
+            "pipe tube rail handle path profile",
+            "",
+            Some(false),
+            |s| swept(s, true),
+        ),
+        c(
+            "Loft",
+            "Features",
+            "Loft through the closed outlines of kept sketches on parallel planes",
+            "blend sections transition taper",
+            "",
+            Some(false),
+            |s| swept(s, false),
+        ),
         // Modify.
         c("Fillet edges…", "Modify", "Click edges of the part and round them", "round blend radius", "", Some(false), |s| pick::open(s, PickKind::Fillet)),
         c("Chamfer edges…", "Modify", "Click edges and cut them at an angle", "bevel", "", Some(false), |s| pick::open(s, PickKind::Chamfer)),
@@ -139,6 +179,42 @@ pub fn commands() -> Vec<Cmd> {
             |s| s.cad.tab = RibbonTab::Assemble,
         ),
         c("Check fit", "Assemble", "Find the parts that overlap", "interference clash collision", "", Some(false), ribbon::check_fit),
+        c(
+            "Add mate…",
+            "Assemble",
+            "Tie two parts together: click a face on each, then choose coincident, concentric, distance or angle",
+            "constraint join align coincident concentric distance angle motion",
+            "",
+            Some(false),
+            |s| {
+                if super::focused(s).is_some() {
+                    s.toast("Mates are between the parts of the assembly: go back to the assembly first.".to_string(), true);
+                } else {
+                    pick::open(s, PickKind::Mate)
+                }
+            },
+        ),
+        c(
+            "Edit the selected component",
+            "model tree",
+            "Work on one part of the assembly on its own: its features in the tree, the feature panel and the ribbon (also a double-click on it)",
+            "part open inside assembly features",
+            "",
+            Some(false),
+            |s| match s.cad.component.clone() {
+                Some(c) => super::focus(s, Some(&c)),
+                None => s.toast("Click a part under Components in the model tree first (or double-click it).".to_string(), true),
+            },
+        ),
+        c(
+            "Back to the assembly",
+            "model tree",
+            "Leave the component being edited on its own and show the whole assembly",
+            "up parent leave component",
+            "",
+            Some(false),
+            |s| super::focus(s, None),
+        ),
         c("Start from a template", "Files", "Replace the part by a starter part (a bracket, a flange, an enclosure…)", "new example", "", Some(false), |s| {
             s.cad.tab = RibbonTab::Files
         }),
@@ -175,15 +251,17 @@ pub fn next_steps(state: &State) -> (String, Vec<&'static str>) {
         let free = e.report.as_ref().map(|r| r.dof).unwrap_or(0);
         return if e.sketch.entities.is_empty() {
             ("Draw a closed outline: pick a tool (L line, R rectangle, C circle) and click in the view.".into(), vec!["Rectangle", "Circle", "Line"])
+        } else if e.saved.is_some() {
+            ("Change the sketch, then press Apply sketch on the right: the sweeps and lofts that use it follow.".into(), vec!["Select", "Cancel the sketch"])
         } else if closed == 0 {
             (
                 if open > 0 {
-                    "The outline is still open: end the last line on the first point (it snaps), or draw a rectangle or circle."
+                    "The outline is still open: end the last line on the first point (it snaps) to extrude it, or keep it as it is for the path of a sweep."
                 } else {
                     "Draw a closed outline to extrude."
                 }
                 .into(),
-                vec!["Line", "Rectangle", "Cancel the sketch"],
+                if open > 0 { vec!["Line", "Keep as a sketch", "Cancel the sketch"] } else { vec!["Line", "Rectangle", "Cancel the sketch"] },
             )
         } else if e.feature.is_some() {
             ("Change the outline or its dimensions, then press Apply sketch on the right.".into(), vec!["Select", "Cancel the sketch"])
@@ -200,7 +278,25 @@ pub fn next_steps(state: &State) -> (String, Vec<&'static str>) {
     }
     let s = state.session.lock();
     let Some(e) = s.cad_edit.as_ref() else { return (String::new(), vec![]) };
-    if e.document.features.is_empty() && e.document.components.is_empty() {
+    if let Some(c) = e.focused() {
+        let text = if c.document.features.is_empty() {
+            format!("The component {} has no feature yet: sketch and extrude, or add a ready shape. It is shown alone, in its own coordinates.", c.name)
+        } else {
+            format!(
+                "Editing the component {} on its own: add to it, cut from it, select a feature to change its numbers. Then go back to the assembly.",
+                c.name
+            )
+        };
+        return (
+            text,
+            if c.document.features.is_empty() {
+                vec!["Sketch on the Top plane", "Box", "Back to the assembly"]
+            } else {
+                vec!["Sketch on a face…", "Hole", "Back to the assembly"]
+            },
+        );
+    }
+    if e.active().features.is_empty() && e.active().components.is_empty() && e.active().sketches.is_empty() {
         return (
             "An empty part. Most parts start as a sketch that is extruded; a ready shape or a template is quicker.".into(),
             vec!["Sketch on the Top plane", "Box", "Start from a template"],
@@ -212,7 +308,24 @@ pub fn next_steps(state: &State) -> (String, Vec<&'static str>) {
     if e.rollback.is_some() {
         return ("Rolled back: only the features above the marker are built, and a new feature goes in at the marker. Drag the marker in the timeline to the end to see the whole part.".into(), vec![]);
     }
-    let only_one = e.document.features.len() == 1;
+    // Sketches kept and nothing made from them yet: the sweep or the loft is next.
+    if !e.active().sketches.is_empty()
+        && e.active().features.iter().all(|f| !matches!(f.shape, aurafx_cad::Shape::SketchSweep { .. } | aurafx_cad::Shape::SketchLoft { .. }))
+    {
+        let n = e.active().sketches.len();
+        return (
+            format!("{n} sketch(es) kept with the part. A sweep takes a closed profile and an open path; a loft two or more closed outlines on parallel planes. The buttons on the Features tab say what is still missing."),
+            vec!["Sweep", "Loft", "Sketch on the Top plane"],
+        );
+    }
+    if e.document.components.len() + usize::from(!e.document.features.is_empty()) > 1 && e.document.mates.is_empty() {
+        return (
+            "An assembly: move the parts under Components, or tie them together with mates (a face on each). Double-click a part to edit its own features."
+                .into(),
+            if e.changed { vec!["Add mate…", "Check fit", "Apply"] } else { vec!["Add mate…", "Check fit", "Insert a part"] },
+        );
+    }
+    let only_one = e.active().features.len() == 1;
     let mut steps =
         if only_one { vec!["Sketch on a face…", "Hole", "Fillet edges…"] } else { vec!["Sketch on a face…", "Fillet edges…", "Shell, open faces…"] };
     let text = if e.changed {
@@ -231,7 +344,7 @@ pub fn guide_ui(state: &mut State, ui: &mut egui::Ui) {
         return;
     }
     let is_error = state.cad.sketch.is_none()
-        && state.session.lock().cad_edit.as_ref().is_some_and(|e| e.error.is_some() && !(e.document.features.is_empty() && e.document.components.is_empty()));
+        && state.session.lock().cad_edit.as_ref().is_some_and(|e| e.error.is_some() && !(e.active().features.is_empty() && e.active().components.is_empty()));
     let all = commands();
     let mut run: Option<fn(&mut State)> = None;
     egui::Frame::group(ui.style()).fill(ui.visuals().faint_bg_color).show(ui, |ui| {

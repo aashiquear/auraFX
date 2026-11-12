@@ -43,7 +43,7 @@ pub fn form_ui(state: &mut State, ui: &mut egui::Ui) {
         let s = state.session.lock();
         let e = s.cad_edit.as_ref();
         (
-            e.map(|e| e.document.planes.iter().map(|p| p.name.clone()).collect::<Vec<_>>()).unwrap_or_default(),
+            e.map(|e| e.active().planes.iter().map(|p| p.name.clone()).collect::<Vec<_>>()).unwrap_or_default(),
             e.and_then(|e| e.summary.as_ref()).map(|s| s.faces.iter().filter(|f| f.kind == "plane").cloned().collect::<Vec<_>>()).unwrap_or_default(),
         )
     };
@@ -159,7 +159,7 @@ pub fn form_ui(state: &mut State, ui: &mut egui::Ui) {
 
 /// The reference planes in the feature panel's part page: sketch on one, or remove it.
 pub fn list_ui(state: &mut State, ui: &mut egui::Ui) {
-    let planes = state.session.lock().cad_edit.as_ref().map(|e| e.document.planes.clone()).unwrap_or_default();
+    let planes = state.session.lock().cad_edit.as_ref().map(|e| e.active().planes.clone()).unwrap_or_default();
     ui.add_space(6.0);
     egui::CollapsingHeader::new(RichText::new(format!("Reference planes ({})", planes.len()))).id_salt("pm planes").default_open(true).show(ui, |ui| {
         let mut sketch_on = None;
@@ -200,7 +200,7 @@ pub fn draw_overlay(painter: &egui::Painter, cam: &aurafx_render::Camera, rect: 
             .map(|s| (0..3).map(|k| s.bounds.1[k] - s.bounds.0[k]).fold(0.0f64, f64::max) * 0.6)
             .filter(|h| h.is_finite() && *h > 0.0)
             .unwrap_or(25.0);
-        (e.document.planes.iter().map(|p| (p.name.clone(), p.frame)).collect::<Vec<_>>(), half)
+        (e.active().planes.iter().map(|p| (p.name.clone(), p.frame)).collect::<Vec<_>>(), half)
     };
     let col = egui::Color32::from_rgb(70, 150, 230);
     for (name, f) in &planes {

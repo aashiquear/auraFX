@@ -17,6 +17,7 @@ Every function of the `aurafx` module (`import aurafx as afx`) and every method 
 - `afx.assistant_prompt(name)`: Put a saved prompt (by name) in the assistant's box, the selected object filled in.
 - `afx.assistant_status()`: The assistant panel's state: busy (an answer is arriving), agent (agent mode is iterating), the number of messages, the last answer, the last error and the last messages as (role, text). Empty values without the app.
 - `afx.cad_check(node=None)`: The downstream check of the CAD environment that is open (see node.cad.check()).
+- `afx.cad_from(node, name=None)`: A CAD Model whose part starts as the solid another node shows: a Geometry source (each body apart) or any closed surface, kept as imported bodies that features add to and cut from. The node itself is left as it is and hidden. afx.cad_from(g).edit_cad() opens it in the CAD environment.
 - `afx.cancel(id)`
 - `afx.chart_view(node=None, y=None, x=None, style=None, data=None, log_x=None, log_y=None, title=None, view=None)`: Open a chart view, or change one: `afx.chart_view(line, y=["T", "p"], x="arc_length")`. `node` is the object it plots (None: whichever object is selected); `y` one array name or a list; `x` an array name or "index"; `style` "lines", "points", "markers" or "bars"; `data` "auto", "points" or "cells". With `view=n` the existing view n is changed (0 = the Charts panel). Returns the view's number.
 - `afx.chart_views()`: The chart views: a list of dicts (view, node, x, y, style, data, log_x, log_y, title).
@@ -70,7 +71,7 @@ Every function of the `aurafx` module (`import aurafx as afx`) and every method 
 - `afx.reset_camera()`
 - `afx.run()`
 - `afx.run_case(node, solver, workdir, host=None, exe=None, np=1, auto_load=True, wait=False, slurm=None, **kwargs)`: Write a simulation case from a node's data (see simulation_case) and run it: on this computer in `workdir`, or on `host` (the case files are uploaded to `workdir` there). `exe` is the solver program (default: solid_mechanics-opt, spk_mpi, pinnacle), `np` the MPI processes. The results open when the run ends (auto_load). Returns the job id.
-- `afx.save_animation(path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None)`: Record an animation: keyframes if any were added (key_camera / node.key), otherwise time steps, or a 360° camera orbit with orbit=frames. The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).  With `cue`, a Python function called with the animation time t (0..1) before each frame (after the keyframes are applied), the script renders the frames itself and returns when the file is written: `afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))`.  `views="all"` records every visible 3D view and chart view as laid out in the window ("charts", "3d", "chart N" and "view N" as for `afx.screenshot`).
+- `afx.save_animation(path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None, poster=None)`: Record an animation: keyframes if any were added (key_camera / node.key), otherwise time steps, or a 360° camera orbit with orbit=frames. The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).  With `cue`, a Python function called with the animation time t (0..1) before each frame (after the keyframes are applied), the script renders the frames itself and returns when the file is written: `afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))`.  `views="all"` records every visible 3D view and chart view as laid out in the window ("charts", "3d", "chart N" and "view N" as for `afx.screenshot`).  `poster="clip.jpg"` also writes the first frame as a picture (.jpg or .png), the still a web page shows before the video plays.
 - `afx.save_state(path)`: Save the pipeline, display settings and camera to an .afx file.
 - `afx.screenshot(path, width=None, height=None, transparent=False, annotations=True, views=None, controls=False)`: Save a picture of the active 3D view: `afx.screenshot("fig.png", width=1920)`. With `views`, a picture of several views as they are laid out in the window: "all" (every visible 3D view and chart view), "charts", "3d", "chart" (the Charts panel), "chart N" (the chart titled Chart N) or "view N"; `controls=True` keeps the charts' boxes and buttons.
 - `afx.select(node, ids, assoc='cells')`: Select cells (or points) of a node by flattened index; shown highlighted in the 3D view.
@@ -202,9 +203,10 @@ The parametric document of a CAD Model node. Numbers can be expressions of the d
 - `draft(faces, angle=3, neutral_origin=(0, 0, 0), neutral_normal=(0, 0, 1), name=None)`: Taper side faces (names from faces(), or points) by `angle` degrees about a neutral plane they stay fixed on. The exact kernel builds it; the implicit one leaves the faces vertical and says so.
 - `edges()`: The edges of the part as the exact (B-rep) kernel builds it: index, a point on the edge, length, straight, and the names of the faces on either side. Raises when the exact kernel cannot build it.
 - `edit(op, args=None, **kw)`
+- `edit_component(name=None)`: Inside the CAD environment: work on one component's own part. Every call of this object (box, hole, extrude, features, faces, ...) then acts on that part, shown alone in its own coordinates; edit_component(None) goes back to the assembly. Undo is the assembly's.
 - `editing()`: True while the CAD environment is open on this node.
 - `evaluate(resolution=64, kernel='Auto')`: Build the part now: volume, area, centroid, bounds, the faces (name, kind, area, centroid, direction), the kernel that built it and notes on what it could not build exactly.
-- `extrude(sketch, depth=10, name=None, op='add', end='blind', draft=0, reverse=False, at=(0, 0, 0), top=None, bottom=None)`: Extrude a sketch along its plane's normal. end: blind, midplane or through_all. top / bottom: {"fillet": r} or {"chamfer": d} on the cap edges.
+- `extrude(sketch, depth=10, name=None, op='add', end='blind', draft=0, reverse=None, at=(0, 0, 0), top=None, bottom=None)`: Extrude a sketch along its plane's normal. end: blind, midplane or through_all. top / bottom: {"fillet": r} or {"chamfer": d} on the cap edges. reverse: against the normal (left out, a sketch on a face grows out of the part, and a cut goes into it).
 - `faces(resolution=64)`
 - `features()`
 - `fillet(radius, feature=None)`
@@ -215,15 +217,23 @@ The parametric document of a CAD Model node. Numbers can be expressions of the d
 - `interference(other, at=(0, 0, 0), rotate=(0, 0, 0), resolution=0.5)`: The overlap volume with another CAD Model node placed at `at` (and rotated by `rotate` degrees).
 - `linear_pattern(count, step, feature=None)`
 - `load(path)`: Replace the document by a file: .afxcad, or a solid (.step/.stp, .igs, .3mf, .sc, .stl, .obj) as the base feature of a new document.
+- `loft(sections, name=None, op='add', at=(0, 0, 0))`: Loft through the closed outlines of two or more sketches on parallel planes at different offsets (names of kept sketches, or sketches).
 - `mass(density=7.85)`: Volume, surface, center, bounds and mass (density in g/cm3) of the built part.
+- `mate(kind, a, b=None, value=None, flip=False, name=None)`: A mate between two parts by a face of each, 'Component/Face' (faces() lists them; a face of the assembly's own part is 'Face'; 'XY', 'XZ', 'YZ' are the assembly's planes). kind: coincident (two flat faces meet; flip=True: flush, looking the same way), concentric (two round faces on one axis), distance (flat faces value mm apart), angle (value degrees: 0 as coincident leaves them) or fixed (the part a stays put: mate('fixed', 'Base')). value may be an expression of the assembly's dimensions. Returns {"mate", "dof", "status"}.
+- `mate_remove(mate)`
+- `mate_set(mate, value=None, flip=None, suppressed=None)`: Change a mate: its distance or angle (this moves the assembly), flip, or switch it off.
+- `mates(resolution=48)`: The mates as the assembly builds now: name, kind, a, b, value, and "error" (why one is not met, else None); with "dof" on each: the ways the mated parts can still move.
 - `measure_faces(a, b)`: The distance between two parallel flat faces (or their centers), and the angle between them.
 - `mirror(plane='YZ', feature=None)`
 - `mirror_about(origin, normal, name=None)`: Mirror the part so far about a plane, e.g. a flat face: origin is a point on it (or a face name from faces()), normal its direction. The reflection is joined to the part.
 - `modifier(kind, feature=None, **kw)`
 - `move(feature, to)`
-- `open_picker(kind='fillet')`: Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror or pattern.
+- `open_picker(kind='fillet')`: Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror, pattern, or mate (two faces of two parts).
 - `parameter(name, expr, comment='')`
 - `parameters()`
+- `pick_choose(label)`: Tick an item of the open picker by its label (a face's name), as a click on it does. In the window only.
+- `pick_face_for(feature)`: Open the list of flat faces a feature's sketch can be put on (the model tree's 'Pick another face…'). In the window only; sketch_face() does it without the window.
+- `placements(resolution=48)`: Where the mates put every component: name, at, rotate (degrees).
 - `plane(name=None, from_plane='XY', offset=0, angle=0, about='x', points=None, origin=None, normal=None, x_axis=None)`: A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference plane moved by offset and turned by angle about its x or y axis; or through three points; or by origin and normal. Sketch on it with sketch(plane=name).
 - `plane_form()`: Open the New reference plane form in the window.
 - `redo()`
@@ -242,16 +252,24 @@ The parametric document of a CAD Model node. Numbers can be expressions of the d
 - `shell(thickness, feature=None, open_top=None)`
 - `shell_faces(faces=(), thickness=2, name=None)`: Hollow the part so far with this wall, removing the picked faces (names from faces(), or points); no faces: a closed hollow body.
 - `show_tab(name)`: Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window.
-- `sketch(plane='XY', offset=0)`
+- `sketch(plane='XY', offset=0, face=None)`: A sketch to draw in: on a plane (XY, XZ, YZ or a reference plane's name, moved by offset), or on a flat face of the part by its name (face="Plate z+"); such a sketch stays on its face when the part changes. See the sketch's own calls: ready shapes, or lines with constraints.
+- `sketch_add(sketch, name=None)`: Keep a sketch with the part under a name (Sketch 1, ...): the profile or the path of a sweep, a section of a loft. Returns {"sketch": name}.
 - `sketch_cursor(x, y, line_from=None)`: For pictures: where the sketch canvas takes the cursor to be (sketch units) when the mouse is elsewhere, optionally drawing a line from point line_from, so snaps and guides show.
 - `sketch_dim_edit(index='first')`: Open the value editor of the sketch's dimension number index (as a double-click does); "first": the first dimension.
 - `sketch_edit(feature)`: Open the sketch canvas on the sketch of an extruded or revolved feature.
+- `sketch_face(feature, face=None)`: Put the sketch of an extruded or revolved feature on a face of the part (by name): it follows that face from then on. face=None lets go of the face; the sketch stays where it is.
 - `sketch_new(plane='XY', offset=0, items=None)`: Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready shapes (the items of cad.sketch()). Only useful from a script running in the app.
 - `sketch_on_face()`: Open the face picker to start a sketch on a flat face of the part (in the window).
+- `sketch_open(name)`: Open the sketch canvas on a sketch kept with the part. In the window only.
+- `sketch_remove(name)`
+- `sketch_rename(name, to)`
+- `sketch_set(name, sketch)`: Replace a kept sketch; the sweeps and lofts that use it follow.
+- `sketches()`: The sketches kept with the part: name, plane, closed outlines, open paths.
 - `sphere(radius=5, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)`
 - `split(plane='XY', offset=0, keep_positive=True, feature=None)`
 - `state()`
 - `suppress(feature, suppressed=True)`
+- `sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))`: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as '<name> profile' and '<name> path'). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.
 - `template(name)`: Start from a template: enclosure, flange, knob, threaded rod, vase or bracket.
 - `thread(major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op='add', at=(0, 0, 0))`
 - `torus(major=10, minor=2, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)`
@@ -260,13 +278,40 @@ The parametric document of a CAD Model node. Numbers can be expressions of the d
 
 ## A sketch description (node.cad.sketch)
 
-A sketch described item by item; pass it to extrude() or revolve().
+A sketch: ready shapes (rectangle, circle, polygon, regular, path), or lines, circles and arcs drawn one by one and tied by constraints and dimensions. A dimension's value is a number or an expression of the part's dimensions ("width / 2"). Pass it to extrude(), revolve(), sketch_add(), sweep() or loft().
 
+- `add_circle(center, r, construction=False)`: A circle to constrain (circle() adds a ready, dimensioned one). Returns the circle.
+- `angle(a, b, value)`: The angle between two lines, in degrees.
+- `arc(center, start, end, construction=False)`: An arc counter-clockwise from start to end around center.
 - `circle(r, center=(0, 0))`
+- `coincident(p, q)`: Two points in one place (the end of one line on the start of another).
+- `concentric(a, b)`
+- `diameter(circle, value)`
+- `dimension(a, b=None, value=None)`: The same as distance().
+- `distance(a, b=None, value=None)`: A driving dimension: distance(line, 40) is the line's length, distance(p, q, 40) the distance between two points, distance(p, line, 40) from a point to a line. The value may be an expression of the part's dimensions: distance(l, "width").
+- `equal(a, b)`: Two lines of one length, or two circles of one radius.
+- `fix(point)`
+- `hdistance(p, q, value)`: The distance between two points along the sketch's x.
+- `horizontal(line)`
+- `length(line, value)`
+- `line(a, b, construction=False)`: A line between two points: (x, y) pairs, or points of other entities (l.end) to share a corner.
+- `lines(points, closed=True)`: Lines through the points, sharing their corners (closed: back to the first). Returns the lines.
+- `midpoint(point, line)`
+- `parallel(a, b)`
+- `path(points)`: Lines joined end to end and left open: the path of a sweep.
+- `perpendicular(a, b)`
+- `point(x, y, fixed=False)`: A point; fixed=True pins it where it is.
+- `point_on(point, entity)`: A point on a line (anywhere along it) or on a circle or arc.
 - `polygon(points)`
+- `radius(circle, value)`
 - `rectangle(w, h, corner=None, center=None)`
 - `regular(sides, r, center=(0, 0))`
+- `solve()`: Solve the constraints now: {"status": "fully defined" \| "under-defined" \| "over-defined" \| "failed", "dof": degrees of freedom left, "converged", "outlines": closed outlines, "paths": open ones}. The points' .xy are then where the constraints put them. (extrude() and the others solve by themselves; this is to check a sketch first.)
 - `spec()`
+- `symmetric(p, q, line)`: Two points mirror images of each other in a line.
+- `tangent(a, b)`: A line touching a circle or an arc, or two of those touching.
+- `vdistance(p, q, value)`: The distance between two points along the sketch's y.
+- `vertical(line)`
 
 ## afx.mesh (geometry commands)
 

@@ -204,6 +204,17 @@ fn arr_param(key: &str, label: &str) -> ParamSpec {
         ParamValue::Array { assoc: Association::Points, name: String::new() },
     )
 }
+/// A synthetic source's `gradient` setting: above 0, the Orientation Gradient filter's default
+/// model at that rate.
+fn with_gradient(ds: DataSet, p: &Params) -> anyhow::Result<DataSet> {
+    let rate = p.f64("gradient", 0.0);
+    if rate > 0.0 {
+        crate::orient_gradient::orientation_gradient(&ds, "", "FeatureIds", &crate::orient_gradient::GradientParams::model(rate, p.i64("seed", 1) as u64))
+    } else {
+        Ok(ds)
+    }
+}
+
 fn cell_arr(key: &str, label: &str) -> ParamSpec {
     ParamSpec::new(
         key,
@@ -4951,6 +4962,91 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "orientation_gradient",
+            label: "Orientation Gradient",
+            category: "Grains",
+            description: "Give every grain an orientation that changes smoothly inside it, as in additively manufactured material: a steady turn along a direction, a smooth random spread and, optionally, sub-grain cells with low-angle boundaries.",
+            keywords: &["intragranular misorientation", "lattice rotation", "orientation spread", "srod", "grod", "kam", "sub-grain", "cells", "low-angle boundaries", "additive manufacturing", "synthetic", "gradient"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("rate", "Gradient (degrees per unit length)", 0.05, 0.0, 90.0).help("How fast each grain turns along the direction. Measured additively manufactured nickel alloys turn by about 0.02 to 0.1 degrees per micrometre. 0: no steady turn."),
+                v3("direction", "Direction", [0.0, 0.0, 1.0]).help("The turn grows along this direction (the build direction, z by default)."),
+                f("rate_spread", "Spread between grains (log sigma)", 0.5, 0.0, 3.0).help("Each grain gets its own rate, lognormal about the gradient. 0: every grain alike."),
+                choice("axis", "Rotation axis", &[crate::orient_gradient::AXIS_RANDOM, crate::orient_gradient::AXIS_PERPENDICULAR, crate::orient_gradient::AXIS_FIXED], crate::orient_gradient::AXIS_RANDOM)
+                    .help("The axis each grain turns about: its own random one, a random one perpendicular to the direction, or the fixed axis below for all grains."),
+                choice("reference", "Unturned at", &[crate::orient_gradient::REF_CENTROID, crate::orient_gradient::REF_LOWEST], crate::orient_gradient::REF_CENTROID)
+                    .help("Where a grain keeps the orientation it had: its centroid, or its lowest point along the direction (a grain that grew from the layer below)."),
+                f("amplitude", "Smooth spread (degrees)", 0.5, 0.0, 45.0).help("Root-mean-square angle of a smooth random turn added inside each grain. 0: none."),
+                f("correlation_length", "Spread correlation length", 0.0, 0.0, f64::INFINITY).help("The distance over which the smooth spread changes. 0: half of each grain's diameter."),
+                f("cell_size", "Sub-grain cell size", 0.0, 0.0, f64::INFINITY).help("Divide every grain into cells of about this size, each turned a little differently. 0: no cells."),
+                f("cell_angle", "Misorientation between cells (degrees)", 1.0, 0.0, 15.0).help("Mean misorientation across a cell boundary. Keep it well under the Segment Features tolerance if the grains are to stay whole."),
+                f("size_exponent", "Grows with grain size (exponent)", 0.0, 0.0, 3.0).help("Gradient, spread and cell misorientation are multiplied by (grain diameter / median diameter) to this power. 0: no dependence; 0.5 to 1: larger grains turn more.").advanced(),
+                f("cap", "Largest turn (degrees)", 0.0, 0.0, 180.0).help("No cell turns further than this from the orientation its grain had; the turn levels off smoothly towards it. 0: no limit.").advanced(),
+                v3("fixed_axis", "Fixed axis", [1.0, 0.0, 0.0]).advanced(),
+                cell_arr("orientations", "Orientations").help("Empty: EulerAngles, Quats or OrientationMatrix.").advanced(),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
+            ],
+            apply: |input, p| {
+                let name = p.array("orientations").map(|x| x.1).unwrap_or_default();
+                let g = crate::orient_gradient::GradientParams {
+                    rate: p.f64("rate", 0.05),
+                    direction: p.vec3("direction", [0.0, 0.0, 1.0]),
+                    rate_spread: p.f64("rate_spread", 0.5),
+                    axis: p.str("axis"),
+                    fixed_axis: p.vec3("fixed_axis", [1.0, 0.0, 0.0]),
+                    reference: p.str("reference"),
+                    amplitude: p.f64("amplitude", 0.5),
+                    correlation_length: p.f64("correlation_length", 0.0),
+                    cell_size: p.f64("cell_size", 0.0),
+                    cell_angle: p.f64("cell_angle", 1.0),
+                    size_exponent: p.f64("size_exponent", 0.0),
+                    cap: p.f64("cap", 0.0),
+                    seed: p.i64("seed", 1) as u64,
+                };
+                crate::orient_gradient::orientation_gradient(input.unwrap(), &name, &p.str("feature_ids"), &g)
+            },
+        },
+        FilterDef {
+            id: "realistic_grains",
+            label: "Grain Realism",
+            category: "Grains",
+            description: "Make tessellated grains look grown: relax the boundaries so that faces curve and junctions open to equal angles, remove the smallest grains and make the boundaries wavy. Orientations and every other cell array follow the cells.",
+            keywords: &["grain growth", "relax boundaries", "curvature", "triple junctions", "120 degrees", "coarsening", "boundary roughness", "wavy boundaries", "voronoi", "synthetic", "smooth labels"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                i("relax", "Relaxation sweeps", 4, 0, 100).help("Each sweep gives every cell near a boundary to the grain with the largest weighted share of the cells around it. 3 to 5 sweeps settle the junctions; more changes little."),
+                f("width", "Relaxation width (cells)", 1.5, 0.5, 8.0).help("How far a sweep looks (standard deviation of its weights). About an eighth of the grain size in cells rounds whole grains; smaller values only round corners. Wider is slower."),
+                f("coarsen", "Remove smallest grains (fraction)", 0.0, 0.0, 0.95).help("This share of the grains, smallest first, is given to the neighbours before relaxing."),
+                f("roughness", "Boundary roughness", 0.0, 0.0, f64::INFINITY).help("Typical distance (in the volume's length unit) by which boundaries are pushed out of place by a smooth random field. 0: none."),
+                f("roughness_length", "Roughness wavelength", 0.0, 0.0, f64::INFINITY).help("The distance over which the push changes. 0: four times the roughness."),
+                b("periodic", "Periodic", false).help("Treat opposite faces of the volume as neighbours."),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
+            ],
+            apply: |input, p| {
+                crate::grain_realism::realistic_grains(
+                    input.unwrap(),
+                    &p.str("feature_ids"),
+                    &crate::grain_realism::RealismParams {
+                        relax: p.i64("relax", 4).max(0) as usize,
+                        width: p.f64("width", 1.5),
+                        roughness: p.f64("roughness", 0.0),
+                        roughness_length: p.f64("roughness_length", 0.0),
+                        coarsen: p.f64("coarsen", 0.0),
+                        periodic: [p.bool("periodic", false); 3],
+                        seed: p.i64("seed", 1) as u64,
+                    },
+                )
+            },
+        },
+        FilterDef {
             id: "ensemble_statistics",
             label: "Generate Ensemble Statistics",
             category: "Grains",
@@ -5285,6 +5381,7 @@ fn build() -> Vec<FilterDef> {
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
                 b("calibrate", "Match the goal sizes and shapes", true).help("Space-filling grains measure more irregular than the shapes drawn: repack with corrected goals until the measured statistics match (slower)."),
                 i("moves", "Placement moves per grain", 20, 0, 100_000).advanced(),
+                f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
                 i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
             ],
             apply: |_, p| {
@@ -5294,7 +5391,7 @@ fn build() -> Vec<FilterDef> {
                     let v = p.floats(k);
                     (v.first().copied().unwrap_or(12.0), v.get(1).copied().unwrap_or(4.0))
                 };
-                crate::synthetic::pack_grains(
+                let packed = crate::synthetic::pack_grains(
                     &crate::synthetic::PackParams {
                         cells: n,
                         spacing: p.f64("spacing", 1.0),
@@ -5317,7 +5414,8 @@ fn build() -> Vec<FilterDef> {
                         calibrate: p.bool("calibrate", true),
                     },
                     None,
-                )
+                )?;
+                with_gradient(packed, p)
             },
         },
         FilterDef {
@@ -5339,22 +5437,43 @@ fn build() -> Vec<FilterDef> {
                 choice("orientations", "Orientations", &[crate::synthetic::ORIENT_RANDOM, crate::synthetic::ORIENT_FIBER100, crate::synthetic::ORIENT_FIBER111], crate::synthetic::ORIENT_RANDOM),
                 f("spread", "Fibre spread (degrees)", 10.0, 0.0, 90.0),
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
+                f("realism", "Realism", 0.0, 0.0, 1.0).help("0: the plain tessellation. Towards 1 the grains look more as if they had grown: sizes spread (when Size spread is 0), the smallest grains removed, boundaries a little wavy and relaxed so that junctions open to equal angles. The settings below override what Realism chooses; Grain Realism is the same as a filter."),
+                f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                i("relax", "Relaxation sweeps", -1, -1, 100).help("-1: 5 x Realism.").advanced(),
+                f("roughness", "Boundary roughness (fraction of the grain size)", f64::NAN, 0.0, 0.5).help("Empty: 0.06 x Realism.").advanced(),
+                f("coarsen", "Remove smallest grains (fraction)", f64::NAN, 0.0, 0.95).help("Empty: 0.1 x Realism.").advanced(),
                 i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
             ],
             apply: |_, p| {
                 let c = p.floats("cells");
                 let n = [0, 1, 2].map(|k| c.get(k).copied().unwrap_or(64.0).max(1.0) as usize);
-                crate::synthetic::tessellation(&crate::synthetic::TessellationParams {
+                let spacing = p.f64("spacing", 1.0);
+                let grains = p.i64("grains", 100).max(1) as usize;
+                let realism = p.f64("realism", 0.0).clamp(0.0, 1.0);
+                let or = |key: &str, auto: f64| Some(p.f64(key, f64::NAN)).filter(|x| x.is_finite()).unwrap_or(auto);
+                // The mean grain size, in length units and in cells.
+                let axes = n.iter().filter(|x| **x > 1).count().max(1) as f64;
+                let size = spacing * (n.iter().map(|x| *x as f64).product::<f64>() / grains as f64).powf(1.0 / axes);
+                let relax = p.i64("relax", -1);
+                let roughness = or("roughness", 0.06 * realism) * size;
+                let size_sigma = p.f64("size_sigma", 0.0);
+                let ds = crate::synthetic::tessellation(&crate::synthetic::TessellationParams {
                     cells: n,
-                    spacing: p.f64("spacing", 1.0),
-                    grains: p.i64("grains", 100).max(1) as usize,
-                    size_sigma: p.f64("size_sigma", 0.0),
+                    spacing,
+                    grains,
+                    size_sigma: if size_sigma <= 0.0 { 0.3 * realism } else { size_sigma },
                     periodic: p.bool("periodic", false),
                     orientations: p.str("orientations"),
                     spread_deg: p.f64("spread", 10.0),
                     structure: p.str("structure"),
                     seed: p.i64("seed", 1) as u64,
-                })
+                    relax: if relax < 0 { (5.0 * realism).round() as usize } else { relax as usize },
+                    relax_width: (size / spacing / 8.0).clamp(1.0, 3.0),
+                    roughness,
+                    roughness_length: 0.5 * size,
+                    coarsen: or("coarsen", 0.1 * realism),
+                })?;
+                with_gradient(ds, p)
             },
         },
         FilterDef {
@@ -5379,11 +5498,35 @@ fn build() -> Vec<FilterDef> {
                 choice("orientations", "Orientations", &[crate::synthetic::ORIENT_RANDOM, crate::synthetic::ORIENT_FIBER100, crate::synthetic::ORIENT_FIBER111], crate::synthetic::ORIENT_FIBER100),
                 f("spread", "Fibre spread (degrees)", 10.0, 0.0, 90.0),
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
+                f("realism", "Realism", 0.0, 0.0, 1.0).help("0: the plain columns. Towards 1 the build looks more like a real one: columns whose <100> lies near Z outgrow their neighbours, so grains widen and thin out with height; some columns stop at each layer and new grains start there; the columns lean one way and the other in alternate layers; fine grains appear at the layer boundaries; the boundaries are wavy and relaxed. The settings below override what Realism chooses."),
+                f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                f("layer", "Layer thickness", 40.0, 0.0, f64::INFINITY).help("Height of a build layer, for the layer effects of Realism (0: no layers).").advanced(),
+                f("competitive", "Competitive growth", f64::NAN, 0.0, 1.0).help("How strongly columns with <100> near Z outgrow the others (1: an overgrown column is never replaced). Empty: Realism.").advanced(),
+                f("epitaxial", "Columns continuing through a layer (fraction)", f64::NAN, 0.0, 1.0).help("The others end at the layer boundary and a new grain starts in their place. Empty: 1 - 0.3 x Realism.").advanced(),
+                f("scan_tilt", "Lean with the scan (degrees)", f64::NAN, 0.0, 45.0).help("The columns lean by this much along X, one way in even layers and back in odd ones. Empty: 10 x Realism.").advanced(),
+                f("equiaxed", "Fine grains at layer boundaries", f64::NAN, 0.0, 2.0).help("How densely small equiaxed grains sit on each layer boundary (1: about one per 0.4 grain widths each way). Empty: 0.15 x Realism.").advanced(),
+                i("relax", "Relaxation sweeps", -1, -1, 100).help("-1: 4 x Realism.").advanced(),
+                f("roughness", "Boundary roughness (fraction of the grain width)", f64::NAN, 0.0, 0.5).help("Empty: 0.05 x Realism.").advanced(),
                 i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
             ],
             apply: |_, p| {
                 let s = p.vec3("size", [300.0, 300.0, 450.0]);
-                crate::synthetic::columnar_grains(
+                let realism = p.f64("realism", 0.0).clamp(0.0, 1.0);
+                let or = |key: &str, auto: f64| Some(p.f64(key, f64::NAN)).filter(|x| x.is_finite()).unwrap_or(auto);
+                let (voxel, width) = (p.f64("voxel", 5.0), p.f64("width", 50.0));
+                let relax = p.i64("relax", -1);
+                let extras = crate::synthetic::ColumnExtras {
+                    competitive: or("competitive", realism),
+                    layer: p.f64("layer", 40.0),
+                    epitaxial: or("epitaxial", 1.0 - 0.3 * realism),
+                    scan_tilt_deg: or("scan_tilt", 10.0 * realism),
+                    equiaxed: or("equiaxed", 0.15 * realism),
+                    relax: if relax < 0 { (4.0 * realism).round() as usize } else { relax as usize },
+                    relax_width: (width / voxel / 8.0).clamp(1.0, 3.0),
+                    roughness: or("roughness", 0.05 * realism) * width,
+                    roughness_length: 0.75 * width,
+                };
+                let ds = crate::synthetic::columnar_grains_with(
                     &crate::synthetic::ColumnParams {
                         size: s,
                         voxel: p.f64("voxel", 5.0),
@@ -5398,7 +5541,9 @@ fn build() -> Vec<FilterDef> {
                     p.f64("spread", 10.0),
                     &p.str("structure"),
                     p.i64("seed", 1) as u64,
-                )
+                    &extras,
+                )?;
+                with_gradient(ds, p)
             },
         },
         FilterDef {

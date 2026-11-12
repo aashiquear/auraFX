@@ -33,6 +33,11 @@ pub struct Evaluated {
     /// Operations this kernel had to approximate (a fillet on picked edges on the implicit
     /// kernel, say), by feature name, for the timeline to flag.
     pub approximate: Vec<String>,
+    /// An assembly with mates: how each mate came out, the ways the mated parts can still move,
+    /// and where the mates put every component (name and placement).
+    pub mates: Vec<crate::mates::MateStatus>,
+    pub mate_dof: Option<usize>,
+    pub placements: Vec<(String, crate::document::Placement)>,
 }
 
 impl std::fmt::Debug for Evaluated {

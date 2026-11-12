@@ -286,6 +286,7 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
 - [x] G4 Synthetic builder: ensemble statistics (StatsGenerator's size/shape/neighbour/ODF/MDF/axis-ODF), Initialize Volume, Pack Primary Phases, Insert Precipitates, Matrix Phase, Match Crystallography, orientation noise/jumble; Voronoi/Laguerre tessellation and columnar AM grains as sources; Generate Ensemble Statistics from data.
   - [x] G4a: Voronoi/Laguerre grains, columnar AM grains (the toolkit's generator, voxel for voxel), Add Orientation Noise, Jumble Orientations, Generate Ensemble Statistics (iteration 63).
   - [x] G4b: Pack Grains (goal statistics, four shapes, matrix phase, calibration), Pack Like, Insert Precipitates, Match Crystallography (iteration 64).
+  - [x] G4c: Orientation Gradient (a turn along the build direction, a smooth spread and sub-grain cells inside each grain) and Grain Realism (boundary relaxation, coarsening, roughness; competitive growth, layers and fine grains for columnar grains), as filters and as settings of the synthetic sources (iteration 90).
 - [x] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [x] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
 - [x] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
@@ -337,14 +338,14 @@ screenshot, add the Python calls to the AI help, tick the box here, add a Status
 - [x] C9 Polish (iterations 79 and 81; see Status): templates gallery, shortcuts, Feature panel help, the assistant modelling in the environment through `afx.cad`, the project page's CAD video, the README's credits for SolidCraft and solidcore.
 
 Open in section 13 (found by a review against the design in iteration 89; the design asked for
-them and they were not built, or only in Python):
+them and they were not built, or only in Python), done in iteration 90 (see Status):
 
-- [ ] Sweep and Loft features from the window (they are in the document and the kernels; only a template uses one).
-- [ ] Sketch planes that follow their face, and sketch entities with stable ids (a `side N` face keeps its name when the outline gains or loses a line).
-- [ ] Edit in CAD on a Geometry source or a surface (a body made from commands or a mesh as a feature).
-- [ ] A component's own features edited in the window (today: Python's `component_op`, or its own CAD Model).
-- [ ] Mates and motion between components.
-- [ ] Constraints and dimensions in sketches built from Python without raw sketch JSON.
+- [x] Sweep and Loft features from the window: sketches kept with the part, Sweep and Loft on the Features tab, profile, path and sections in the feature panel; both kernels (iteration 90).
+- [x] Sketch planes that follow their face, and sketch entities with stable ids (a `side N` face keeps its name when the outline gains or loses a line) (iteration 90).
+- [x] Edit in CAD on a Geometry source or a closed surface: the solid as imported bodies that features add to and cut from (iteration 90).
+- [x] A component's own features edited in the window: double-click, a breadcrumb back, the component shown alone (iteration 90).
+- [x] Mates (coincident, concentric, distance, angle, fixed) solved into placements, and motion by a mate's value (a slider, `mate_set`, a keyed dimension) (iteration 90).
+- [x] Constraints and dimensions in sketches built from Python without raw sketch JSON (iteration 90).
 
 ## 14. Gaps against the reference programs (P11)
 
@@ -1007,6 +1008,71 @@ finds things, the documentation and the project page) and its fixes:
   autosave every half minute.
 - The project page gained a CAD and meshing section and the features of iterations 85 to 89;
   its clips are all made in the light theme with their posters by the script.
+
+Done in iteration 90 (G4c, 2026-11-12), two additions to the synthetic microstructures:
+
+- Orientation Gradient (`orientation_gradient`): the cells of every grain turned by a rotation
+  field made of a steady turn along a direction (degrees per unit length, a lognormal spread
+  of rates between grains, the axis random, perpendicular to the direction or fixed, unturned
+  at the grain's centroid or lowest point), a smooth random spread with a correlation length,
+  sub-grain cells with a mean misorientation across their boundaries, an optional growth with
+  grain size and a cap on the total turn. Checked with the crate's own measures: the SROD rate
+  of columns through whole layers is the gradient times the layer to five digits (within 10 %
+  on ordinary columns, whose top bins are not full), the kernel average misorientation is two
+  thirds of the gradient per cell, the reference misorientation follows the height from the
+  centroid, the smooth spread's root mean square and the cell misorientation come back as
+  asked. Voronoi Grains, Columnar Grains and Pack Grains take `gradient` for the default model.
+- Grain Realism (`realistic_grains`) and `realism` on Voronoi Grains and Columnar Grains:
+  boundary relaxation by threshold dynamics (each grain's indicator smoothed over its own
+  surroundings, the largest wins), removal of the smallest grains, boundary roughness by a
+  smooth random displacement; for columnar grains competitive growth by <100> alignment,
+  layers with a share of columns continuing, a lean that alternates by layer and fine grains
+  at layer boundaries. On flat Voronoi maps four sweeps bring the junction angles' spread
+  about 120 degrees from 27 to 18 degrees and shorten the boundaries by 5 % (a phase-field
+  growth run of the same kind of map: 30 to 14 degrees, 7 %); with realism 0 the sources give
+  the same volumes as before, cell for cell. Open: boundaries are all alike (no dependence on
+  misorientation), a grain cut in two keeps one id, the layer model has no melt-pool shape,
+  and Pack Grains has the filter but no realism setting.
+
+Done in iteration 90 (section 13's open items, 2026-11-12), the CAD environment:
+
+- Sweeps and lofts from the window. A sketch is kept with the part (`Document::sketches`,
+  **Keep as a sketch** on the canvas, `sketch_add`); `SketchSweep` and `SketchLoft` name kept
+  sketches and `Document::resolved` turns them into the outlines and paths the kernels build
+  (`swept.rs`). The Features tab's Sweep and Loft buttons say what is missing when they are off;
+  the feature panel chooses profile, path and sections. The exact kernel now builds a sweep
+  along a flat path without twist (the vendored engine's sweep) as well as lofts; faces are
+  named start, end, side and bottom, top, side on both kernels. Checked: a frustum's volume on
+  both kernels, a bent pipe within 1 % on the exact kernel.
+- Sketches that follow their face, and stable entity numbers. A sketch remembers its face's
+  name and `resolved` puts its plane back on that face as the features before it build it now
+  (the plane read from a quick build of the part before the feature, remembered by content); a
+  face that is gone stops the part with a message naming the feature, repaired by **Pick
+  another face…** (`sketch_face`). Sketch entities carry numbers that survive adding and
+  removing others, the side faces of an extrusion are named and numbered by them, and files
+  without numbers get them on load so that every face keeps the name it had.
+- Edit in CAD on a Geometry source or any closed surface (`Session::cad_from_node`,
+  `afx.cad_from`): the triangles as imported bodies (one per body), checked closed, in a new
+  CAD Model; the exact kernel does not cut a triangle body, so such a part is built by the
+  implicit kernel once features are added.
+- A component edited on its own (`CadEdit::focus`, `cad_env_focus`, `edit_component`): the tree,
+  the panels and the ribbon work on the component's part through `component_op`, the view
+  shows it alone in its own coordinates, undo stays the assembly's.
+- Mates (`Document::mates`, `mates.rs`): coincident, concentric, distance, angle and fixed
+  between named faces, solved by damped least squares over each free part's position and turn
+  from where it is placed, on every build; the degrees of freedom left and the mates that
+  cannot be met are reported in the model tree. A mate's value moves the assembly (a slider in
+  the tree, one undo step per drag; the parts are built once and re-placed), and a value that
+  follows a dimension is animated by keying that dimension (`node.key("gap", t, v)`, a
+  `cad.` track). Planes and axes are read from the faces' triangles (`face_geometry`).
+- Sketches with constraints from Python: lines, circles and arcs drawn one by one with
+  handles, every constraint and dimension of the canvas, values as expressions, `solve()`.
+- Open after this: a sweep's path is one open chain in one sketch (no closed paths, rails or
+  changing sections) and a loft is straight between parallel sections; mates have no limits,
+  gears or collision while dragging, and angles run 0 to 180; a component edited on its own is
+  not shown with the rest of the assembly faded beside it (it is shown alone); a part started
+  from triangles has one face per imported body; the picker for mates lists faces by name and
+  click, with no axis or edge picks.
 
 ## Status (2026-11-05)
 

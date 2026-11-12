@@ -475,11 +475,29 @@ impl PyNode {
         let mut s = session().lock();
         let display = param.strip_prefix("display.").unwrap_or(param);
         let is_display = aurafx_pipeline::animation::DISPLAY_TRACKS.contains(&display) && s.nodes.get(&self.id).is_some_and(|n| n.params.get(param).is_none());
-        let track = if is_display { format!("display.{display}") } else { param.to_string() };
+        // A dimension of a CAD Model's document (a mate's distance may follow one): its own kind of track.
+        let cad_value = (!is_display && s.is_cad_model(self.id) && s.nodes.get(&self.id).is_some_and(|n| n.params.get(param).is_none()))
+            .then(|| s.cad_effective_document(self.id).ok().and_then(|d| d.parameter_values().ok()).and_then(|v| v.get(param).copied()))
+            .flatten();
+        let track = if is_display {
+            format!("display.{display}")
+        } else if cad_value.is_some() {
+            format!("{}{param}", aurafx_pipeline::animation::CAD_TRACK)
+        } else {
+            param.to_string()
+        };
         let current = s
             .nodes
             .get(&self.id)
-            .and_then(|n| if is_display { aurafx_pipeline::animation::display_value(&n.display, display) } else { n.params.get(param).cloned() })
+            .and_then(|n| {
+                if is_display {
+                    aurafx_pipeline::animation::display_value(&n.display, display)
+                } else if let Some(x) = cad_value {
+                    Some(aurafx_filters::params::ParamValue::Float(x))
+                } else {
+                    n.params.get(param).cloned()
+                }
+            })
             .ok_or_else(|| PyKeyError::new_err(format!("no parameter '{param}'")))?;
         let v = match value {
             None => current,
@@ -1646,8 +1664,11 @@ fn load_state(path: String) -> PyResult<()> {
 ///
 /// `views="all"` records every visible 3D view and chart view as laid out in the window
 /// ("charts", "3d", "chart N" and "view N" as for `afx.screenshot`).
+///
+/// `poster="clip.jpg"` also writes the first frame as a picture (.jpg or .png), the still a
+/// web page shows before the video plays.
 #[pyfunction]
-#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None))]
+#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None, poster=None))]
 #[allow(clippy::too_many_arguments)]
 fn save_animation(
     py: Python<'_>,
@@ -1659,7 +1680,9 @@ fn save_animation(
     width: Option<u32>,
     height: Option<u32>,
     views: Option<String>,
+    poster: Option<String>,
 ) -> PyResult<()> {
+    session().lock().animation_poster = poster.map(std::path::PathBuf::from);
     let Some(cue) = cue else {
         let mut s = session().lock();
         s.animation_views = views;
@@ -1859,8 +1882,13 @@ fn _cad_set_document(node: PyRef<PyNode>, text: String) -> PyResult<()> {
 #[pyfunction]
 fn _cad_info(node: PyRef<PyNode>) -> PyResult<String> {
     let s = session().lock();
-    let doc = s.cad_document(node.id).map_err(cad_err)?;
-    let eff = s.cad_effective_document(node.id).ok();
+    // While a component is edited on its own, the part read (and changed) is that component's.
+    let focused = s.cad_edit.as_ref().filter(|e| e.node == node.id).and_then(|e| e.focused().map(|c| (c.name.clone(), (*c.document).clone())));
+    let doc = match &focused {
+        Some((_, d)) => d.clone(),
+        None => s.cad_document(node.id).map_err(cad_err)?,
+    };
+    let eff = if focused.is_some() { Some(doc.clone()) } else { s.cad_effective_document(node.id).ok() };
     let vals = eff.as_ref().and_then(|d| d.parameter_values().ok());
     let params: Vec<serde_json::Value> = doc
         .parameters
@@ -1876,6 +1904,9 @@ fn _cad_info(node: PyRef<PyNode>) -> PyResult<String> {
         "configurations": doc.configurations.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
         "active_configuration": doc.active_configuration,
         "overrides": s.cad_overrides(node.id),
+        "sketches": doc.sketches.iter().map(|k| serde_json::json!({ "name": k.name, "plane": k.sketch.plane_label(), "outlines": k.sketch.profiles().len(), "paths": k.sketch.open_paths().len() })).collect::<Vec<_>>(),
+        "mates": doc.mates.iter().map(|m| serde_json::json!({ "name": m.name, "kind": m.kind.label(), "a": m.a.label(), "b": m.b.label(), "value": m.value, "expr": m.expr, "flip": m.flip, "suppressed": m.suppressed })).collect::<Vec<_>>(),
+        "editing_component": focused.as_ref().map(|f| f.0.clone()),
     })
     .to_string())
 }
@@ -1888,7 +1919,9 @@ fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize, kernel: String) -> PyRe
     if session().lock().cad_editing() == Some(node.id) {
         let sum = session().lock().cad_env_evaluate(resolution).map_err(cad_err)?;
         let faces: Vec<serde_json::Value> = sum.faces.iter().enumerate().map(|(i, f)| serde_json::json!({ "id": i, "name": f.name, "kind": f.kind, "area": f.area, "centroid": f.centroid, "direction": f.direction, "feature": f.feature.0 })).collect();
-        return Ok(serde_json::json!({ "kernel": sum.kernel, "volume": sum.volume, "area": sum.area, "centroid": sum.centroid, "bounds": [sum.bounds.0, sum.bounds.1], "faces": faces }).to_string());
+        let mates: Vec<serde_json::Value> = sum.mates.iter().map(|(n, e)| serde_json::json!({ "name": n, "error": e })).collect();
+        let placements: Vec<serde_json::Value> = sum.placements.iter().map(|(n, at, r)| serde_json::json!({ "name": n, "at": at, "rotate": r })).collect();
+        return Ok(serde_json::json!({ "kernel": sum.kernel, "volume": sum.volume, "area": sum.area, "centroid": sum.centroid, "bounds": [sum.bounds.0, sum.bounds.1], "faces": faces, "notes": sum.approximate, "mates": mates, "mate_dof": sum.mate_dof, "placements": placements }).to_string());
     }
     let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
     let choice = aurafx_cad::KernelChoice::parse(&kernel).ok_or_else(|| PyValueError::new_err("kernel is Auto, Implicit or B-rep"))?;
@@ -1900,7 +1933,46 @@ fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize, kernel: String) -> PyRe
         })
         .collect();
     let b = &ev.bodies[0];
-    Ok(serde_json::json!({ "kernel": ev.kernel, "volume": ev.volume(), "area": b.area, "centroid": b.centroid, "bounds": [b.bounds.0, b.bounds.1], "faces": faces, "notes": ev.approximate }).to_string())
+    let mates: Vec<serde_json::Value> = ev.mates.iter().map(|m| serde_json::json!({ "name": m.name, "error": m.error })).collect();
+    let placements: Vec<serde_json::Value> =
+        ev.placements.iter().map(|(n, p)| serde_json::json!({ "name": n, "at": p.translate, "rotate": p.rotate_deg })).collect();
+    Ok(serde_json::json!({ "kernel": ev.kernel, "volume": ev.volume(), "area": b.area, "centroid": b.centroid, "bounds": [b.bounds.0, b.bounds.1], "faces": faces, "notes": ev.approximate, "mates": mates, "mate_dof": ev.mate_dof, "placements": placements }).to_string())
+}
+
+/// A CAD Model node whose part starts as the solid another node shows (its closed surface).
+#[pyfunction]
+fn _cad_from(node: PyRef<PyNode>) -> PyResult<PyNode> {
+    let id = session().lock().cad_from_node(node.id).map_err(cad_err)?;
+    Ok(PyNode { id })
+}
+
+/// Solve a sketch given as a description, with the node's dimensions: the status, the degrees
+/// of freedom left and where the points are now.
+#[pyfunction]
+fn _cad_sketch_solve(node: PyRef<PyNode>, spec: String) -> PyResult<String> {
+    let spec: serde_json::Value = serde_json::from_str(&spec).map_err(cad_err)?;
+    let doc = {
+        let s = session().lock();
+        match s.cad_edit.as_ref().filter(|e| e.node == node.id) {
+            Some(e) => e.active().clone(),
+            None => s.cad_effective_document(node.id).map_err(cad_err)?,
+        }
+    };
+    let mut sk = aurafx_cad::edit::sketch_from_spec(&doc, &spec).map_err(cad_err)?;
+    let r = sk.solve_with(&doc.parameter_values().map_err(cad_err)?).map_err(cad_err)?;
+    let status = match r.status {
+        aurafx_cad::SolveStatus::FullyDefined => "fully defined",
+        aurafx_cad::SolveStatus::UnderDefined(_) => "under-defined",
+        aurafx_cad::SolveStatus::OverDefined => "over-defined",
+        aurafx_cad::SolveStatus::Failed => "failed",
+    };
+    Ok(serde_json::json!({
+        "status": status, "dof": r.dof, "converged": r.converged, "max_residual": r.max_residual,
+        "points": sk.points.iter().map(|p| [p.x, p.y]).collect::<Vec<_>>(),
+        "radii": sk.entities.iter().map(|e| match e { aurafx_cad::Entity::Circle { radius, .. } => Some(*radius), _ => None }).collect::<Vec<_>>(),
+        "outlines": sk.profiles().len(), "paths": sk.open_paths().len(),
+    })
+    .to_string())
 }
 
 /// Open the CAD environment on a CAD Model node (the pipeline pauses).
@@ -2069,7 +2141,7 @@ fn _cad_discard() -> PyResult<()> {
 fn _cad_state(node: PyRef<PyNode>) -> String {
     let s = session().lock();
     match s.cad_edit.as_ref().filter(|e| e.node == node.id) {
-        Some(e) => serde_json::json!({ "editing": true, "changed": e.changed, "revision": e.revision, "rollback": e.rollback, "selected": e.selected.map(|i| i.0), "undo": e.undo.len(), "redo": e.redo.len(), "error": e.error }).to_string(),
+        Some(e) => serde_json::json!({ "editing": true, "changed": e.changed, "revision": e.revision, "rollback": e.rollback, "selected": e.selected.map(|i| i.0), "undo": e.undo.len(), "redo": e.redo.len(), "error": e.error, "component": e.focused().map(|c| c.name.clone()) }).to_string(),
         None => serde_json::json!({ "editing": false, "other": s.cad_editing() }).to_string(),
     }
 }
@@ -2092,11 +2164,15 @@ fn _cad_env(what: String, arg: Option<String>) -> PyResult<bool> {
             s.cad_env_rollback(n);
             true
         }
+        "focus" => {
+            s.cad_env_focus(arg.as_deref().filter(|a| !a.is_empty())).map_err(cad_err)?;
+            true
+        }
         "select" => {
             let id = match arg.as_deref().filter(|a| !a.is_empty()) {
                 None => None,
                 Some(name) => {
-                    let id = s.cad_edit.as_ref().and_then(|e| e.document.features.iter().find(|f| f.name == name).map(|f| f.id));
+                    let id = s.cad_edit.as_ref().and_then(|e| e.active().features.iter().find(|f| f.name == name).map(|f| f.id));
                     if id.is_none() {
                         return Err(PyValueError::new_err(format!("no feature named '{name}'")));
                     }
@@ -2273,10 +2349,37 @@ def snapshot(width=None, height=None, views=None):
 const CAD_API: &str = r#"
 import json as _json
 
+class _SkPoint:
+    """A point of a sketch (a line's .start and .end, a circle's .center). .xy is where it is;
+    after solve(), where the constraints put it."""
+    def __init__(self, sketch, index):
+        self._s, self.index = sketch, index
+    @property
+    def xy(self):
+        p = self._s._points[self.index]
+        return (p[0], p[1])
+    def __repr__(self):
+        return "<sketch point %d at (%g, %g)>" % ((self.index,) + self.xy)
+
+class _SkEntity:
+    """A line (.start, .end), a circle (.center) or an arc (.center, .start, .end) of a sketch:
+    what the sketch's drawing calls return and its constraints take."""
+    def __init__(self, sketch, index, kind, **points):
+        self._s, self.index, self.kind = sketch, index, kind
+        for k, v in points.items():
+            setattr(self, k, v)
+    def __repr__(self):
+        return "<sketch %s %d>" % (self.kind, self.index)
+
 class _CadSketch:
-    """A sketch described item by item; pass it to extrude() or revolve()."""
-    def __init__(self, plane="XY", offset=0):
-        self.plane, self.offset, self.items = plane, offset, []
+    """A sketch: ready shapes (rectangle, circle, polygon, regular, path), or lines, circles and
+    arcs drawn one by one and tied by constraints and dimensions. A dimension's value is a number
+    or an expression of the part's dimensions ("width / 2"). Pass it to extrude(), revolve(),
+    sketch_add(), sweep() or loft()."""
+    def __init__(self, plane="XY", offset=0, node=None, face=None):
+        self.plane, self.offset, self.face, self.items = plane, offset, face, []
+        self._node, self._points, self._entities, self._constraints = node, [], [], []
+    # ready shapes, fully dimensioned
     def rectangle(self, w, h, corner=None, center=None):
         d = {"w": w, "h": h}
         if center is not None: d["center"] = list(center)
@@ -2289,8 +2392,111 @@ class _CadSketch:
         self.items.append({"polygon": [list(p) for p in points]}); return self
     def regular(self, sides, r, center=(0, 0)):
         self.items.append({"regular": {"sides": sides, "r": r, "center": list(center)}}); return self
+    def path(self, points):
+        """Lines joined end to end and left open: the path of a sweep."""
+        self.items.append({"path": [list(p) for p in points]}); return self
+    # drawing one by one: each call returns the thing drawn, for the constraints
+    def point(self, x, y, fixed=False):
+        """A point; fixed=True pins it where it is."""
+        self._points.append([float(x), float(y), bool(fixed)])
+        return _SkPoint(self, len(self._points) - 1)
+    def _pt(self, p):
+        return p if isinstance(p, _SkPoint) else self.point(p[0], p[1])
+    def line(self, a, b, construction=False):
+        """A line between two points: (x, y) pairs, or points of other entities (l.end) to share a corner."""
+        a, b = self._pt(a), self._pt(b)
+        self._entities.append({"line": [a.index, b.index], "construction": bool(construction)})
+        return _SkEntity(self, len(self._entities) - 1, "line", start=a, end=b)
+    def lines(self, points, closed=True):
+        """Lines through the points, sharing their corners (closed: back to the first). Returns the lines."""
+        pts = [self._pt(p) for p in points]
+        pairs = list(zip(pts, pts[1:])) + ([(pts[-1], pts[0])] if closed and len(pts) > 2 else [])
+        return [self.line(a, b) for a, b in pairs]
+    def add_circle(self, center, r, construction=False):
+        """A circle to constrain (circle() adds a ready, dimensioned one). Returns the circle."""
+        c = self._pt(center)
+        self._entities.append({"circle": [c.index, r], "construction": bool(construction)})
+        return _SkEntity(self, len(self._entities) - 1, "circle", center=c)
+    def arc(self, center, start, end, construction=False):
+        """An arc counter-clockwise from start to end around center."""
+        c, a, b = self._pt(center), self._pt(start), self._pt(end)
+        self._entities.append({"arc": [c.index, a.index, b.index], "construction": bool(construction)})
+        return _SkEntity(self, len(self._entities) - 1, "arc", center=c, start=a, end=b)
+    # constraints
+    def _con(self, kind, things, value=None):
+        for t in things:
+            if not isinstance(t, (_SkPoint, _SkEntity)) or t._s is not self:
+                raise ValueError("%s takes points and lines of this sketch (what line(), point(), add_circle() and arc() return), not %r" % (kind, t))
+        d = {kind: [t.index for t in things]}
+        if value is not None: d["value"] = value
+        self._constraints.append(d); return self
+    def horizontal(self, line): return self._con("horizontal", [line])
+    def vertical(self, line): return self._con("vertical", [line])
+    def coincident(self, p, q):
+        """Two points in one place (the end of one line on the start of another)."""
+        return self._con("coincident", [p, q])
+    def parallel(self, a, b): return self._con("parallel", [a, b])
+    def perpendicular(self, a, b): return self._con("perpendicular", [a, b])
+    def equal(self, a, b):
+        """Two lines of one length, or two circles of one radius."""
+        return self._con("equal", [a, b])
+    def tangent(self, a, b):
+        """A line touching a circle or an arc, or two of those touching."""
+        return self._con("tangent", [a, b])
+    def concentric(self, a, b): return self._con("concentric", [a, b])
+    def midpoint(self, point, line): return self._con("midpoint", [point, line])
+    def point_on(self, point, entity):
+        """A point on a line (anywhere along it) or on a circle or arc."""
+        return self._con("point_on_line" if entity.kind == "line" else "point_on_circle", [point, entity])
+    def symmetric(self, p, q, line):
+        """Two points mirror images of each other in a line."""
+        return self._con("symmetric", [p, q, line])
+    def fix(self, point): return self._con("fix", [point])
+    # dimensions: value is a number or an expression of the part's dimensions
+    def distance(self, a, b=None, value=None):
+        """A driving dimension: distance(line, 40) is the line's length, distance(p, q, 40) the distance
+        between two points, distance(p, line, 40) from a point to a line. The value may be an
+        expression of the part's dimensions: distance(l, "width")."""
+        if value is None and not isinstance(b, (_SkPoint, _SkEntity)):
+            b, value = None, b
+        if value is None: raise ValueError("distance needs a value (a number or an expression)")
+        if b is None: return self._con("length", [a], value)
+        if isinstance(a, _SkEntity): a, b = b, a
+        if isinstance(b, _SkEntity): return self._con("point_line_distance", [a, b], value)
+        return self._con("distance", [a, b], value)
+    def dimension(self, a, b=None, value=None):
+        """The same as distance()."""
+        return self.distance(a, b, value)
+    def length(self, line, value): return self._con("length", [line], value)
+    def hdistance(self, p, q, value):
+        """The distance between two points along the sketch's x."""
+        return self._con("hdistance", [p, q], value)
+    def vdistance(self, p, q, value):
+        """The distance between two points along the sketch's y."""
+        return self._con("vdistance", [p, q], value)
+    def radius(self, circle, value): return self._con("radius", [circle], value)
+    def diameter(self, circle, value): return self._con("diameter", [circle], value)
+    def angle(self, a, b, value):
+        """The angle between two lines, in degrees."""
+        return self._con("angle", [a, b], value)
+    def solve(self):
+        """Solve the constraints now: {"status": "fully defined" | "under-defined" | "over-defined" |
+        "failed", "dof": degrees of freedom left, "converged", "outlines": closed outlines, "paths":
+        open ones}. The points' .xy are then where the constraints put them. (extrude() and the
+        others solve by themselves; this is to check a sketch first.)"""
+        if self._node is None: raise ValueError("solve() needs a sketch made with node.cad.sketch()")
+        r = _json.loads(_cad_sketch_solve(self._node, _json.dumps(self.spec())))
+        for p, xy in zip(self._points, r.pop("points")):
+            p[0], p[1] = xy
+        for e, rad in zip(self._entities, r.pop("radii")):
+            if "circle" in e and rad is not None and not isinstance(e["circle"][1], str): e["circle"][1] = rad
+        return r
     def spec(self):
-        return {"plane": self.plane, "offset": self.offset, "items": self.items}
+        d = {"plane": self.plane, "offset": self.offset, "items": self.items}
+        if self.face: d["face"] = self.face
+        if self._points or self._entities:
+            d.update(points=self._points, entities=self._entities, constraints=self._constraints)
+        return d
 
 class _CadApi:
     """The parametric document of a CAD Model node. Numbers can be expressions of the document's
@@ -2334,12 +2540,17 @@ class _CadApi:
         return self._prim("hole", name, "cut", at, rotate, 0, k)
     def thread(self, major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op="add", at=(0, 0, 0)):
         return self._prim("thread", name, op, at, (0, 0, 0), 0, {"major_diameter": major_diameter, "pitch": pitch, "length": length, "internal": internal})
-    def sketch(self, plane="XY", offset=0):
-        return _CadSketch(plane, offset)
-    def extrude(self, sketch, depth=10, name=None, op="add", end="blind", draft=0, reverse=False, at=(0, 0, 0), top=None, bottom=None):
+    def sketch(self, plane="XY", offset=0, face=None):
+        """A sketch to draw in: on a plane (XY, XZ, YZ or a reference plane's name, moved by offset),
+        or on a flat face of the part by its name (face="Plate z+"); such a sketch stays on its face
+        when the part changes. See the sketch's own calls: ready shapes, or lines with constraints."""
+        return _CadSketch(plane, offset, self._node, face)
+    def extrude(self, sketch, depth=10, name=None, op="add", end="blind", draft=0, reverse=None, at=(0, 0, 0), top=None, bottom=None):
         """Extrude a sketch along its plane's normal. end: blind, midplane or through_all.
-        top / bottom: {"fillet": r} or {"chamfer": d} on the cap edges."""
-        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch, "depth": depth, "op": op, "end": end, "draft": draft, "reverse": reverse, "at": list(at)}
+        top / bottom: {"fillet": r} or {"chamfer": d} on the cap edges. reverse: against the normal
+        (left out, a sketch on a face grows out of the part, and a cut goes into it)."""
+        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch, "depth": depth, "op": op, "end": end, "draft": draft, "at": list(at)}
+        if reverse is not None: a["reverse"] = reverse
         if name: a["name"] = name
         if top: a["top"] = top
         if bottom: a["bottom"] = bottom
@@ -2349,6 +2560,43 @@ class _CadApi:
         a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch, "angle": angle, "op": op, "at": list(at)}
         if name: a["name"] = name
         return self.edit("sketch_revolve", a)
+    # sketches kept with the part, sweeps and lofts
+    def sketch_add(self, sketch, name=None):
+        """Keep a sketch with the part under a name (Sketch 1, ...): the profile or the path of a
+        sweep, a section of a loft. Returns {"sketch": name}."""
+        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch}
+        if name: a["name"] = name
+        return self.edit("sketch_add", a)
+    def sketch_set(self, name, sketch):
+        """Replace a kept sketch; the sweeps and lofts that use it follow."""
+        return self.edit("sketch_set", name=name, sketch=sketch.spec() if hasattr(sketch, "spec") else sketch)
+    def sketch_remove(self, name):
+        return self.edit("sketch_remove", name=name)
+    def sketch_rename(self, name, to):
+        return self.edit("sketch_rename", name=name, to=to)
+    def sketches(self):
+        """The sketches kept with the part: name, plane, closed outlines, open paths."""
+        return self.info()["sketches"]
+    def _sk(self, s):
+        return s.spec() if hasattr(s, "spec") else s
+    def sweep(self, profile, path, twist=0, name=None, op="add", at=(0, 0, 0)):
+        """Sweep the closed outline of one sketch along the open path of another. profile and path
+        are names of kept sketches (sketch_add) or sketches (kept as '<name> profile' and '<name> path').
+        Draw the profile on a plane the path leaves at right angles, where the path starts.
+        twist: degrees turned over the whole path. op: add or cut."""
+        a = {"profile": self._sk(profile), "path": self._sk(path), "twist": twist, "op": op, "at": list(at)}
+        if name: a["name"] = name
+        return self.edit("sweep", a)
+    def loft(self, sections, name=None, op="add", at=(0, 0, 0)):
+        """Loft through the closed outlines of two or more sketches on parallel planes at different
+        offsets (names of kept sketches, or sketches)."""
+        a = {"sections": [self._sk(x) for x in sections], "op": op, "at": list(at)}
+        if name: a["name"] = name
+        return self.edit("loft", a)
+    def sketch_face(self, feature, face=None):
+        """Put the sketch of an extruded or revolved feature on a face of the part (by name): it
+        follows that face from then on. face=None lets go of the face; the sketch stays where it is."""
+        return self.edit("sketch_face", feature=feature, face=face)
     # modifiers: on a feature (by name), or on the whole part when feature is None
     def modifier(self, kind, feature=None, **kw):
         m = {"kind": kind}; m.update(kw)
@@ -2470,6 +2718,42 @@ class _CadApi:
     def components(self):
         """The placed parts: name, position, rotation, visibility."""
         return self.info().get("components", [])
+    def edit_component(self, name=None):
+        """Inside the CAD environment: work on one component's own part. Every call of this object
+        (box, hole, extrude, features, faces, ...) then acts on that part, shown alone in its own
+        coordinates; edit_component(None) goes back to the assembly. Undo is the assembly's."""
+        return _cad_env("focus", name or "")
+    # mates: relations between the parts, solved into their places
+    def mate(self, kind, a, b=None, value=None, flip=False, name=None):
+        """A mate between two parts by a face of each, 'Component/Face' (faces() lists them; a face of
+        the assembly's own part is 'Face'; 'XY', 'XZ', 'YZ' are the assembly's planes).
+        kind: coincident (two flat faces meet; flip=True: flush, looking the same way), concentric
+        (two round faces on one axis), distance (flat faces value mm apart), angle (value degrees:
+        0 as coincident leaves them) or fixed (the part a stays put: mate('fixed', 'Base')).
+        value may be an expression of the assembly's dimensions. Returns {"mate", "dof", "status"}."""
+        d = {"kind": kind, "a": a, "flip": flip}
+        if b is not None: d["b"] = b
+        if value is not None: d["value"] = value
+        if name: d["name"] = name
+        return self.edit("mate", d)
+    def mate_set(self, mate, value=None, flip=None, suppressed=None):
+        """Change a mate: its distance or angle (this moves the assembly), flip, or switch it off."""
+        d = {"mate": mate}
+        if value is not None: d["value"] = value
+        if flip is not None: d["flip"] = flip
+        if suppressed is not None: d["suppressed"] = suppressed
+        return self.edit("mate_set", d)
+    def mate_remove(self, mate):
+        return self.edit("mate_remove", mate=mate)
+    def mates(self, resolution=48):
+        """The mates as the assembly builds now: name, kind, a, b, value, and "error" (why one is not
+        met, else None); with "dof" on each: the ways the mated parts can still move."""
+        ev = self.evaluate(resolution)
+        err = {m["name"]: m["error"] for m in ev.get("mates", [])}
+        return [dict(m, error=err.get(m["name"]), dof=ev.get("mate_dof")) for m in self.info()["mates"]]
+    def placements(self, resolution=48):
+        """Where the mates put every component: name, at, rotate (degrees)."""
+        return self.evaluate(resolution).get("placements", [])
     def component_interference(self, resolution=0.5):
         """The pairs of parts that overlap, with the overlap volume in mm3."""
         return _json.loads(_cad_component_interference(self._node, resolution))
@@ -2523,8 +2807,19 @@ class _CadApi:
         """Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window."""
         _cad_app_command("cad_tab " + name)
     def open_picker(self, kind="fillet"):
-        """Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror or pattern."""
+        """Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror, pattern,
+        or mate (two faces of two parts)."""
         _cad_app_command("cad_pick " + kind)
+    def pick_choose(self, label):
+        """Tick an item of the open picker by its label (a face's name), as a click on it does. In the window only."""
+        _cad_app_command("cad_pick_choose " + label)
+    def pick_face_for(self, feature):
+        """Open the list of flat faces a feature's sketch can be put on (the model tree's
+        'Pick another face…'). In the window only; sketch_face() does it without the window."""
+        _cad_app_command("cad_pick repair " + feature)
+    def sketch_open(self, name):
+        """Open the sketch canvas on a sketch kept with the part. In the window only."""
+        _cad_app_command("cad_sketch_saved " + name)
     def select_component(self, name):
         """Select a component in the feature tree (it shows its position and turn). In the window only."""
         _cad_app_command("cad_component " + name)
@@ -2603,6 +2898,15 @@ class _CadApi:
 def cad_check(node=None):
     """The downstream check of the CAD environment that is open (see node.cad.check())."""
     return _json.loads(_cad_check())
+
+def cad_from(node, name=None):
+    """A CAD Model whose part starts as the solid another node shows: a Geometry source (each
+    body apart) or any closed surface, kept as imported bodies that features add to and cut from.
+    The node itself is left as it is and hidden. afx.cad_from(g).edit_cad() opens it in the CAD environment."""
+    m = _cad_from(node)
+    if name:
+        m.cad.edit("rename_document", name=name)
+    return m
 
 def _edit_cad(node):
     """Open the CAD environment on a CAD Model node: the pipeline pauses, node.cad.* edits a
@@ -3047,6 +3351,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_mesh_check, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_edit, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_enter, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_from, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_sketch_solve, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_apply, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_check, m)?)?;
     m.add_function(wrap_pyfunction!(_cad_parse_fixes, m)?)?;

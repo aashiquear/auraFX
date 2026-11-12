@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
+            window.path_to_searchindex_js = "searchindex-67038112.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-dcbdab5c.js"></script>
@@ -193,6 +193,7 @@
 <li><code>afx.assistant_prompt(name)</code>: Put a saved prompt (by name) in the assistant’s box, the selected object filled in.</li>
 <li><code>afx.assistant_status()</code>: The assistant panel’s state: busy (an answer is arriving), agent (agent mode is iterating), the number of messages, the last answer, the last error and the last messages as (role, text). Empty values without the app.</li>
 <li><code>afx.cad_check(node=None)</code>: The downstream check of the CAD environment that is open (see node.cad.check()).</li>
+<li><code>afx.cad_from(node, name=None)</code>: A CAD Model whose part starts as the solid another node shows: a Geometry source (each body apart) or any closed surface, kept as imported bodies that features add to and cut from. The node itself is left as it is and hidden. afx.cad_from(g).edit_cad() opens it in the CAD environment.</li>
 <li><code>afx.cancel(id)</code></li>
 <li><code>afx.chart_view(node=None, y=None, x=None, style=None, data=None, log_x=None, log_y=None, title=None, view=None)</code>: Open a chart view, or change one: <code>afx.chart_view(line, y=["T", "p"], x="arc_length")</code>. <code>node</code> is the object it plots (None: whichever object is selected); <code>y</code> one array name or a list; <code>x</code> an array name or “index”; <code>style</code> “lines”, “points”, “markers” or “bars”; <code>data</code> “auto”, “points” or “cells”. With <code>view=n</code> the existing view n is changed (0 = the Charts panel). Returns the view’s number.</li>
 <li><code>afx.chart_views()</code>: The chart views: a list of dicts (view, node, x, y, style, data, log_x, log_y, title).</li>
@@ -246,7 +247,7 @@
 <li><code>afx.reset_camera()</code></li>
 <li><code>afx.run()</code></li>
 <li><code>afx.run_case(node, solver, workdir, host=None, exe=None, np=1, auto_load=True, wait=False, slurm=None, **kwargs)</code>: Write a simulation case from a node’s data (see simulation_case) and run it: on this computer in <code>workdir</code>, or on <code>host</code> (the case files are uploaded to <code>workdir</code> there). <code>exe</code> is the solver program (default: solid_mechanics-opt, spk_mpi, pinnacle), <code>np</code> the MPI processes. The results open when the run ends (auto_load). Returns the job id.</li>
-<li><code>afx.save_animation(path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None)</code>: Record an animation: keyframes if any were added (key_camera / node.key), otherwise time steps, or a 360° camera orbit with orbit=frames. The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).  With <code>cue</code>, a Python function called with the animation time t (0..1) before each frame (after the keyframes are applied), the script renders the frames itself and returns when the file is written: <code>afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))</code>.  <code>views="all"</code> records every visible 3D view and chart view as laid out in the window (“charts”, “3d”, “chart N” and “view N” as for <code>afx.screenshot</code>).</li>
+<li><code>afx.save_animation(path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None, poster=None)</code>: Record an animation: keyframes if any were added (key_camera / node.key), otherwise time steps, or a 360° camera orbit with orbit=frames. The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).  With <code>cue</code>, a Python function called with the animation time t (0..1) before each frame (after the keyframes are applied), the script renders the frames itself and returns when the file is written: <code>afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))</code>.  <code>views="all"</code> records every visible 3D view and chart view as laid out in the window (“charts”, “3d”, “chart N” and “view N” as for <code>afx.screenshot</code>).  <code>poster="clip.jpg"</code> also writes the first frame as a picture (.jpg or .png), the still a web page shows before the video plays.</li>
 <li><code>afx.save_state(path)</code>: Save the pipeline, display settings and camera to an .afx file.</li>
 <li><code>afx.screenshot(path, width=None, height=None, transparent=False, annotations=True, views=None, controls=False)</code>: Save a picture of the active 3D view: <code>afx.screenshot("fig.png", width=1920)</code>. With <code>views</code>, a picture of several views as they are laid out in the window: “all” (every visible 3D view and chart view), “charts”, “3d”, “chart” (the Charts panel), “chart N” (the chart titled Chart N) or “view N”; <code>controls=True</code> keeps the charts’ boxes and buttons.</li>
 <li><code>afx.select(node, ids, assoc='cells')</code>: Select cells (or points) of a node by flattened index; shown highlighted in the 3D view.</li>
@@ -362,9 +363,10 @@
 <li><code>draft(faces, angle=3, neutral_origin=(0, 0, 0), neutral_normal=(0, 0, 1), name=None)</code>: Taper side faces (names from faces(), or points) by <code>angle</code> degrees about a neutral plane they stay fixed on. The exact kernel builds it; the implicit one leaves the faces vertical and says so.</li>
 <li><code>edges()</code>: The edges of the part as the exact (B-rep) kernel builds it: index, a point on the edge, length, straight, and the names of the faces on either side. Raises when the exact kernel cannot build it.</li>
 <li><code>edit(op, args=None, **kw)</code></li>
+<li><code>edit_component(name=None)</code>: Inside the CAD environment: work on one component’s own part. Every call of this object (box, hole, extrude, features, faces, …) then acts on that part, shown alone in its own coordinates; edit_component(None) goes back to the assembly. Undo is the assembly’s.</li>
 <li><code>editing()</code>: True while the CAD environment is open on this node.</li>
 <li><code>evaluate(resolution=64, kernel='Auto')</code>: Build the part now: volume, area, centroid, bounds, the faces (name, kind, area, centroid, direction), the kernel that built it and notes on what it could not build exactly.</li>
-<li><code>extrude(sketch, depth=10, name=None, op='add', end='blind', draft=0, reverse=False, at=(0, 0, 0), top=None, bottom=None)</code>: Extrude a sketch along its plane’s normal. end: blind, midplane or through_all. top / bottom: {“fillet”: r} or {“chamfer”: d} on the cap edges.</li>
+<li><code>extrude(sketch, depth=10, name=None, op='add', end='blind', draft=0, reverse=None, at=(0, 0, 0), top=None, bottom=None)</code>: Extrude a sketch along its plane’s normal. end: blind, midplane or through_all. top / bottom: {“fillet”: r} or {“chamfer”: d} on the cap edges. reverse: against the normal (left out, a sketch on a face grows out of the part, and a cut goes into it).</li>
 <li><code>faces(resolution=64)</code></li>
 <li><code>features()</code></li>
 <li><code>fillet(radius, feature=None)</code></li>
@@ -375,15 +377,23 @@
 <li><code>interference(other, at=(0, 0, 0), rotate=(0, 0, 0), resolution=0.5)</code>: The overlap volume with another CAD Model node placed at <code>at</code> (and rotated by <code>rotate</code> degrees).</li>
 <li><code>linear_pattern(count, step, feature=None)</code></li>
 <li><code>load(path)</code>: Replace the document by a file: .afxcad, or a solid (.step/.stp, .igs, .3mf, .sc, .stl, .obj) as the base feature of a new document.</li>
+<li><code>loft(sections, name=None, op='add', at=(0, 0, 0))</code>: Loft through the closed outlines of two or more sketches on parallel planes at different offsets (names of kept sketches, or sketches).</li>
 <li><code>mass(density=7.85)</code>: Volume, surface, center, bounds and mass (density in g/cm3) of the built part.</li>
+<li><code>mate(kind, a, b=None, value=None, flip=False, name=None)</code>: A mate between two parts by a face of each, ‘Component/Face’ (faces() lists them; a face of the assembly’s own part is ‘Face’; ‘XY’, ‘XZ’, ‘YZ’ are the assembly’s planes). kind: coincident (two flat faces meet; flip=True: flush, looking the same way), concentric (two round faces on one axis), distance (flat faces value mm apart), angle (value degrees: 0 as coincident leaves them) or fixed (the part a stays put: mate(‘fixed’, ‘Base’)). value may be an expression of the assembly’s dimensions. Returns {“mate”, “dof”, “status”}.</li>
+<li><code>mate_remove(mate)</code></li>
+<li><code>mate_set(mate, value=None, flip=None, suppressed=None)</code>: Change a mate: its distance or angle (this moves the assembly), flip, or switch it off.</li>
+<li><code>mates(resolution=48)</code>: The mates as the assembly builds now: name, kind, a, b, value, and “error” (why one is not met, else None); with “dof” on each: the ways the mated parts can still move.</li>
 <li><code>measure_faces(a, b)</code>: The distance between two parallel flat faces (or their centers), and the angle between them.</li>
 <li><code>mirror(plane='YZ', feature=None)</code></li>
 <li><code>mirror_about(origin, normal, name=None)</code>: Mirror the part so far about a plane, e.g. a flat face: origin is a point on it (or a face name from faces()), normal its direction. The reflection is joined to the part.</li>
 <li><code>modifier(kind, feature=None, **kw)</code></li>
 <li><code>move(feature, to)</code></li>
-<li><code>open_picker(kind='fillet')</code>: Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror or pattern.</li>
+<li><code>open_picker(kind='fillet')</code>: Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror, pattern, or mate (two faces of two parts).</li>
 <li><code>parameter(name, expr, comment='')</code></li>
 <li><code>parameters()</code></li>
+<li><code>pick_choose(label)</code>: Tick an item of the open picker by its label (a face’s name), as a click on it does. In the window only.</li>
+<li><code>pick_face_for(feature)</code>: Open the list of flat faces a feature’s sketch can be put on (the model tree’s ‘Pick another face…’). In the window only; sketch_face() does it without the window.</li>
+<li><code>placements(resolution=48)</code>: Where the mates put every component: name, at, rotate (degrees).</li>
 <li><code>plane(name=None, from_plane='XY', offset=0, angle=0, about='x', points=None, origin=None, normal=None, x_axis=None)</code>: A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference plane moved by offset and turned by angle about its x or y axis; or through three points; or by origin and normal. Sketch on it with sketch(plane=name).</li>
 <li><code>plane_form()</code>: Open the New reference plane form in the window.</li>
 <li><code>redo()</code></li>
@@ -402,16 +412,24 @@
 <li><code>shell(thickness, feature=None, open_top=None)</code></li>
 <li><code>shell_faces(faces=(), thickness=2, name=None)</code>: Hollow the part so far with this wall, removing the picked faces (names from faces(), or points); no faces: a closed hollow body.</li>
 <li><code>show_tab(name)</code>: Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window.</li>
-<li><code>sketch(plane='XY', offset=0)</code></li>
+<li><code>sketch(plane='XY', offset=0, face=None)</code>: A sketch to draw in: on a plane (XY, XZ, YZ or a reference plane’s name, moved by offset), or on a flat face of the part by its name (face=“Plate z+”); such a sketch stays on its face when the part changes. See the sketch’s own calls: ready shapes, or lines with constraints.</li>
+<li><code>sketch_add(sketch, name=None)</code>: Keep a sketch with the part under a name (Sketch 1, …): the profile or the path of a sweep, a section of a loft. Returns {“sketch”: name}.</li>
 <li><code>sketch_cursor(x, y, line_from=None)</code>: For pictures: where the sketch canvas takes the cursor to be (sketch units) when the mouse is elsewhere, optionally drawing a line from point line_from, so snaps and guides show.</li>
 <li><code>sketch_dim_edit(index='first')</code>: Open the value editor of the sketch’s dimension number index (as a double-click does); “first”: the first dimension.</li>
 <li><code>sketch_edit(feature)</code>: Open the sketch canvas on the sketch of an extruded or revolved feature.</li>
+<li><code>sketch_face(feature, face=None)</code>: Put the sketch of an extruded or revolved feature on a face of the part (by name): it follows that face from then on. face=None lets go of the face; the sketch stays where it is.</li>
 <li><code>sketch_new(plane='XY', offset=0, items=None)</code>: Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready shapes (the items of cad.sketch()). Only useful from a script running in the app.</li>
 <li><code>sketch_on_face()</code>: Open the face picker to start a sketch on a flat face of the part (in the window).</li>
+<li><code>sketch_open(name)</code>: Open the sketch canvas on a sketch kept with the part. In the window only.</li>
+<li><code>sketch_remove(name)</code></li>
+<li><code>sketch_rename(name, to)</code></li>
+<li><code>sketch_set(name, sketch)</code>: Replace a kept sketch; the sweeps and lofts that use it follow.</li>
+<li><code>sketches()</code>: The sketches kept with the part: name, plane, closed outlines, open paths.</li>
 <li><code>sphere(radius=5, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
 <li><code>split(plane='XY', offset=0, keep_positive=True, feature=None)</code></li>
 <li><code>state()</code></li>
 <li><code>suppress(feature, suppressed=True)</code></li>
+<li><code>sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))</code>: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as ‘<name> profile’ and ‘<name> path’). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.</name></name></li>
 <li><code>template(name)</code>: Start from a template: enclosure, flange, knob, threaded rod, vase or bracket.</li>
 <li><code>thread(major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op='add', at=(0, 0, 0))</code></li>
 <li><code>torus(major=10, minor=2, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
@@ -419,13 +437,40 @@
 <li><code>volume(resolution=64)</code></li>
 </ul>
 <h2 id="a-sketch-description-nodecadsketch"><a class="header" href="#a-sketch-description-nodecadsketch">A sketch description (node.cad.sketch)</a></h2>
-<p>A sketch described item by item; pass it to extrude() or revolve().</p>
+<p>A sketch: ready shapes (rectangle, circle, polygon, regular, path), or lines, circles and arcs drawn one by one and tied by constraints and dimensions. A dimension’s value is a number or an expression of the part’s dimensions (“width / 2”). Pass it to extrude(), revolve(), sketch_add(), sweep() or loft().</p>
 <ul>
+<li><code>add_circle(center, r, construction=False)</code>: A circle to constrain (circle() adds a ready, dimensioned one). Returns the circle.</li>
+<li><code>angle(a, b, value)</code>: The angle between two lines, in degrees.</li>
+<li><code>arc(center, start, end, construction=False)</code>: An arc counter-clockwise from start to end around center.</li>
 <li><code>circle(r, center=(0, 0))</code></li>
+<li><code>coincident(p, q)</code>: Two points in one place (the end of one line on the start of another).</li>
+<li><code>concentric(a, b)</code></li>
+<li><code>diameter(circle, value)</code></li>
+<li><code>dimension(a, b=None, value=None)</code>: The same as distance().</li>
+<li><code>distance(a, b=None, value=None)</code>: A driving dimension: distance(line, 40) is the line’s length, distance(p, q, 40) the distance between two points, distance(p, line, 40) from a point to a line. The value may be an expression of the part’s dimensions: distance(l, “width”).</li>
+<li><code>equal(a, b)</code>: Two lines of one length, or two circles of one radius.</li>
+<li><code>fix(point)</code></li>
+<li><code>hdistance(p, q, value)</code>: The distance between two points along the sketch’s x.</li>
+<li><code>horizontal(line)</code></li>
+<li><code>length(line, value)</code></li>
+<li><code>line(a, b, construction=False)</code>: A line between two points: (x, y) pairs, or points of other entities (l.end) to share a corner.</li>
+<li><code>lines(points, closed=True)</code>: Lines through the points, sharing their corners (closed: back to the first). Returns the lines.</li>
+<li><code>midpoint(point, line)</code></li>
+<li><code>parallel(a, b)</code></li>
+<li><code>path(points)</code>: Lines joined end to end and left open: the path of a sweep.</li>
+<li><code>perpendicular(a, b)</code></li>
+<li><code>point(x, y, fixed=False)</code>: A point; fixed=True pins it where it is.</li>
+<li><code>point_on(point, entity)</code>: A point on a line (anywhere along it) or on a circle or arc.</li>
 <li><code>polygon(points)</code></li>
+<li><code>radius(circle, value)</code></li>
 <li><code>rectangle(w, h, corner=None, center=None)</code></li>
 <li><code>regular(sides, r, center=(0, 0))</code></li>
+<li><code>solve()</code>: Solve the constraints now: {“status”: “fully defined” | “under-defined” | “over-defined” | “failed”, “dof”: degrees of freedom left, “converged”, “outlines”: closed outlines, “paths”: open ones}. The points’ .xy are then where the constraints put them. (extrude() and the others solve by themselves; this is to check a sketch first.)</li>
 <li><code>spec()</code></li>
+<li><code>symmetric(p, q, line)</code>: Two points mirror images of each other in a line.</li>
+<li><code>tangent(a, b)</code>: A line touching a circle or an arc, or two of those touching.</li>
+<li><code>vdistance(p, q, value)</code>: The distance between two points along the sketch’s y.</li>
+<li><code>vertical(line)</code></li>
 </ul>
 <h2 id="afxmesh-geometry-commands"><a class="header" href="#afxmesh-geometry-commands">afx.mesh (geometry commands)</a></h2>
 <p>Geometry and meshing. afx.mesh.geometry() starts geometry built from commands.</p>

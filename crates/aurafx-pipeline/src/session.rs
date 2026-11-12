@@ -493,6 +493,8 @@ pub struct Session {
     pub layout_request: Option<LayoutRequest>,
     /// The views an animation requested by a script records ("all", "charts", ...; None: the 3D view).
     pub animation_views: Option<String>,
+    /// A picture of the first frame to write beside the next animation (`save_animation(poster=...)`).
+    pub animation_poster: Option<PathBuf>,
     /// Connections to aurafx-server processes, by host name.
     pub remote_clients: std::collections::HashMap<String, Arc<crate::remote::RemoteClient>>,
     /// Outputs of server nodes larger than this come back as their surface (0 = default).

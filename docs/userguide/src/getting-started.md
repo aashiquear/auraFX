@@ -143,7 +143,8 @@ source** turns the window back on. Sources added from Python (`afx.sphere(radius
 ## Getting help
 
 - The **Welcome** window opens at the first start (and from **Help › Welcome**): one button into
-  each kind of work (look at results, model a part, build a mesh, run and automate) and a few
+  each kind of work (view and analyze results from solvers or experiments, build or model a part,
+  build a mesh, synthesize a crystal microstructure, work on big or remote data, run and automate) and a few
   things worth knowing. Untick *Show at start* when you no longer need it.
 - **Help › User guide** opens this guide in your browser.
 - The **Model** menu starts a CAD part or a Geometry source and lists the meshing filters.

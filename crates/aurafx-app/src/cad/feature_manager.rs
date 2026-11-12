@@ -13,6 +13,11 @@ enum Act {
     Rollback(Option<usize>),
     Rename(Id, String),
     EditSketch(Id),
+    /// Change a sketch kept with the part.
+    EditSaved(String),
+    /// Edit a component on its own (its name), or go back to the assembly.
+    Focus(Option<String>),
+    Pick(super::PickKind),
 }
 
 fn kind_label(f: &aurafx_cad::Feature) -> String {
@@ -20,6 +25,9 @@ fn kind_label(f: &aurafx_cad::Feature) -> String {
     match kind.as_str() {
         "SketchExtrude" | "Extrude" => "extruded sketch".into(),
         "SketchRevolve" | "Revolve" => "revolved sketch".into(),
+        "SketchSweep" | "Sweep" => "sweep".into(),
+        "SketchLoft" | "Loft" => "loft".into(),
+        "Brep" => "imported body".into(),
         k => k.to_lowercase(),
     }
 }
@@ -28,13 +36,31 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
     if !editing(state) {
         return;
     }
-    let (doc, selected, rollback, summary) = {
+    let (doc, selected, rollback, summary, focus, assembly) = {
         let s = state.session.lock();
         let Some(e) = s.cad_edit.as_ref() else { return };
-        (e.document.clone(), e.selected, e.rollback, e.summary.clone())
+        (e.active().clone(), e.selected, e.rollback, e.summary.clone(), e.focused().map(|c| c.name.clone()), e.document.name.clone())
     };
     let values = doc.parameter_values().ok();
     let mut acts: Vec<Act> = Vec::new();
+    // A component edited on its own: where one is, and the way back.
+    if let Some(c) = &focus {
+        ui.horizontal(|ui| {
+            let top = if assembly.is_empty() { "Assembly".to_string() } else { assembly.clone() };
+            if ui.link(RichText::new(format!("{} {top}", crate::icons::CUBE))).on_hover_text("Back to the assembly").clicked() {
+                acts.push(Act::Focus(None));
+            }
+            ui.label(RichText::new("›").weak());
+            ui.label(RichText::new(c).strong());
+        });
+        ui.label(
+            RichText::new(
+                "This component alone, in its own coordinates: every tool works on its features. The rest of the assembly is hidden until you go back.",
+            )
+            .weak()
+            .small(),
+        );
+    }
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("{} {}", crate::icons::CUBE, if doc.name.is_empty() { "Part" } else { &doc.name })).strong());
         if let Some(s) = &summary {
@@ -83,6 +109,50 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                     }
                 });
             });
+        // ---------------------------------------------------------------- sketches kept with the part
+        if !doc.sketches.is_empty() {
+            egui::CollapsingHeader::new(RichText::new(format!("Sketches ({})", doc.sketches.len())).strong()).id_salt("fm sketches").default_open(true).show(ui, |ui| {
+                ui.label(RichText::new("Kept for sweeps (a profile and a path) and lofts (sections).").weak().small());
+                for k in &doc.sketches {
+                    let (closed, open) = (k.sketch.profiles().len(), k.sketch.open_paths().len());
+                    let what = match (closed, open) {
+                        (0, 0) => "nothing to use yet".to_string(),
+                        (c, 0) => format!("{c} closed outline(s)"),
+                        (0, _) => "an open path".to_string(),
+                        (c, _) => format!("{c} closed outline(s) and an open path"),
+                    };
+                    let users: Vec<&str> = doc
+                        .features
+                        .iter()
+                        .filter(|f| match &f.shape {
+                            aurafx_cad::Shape::SketchSweep { profile, path, .. } => profile == &k.name || path == &k.name,
+                            aurafx_cad::Shape::SketchLoft { sections } => sections.contains(&k.name),
+                            _ => false,
+                        })
+                        .map(|f| f.name.as_str())
+                        .collect();
+                    ui.horizontal(|ui| {
+                        let r = ui.selectable_label(false, &k.name).on_hover_text(format!(
+                            "{what}, on {}{}\nClick to change it on the sketch canvas.",
+                            k.sketch.plane_label(),
+                            if users.is_empty() { String::new() } else { format!("\nUsed by {}", users.join(", ")) }
+                        ));
+                        if r.clicked() {
+                            acts.push(Act::EditSaved(k.name.clone()));
+                        }
+                        ui.label(RichText::new(what.clone()).weak().small());
+                        if ui
+                            .add_enabled(users.is_empty(), egui::Button::new("×").small())
+                            .on_hover_text("Remove this sketch")
+                            .on_disabled_hover_text(format!("Used by {}: remove that feature, or give it another sketch, first", users.join(", ")))
+                            .clicked()
+                        {
+                            acts.push(Act::Op("sketch_remove", json!({"name": k.name})));
+                        }
+                    });
+                }
+            });
+        }
         // ---------------------------------------------------------------- features
         egui::CollapsingHeader::new(RichText::new(format!("Features ({})", doc.features.len())).strong()).id_salt("fm features").default_open(true).show(
             ui,
@@ -158,11 +228,30 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                                 ui.close();
                                 acts.push(Act::EditSketch(f.id));
                             }
+                            // A sketch on a face: another face for it (the repair when its own is gone), or none.
+                            if let Some(sk) = f.shape.sketch() {
+                                let on = sk.face.clone();
+                                if ui
+                                    .button(if on.is_some() { "Pick another face…" } else { "Put its sketch on a face…" })
+                                    .on_hover_text(match &on {
+                                        Some(n) => format!("The sketch sits on the face {n} and follows it. Choose another flat face of the part as it is before this feature."),
+                                        None => "Choose a flat face: the sketch then stays on that face when the part changes".to_string(),
+                                    })
+                                    .clicked()
+                                {
+                                    ui.close();
+                                    acts.push(Act::Pick(super::PickKind::RepairFace(f.id)));
+                                }
+                                if on.is_some() && ui.button("Detach from its face").on_hover_text("The sketch stays where it is and no longer follows the face").clicked() {
+                                    ui.close();
+                                    acts.push(Act::Op("sketch_face", json!({"feature": f.name, "face": Value::Null})));
+                                }
+                            }
                             if ui.button(if f.suppressed { "Unsuppress" } else { "Suppress" }).clicked() {
                                 ui.close();
                                 acts.push(Act::Op("suppress", json!({"feature": f.name, "suppressed": !f.suppressed})));
                             }
-                            if ui.button("Roll back to here").clicked() {
+                            if focus.is_none() && ui.button("Roll back to here").clicked() {
                                 ui.close();
                                 acts.push(Act::Rollback(Some(i + 1)));
                             }
@@ -216,14 +305,49 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                             if !c.visible {
                                 text = text.weak().strikethrough();
                             }
-                            let r = ui
-                                .selectable_label(on_it, text)
-                                .on_hover_text(format!("{} ({} features)\nClick to move or turn it; double-click to rename", c.document.name, c.document.features.len()));
+                            let is_fixed = doc.mates.iter().find(|m| m.kind == aurafx_cad::MateKind::Fixed && m.a.component == c.name).map(|m| m.name.clone());
+                            let r = ui.selectable_label(on_it, text).on_hover_text(format!(
+                                "{} ({} features)\nClick to move or turn it; double-click to edit its own features; right-click for more",
+                                c.document.name,
+                                c.document.features.len()
+                            ));
+                            if is_fixed.is_some() {
+                                ui.label(RichText::new("fixed").weak().small()).on_hover_text("A fixed mate holds this part where it is placed");
+                            }
                             if r.double_clicked() {
-                                state.cad.component_rename = Some((c.name.clone(), c.name.clone()));
+                                acts.push(Act::Focus(Some(c.name.clone())));
                             } else if r.clicked() {
                                 state.cad.component = if on_it { None } else { Some(c.name.clone()) };
                             }
+                            r.context_menu(|ui| {
+                                if ui.button("Edit component").on_hover_text("Its own features in the tree, the feature panel and the ribbon, the part shown alone").clicked() {
+                                    ui.close();
+                                    acts.push(Act::Focus(Some(c.name.clone())));
+                                }
+                                if ui.button("Rename").clicked() {
+                                    ui.close();
+                                    state.cad.component_rename = Some((c.name.clone(), c.name.clone()));
+                                }
+                                match &is_fixed {
+                                    Some(m) => {
+                                        if ui.button("Let it move").on_hover_text("Remove the fixed mate").clicked() {
+                                            ui.close();
+                                            acts.push(Act::Op("mate_remove", json!({"mate": m})));
+                                        }
+                                    }
+                                    None => {
+                                        if ui.button("Fix in place").on_hover_text("A fixed mate: this part stays where it is, the others move to meet their mates").clicked() {
+                                            ui.close();
+                                            acts.push(Act::Op("mate", json!({"kind": "fixed", "a": c.name})));
+                                        }
+                                    }
+                                }
+                                ui.separator();
+                                if ui.button("Remove").clicked() {
+                                    ui.close();
+                                    acts.push(Act::Op("component_remove", json!({"component": c.name})));
+                                }
+                            });
                             if ui.small_button("×").on_hover_text("Remove this part from the assembly").clicked() {
                                 acts.push(Act::Op("component_remove", json!({"component": c.name})));
                             }
@@ -246,9 +370,109 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                                     acts.push(Act::Op("component_move", json!({"component": c.name, "at": at, "rotate": rot})));
                                 }
                             });
+                            // With mates the numbers above are where the part starts from; this is where they put it.
+                            let mated = doc.mates.iter().any(|m| !m.suppressed && (m.a.component == c.name || m.b.component == c.name));
+                            if let Some((_, at, rot)) = summary.as_ref().filter(|_| mated).and_then(|m| m.placements.iter().find(|p| p.0 == c.name)) {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "its mates put it at ({}, {}, {}), turned ({}, {}, {})°",
+                                        super::num_text(at[0]),
+                                        super::num_text(at[1]),
+                                        super::num_text(at[2]),
+                                        super::num_text(rot[0]),
+                                        super::num_text(rot[1]),
+                                        super::num_text(rot[2])
+                                    ))
+                                    .weak()
+                                    .small(),
+                                )
+                                .on_hover_text("The position and turn above are where the part starts from; it moves as little as its mates allow");
+                            }
                         }
                     }
                 });
+        }
+        // ---------------------------------------------------------------- mates
+        if !doc.mates.is_empty() {
+            let status = summary.as_ref().map(|m| m.mates.clone()).unwrap_or_default();
+            egui::CollapsingHeader::new(RichText::new(format!("Mates ({})", doc.mates.len())).strong()).id_salt("fm mates").default_open(true).show(ui, |ui| {
+                match summary.as_ref().and_then(|m| m.mate_dof) {
+                    Some(0) => ui.label(RichText::new("The mated parts are fully held.").weak().small()),
+                    Some(d) => ui.label(RichText::new(format!("{d} way(s) left to move: add mates to hold the parts, or leave them free.")).weak().small()),
+                    None => ui.label(RichText::new("Solved whenever the assembly is built.").weak().small()),
+                };
+                for m in &doc.mates {
+                    let error = status.iter().find(|x| x.0 == m.name).and_then(|x| x.1.clone());
+                    ui.horizontal(|ui| {
+                        let mut on = !m.suppressed;
+                        if ui.checkbox(&mut on, "").on_hover_text("Use this mate (off: left out)").changed() {
+                            acts.push(Act::Op("mate_set", json!({"mate": m.name, "suppressed": !on})));
+                        }
+                        let what = match m.kind {
+                            aurafx_cad::MateKind::Fixed => format!("{} stays in place", m.a.component),
+                            k => format!("{}: {} and {}", k.label(), m.a.label(), m.b.label()),
+                        };
+                        let mut text = RichText::new(&m.name);
+                        if m.suppressed {
+                            text = text.weak().strikethrough();
+                        } else if error.is_some() {
+                            text = text.color(crate::theme::ERROR);
+                        }
+                        let r = ui.label(text);
+                        match &error {
+                            Some(e) if !m.suppressed => {
+                                r.on_hover_text(format!("{what}\n\nNot met: {e}"));
+                                ui.label(RichText::new(crate::icons::WARNING).color(crate::theme::ERROR)).on_hover_text(e);
+                            }
+                            _ => {
+                                r.on_hover_text(&what);
+                            }
+                        }
+                        if ui.small_button("×").on_hover_text("Remove this mate").clicked() {
+                            acts.push(Act::Op("mate_remove", json!({"mate": m.name})));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add_space(22.0);
+                        ui.label(RichText::new(match m.kind {
+                            aurafx_cad::MateKind::Fixed => "stays in place".to_string(),
+                            k => format!("{} · {} · {}", k.label(), m.a.label(), m.b.label()),
+                        })
+                        .weak()
+                        .small());
+                    });
+                    if m.kind.has_value() && !m.suppressed {
+                        ui.horizontal(|ui| {
+                            ui.add_space(22.0);
+                            // Dragging moves the assembly: the parts follow as it is built again.
+                            let mut v = m.value;
+                            let angle = m.kind == aurafx_cad::MateKind::Angle;
+                            let slider = if angle {
+                                egui::Slider::new(&mut v, 0.0..=180.0).suffix("°")
+                            } else {
+                                let top = (m.value.abs() * 2.0).max(50.0);
+                                egui::Slider::new(&mut v, 0.0..=top).suffix(" mm")
+                            };
+                            let r = ui.add(slider.clamping(egui::SliderClamping::Never)).on_hover_text(match &m.expr {
+                                Some(e) => format!("Follows the dimension expression {e}; dragging gives it a number of its own"),
+                                None => "Drag to move the assembly; type a number for an exact value".to_string(),
+                            });
+                            if r.changed() && (v - m.value).abs() > 1e-9 {
+                                acts.push(Act::Op("mate_set", json!({"mate": m.name, "value": v})));
+                            }
+                            if let Some(e) = &m.expr {
+                                ui.label(RichText::new(format!("= {e}")).weak().small());
+                            }
+                            {
+                                let mut flip = m.flip;
+                                if ui.checkbox(&mut flip, "flush").on_hover_text("The two faces look the same way instead of at each other").changed() {
+                                    acts.push(Act::Op("mate_set", json!({"mate": m.name, "flip": flip})));
+                                }
+                            }
+                        });
+                    }
+                }
+            });
         }
         // ---------------------------------------------------------------- finish
         if !doc.finish.is_empty() {
@@ -328,6 +552,9 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
             }
             Act::Select(id) => state.session.lock().cad_env_select(id),
             Act::EditSketch(id) => super::sketch_edit(state, id),
+            Act::EditSaved(name) => super::sketch_saved(state, &name),
+            Act::Focus(c) => super::focus(state, c.as_deref()),
+            Act::Pick(kind) => super::pick::open(state, kind),
             Act::Rollback(n) => state.session.lock().cad_env_rollback(n),
             Act::Rename(id, text) => {
                 if let Some(f) = doc.feature(id) {

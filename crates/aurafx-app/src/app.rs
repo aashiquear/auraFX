@@ -1314,6 +1314,28 @@ impl State {
                     ui.close();
                     self.open_file_dialog();
                 }
+                {
+                    // The selected object as the first body of a CAD part: a Geometry source, any closed surface.
+                    let (active, is_cad) = {
+                        let s = self.session.lock();
+                        (s.active.filter(|a| s.nodes.get(a).is_some_and(|n| n.output.is_some())), s.active.is_some_and(|a| s.is_cad_model(a)))
+                    };
+                    if ui
+                        .add_enabled(active.is_some() && !crate::cad::editing(self), egui::Button::new(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)))
+                        .on_hover_text(if is_cad {
+                            "Open the CAD environment on the selected part"
+                        } else {
+                            "Start a CAD part from the selected object: its solid (a Geometry source's bodies, any closed surface) becomes the first body, to add to and cut from. The object itself is hidden, not changed."
+                        })
+                        .on_disabled_hover_text("Select an object in the Pipeline panel first: a CAD Model, a Geometry source or anything with a closed surface")
+                        .clicked()
+                    {
+                        ui.close();
+                        if let Some(id) = active {
+                            crate::cad::enter_from(self, id);
+                        }
+                    }
+                }
                 if ui
                     .button(format!("{} New geometry (commands)", crate::icons::CUBE))
                     .on_hover_text("Solids from short commands, with menus that insert them and the steps to a hexahedral or tetrahedral mesh")
@@ -2191,16 +2213,35 @@ impl eframe::App for AuraApp {
                 // "cad_pick fillet|chamfer|shell|draft|mirror|pattern": open the edge or face picker; "cad_tab <name>": a ribbon tab.
                 "cad_pick" => {
                     if crate::cad::editing(&self.state) {
+                        // "cad_pick repair <feature>": the faces a feature's sketch can go on.
+                        let repair = arg.trim().strip_prefix("repair ").and_then(|name| {
+                            self.state.session.lock().cad_edit.as_ref().and_then(|e| e.active().features.iter().find(|f| f.name == name.trim()).map(|f| f.id))
+                        });
                         let kind = match arg.trim() {
+                            _ if repair.is_some() => crate::cad::PickKind::RepairFace(repair.unwrap()),
                             "chamfer" => crate::cad::PickKind::Chamfer,
                             "shell" => crate::cad::PickKind::Shell,
                             "draft" => crate::cad::PickKind::Draft,
                             "mirror" => crate::cad::PickKind::MirrorFace,
                             "pattern" => crate::cad::PickKind::PatternFace,
                             "sketch" => crate::cad::PickKind::SketchFace,
+                            "mate" => crate::cad::PickKind::Mate,
                             _ => crate::cad::PickKind::Fillet,
                         };
                         crate::cad::open_picker(&mut self.state, kind);
+                    }
+                }
+                // "cad_pick_choose <label>": tick an item of the open picker; "cad_sketch_saved <name>": open the
+                // canvas on a sketch kept with the part; "cad_edit_in <node id>": Edit in CAD on any node.
+                "cad_pick_choose" => crate::cad::pick_choose(&mut self.state, arg.trim()),
+                "cad_sketch_saved" => {
+                    if crate::cad::editing(&self.state) {
+                        crate::cad::sketch_saved(&mut self.state, arg.trim());
+                    }
+                }
+                "cad_edit_in" => {
+                    if let Ok(id) = arg.trim().parse::<u64>() {
+                        crate::cad::enter_from(&mut self.state, id);
                     }
                 }
                 // "cad_component <name>": select a component in the feature tree; "cad_fit": run Check fit.
@@ -2224,7 +2265,7 @@ impl eframe::App for AuraApp {
                     if crate::cad::editing(&self.state) {
                         let spec: serde_json::Value = serde_json::from_str(arg).unwrap_or_default();
                         let named = spec.get("plane").and_then(|p| p.as_str()).and_then(|n| {
-                            self.state.session.lock().cad_edit.as_ref().and_then(|e| e.document.planes.iter().find(|p| p.name.eq_ignore_ascii_case(n)).cloned())
+                            self.state.session.lock().cad_edit.as_ref().and_then(|e| e.active().planes.iter().find(|p| p.name.eq_ignore_ascii_case(n)).cloned())
                         });
                         if spec.get("items").is_some() {
                             crate::cad::sketch_from_spec(&mut self.state, &spec);
@@ -2296,7 +2337,7 @@ impl eframe::App for AuraApp {
                 }
                 // "cad_sketch_edit <feature>": open the sketch canvas on a feature's sketch.
                 "cad_sketch_edit" => {
-                    let id = self.state.session.lock().cad_edit.as_ref().and_then(|e| e.document.features.iter().find(|f| f.name == arg.trim()).map(|f| f.id));
+                    let id = self.state.session.lock().cad_edit.as_ref().and_then(|e| e.active().features.iter().find(|f| f.name == arg.trim()).map(|f| f.id));
                     match id {
                         Some(id) => crate::cad::sketch_edit(&mut self.state, id),
                         None => self.state.toast(format!("No feature named '{}'", arg.trim()), true),

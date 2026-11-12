@@ -14,7 +14,7 @@ pub fn timeline_ui(state: &mut State, ui: &mut egui::Ui) {
         let s = state.session.lock();
         let Some(e) = s.cad_edit.as_ref() else { return };
         (
-            e.document.features.iter().map(|f| (f.id, f.name.clone(), f.suppressed)).collect::<Vec<_>>(),
+            e.active().features.iter().map(|f| (f.id, f.name.clone(), f.suppressed)).collect::<Vec<_>>(),
             e.rollback,
             e.selected,
             e.summary.clone(),

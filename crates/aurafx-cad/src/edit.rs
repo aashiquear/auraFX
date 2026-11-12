@@ -256,9 +256,118 @@ pub fn ref_plane_of(doc: &Document, args: &Value) -> Result<RefPlane, CadError> 
 /// Rectangles and circles come fully dimensioned (with the expressions as dimensions), polygons
 /// as free lines.
 pub fn sketch_from_spec(doc: &Document, spec: &Value) -> Result<Sketch, CadError> {
+    sketch_from_spec_on(doc, spec).map(|s| s.0)
+}
+
+/// An index of a point or an entity in a sketch description, checked.
+fn index_in(v: &Value, n: usize, what: &str, of: &str) -> Result<usize, CadError> {
+    match v.as_u64().map(|i| i as usize) {
+        Some(i) if i < n => Ok(i),
+        Some(i) => bad(format!("{of} names {what} {i}, and the sketch has {n} (they count from 0)")),
+        None => bad(format!("{of} takes the numbers of {what}s, not {v}")),
+    }
+}
+
+/// The points, entities and constraints of a sketch written one by one (what the Python sketch
+/// object sends): `"points": [[x, y], [x, y, true]]` (true: fixed), `"entities": [{"line": [a, b]},
+/// {"circle": [center, r]}, {"arc": [center, start, end]}, {"spline": [p, ...], "closed": false}]`
+/// (each may say `"construction": true`) and `"constraints": [{"horizontal": [line]},
+/// {"distance": [p, q], "value": "gap"}, ...]`; numbers are the points' and entities' places
+/// in those lists.
+fn raw_sketch(doc: &Document, spec: &Value, s: &mut Sketch) -> Result<(), CadError> {
+    for p in spec.get("points").and_then(|p| p.as_array()).into_iter().flatten() {
+        let a = p.as_array().filter(|a| a.len() >= 2).ok_or_else(|| CadError::Edit("a sketch point is [x, y] or [x, y, true] (fixed)".into()))?;
+        let (x, y) = (a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0));
+        if a.get(2).and_then(|f| f.as_bool()).unwrap_or(false) {
+            s.add_fixed_point(x, y);
+        } else {
+            s.add_point(x, y);
+        }
+    }
+    let np = s.points.len();
+    for e in spec.get("entities").and_then(|e| e.as_array()).into_iter().flatten() {
+        let construction = e.get("construction").and_then(|c| c.as_bool()).unwrap_or(false);
+        let pts = |key: &str, n: usize| -> Result<Vec<usize>, CadError> {
+            let a =
+                e.get(key).and_then(|a| a.as_array()).filter(|a| a.len() >= n).ok_or_else(|| CadError::Edit(format!("a {key} takes {n} point number(s)")))?;
+            a.iter().take(if key == "spline" { a.len() } else { n }).map(|v| index_in(v, np, "point", &format!("a {key}"))).collect()
+        };
+        let ent = if e.get("line").is_some() {
+            let p = pts("line", 2)?;
+            Entity::Line { a: p[0], b: p[1], construction }
+        } else if let Some(c) = e.get("circle").and_then(|c| c.as_array()).filter(|c| c.len() == 2) {
+            Entity::Circle { center: index_in(&c[0], np, "point", "a circle")?, radius: num(doc, &c[1])?.0, construction }
+        } else if e.get("arc").is_some() {
+            let p = pts("arc", 3)?;
+            Entity::Arc { center: p[0], start: p[1], end: p[2], construction }
+        } else if e.get("spline").is_some() {
+            Entity::Spline { ctrl: pts("spline", 2)?, closed: e.get("closed").and_then(|c| c.as_bool()).unwrap_or(false), construction }
+        } else {
+            return bad(format!("a sketch entity is a line, a circle, an arc or a spline, not {e}"));
+        };
+        s.push(ent);
+    }
+    Ok(())
+}
+
+fn raw_constraints(doc: &Document, spec: &Value, s: &mut Sketch) -> Result<(), CadError> {
+    let (np, ne) = (s.points.len(), s.entities.len());
+    for c in spec.get("constraints").and_then(|c| c.as_array()).into_iter().flatten() {
+        let Some((kind, a)) = c.as_object().and_then(|o| o.iter().find(|(k, _)| k.as_str() != "value")) else {
+            return bad("a constraint is {\"horizontal\": [line]} or {\"distance\": [p, q], \"value\": 40}");
+        };
+        let a = a.as_array().cloned().unwrap_or_default();
+        let of = format!("the {kind} constraint");
+        let need = |n: usize| if a.len() == n { Ok(()) } else { bad(format!("{of} takes {n} item(s), not {}", a.len())) };
+        let p = |i: usize| index_in(&a[i], np, "point", &of);
+        let e = |i: usize| index_in(&a[i], ne, "entity", &of);
+        let value = || -> Result<Dim, CadError> {
+            dim(doc, c.get("value").ok_or_else(|| CadError::Edit(format!("{of} needs a \"value\" (a number or an expression of the part's dimensions)")))?)
+        };
+        let made = match kind.as_str() {
+            "coincident" => (need(2)?, Constraint::Coincident(p(0)?, p(1)?)).1,
+            "horizontal" => (need(1)?, Constraint::Horizontal(e(0)?)).1,
+            "vertical" => (need(1)?, Constraint::Vertical(e(0)?)).1,
+            "parallel" => (need(2)?, Constraint::Parallel(e(0)?, e(1)?)).1,
+            "perpendicular" => (need(2)?, Constraint::Perpendicular(e(0)?, e(1)?)).1,
+            "equal" => (need(2)?, Constraint::Equal(e(0)?, e(1)?)).1,
+            "tangent" => (need(2)?, Constraint::Tangent(e(0)?, e(1)?)).1,
+            "concentric" => (need(2)?, Constraint::Concentric(e(0)?, e(1)?)).1,
+            "point_on_line" => (need(2)?, Constraint::PointOnLine(p(0)?, e(1)?)).1,
+            "point_on_circle" => (need(2)?, Constraint::PointOnCircle(p(0)?, e(1)?)).1,
+            "midpoint" => (need(2)?, Constraint::Midpoint(p(0)?, e(1)?)).1,
+            "symmetric" => (need(3)?, Constraint::Symmetric(p(0)?, p(1)?, e(2)?)).1,
+            "fix" => (need(1)?, Constraint::Fix(p(0)?)).1,
+            "distance" => (need(2)?, Constraint::Distance(p(0)?, p(1)?, value()?)).1,
+            "hdistance" => (need(2)?, Constraint::HorizontalDistance(p(0)?, p(1)?, value()?)).1,
+            "vdistance" => (need(2)?, Constraint::VerticalDistance(p(0)?, p(1)?, value()?)).1,
+            "point_line_distance" => (need(2)?, Constraint::PointLineDistance(p(0)?, e(1)?, value()?)).1,
+            "length" => (need(1)?, Constraint::Length(e(0)?, value()?)).1,
+            "radius" => (need(1)?, Constraint::Radius(e(0)?, value()?)).1,
+            "diameter" => (need(1)?, Constraint::Diameter(e(0)?, value()?)).1,
+            "angle" => (need(2)?, Constraint::Angle(e(0)?, e(1)?, value()?)).1,
+            k => return bad(format!("unknown constraint '{k}'")),
+        };
+        s.constrain(made);
+    }
+    Ok(())
+}
+
+/// [`sketch_from_spec`], and whether the face the sketch is on looks against the sketch plane's
+/// normal (a boss on it then extrudes in reverse). A sketch on a face is `{"face": "Plate z+", ...}`.
+pub fn sketch_from_spec_on(doc: &Document, spec: &Value) -> Result<(Sketch, bool), CadError> {
     // The plane: XY/XZ/YZ (Top/Front/Right), a reference plane's name, or {"origin", "normal", "x_axis"}.
     let pv = spec.get("plane");
+    let mut against = false;
+    let on_face = spec.get("face").and_then(|f| f.as_str()).filter(|f| !f.is_empty());
     let mut s = match pv {
+        _ if on_face.is_some() => {
+            let face = on_face.unwrap();
+            let (p, n) = crate::swept::face_plane_before(doc, doc.features.len(), face)?;
+            let (sk, rev) = Sketch::on_face(p, n, face).ok_or_else(|| CadError::Edit(format!("the face '{face}' has no direction")))?;
+            against = rev;
+            sk
+        }
         Some(Value::Object(_)) => Sketch::new(SketchPlane::XY).on_frame(frame_of(pv.unwrap())?, None),
         Some(Value::String(n)) if doc.planes.iter().any(|p| p.name.eq_ignore_ascii_case(n)) => {
             let rp = doc.planes.iter().find(|p| p.name.eq_ignore_ascii_case(n)).unwrap();
@@ -266,8 +375,16 @@ pub fn sketch_from_spec(doc: &Document, spec: &Value) -> Result<Sketch, CadError
         }
         _ => Sketch::new(plane_of(pv)?),
     };
-    s.offset = spec.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0);
-    let items = spec.get("items").and_then(|i| i.as_array()).ok_or_else(|| CadError::Edit("a sketch needs \"items\": [...]".into()))?;
+    if on_face.is_none() {
+        s.offset = spec.get("offset").and_then(|o| o.as_f64()).unwrap_or(0.0);
+    }
+    raw_sketch(doc, spec, &mut s)?;
+    let none = Vec::new();
+    let items = match spec.get("items").and_then(|i| i.as_array()) {
+        Some(i) => i,
+        None if spec.get("entities").is_some() => &none,
+        None => return bad("a sketch needs \"items\": [...]"),
+    };
     for item in items {
         let Some((kind, a)) = item.as_object().and_then(|o| o.iter().next()) else {
             return bad("each sketch item is {\"rectangle\": {...}}, {\"circle\": {...}} or {\"polygon\": [...]}");
@@ -337,10 +454,126 @@ pub fn sketch_from_spec(doc: &Document, spec: &Value) -> Result<Sketch, CadError
                 let pl = shapes::polygon(DVec2::new(cx, cy), r, sides, 0.0);
                 s.add_polyline(&pl);
             }
-            k => return bad(format!("unknown sketch item '{k}': rectangle, circle, polygon or regular")),
+            "path" => {
+                // {"path": [[0, 0], [40, 0], [40, 30]]}: lines joined end to end, left open (the path of a sweep).
+                let pts: Vec<[f64; 2]> = a
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|p| p.as_array().filter(|p| p.len() == 2).map(|p| [p[0].as_f64().unwrap_or(0.0), p[1].as_f64().unwrap_or(0.0)]))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if pts.len() < 2 {
+                    return bad("a path takes two or more points [[x, y], ...]");
+                }
+                let ids: Vec<usize> = pts.iter().map(|p| s.add_fixed_point(p[0], p[1])).collect();
+                for w in ids.windows(2) {
+                    s.add_line(w[0], w[1]);
+                }
+            }
+            k => return bad(format!("unknown sketch item '{k}': rectangle, circle, polygon, regular or path")),
         }
     }
-    Ok(s)
+    raw_constraints(doc, spec, &mut s)?;
+    Ok((s, against))
+}
+
+/// The sketch an operation is given: a description (`sketch`) or a whole sketch (`sketch_json`,
+/// what the sketch canvas makes); with it, whether its face looks against its plane's normal.
+fn sketch_arg(doc: &Document, args: &Value, op: &str) -> Result<(Sketch, bool), CadError> {
+    match args.get("sketch_json") {
+        Some(j) => serde_json::from_value::<Sketch>(j.clone()).map(|s| (s, false)).map_err(|e| CadError::Edit(format!("sketch_json: {e}"))),
+        None => sketch_from_spec_on(doc, args.get("sketch").ok_or_else(|| CadError::Edit(format!("{op} needs a sketch")))?),
+    }
+}
+
+/// A name for a new sketch kept with the part: the one asked for (refused when taken), or
+/// "Sketch 1", "Sketch 2", ...
+fn sketch_name(doc: &Document, want: Option<&str>, base: &str) -> Result<String, CadError> {
+    let taken = |n: &str| doc.sketches.iter().any(|s| s.name == n);
+    match want.filter(|n| !n.trim().is_empty()) {
+        Some(n) if taken(n) => bad(format!("the part already has a sketch named '{n}'")),
+        Some(n) => Ok(n.trim().to_string()),
+        None => Ok((1..).map(|k| format!("{base} {k}")).find(|n| !taken(n)).unwrap()),
+    }
+}
+
+/// A sketch a sweep or a loft names: the name of one kept with the part, or a description
+/// (kept under a name made from the feature's).
+fn sketch_ref(doc: &mut Document, v: &Value, feature: &str, role: &str) -> Result<String, CadError> {
+    match v {
+        Value::String(n) if doc.saved_sketch(n).is_some() => Ok(n.clone()),
+        Value::String(n) => {
+            let have: Vec<&str> = doc.sketches.iter().map(|s| s.name.as_str()).collect();
+            bad(format!(
+                "the part has no sketch named '{n}' (its sketches are: {}): keep one with sketch_add first",
+                if have.is_empty() { "none".to_string() } else { have.join(", ") }
+            ))
+        }
+        Value::Object(_) => {
+            let sk = if v.get("entities").is_some() || v.get("items").is_some() || v.get("plane").is_some() {
+                sketch_from_spec(doc, v)?
+            } else {
+                serde_json::from_value::<Sketch>(v.clone()).map_err(|e| CadError::Edit(format!("the {role} sketch: {e}")))?
+            };
+            let name = (1..)
+                .map(|k| if k == 1 { format!("{feature} {role}") } else { format!("{feature} {role} {k}") })
+                .find(|n| doc.saved_sketch(n).is_none())
+                .unwrap();
+            doc.sketches.push(SavedSketch { name: name.clone(), sketch: sk });
+            Ok(name)
+        }
+        other => bad(format!("the {role} of a sweep or loft is the name of a sketch or a sketch, not {other}")),
+    }
+}
+
+/// The features that use the sketch kept as `name`.
+fn sketch_users(doc: &Document, name: &str) -> Vec<String> {
+    doc.features
+        .iter()
+        .filter(|f| match &f.shape {
+            Shape::SketchSweep { profile, path, .. } => profile == name || path == name,
+            Shape::SketchLoft { sections } => sections.iter().any(|s| s == name),
+            _ => false,
+        })
+        .map(|f| f.name.clone())
+        .collect()
+}
+
+/// One side of a mate from an operation's argument: "Component/Face", a face of the assembly's
+/// own part ("Face"), a principal plane ("XY") or {"component": .., "face": ..}.
+fn mate_ref(doc: &Document, v: Option<&Value>) -> Result<MateRef, CadError> {
+    match v {
+        Some(Value::Object(o)) => Ok(MateRef {
+            component: o.get("component").and_then(|c| c.as_str()).unwrap_or("").to_string(),
+            face: o.get("face").and_then(|c| c.as_str()).unwrap_or("").to_string(),
+        }),
+        Some(Value::String(t)) => {
+            // The longest component name the text starts with (names may hold a slash themselves).
+            let best = doc
+                .components
+                .iter()
+                .filter(|c| t.strip_prefix(c.name.as_str()).is_some_and(|r| r.is_empty() || r.starts_with('/')))
+                .max_by_key(|c| c.name.len());
+            Ok(match best {
+                Some(c) => MateRef { component: c.name.clone(), face: t[c.name.len()..].trim_start_matches('/').to_string() },
+                // "Part/Face" of a part the assembly does not have is told apart from a face of its own.
+                None => match t.split_once('/') {
+                    Some((c, f)) => MateRef { component: c.to_string(), face: f.to_string() },
+                    None => MateRef { component: String::new(), face: t.clone() },
+                },
+            })
+        }
+        _ => bad("a mate names two faces: \"Component/Face\" each (cad.faces() lists them)"),
+    }
+}
+
+fn find_mate(doc: &Document, v: Option<&Value>) -> Result<usize, CadError> {
+    let name = v.and_then(|n| n.as_str()).unwrap_or("");
+    doc.mates.iter().position(|m| m.name == name).ok_or_else(|| {
+        CadError::Edit(format!("no mate named '{name}' (the mates are: {})", doc.mates.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join(", ")))
+    })
 }
 
 fn feature_summary(f: &Feature) -> Value {
@@ -454,10 +687,10 @@ fn apply_op_inner(doc: &mut Document, op: &str, args: &Value) -> Result<Value, C
         "sketch_extrude" | "sketch_revolve" => {
             // A sketch is given as a description (`sketch`) or as a whole sketch (`sketch_json`, what
             // the sketch canvas makes).
-            let sk = match args.get("sketch_json") {
-                Some(j) => serde_json::from_value::<Sketch>(j.clone()).map_err(|e| CadError::Edit(format!("sketch_json: {e}")))?,
-                None => sketch_from_spec(doc, args.get("sketch").ok_or_else(|| CadError::Edit(format!("{op} needs a sketch")))?)?,
-            };
+            let (sk, against) = sketch_arg(doc, args, op)?;
+            // On a face a boss grows out of the part and a cut goes into it, unless told otherwise.
+            let on_face = args.get("sketch_json").is_none() && sk.face.is_some();
+            let outward = against != (op_of(args)? == BooleanOp::Cut);
             let shape = if op == "sketch_extrude" {
                 let (depth, de) = num(doc, args.get("depth").unwrap_or(&json!(10)))?;
                 let end = match args.get("end").and_then(|e| e.as_str()).unwrap_or("blind").to_lowercase().as_str() {
@@ -483,7 +716,7 @@ fn apply_op_inner(doc: &mut Document, op: &str, args: &Value) -> Result<Value, C
                     },
                     top_edge: edge("top")?,
                     bottom_edge: edge("bottom")?,
-                    reverse: args.get("reverse").and_then(|r| r.as_bool()).unwrap_or(false),
+                    reverse: args.get("reverse").and_then(|r| r.as_bool()).unwrap_or(on_face && outward),
                 }, de.map(|e| ("/shape/depth", e)))
             } else {
                 let (angle, ae) = num(doc, args.get("angle").unwrap_or(&json!(360)))?;
@@ -597,6 +830,211 @@ fn apply_op_inner(doc: &mut Document, op: &str, args: &Value) -> Result<Value, C
             doc.resolved()?;
             Ok(json!({}))
         }
+        "sketch_face" => {
+            // Put a feature's sketch on a face of the part (it then follows that face), or with
+            // "face": null let go of the face it is on and stay where it is.
+            let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
+            let name = doc.features[i].name.clone();
+            if doc.features[i].shape.sketch().is_none() {
+                return bad(format!("'{name}' has no sketch"));
+            }
+            match args.get("face").and_then(|f| f.as_str()).filter(|f| !f.is_empty()) {
+                None => {
+                    if let Some(sk) = doc.features[i].shape.sketch_mut() {
+                        sk.face = None;
+                    }
+                }
+                Some(face) => {
+                    let (p, n) = crate::swept::face_plane_before(doc, i, face)?;
+                    let sk = doc.features[i].shape.sketch_mut().unwrap();
+                    sk.follow_face(p, n);
+                    sk.face = Some(face.to_string());
+                    sk.plane_name = Some(face.to_string());
+                }
+            }
+            doc.resolved()?;
+            Ok(json!({ "feature": name }))
+        }
+        "sketch_add" => {
+            // Keep a sketch with the part under a name: the profile or the path of a sweep, a section of a loft.
+            let (sk, _) = sketch_arg(doc, args, op)?;
+            let name = sketch_name(doc, args.get("name").and_then(|n| n.as_str()), "Sketch")?;
+            doc.sketches.push(SavedSketch { name: name.clone(), sketch: sk });
+            doc.resolved()?;
+            Ok(json!({ "sketch": name }))
+        }
+        "sketch_set" | "sketch_remove" | "sketch_rename" => {
+            let name = args.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let i = doc.sketches.iter().position(|s| s.name == name).ok_or_else(|| {
+                CadError::Edit(format!("the part has no sketch named '{name}' (its sketches are: {})", doc.sketches.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")))
+            })?;
+            match op {
+                "sketch_set" => {
+                    doc.sketches[i].sketch = sketch_arg(doc, args, op)?.0;
+                    doc.resolved()?; // the features that use it must still build
+                }
+                "sketch_remove" => {
+                    let users = sketch_users(doc, name);
+                    if !users.is_empty() {
+                        return bad(format!("the sketch '{name}' is used by {}: remove or re-point that feature first", users.join(", ")));
+                    }
+                    doc.sketches.remove(i);
+                }
+                _ => {
+                    let Some(to) = args.get("to").and_then(|t| t.as_str()).map(str::trim).filter(|t| !t.is_empty()) else {
+                        return bad("sketch_rename needs \"to\"");
+                    };
+                    let to = sketch_name(doc, Some(to), "Sketch")?;
+                    doc.sketches[i].name = to.clone();
+                    for f in &mut doc.features {
+                        match &mut f.shape {
+                            Shape::SketchSweep { profile, path, .. } => {
+                                for r in [profile, path] {
+                                    if r == name {
+                                        *r = to.clone();
+                                    }
+                                }
+                            }
+                            Shape::SketchLoft { sections } => sections.iter_mut().filter(|s| *s == name).for_each(|s| *s = to.clone()),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Ok(json!({}))
+        }
+        "sweep" | "loft" => {
+            // A sweep of one sketch's outline along another's path, or a loft through the outlines
+            // of sketches on parallel planes. The sketches are named (kept with sketch_add) or given.
+            let name = new_name(doc, args, if op == "sweep" { "Sweep" } else { "Loft" })?;
+            let shape = if op == "sweep" {
+                let profile = sketch_ref(doc, args.get("profile").unwrap_or(&Value::Null), &name, "profile")?;
+                let path = sketch_ref(doc, args.get("path").unwrap_or(&Value::Null), &name, "path")?;
+                Shape::SketchSweep { profile, path, twist_deg: 0.0 }
+            } else {
+                let list = args.get("sections").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+                let mut sections = Vec::new();
+                for v in &list {
+                    sections.push(sketch_ref(doc, v, &name, "section")?);
+                }
+                Shape::SketchLoft { sections }
+            };
+            let mut f = Feature::new(name, op_of(args)?, shape);
+            if let Some(t) = args.get("twist") {
+                let (x, e) = num(doc, t)?;
+                if let Shape::SketchSweep { twist_deg, .. } = &mut f.shape {
+                    *twist_deg = x;
+                }
+                if let Some(e) = e {
+                    f.bindings.push(Binding { path: "/shape/twist_deg".into(), expr: e });
+                }
+            }
+            placement(doc, args, &mut f)?;
+            // Checked now: the sketches must have what the feature needs.
+            let mut probe = f.clone();
+            crate::swept::lower(&doc.resolved()?, &mut probe)?;
+            let id = doc.push(f);
+            Ok(feature_summary(doc.feature(id).unwrap()))
+        }
+        "sweep_set" | "loft_set" => {
+            // Choose other sketches for a sweep (profile, path) or a loft (sections).
+            let i = find(doc, args.get("feature").unwrap_or(&Value::Null))?;
+            let fname = doc.features[i].name.clone();
+            let mut shape = doc.features[i].shape.clone();
+            match &mut shape {
+                Shape::SketchSweep { profile, path, .. } if op == "sweep_set" => {
+                    if let Some(v) = args.get("profile") {
+                        *profile = sketch_ref(doc, v, &fname, "profile")?;
+                    }
+                    if let Some(v) = args.get("path") {
+                        *path = sketch_ref(doc, v, &fname, "path")?;
+                    }
+                }
+                Shape::SketchLoft { sections } if op == "loft_set" => {
+                    let list = args.get("sections").and_then(|s| s.as_array()).cloned().ok_or_else(|| CadError::Edit("loft_set needs \"sections\": [names]".into()))?;
+                    sections.clear();
+                    for v in &list {
+                        sections.push(sketch_ref(doc, v, &fname, "section")?);
+                    }
+                }
+                _ => return bad(format!("'{fname}' is not a {}", if op == "sweep_set" { "sweep" } else { "loft" })),
+            }
+            doc.features[i].shape = shape;
+            let mut probe = doc.features[i].clone();
+            crate::swept::lower(&doc.resolved()?, &mut probe)?;
+            Ok(json!({}))
+        }
+        "mate" => {
+            // A relation between two parts of the assembly, by a face of each.
+            let kind_text = args.get("kind").and_then(|k| k.as_str()).unwrap_or("coincident");
+            let kind = MateKind::parse(kind_text).ok_or_else(|| CadError::Edit(format!("a mate is coincident, concentric, distance, angle or fixed, not '{kind_text}'")))?;
+            let a = mate_ref(doc, args.get("a"))?;
+            let b = if kind == MateKind::Fixed { MateRef::default() } else { mate_ref(doc, args.get("b"))? };
+            let known = |r: &MateRef| r.component.is_empty() || doc.components.iter().any(|c| c.name == r.component);
+            for r in [&a, &b] {
+                if !known(r) {
+                    return bad(format!("the assembly has no part '{}' (its parts are: {})", r.component, doc.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")));
+                }
+            }
+            if kind == MateKind::Fixed && a.component.is_empty() {
+                return bad("a fixed mate names the part that stays in place: {\"kind\": \"fixed\", \"a\": \"Base\"}");
+            }
+            let (value, expr) = match args.get("value") {
+                Some(v) if kind.has_value() => num(doc, v)?,
+                _ => (0.0, None),
+            };
+            let base = match kind {
+                MateKind::Fixed => format!("Fixed {}", a.component),
+                k => {
+                    let mut c = k.label().chars();
+                    c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+                }
+            };
+            let taken = |n: &str| doc.mates.iter().any(|m| m.name == n);
+            let name = match args.get("name").and_then(|n| n.as_str()).filter(|n| !n.trim().is_empty()) {
+                Some(n) if taken(n) => return bad(format!("a mate named '{n}' already exists")),
+                Some(n) => n.trim().to_string(),
+                None => (1..).map(|k| if k == 1 && kind == MateKind::Fixed { base.clone() } else { format!("{base} {k}") }).find(|n| !taken(n)).unwrap(),
+            };
+            let flip = args.get("flip").and_then(|f| f.as_bool()).unwrap_or(false);
+            doc.mates.push(Mate { name: name.clone(), kind, a, b, value, expr, flip, suppressed: false });
+            // The faces must be there and of the right kind; what the mates leave free is reported.
+            let (_, solved) = crate::kernel::assemble::solve_mates(crate::kernel::KernelChoice::Auto, doc, 48)?;
+            let solved = solved.ok_or_else(|| CadError::Edit("the mate could not be checked".into()))?;
+            if let Some(e) = solved.status.iter().find(|s| s.name == name).and_then(|s| s.error.clone()) {
+                return bad(format!("mate '{name}': {e}"));
+            }
+            Ok(json!({ "mate": name, "dof": solved.dof, "status": solved.describe() }))
+        }
+        "mate_set" => {
+            let i = find_mate(doc, args.get("mate"))?;
+            if let Some(v) = args.get("value") {
+                if !doc.mates[i].kind.has_value() {
+                    return bad(format!("the mate '{}' is {}: it has no value to set", doc.mates[i].name, doc.mates[i].kind.label()));
+                }
+                let (x, e) = num(doc, v)?;
+                doc.mates[i].value = x;
+                doc.mates[i].expr = e;
+            }
+            if let Some(f) = args.get("flip").and_then(|f| f.as_bool()) {
+                doc.mates[i].flip = f;
+            }
+            if let Some(s) = args.get("suppressed").and_then(|f| f.as_bool()) {
+                doc.mates[i].suppressed = s;
+            }
+            if let Some(n) = args.get("to").and_then(|n| n.as_str()).map(str::trim).filter(|n| !n.is_empty()) {
+                if doc.mates.iter().enumerate().any(|(k, m)| k != i && m.name == n) {
+                    return bad(format!("a mate named '{n}' already exists"));
+                }
+                doc.mates[i].name = n.to_string();
+            }
+            Ok(json!({ "mate": doc.mates[i].name, "value": doc.mates[i].value }))
+        }
+        "mate_remove" => {
+            let i = find_mate(doc, args.get("mate"))?;
+            let m = doc.mates.remove(i);
+            Ok(json!({ "removed": m.name }))
+        }
         "edge_blend" | "shell_faces" => {
             // Round or chamfer picked edges, or hollow with picked open faces: the part so far.
             let picks = |k: &str| -> Result<Vec<[f64; 3]>, CadError> {
@@ -661,8 +1099,11 @@ fn apply_op_inner(doc: &mut Document, op: &str, args: &Value) -> Result<Value, C
                     Ok(json!({ "at": c.placement.translate, "rotate": c.placement.rotate_deg }))
                 }
                 "component_remove" => {
-                    doc.components.remove(i);
-                    Ok(json!({}))
+                    let gone = doc.components.remove(i);
+                    // Its mates go with it.
+                    let before = doc.mates.len();
+                    doc.mates.retain(|m| m.a.component != gone.name && m.b.component != gone.name);
+                    Ok(json!({ "mates_removed": before - doc.mates.len() }))
                 }
                 "component_visible" => {
                     doc.components[i].visible = args.get("visible").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -673,7 +1114,14 @@ fn apply_op_inner(doc: &mut Document, op: &str, args: &Value) -> Result<Value, C
                     if doc.components.iter().enumerate().any(|(k, c)| k != i && c.name == n) {
                         return bad(format!("a component is already called '{n}'"));
                     }
-                    doc.components[i].name = n.to_string();
+                    let old = std::mem::replace(&mut doc.components[i].name, n.to_string());
+                    for m in &mut doc.mates {
+                        for r in [&mut m.a, &mut m.b] {
+                            if r.component == old {
+                                r.component = n.to_string();
+                            }
+                        }
+                    }
                     Ok(json!({}))
                 }
                 _ => {
@@ -886,7 +1334,7 @@ fn apply_op_inner(doc: &mut Document, op: &str, args: &Value) -> Result<Value, C
             Ok(json!({}))
         }
         other => bad(format!(
-            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, modifier, suppress, remove, rename, move, bind, mirror_plane, draft, face_pattern, combine, component_add, component_move, component_remove, component_visible, component_rename, component_op, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, remove_configuration, activate, plane, remove_plane)"
+            "unknown CAD operation '{other}' (new, template, parameter, add, sketch_extrude, sketch_revolve, sketch_add, sketch_set, sketch_remove, sketch_rename, sketch_face, sweep, loft, sweep_set, loft_set, mate, mate_set, mate_remove, modifier, suppress, remove, rename, move, bind, mirror_plane, draft, face_pattern, combine, component_add, component_move, component_remove, component_visible, component_rename, component_op, set, set_op, set_dim, set_json, set_sketch, edge_blend, shell_faces, remove_modifier, remove_finish, set_finish, configuration, remove_configuration, activate, plane, remove_plane)"
         )),
     }
 }

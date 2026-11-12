@@ -505,7 +505,43 @@ fn emit(b: &mut Build, f: &Feature, pl: Pl, name: &str) -> Result<(), CadError> 
             b.main = None;
         }
         Shape::Thread { .. } => return refuse(format!("'{}' is a modelled thread", f.name)),
-        Shape::Sweep { .. } => return refuse(format!("'{}' is a sweep, which the B-rep kernel does not map yet", f.name)),
+        Shape::Sweep { profile, path, twist_deg } => {
+            if twist_deg.abs() > 1e-9 {
+                return refuse(format!("'{}' is a sweep with a twist", f.name));
+            }
+            // The path in the feature's own frame (repeated points dropped) and in the part's.
+            let mut local: Vec<DVec3> = Vec::new();
+            for q in path {
+                let q = DVec3::from_array(*q);
+                if local.last().is_none_or(|l| l.distance(q) > 1e-9) {
+                    local.push(q);
+                }
+            }
+            let Some((n, bn)) = crate::swept::sweep_frame(&local) else { return refuse(format!("'{}' is a sweep along a path with no length", f.name)) };
+            let pts: Vec<DVec3> = local.iter().map(|q| pl.at(*q)).collect();
+            let t0 = (pts[1] - pts[0]).normalize();
+            let size = pts.iter().fold(0.0f64, |a, q| a.max(q.distance(pts[0])));
+            // The path is drawn in one sketch, so it must lie in one plane.
+            let across = pts.iter().map(|q| (*q - pts[0]).cross(t0)).find(|c| c.length() > 1e-7 * size).map(|c| c.normalize()).unwrap_or_else(|| pl.r * bn);
+            if pts.iter().any(|q| (*q - pts[0]).dot(across).abs() > 1e-7 * size.max(1.0)) {
+                return refuse(format!("'{}' is a sweep along a path that does not lie in one plane", f.name));
+            }
+            let frame = Frame { o: pts[0], x: t0, y: across.cross(t0) };
+            b.sketches += 1;
+            let path_name = format!("AfxSketch{}", b.sketches);
+            b.run("sketch.create", json!({"plane": frame.json(), "name": path_name}))?;
+            let flat: Vec<Value> = pts.iter().map(|q| json!([(*q - frame.o).dot(frame.x), (*q - frame.o).dot(frame.y)])).collect();
+            let ids: Vec<String> = (1..pts.len()).map(|k| format!("p{k}")).collect();
+            b.run("sketch.line", json!({"points": flat, "infer": false, "ids": ids}))?;
+            b.run("sketch.finish", json!({}))?;
+            // The profile where the sweep starts: its x and y as the other kernel takes them.
+            let pframe = Frame { o: pts[0], x: pl.r * n, y: pl.r * bn };
+            let prof = b.draw_sketch(&pframe, &SketchShape::Loops(profile))?;
+            b.solid("solid.sweep", json!({"sketch": prof, "path_sketch": path_name, "path": ids, "operation": op, "name": name}))?;
+        }
+        Shape::SketchSweep { .. } | Shape::SketchLoft { .. } => {
+            return refuse(format!("'{}' is drawn as sketches that were not resolved", f.name));
+        }
         Shape::Body { part } => {
             // A part of added solids is the same as its features added (or cut, or intersected) one
             // by one; one that cuts or rounds inside itself needs a body of its own.
@@ -1078,7 +1114,16 @@ fn extract(b: &mut Build, doc: &Document) -> Result<Evaluated, CadError> {
         let f: DistanceFn = std::sync::Arc::new(move |p| m.distance(p));
         f
     });
-    Ok(Evaluated { bodies, surface, distance, kernel: "brep", approximate: std::mem::take(&mut b.notes) })
+    Ok(Evaluated {
+        bodies,
+        surface,
+        distance,
+        kernel: "brep",
+        approximate: std::mem::take(&mut b.notes),
+        mates: Vec::new(),
+        mate_dof: None,
+        placements: Vec::new(),
+    })
 }
 
 #[cfg(test)]

@@ -324,6 +324,8 @@ pub fn shape(s: &Shape) -> Sdf {
             None => Sdf::Empty,
         },
         Shape::EdgeBlend { .. } | Shape::ShellFaces { .. } | Shape::MirrorPlane { .. } | Shape::Draft { .. } => Sdf::Empty,
+        // Drawn as sketches: `Document::resolved` turns them into a sweep or a loft before a kernel sees them.
+        Shape::SketchSweep { .. } | Shape::SketchLoft { .. } => Sdf::Empty,
         Shape::Body { part } => part.sdf().unwrap_or(Sdf::Empty),
     }
 }

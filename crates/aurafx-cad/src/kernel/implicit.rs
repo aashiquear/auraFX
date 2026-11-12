@@ -47,17 +47,35 @@ enum Classifier {
     Single,
     /// An extruded outline: bottom, top, then one side per loop. `rot`/`origin` take the
     /// feature frame to the sketch frame (extrusion along its z).
+    /// Each side belongs to a drawing entity and carries that entity's stable number (`ids`,
+    /// one per path), so a side keeps its name when the outline gains or loses a line.
     Prism {
         paths: Vec<Polyline>,
+        ids: Vec<u64>,
         rot: DMat3,
         origin: DVec3,
     },
-    /// A revolved profile: one face per outline path (radius = x, axial = y).
+    /// A revolved profile: one face per outline path (radius = x, axial = y), numbered like
+    /// the sides of a prism.
     Revolve {
         paths: Vec<Polyline>,
+        ids: Vec<u64>,
         rot: DMat3,
         origin: DVec3,
         about_z: bool,
+    },
+    /// A loft between `z0` and `z1`: side, bottom, top.
+    Loft {
+        z0: f64,
+        z1: f64,
+    },
+    /// A sweep: side, the start cap (at `a`, looking against `ta`), the end cap (at `b`, along `tb`).
+    Sweep {
+        a: DVec3,
+        ta: DVec3,
+        b: DVec3,
+        tb: DVec3,
+        tol: f64,
     },
 }
 
@@ -87,18 +105,39 @@ impl FeatureFaces {
             Shape::Cone { .. } => {
                 (Classifier::Round3, vec![("side".into(), FaceKind::Cone), ("bottom".into(), FaceKind::Plane), ("top".into(), FaceKind::Plane)])
             }
-            Shape::Extrude { sketch, .. } => prism(sketch.clone(), DMat3::IDENTITY, DVec3::ZERO),
+            Shape::Extrude { sketch, .. } => prism(sketch.clone(), (1..=sketch.len() as u64).collect(), DMat3::IDENTITY, DVec3::ZERO),
             Shape::SketchExtrude { sketch, .. } => {
                 let (rot, origin) = sketch.placement_frame();
-                prism(sketch.entity_paths(), rot, origin)
+                prism(sketch.entity_paths(), sketch.drawing_ids(), rot, origin)
             }
-            Shape::Revolve { profile, .. } => revolve(profile.clone(), DMat3::IDENTITY, DVec3::ZERO, true),
+            Shape::Revolve { profile, .. } => revolve(profile.clone(), (1..=profile.len() as u64).collect(), DMat3::IDENTITY, DVec3::ZERO, true),
             Shape::SketchRevolve { sketch, .. } => {
                 let (rot, origin) = sketch.placement_frame();
-                revolve(sketch.entity_paths(), rot, origin, false)
+                revolve(sketch.entity_paths(), sketch.drawing_ids(), rot, origin, false)
+            }
+            Shape::Loft { sections } if sections.len() >= 2 => {
+                let (z0, z1) = sections.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), s| (a.min(s.z), b.max(s.z)));
+                (Classifier::Loft { z0, z1 }, vec![("side".into(), FaceKind::Freeform), ("bottom".into(), FaceKind::Plane), ("top".into(), FaceKind::Plane)])
+            }
+            Shape::Sweep { path, .. } if path.len() >= 2 => {
+                let p: Vec<DVec3> = path.iter().map(|q| DVec3::from_array(*q)).collect();
+                let n = p.len();
+                let len: f64 = p.windows(2).map(|w| w[0].distance(w[1])).sum();
+                (
+                    Classifier::Sweep {
+                        a: p[0],
+                        ta: (p[1] - p[0]).normalize_or(DVec3::X),
+                        b: p[n - 1],
+                        tb: (p[n - 1] - p[n - 2]).normalize_or(DVec3::X),
+                        tol: (len * 0.01).max(1e-6),
+                    },
+                    vec![("side".into(), FaceKind::Freeform), ("start".into(), FaceKind::Plane), ("end".into(), FaceKind::Plane)],
+                )
             }
             Shape::Sweep { .. }
             | Shape::Loft { .. }
+            | Shape::SketchSweep { .. }
+            | Shape::SketchLoft { .. }
             | Shape::Thread { .. }
             | Shape::Body { .. }
             | Shape::Brep { .. }
@@ -150,19 +189,39 @@ impl FeatureFaces {
                 }
             }
             Classifier::Single => 0,
-            Classifier::Prism { paths, rot, origin } => {
+            Classifier::Prism { paths, ids, rot, origin } => {
                 let st = rot.transpose();
                 let (qs, ns) = (st * (q - *origin), st * n);
                 if ns.z.abs() > 0.7071 {
                     return usize::from(ns.z > 0.0);
                 }
                 let c = DVec2::new(qs.x, qs.y);
-                2 + nearest_path(paths, c)
+                // Side faces: 2, 3, ... by the number of the entity they come from.
+                1 + ids.get(nearest_path(paths, c)).copied().unwrap_or(1).max(1) as usize
             }
-            Classifier::Revolve { paths, rot, origin, about_z } => {
+            Classifier::Revolve { paths, ids, rot, origin, about_z } => {
                 let qs = if *about_z { q } else { rot.transpose() * (q - *origin) };
                 let c = if *about_z { DVec2::new(qs.x.hypot(qs.y), qs.z) } else { DVec2::new(qs.x.hypot(qs.z), qs.y) };
-                nearest_path(paths, c)
+                ids.get(nearest_path(paths, c)).copied().unwrap_or(1).max(1) as usize - 1
+            }
+            Classifier::Loft { z0, z1 } => {
+                let tol = ((z1 - z0) * 0.02).max(1e-6);
+                if n.z < -0.7 && (q.z - z0).abs() < tol {
+                    1
+                } else if n.z > 0.7 && (q.z - z1).abs() < tol {
+                    2
+                } else {
+                    0
+                }
+            }
+            Classifier::Sweep { a, ta, b, tb, tol } => {
+                if n.dot(*ta) < -0.7 && (q - *a).dot(*ta).abs() < *tol {
+                    1
+                } else if n.dot(*tb) > 0.7 && (q - *b).dot(*tb).abs() < *tol {
+                    2
+                } else {
+                    0
+                }
             }
         }
     }
@@ -179,17 +238,18 @@ fn nearest_path(paths: &[Polyline], c: DVec2) -> usize {
         .unwrap_or(0)
 }
 
-fn prism(paths: Vec<Polyline>, rot: DMat3, origin: DVec3) -> (Classifier, Vec<(String, FaceKind)>) {
+fn prism(paths: Vec<Polyline>, ids: Vec<u64>, rot: DMat3, origin: DVec3) -> (Classifier, Vec<(String, FaceKind)>) {
     let mut labels = vec![("bottom".to_string(), FaceKind::Plane), ("top".to_string(), FaceKind::Plane)];
-    for k in 0..paths.len().max(1) {
-        labels.push((format!("side {}", k + 1), FaceKind::Freeform));
+    // The label of side `id` is at 1 + id: the list has a place for every number up to the largest.
+    for id in 1..=ids.iter().copied().max().unwrap_or(1).max(1) {
+        labels.push((format!("side {id}"), FaceKind::Freeform));
     }
-    (Classifier::Prism { paths, rot, origin }, labels)
+    (Classifier::Prism { paths, ids, rot, origin }, labels)
 }
 
-fn revolve(paths: Vec<Polyline>, rot: DMat3, origin: DVec3, about_z: bool) -> (Classifier, Vec<(String, FaceKind)>) {
-    let labels = (0..paths.len().max(1)).map(|k| (format!("profile {}", k + 1), FaceKind::Freeform)).collect();
-    (Classifier::Revolve { paths, rot, origin, about_z }, labels)
+fn revolve(paths: Vec<Polyline>, ids: Vec<u64>, rot: DMat3, origin: DVec3, about_z: bool) -> (Classifier, Vec<(String, FaceKind)>) {
+    let labels = (1..=ids.iter().copied().max().unwrap_or(1).max(1)).map(|id| (format!("profile {id}"), FaceKind::Freeform)).collect();
+    (Classifier::Revolve { paths, ids, rot, origin, about_z }, labels)
 }
 
 /// Gradient of the field by central differences.
@@ -473,6 +533,9 @@ impl Kernel for ImplicitKernel {
                     _ => None,
                 })
                 .collect(),
+            mates: Vec::new(),
+            mate_dof: None,
+            placements: Vec::new(),
         })
     }
 }

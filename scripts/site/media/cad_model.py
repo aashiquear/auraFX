@@ -15,4 +15,4 @@ def cue(t):
     m.set(od=od, bolt_circle=round(od * 0.75, 1), holes=int(6 + round(4 * s)))
 
 
-afx.save_animation(OUT, fps=14, frames=n, width=720, height=450, cue=cue)
+afx.save_animation(OUT, poster=OUT[:-4] + '.jpg', fps=14, frames=n, width=720, height=450, cue=cue)

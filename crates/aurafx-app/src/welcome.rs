@@ -48,15 +48,15 @@ struct Card {
 
 const CARDS: &[Card] = &[
     Card {
-        title: "Look at results",
-        text: "Open what a solver wrote (Exodus, VTK, OpenFOAM, LAMMPS, CGNS, NetCDF and more), then cut, contour, plot and animate it. Right-click an object, in the Pipeline or in the 3D view, for what fits it.",
+        title: "View/analyze results",
+        text: "Open what a solver wrote or an experiment measured (Exodus, VTK, OpenFOAM, LAMMPS, CGNS, NetCDF, EBSD scans, image stacks and more), then cut, contour, plot, measure and animate it. Right-click an object, in the Pipeline or in the 3D view, for what fits it.",
         actions: &[
             ("Open a file…", "Ctrl+O, or drop a file on the window", |s| s.open_file_dialog()),
             ("Try a sample", "A small simulation result to play with", |s| s.open_sample("disk_out_ref.ex2")),
         ],
     },
     Card {
-        title: "Model a part",
+        title: "Build/model a part",
         text: "A parametric CAD modeler: sketch an outline, extrude it, add holes and fillets, change a dimension and the part rebuilds. STEP in and out.",
         actions: &[("New CAD part", "Opens the CAD environment on an empty part, with the next steps shown at the top left", new_cad_part)],
     },
@@ -64,6 +64,23 @@ const CARDS: &[Card] = &[
         title: "Build a mesh",
         text: "Solids from short commands, then hexahedra or tetrahedra with named blocks and side sets, checked for quality and saved for a solver.",
         actions: &[("New geometry", "Adds a Geometry source: its Properties have Insert menus for the commands and the steps to a mesh", new_geometry)],
+    },
+    Card {
+        title: "Synthesize crystal",
+        text: "Synthetic microstructures: equiaxed or columnar grains, or grains packed from size and shape statistics, with orientations and texture; then meshes and solver cases from them. EBSD scans get the same grain analysis.",
+        actions: &[
+            ("Voronoi grains", "A box of equiaxed grains with orientations; its Properties set the number, sizes and texture", |s| s.add_filter("voronoi_grains")),
+            ("Columnar grains", "Grains grown along z, like additively manufactured or directionally solidified material", |s| s.add_filter("columnar_grains")),
+            ("From statistics", "Pack Grains: goal size and shape distributions, edited with live plots under View > Goal Statistics", |s| {
+                s.add_filter("pack_grains");
+                s.goal_stats.open = true;
+            }),
+        ],
+    },
+    Card {
+        title: "Work on big or remote data",
+        text: "Leave the data on the cluster: a server there reads and filters it, on several processes if you like, and only what is drawn comes back. Files larger than memory are read in pieces.",
+        actions: &[("Open on another machine…", "Add a machine over SSH and open a file on it", |s| s.server.open = true)],
     },
     Card {
         title: "Run and automate",
@@ -88,7 +105,7 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .default_width(640.0)
         .show(ctx, |ui| {
-            ui.label("One window for looking at simulation results, modeling parts, meshing them and running solvers. Pick where to start:");
+            ui.label("One window for viewing and analyzing simulation results and experimental data, modeling parts, meshing them, synthesizing microstructures and running solvers. Pick where to start:");
             ui.add_space(4.0);
             egui::Grid::new("welcome cards").num_columns(2).spacing([10.0, 10.0]).show(ui, |ui| {
                 for (k, c) in CARDS.iter().enumerate() {
@@ -96,7 +113,7 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                         // A grid cell lays its contents out in a row: stack them.
                         ui.vertical(|ui| {
                             ui.set_width(300.0);
-                            ui.set_min_height(120.0);
+                            ui.set_min_height(132.0);
                             ui.label(RichText::new(c.title).strong().size(15.0));
                             ui.add(egui::Label::new(c.text).wrap());
                             ui.add_space(2.0);
@@ -114,6 +131,14 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                     }
                 }
             });
+            ui.add_space(4.0);
+            ui.add(
+                egui::Label::new(
+                    RichText::new("Also here: volume rendering and ray tracing, charts and spreadsheets, pole figures and texture, keyframe animation, pictures, videos and web pages of a scene, plugins in Python and Rust.")
+                        .weak(),
+                )
+                .wrap(),
+            );
             ui.add_space(4.0);
             ui.label(RichText::new("Good to know").strong());
             for tip in [

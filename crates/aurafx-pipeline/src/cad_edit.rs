@@ -37,6 +37,12 @@ pub struct CadSummary {
     pub ms: f64,
     /// Features this kernel could only build roughly, or not at all (the timeline flags them).
     pub approximate: Vec<String>,
+    /// An assembly with mates: each mate's name and why it is not met (None: it is), the ways
+    /// the mated parts can still move, and where the mates put every component (name,
+    /// position, rotation in degrees).
+    pub mates: Vec<(String, Option<String>)>,
+    pub mate_dof: Option<usize>,
+    pub placements: Vec<(String, [f64; 3], [f64; 3])>,
 }
 
 /// The state of a CAD edit in progress.
@@ -68,17 +74,104 @@ pub struct CadEdit {
     /// Apply was used while staying in the environment: the undo step recorded on entry then
     /// holds applied work and must survive a later Discard.
     pub(crate) applied: bool,
+    /// A component of the assembly being edited on its own: the tree, the feature panel and
+    /// the ribbon then work on its features, and the view shows it alone, in its own coordinates.
+    pub focus: Option<Id>,
+    /// What the last edit was, when a run of the same edit is one undo step (a mate's value dragged).
+    pub(crate) last_edit: Option<String>,
 }
 
 impl CadEdit {
-    /// The document the environment builds: the working copy up to the rollback marker.
+    /// The component being edited on its own, if any (and still there).
+    pub fn focused(&self) -> Option<&aurafx_cad::document::ComponentRef> {
+        self.focus.and_then(|id| self.document.components.iter().find(|c| c.id == id))
+    }
+    /// The document the tree and the panels show and the operations change: the focused
+    /// component's own part, or the whole working copy.
+    pub fn active(&self) -> &Document {
+        self.focused().map(|c| &*c.document).unwrap_or(&self.document)
+    }
+    /// The document the environment builds: the working copy up to the rollback marker, or the
+    /// focused component alone.
     pub fn document_to_build(&self) -> Document {
+        if let Some(c) = self.focused() {
+            return (*c.document).clone();
+        }
         let mut d = self.document.clone();
         if let Some(n) = self.rollback {
             d.features.truncate(n.min(d.features.len()));
         }
         d
     }
+}
+
+/// The triangles of a surface as closed solids for the CAD environment: one imported-body
+/// feature per body (`BodyId`, as a Geometry source writes it), or one for the whole surface.
+pub fn document_from_surface(name: &str, data: &DataSet) -> Result<Document> {
+    use aurafx_data::{Array, ArrayData};
+    let extracted;
+    let pd = match data {
+        DataSet::PolyData(p) => p,
+        other => {
+            extracted = aurafx_filters::surface::extract_surface(other).map_err(|e| anyhow!("'{name}' has no surface to make a solid of: {e:#}"))?;
+            &extracted
+        }
+    };
+    if pd.polys.is_empty() {
+        bail!("'{name}' has no surface to make a solid of (points or lines only)");
+    }
+    let pts: Vec<[f64; 3]> = (0..pd.points.len()).map(|i| pd.points.get(i)).collect();
+    let body_of = pd.cell_data.get("BodyId").filter(|a| a.len() == pd.polys.len());
+    let names: Vec<(i64, String)> = match (pd.field_data.get("BodyIds"), pd.field_data.get("BodyNames")) {
+        (Some(ids), Some(Array { data: ArrayData::String(n), .. })) => (0..ids.len().min(n.len())).map(|i| (ids.get(i, 0) as i64, n[i].clone())).collect(),
+        _ => Vec::new(),
+    };
+    let mut bodies: Vec<(i64, Vec<[u32; 3]>)> = Vec::new();
+    for (ci, (_, c)) in pd.polys.iter().enumerate() {
+        let b = body_of.map(|a| a.get(ci, 0) as i64).unwrap_or(0);
+        let k = match bodies.iter().position(|x| x.0 == b) {
+            Some(k) => k,
+            None => {
+                bodies.push((b, Vec::new()));
+                bodies.len() - 1
+            }
+        };
+        // Polygons as fans of triangles.
+        for j in 1..c.len().saturating_sub(1) {
+            bodies[k].1.push([c[0], c[j], c[j + 1]]);
+        }
+    }
+    let total: usize = bodies.iter().map(|b| b.1.len()).sum();
+    if total > 400_000 {
+        bail!("'{name}' has {total} triangles: too many to keep as a solid in a part (use Decimate first; up to 400 000)");
+    }
+    let mut doc = Document::new(name);
+    let many = bodies.len() > 1;
+    for (id, tris) in &bodies {
+        let base = match names.iter().find(|n| n.0 == *id) {
+            Some((_, n)) if !n.trim().is_empty() => n.trim().to_string(),
+            _ if many => format!("Body {id}"),
+            _ => "Body".to_string(),
+        };
+        let unique = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base} {k}") }).find(|n| !doc.features.iter().any(|f| &f.name == n)).unwrap();
+        // Only this body's points go into its solid.
+        let mut used: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        let mut own: Vec<[f64; 3]> = Vec::new();
+        let local: Vec<[u32; 3]> = tris
+            .iter()
+            .map(|t| {
+                t.map(|i| {
+                    *used.entry(i).or_insert_with(|| {
+                        own.push(pts[i as usize]);
+                        own.len() as u32 - 1
+                    })
+                })
+            })
+            .collect();
+        doc.push(aurafx_cad::io::mesh_feature(&unique, &own, &local).map_err(|e| anyhow!("{e}"))?);
+    }
+    doc.normalize_ids();
+    Ok(doc)
 }
 
 /// What Apply did.
@@ -135,6 +228,8 @@ impl Session {
             changed: false,
             baseline,
             applied: false,
+            focus: None,
+            last_edit: None,
         };
         n.visible = true;
         self.active = Some(id);
@@ -152,11 +247,30 @@ impl Session {
     pub fn cad_env_edit(&mut self, op: &str, args: &serde_json::Value) -> Result<serde_json::Value> {
         let var = self.cad_edit.as_ref().map(|e| e.node).map(|id| self.py_var(id));
         let e = self.edit_mut()?;
+        // While a component is edited on its own, an operation is one on its part.
+        let wrapped;
+        let (op, args) = match e.focused().map(|c| c.name.clone()) {
+            Some(_) if op.starts_with("component_") || op.starts_with("mate") => {
+                bail!("'{op}' is an operation on the assembly: go back to the assembly first (the breadcrumb at the top of the model tree, or cad.edit_component(None))")
+            }
+            Some(name) => {
+                wrapped = serde_json::json!({"component": name, "inner_op": op, "args": args});
+                ("component_op", &wrapped)
+            }
+            None => {
+                e.focus = None;
+                (op, args)
+            }
+        };
         let before = e.document.clone();
         let out = aurafx_cad::edit::apply_op(&mut e.document, op, args).map_err(|x| anyhow!("{x}"))?;
+        // A mate's value changed again and again (its slider dragged) is one step to undo.
+        let run = (op == "mate_set" && args.get("value").is_some()).then(|| format!("mate_set {}", args.get("mate").and_then(|m| m.as_str()).unwrap_or("")));
+        let same_run = run.is_some() && run == e.last_edit && !e.undo.is_empty();
+        e.last_edit = run;
         // While rolled back, a new feature goes in at the marker (after the features that are
         // built), not at the end of the history, and the marker moves past it.
-        if let Some(n) = e.rollback {
+        if let Some(n) = e.rollback.filter(|_| e.focus.is_none()) {
             let len = e.document.features.len();
             if len == before.features.len() + 1 && n < len - 1 && e.document.features[..len - 1].iter().zip(&before.features).all(|(a, b)| a.id == b.id) {
                 let f = e.document.features.pop().unwrap();
@@ -165,7 +279,9 @@ impl Session {
             }
         }
         if e.document != before {
-            e.undo.push(before);
+            if !same_run {
+                e.undo.push(before);
+            }
             if e.undo.len() > 200 {
                 e.undo.remove(0);
             }
@@ -182,9 +298,47 @@ impl Session {
         Ok(out)
     }
 
-    /// Replace the whole working copy (the feature panel's raw edits, Open in the Files tab).
+    /// Edit a component of the assembly on its own (by name), or with `None` go back to the
+    /// assembly. The tree, the panels and every operation then work on that part's features; the
+    /// view shows it alone, in its own coordinates. The edits are the assembly's (one undo history).
+    pub fn cad_env_focus(&mut self, component: Option<&str>) -> Result<()> {
+        let e = self.edit_mut()?;
+        let id = match component {
+            None => None,
+            Some(name) => Some(e.document.components.iter().find(|c| c.name == name).map(|c| c.id).ok_or_else(|| {
+                anyhow!("no component '{name}' (the parts are: {})", e.document.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "))
+            })?),
+        };
+        if e.focus != id {
+            e.focus = id;
+            e.selected = None;
+            e.rollback = None;
+            e.last_edit = None;
+            e.summary = None;
+            e.revision += 1;
+            // The view shows another thing now: frame it.
+            self.camera_request = Some(crate::session::CameraRequest::ResetToBounds);
+            self.touch();
+        }
+        Ok(())
+    }
+
+    /// Replace the whole working copy (the feature panel's raw edits, Open in the Files tab);
+    /// while a component is edited on its own, that component's part.
     pub fn cad_env_set_document(&mut self, doc: Document) -> Result<()> {
         let e = self.edit_mut()?;
+        let doc = match e.focus {
+            Some(id) => {
+                let mut whole = e.document.clone();
+                match whole.components.iter_mut().find(|c| c.id == id) {
+                    Some(c) => *c.document = doc,
+                    None => whole = doc,
+                }
+                whole
+            }
+            None => doc,
+        };
+        e.last_edit = None;
         if e.document != doc {
             let before = std::mem::replace(&mut e.document, doc);
             e.undo.push(before);
@@ -197,6 +351,7 @@ impl Session {
 
     pub fn cad_env_undo(&mut self) -> Option<()> {
         let e = self.cad_edit.as_mut()?;
+        e.last_edit = None;
         let prev = e.undo.pop()?;
         let cur = std::mem::replace(&mut e.document, prev);
         e.redo.push(cur);
@@ -207,6 +362,7 @@ impl Session {
 
     pub fn cad_env_redo(&mut self) -> Option<()> {
         let e = self.cad_edit.as_mut()?;
+        e.last_edit = None;
         let next = e.redo.pop()?;
         let cur = std::mem::replace(&mut e.document, next);
         e.undo.push(cur);
@@ -224,7 +380,7 @@ impl Session {
 
     /// The timeline's rollback marker: build only the first `n` features (`None`: all).
     pub fn cad_env_rollback(&mut self, n: Option<usize>) {
-        if let Some(e) = self.cad_edit.as_mut() {
+        if let Some(e) = self.cad_edit.as_mut().filter(|e| e.focused().is_none()) {
             let n = n.filter(|n| *n < e.document.features.len());
             if e.rollback != n {
                 e.rollback = n;
@@ -237,10 +393,7 @@ impl Session {
     /// The app calls this from a worker thread through [`Session::cad_env_evaluate_with`] so the
     /// window stays responsive; scripts call it directly.
     pub fn cad_env_evaluate(&mut self, resolution: usize) -> Result<CadSummary> {
-        let (doc, overrides, rev, node) = {
-            let e = self.cad_edit.as_ref().ok_or_else(|| anyhow!("the CAD environment is not open"))?;
-            (e.document_to_build(), self.cad_overrides(e.node), e.revision, e.node)
-        };
+        let (doc, overrides, rev, node) = self.cad_env_job().ok_or_else(|| anyhow!("the CAD environment is not open"))?;
         let result = evaluate_document_with(doc, &overrides, resolution, self.cad_preview_kernel(node));
         self.cad_env_deliver(node, rev, result)
     }
@@ -263,6 +416,8 @@ impl Session {
                         !f.suppressed
                             && matches!(f.shape, aurafx_cad::Shape::EdgeBlend { .. } | aurafx_cad::Shape::ShellFaces { .. } | aurafx_cad::Shape::Draft { .. })
                     })
+                    // Mates read the faces' planes and axes: the exact kernel gives them exactly.
+                    || (e.focus.is_none() && e.document.mates.iter().any(|m| !m.suppressed))
                 });
                 if exact {
                     aurafx_cad::KernelChoice::Auto
@@ -277,7 +432,9 @@ impl Session {
     /// The input of an off-thread evaluation: the document to build, the overrides, the revision.
     pub fn cad_env_job(&self) -> Option<(Document, Vec<(String, String)>, u64, NodeId)> {
         let e = self.cad_edit.as_ref()?;
-        Some((e.document_to_build(), self.cad_overrides(e.node), e.revision, e.node))
+        // The node's dimension values are the assembly's, not those of a part edited on its own.
+        let overrides = if e.focused().is_some() { Vec::new() } else { self.cad_overrides(e.node) };
+        Some((e.document_to_build(), overrides, e.revision, e.node))
     }
 
     /// Take the result of an evaluation of revision `rev` (ignored when the working copy has
@@ -310,7 +467,7 @@ impl Session {
             Err(msg) => {
                 e.error = Some(msg.clone());
                 // An empty part shows nothing (not the part as it was before its last feature went).
-                let empty = e.document_to_build().features.iter().all(|f| f.suppressed) && e.document.components.is_empty();
+                let empty = e.document_to_build().features.iter().all(|f| f.suppressed) && (e.document.components.is_empty() || e.focused().is_some());
                 if empty {
                     e.summary = None;
                     if let Some(n) = self.nodes.get_mut(&node) {
@@ -410,6 +567,35 @@ impl Session {
         Ok(CadApplied { node, features, kept_editing: keep_editing, fixes: fixes.len(), held })
     }
 
+    /// A CAD Model node whose part starts as the solid this node shows: its closed surface (every
+    /// body of a Geometry source apart) kept as imported bodies that features add to and cut
+    /// from. The node itself is left as it is and hidden; a CAD Model is returned as it is.
+    pub fn cad_from_node(&mut self, id: NodeId) -> Result<NodeId> {
+        if self.is_cad_model(id) {
+            return Ok(id);
+        }
+        let (name, out) = {
+            let n = self.nodes.get(&id).ok_or_else(|| anyhow!("no such node"))?;
+            (n.name.clone(), n.output.clone().ok_or_else(|| anyhow!("'{}' has no output yet: let it finish first", n.name))?)
+        };
+        let doc = document_from_surface(&name, &out)?;
+        // It must build, or the new node would only show an error.
+        aurafx_filters::cad::evaluate(&doc, 16, false).map_err(|e| anyhow!("'{name}' cannot be made a solid: {e:#}"))?;
+        let var = self.py_var(id);
+        let mark = self.trace.len();
+        let new = self.add_source("cad_model")?;
+        self.cad_set_document(new, &doc);
+        self.rename(new, format!("{name} (CAD)"));
+        self.set_visible(id, false);
+        // One line in the trace instead of the document's text.
+        self.trace.truncate(mark);
+        let new_var = self.py_var(new);
+        self.trace.push(format!("{new_var} = afx.cad_from({var})"));
+        self.active = Some(new);
+        self.log(LogLevel::Info, format!("CAD: '{name}' is the first body of a new part ({} feature(s))", doc.features.len()));
+        Ok(new)
+    }
+
     /// Let the nodes that were held back after Apply run.
     pub fn cad_run_held(&mut self) {
         if let Some(n) = self.cad_hold.take() {
@@ -493,7 +679,12 @@ fn build(mut doc: Document, overrides: &[(String, String)], resolution: usize, k
             .faces()
             .map(|(_, f)| CadFace {
                 name: f.name.clone(),
-                kind: f.kind.label().to_string(),
+                // Flat is told from the face itself: the side an extruded line makes is flat too.
+                kind: if f.kind == aurafx_cad::FaceKind::Freeform && aurafx_cad::face_geometry(&ev, &f.name).is_some_and(|g| g.flat) {
+                    aurafx_cad::FaceKind::Plane.label().to_string()
+                } else {
+                    f.kind.label().to_string()
+                },
                 area: f.area,
                 feature: f.id.0,
                 centroid: f.centroid,
@@ -502,6 +693,9 @@ fn build(mut doc: Document, overrides: &[(String, String)], resolution: usize, k
             .collect(),
         ms: t0.elapsed().as_secs_f64() * 1000.0,
         approximate: ev.approximate.clone(),
+        mates: ev.mates.iter().map(|m| (m.name.clone(), m.error.clone())).collect(),
+        mate_dof: ev.mate_dof,
+        placements: ev.placements.iter().map(|(n, p)| (n.clone(), p.translate, p.rotate_deg)).collect(),
     };
     Ok((ev.surface, summary))
 }

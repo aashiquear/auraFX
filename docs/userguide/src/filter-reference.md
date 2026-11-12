@@ -2050,6 +2050,23 @@ Python: `precipitate_statistics` · also found by: precipitates, second phase, s
 | Phase | `phase` | whole number 0 to 1000 | 2 |  |
 | Feature ids | `feature_ids` | text | `FeatureIds` | *advanced* |
 
+### Grain Realism
+
+Make tessellated grains look grown: relax the boundaries so that faces curve and junctions open to equal angles, remove the smallest grains and make the boundaries wavy. Orientations and every other cell array follow the cells.
+
+Python: `realistic_grains` · also found by: grain growth, relax boundaries, curvature, triple junctions, 120 degrees, coarsening, boundary roughness, wavy boundaries, voronoi, synthetic, smooth labels
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Relaxation sweeps | `relax` | whole number 0 to 100 | 4 | Each sweep gives every cell near a boundary to the grain with the largest weighted share of the cells around it. 3 to 5 sweeps settle the junctions; more changes little. |
+| Relaxation width (cells) | `width` | number 0.5 to 8 | 1.5 | How far a sweep looks (standard deviation of its weights). About an eighth of the grain size in cells rounds whole grains; smaller values only round corners. Wider is slower. |
+| Remove smallest grains (fraction) | `coarsen` | number 0 to 0.95 | 0 | This share of the grains, smallest first, is given to the neighbours before relaxing. |
+| Boundary roughness | `roughness` | number 0 to ∞ | 0 | Typical distance (in the volume's length unit) by which boundaries are pushed out of place by a smooth random field. 0: none. |
+| Roughness wavelength | `roughness_length` | number 0 to ∞ | 0 | The distance over which the push changes. 0: four times the roughness. |
+| Periodic | `periodic` | on/off | off | Treat opposite faces of the volume as neighbours. |
+| Feature ids | `feature_ids` | text | `FeatureIds` | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### Identify Micro-Texture Regions
 
 Join neighbouring hexagonal features whose mean c axes line up (within a tolerance) into micro-texture regions: MTRIds per cell, ParentIds per feature, IsMTR for regions of at least a number of features.
@@ -2262,6 +2279,30 @@ Python: `orientation_colors` · also found by: ipf, inverse pole figure, ebsd, o
 | Phases | `phases` | array | (the active array) | *advanced* The phase of each point (0: not indexed). Empty: Phases. |
 | Mask | `mask` | array | (the active array) | *advanced* Points where this array is 0 are black. |
 | Output name | `name` | text | `IPFColor` | *advanced* |
+
+### Orientation Gradient
+
+Give every grain an orientation that changes smoothly inside it, as in additively manufactured material: a steady turn along a direction, a smooth random spread and, optionally, sub-grain cells with low-angle boundaries.
+
+Python: `orientation_gradient` · also found by: intragranular misorientation, lattice rotation, orientation spread, srod, grod, kam, sub-grain, cells, low-angle boundaries, additive manufacturing, synthetic, gradient
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Gradient (degrees per unit length) | `rate` | number 0 to 90 | 0.05 | How fast each grain turns along the direction. Measured additively manufactured nickel alloys turn by about 0.02 to 0.1 degrees per micrometre. 0: no steady turn. |
+| Direction | `direction` | x, y, z | (0, 0, 1) | The turn grows along this direction (the build direction, z by default). |
+| Spread between grains (log sigma) | `rate_spread` | number 0 to 3 | 0.5 | Each grain gets its own rate, lognormal about the gradient. 0: every grain alike. |
+| Rotation axis | `axis` | Random / Perpendicular to the direction / Fixed | `Random` | The axis each grain turns about: its own random one, a random one perpendicular to the direction, or the fixed axis below for all grains. |
+| Unturned at | `reference` | Centroid / Lowest point | `Centroid` | Where a grain keeps the orientation it had: its centroid, or its lowest point along the direction (a grain that grew from the layer below). |
+| Smooth spread (degrees) | `amplitude` | number 0 to 45 | 0.5 | Root-mean-square angle of a smooth random turn added inside each grain. 0: none. |
+| Spread correlation length | `correlation_length` | number 0 to ∞ | 0 | The distance over which the smooth spread changes. 0: half of each grain's diameter. |
+| Sub-grain cell size | `cell_size` | number 0 to ∞ | 0 | Divide every grain into cells of about this size, each turned a little differently. 0: no cells. |
+| Misorientation between cells (degrees) | `cell_angle` | number 0 to 15 | 1 | Mean misorientation across a cell boundary. Keep it well under the Segment Features tolerance if the grains are to stay whole. |
+| Grows with grain size (exponent) | `size_exponent` | number 0 to 3 | 0 | *advanced* Gradient, spread and cell misorientation are multiplied by (grain diameter / median diameter) to this power. 0: no dependence; 0.5 to 1: larger grains turn more. |
+| Largest turn (degrees) | `cap` | number 0 to 180 | 0 | *advanced* No cell turns further than this from the orientation its grain had; the turn levels off smoothly towards it. 0: no limit. |
+| Fixed axis | `fixed_axis` | x, y, z | (1, 0, 0) | *advanced* |
+| Orientations | `orientations` | array | (the active array) | *advanced* Empty: EulerAngles, Quats or OrientationMatrix. |
+| Feature ids | `feature_ids` | text | `FeatureIds` | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Pack Like
 
@@ -2728,7 +2769,7 @@ Python: `cad_model` · also found by: cad, parametric, part, sketch, feature, ex
 
 | Setting | Python | Takes | Default | |
 |---|---|---|---|---|
-| Document | `document` | list of numbers | `{;   "format": 1,;   "kind": "auraFX CAD document",;   "document": {;     "name": "Part",;     "features": [;       {;         "id": 1,;         "name": "Base",;         "op": "Add",;         "shape": {;           "kind": "SketchExtrude",;           "sketch": {;             "points": [;               {;                 "x": -20.0,;                 "y": -15.0,;                 "fixed": false;               },;               {;                 "x": 20.0,;                 "y": -15.0,;                 "fixed": false;               },;               {;                 "x": 20.0,;                 "y": 15.0,;                 "fixed": false;               },;               {;                 "x": -20.0,;                 "y": 15.0,;                 "fixed": false;               },;               {;                 "x": 0.0,;                 "y": 0.0,;                 "fixed": true;               };             ],;             "entities": [;               {;                 "type": "Line",;                 "a": 0,;                 "b": 2,;                 "construction": true;               },;               {;                 "type": "Line",;                 "a": 0,;                 "b": 1,;                 "construction": false;               },;               {;                 "type": "Line",;                 "a": 1,;                 "b": 2,;                 "construction": false;               },;               {;                 "type": "Line",;                 "a": 2,;                 "b": 3,;                 "construction": false;               },;               {;                 "type": "Line",;                 "a": 3,;                 "b": 0,;                 "construction": false;               };             ],;             "constraints": [;               {;                 "Midpoint": [;                   4,;                   0;                 ];               },;               {;                 "Horizontal": 1;               },;               {;                 "Vertical": 2;               },;               {;                 "Horizontal": 3;               },;               {;                 "Vertical": 4;               },;               {;                 "Length": [;                   1,;                   {;                     "value": 40.0,;                     "expr": "width";                   };                 ];               },;               {;                 "Length": [;                   2,;                   {;                     "value": 30.0,;                     "expr": "depth";                   };                 ];               };             ],;             "plane": "XY",;             "offset": 0.0;           },;           "depth": 8.0,;           "end": "Blind",;           "draft_deg": 0.0,;           "top_edge": {;             "type": "None";           },;           "bottom_edge": {;             "type": "None";           },;           "reverse": false;         },;         "placement": {;           "translate": [;             0.0,;             0.0,;             0.0;           ],;           "rotate_deg": [;             0.0,;             0.0,;             0.0;           ];         },;         "blend": 0.0,;         "modifiers": [],;         "suppressed": false,;         "blend_kind": "Round",;         "bindings": [;           {;             "path": "/shape/depth",;             "expr": "thickness";           };         ];       };     ],;     "finish": [],;     "parameters": [;       {;         "name": "width",;         "expr": "40 mm",;         "comment": "";       },;       {;         "name": "depth",;         "expr": "30 mm",;         "comment": "";       },;       {;         "name": "thickness",;         "expr": "8 mm",;         "comment": "";       };     ],;     "configurations": [],;     "active_configuration": null,;     "next_id": 1;   }; }` | The part as an .afxcad document (JSON). Edit it with the CAD environment or with node.cad in Python. |
+| Document | `document` | list of numbers | `{;   "format": 1,;   "kind": "auraFX CAD document",;   "document": {;     "name": "Part",;     "features": [;       {;         "id": 1,;         "name": "Base",;         "op": "Add",;         "shape": {;           "kind": "SketchExtrude",;           "sketch": {;             "points": [;               {;                 "x": -20.0,;                 "y": -15.0,;                 "fixed": false;               },;               {;                 "x": 20.0,;                 "y": -15.0,;                 "fixed": false;               },;               {;                 "x": 20.0,;                 "y": 15.0,;                 "fixed": false;               },;               {;                 "x": -20.0,;                 "y": 15.0,;                 "fixed": false;               },;               {;                 "x": 0.0,;                 "y": 0.0,;                 "fixed": true;               };             ],;             "entities": [;               {;                 "type": "Line",;                 "a": 0,;                 "b": 2,;                 "construction": true;               },;               {;                 "type": "Line",;                 "a": 0,;                 "b": 1,;                 "construction": false;               },;               {;                 "type": "Line",;                 "a": 1,;                 "b": 2,;                 "construction": false;               },;               {;                 "type": "Line",;                 "a": 2,;                 "b": 3,;                 "construction": false;               },;               {;                 "type": "Line",;                 "a": 3,;                 "b": 0,;                 "construction": false;               };             ],;             "constraints": [;               {;                 "Midpoint": [;                   4,;                   0;                 ];               },;               {;                 "Horizontal": 1;               },;               {;                 "Vertical": 2;               },;               {;                 "Horizontal": 3;               },;               {;                 "Vertical": 4;               },;               {;                 "Length": [;                   1,;                   {;                     "value": 40.0,;                     "expr": "width";                   };                 ];               },;               {;                 "Length": [;                   2,;                   {;                     "value": 30.0,;                     "expr": "depth";                   };                 ];               };             ],;             "plane": "XY",;             "offset": 0.0,;             "entity_ids": [;               5,;               1,;               2,;               3,;               4;             ],;             "next_entity_id": 5;           },;           "depth": 8.0,;           "end": "Blind",;           "draft_deg": 0.0,;           "top_edge": {;             "type": "None";           },;           "bottom_edge": {;             "type": "None";           },;           "reverse": false;         },;         "placement": {;           "translate": [;             0.0,;             0.0,;             0.0;           ],;           "rotate_deg": [;             0.0,;             0.0,;             0.0;           ];         },;         "blend": 0.0,;         "modifiers": [],;         "suppressed": false,;         "blend_kind": "Round",;         "bindings": [;           {;             "path": "/shape/depth",;             "expr": "thickness";           };         ];       };     ],;     "finish": [],;     "parameters": [;       {;         "name": "width",;         "expr": "40 mm",;         "comment": "";       },;       {;         "name": "depth",;         "expr": "30 mm",;         "comment": "";       },;       {;         "name": "thickness",;         "expr": "8 mm",;         "comment": "";       };     ],;     "configurations": [],;     "active_configuration": null,;     "next_id": 1;   }; }` | The part as an .afxcad document (JSON). Edit it with the CAD environment or with node.cad in Python. |
 | Parameter overrides | `parameters` | text | (empty) | A JSON object of parameter name to expression that replaces the document's own values, for example {"width": "50 mm"}. |
 | Configuration | `configuration` | text | (empty) | The name of a configuration of the document (a named set of parameter values); empty: the document's own. |
 | Resolution | `resolution` | whole number 8 to 1024 | 64 | Cells along the longest side of the part when drawing its surface. |
@@ -2765,6 +2806,15 @@ Python: `columnar_grains` · also found by: additive manufacturing, am, columnar
 | Orientations | `orientations` | Random / <100> along Z / <111> along Z | `<100> along Z` |  |
 | Fibre spread (degrees) | `spread` | number 0 to 90 | 10 |  |
 | Crystal structure | `structure` | Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `Cubic m-3m` |  |
+| Realism | `realism` | number 0 to 1 | 0 | 0: the plain columns. Towards 1 the build looks more like a real one: columns whose <100> lies near Z outgrow their neighbours, so grains widen and thin out with height; some columns stop at each layer and new grains start there; the columns lean one way and the other in alternate layers; fine grains appear at the layer boundaries; the boundaries are wavy and relaxed. The settings below override what Realism chooses. |
+| Orientation gradient (degrees per unit length) | `gradient` | number 0 to 90 | 0 | Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain. |
+| Layer thickness | `layer` | number 0 to ∞ | 40 | *advanced* Height of a build layer, for the layer effects of Realism (0: no layers). |
+| Competitive growth | `competitive` | number 0 to 1 | NaN | *advanced* How strongly columns with <100> near Z outgrow the others (1: an overgrown column is never replaced). Empty: Realism. |
+| Columns continuing through a layer (fraction) | `epitaxial` | number 0 to 1 | NaN | *advanced* The others end at the layer boundary and a new grain starts in their place. Empty: 1 - 0.3 x Realism. |
+| Lean with the scan (degrees) | `scan_tilt` | number 0 to 45 | NaN | *advanced* The columns lean by this much along X, one way in even layers and back in odd ones. Empty: 10 x Realism. |
+| Fine grains at layer boundaries | `equiaxed` | number 0 to 2 | NaN | *advanced* How densely small equiaxed grains sit on each layer boundary (1: about one per 0.4 grain widths each way). Empty: 0.15 x Realism. |
+| Relaxation sweeps | `relax` | whole number -1 to 100 | -1 | *advanced* -1: 4 x Realism. |
+| Boundary roughness (fraction of the grain width) | `roughness` | number 0 to 0.5 | NaN | *advanced* Empty: 0.05 x Realism. |
 | Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Cone
@@ -2945,6 +2995,7 @@ Python: `pack_grains` · also found by: pack primary phases, synthetic microstru
 | Crystal structure | `structure` | Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `Cubic m-3m` |  |
 | Match the goal sizes and shapes | `calibrate` | on/off | on | Space-filling grains measure more irregular than the shapes drawn: repack with corrected goals until the measured statistics match (slower). |
 | Placement moves per grain | `moves` | whole number 0 to 100000 | 20 | *advanced* |
+| Orientation gradient (degrees per unit length) | `gradient` | number 0 to 90 | 0 | Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain. |
 | Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Plane
@@ -3069,6 +3120,11 @@ Python: `voronoi_grains` · also found by: voronoi, laguerre, tessellation, synt
 | Orientations | `orientations` | Random / <100> along Z / <111> along Z | `Random` |  |
 | Fibre spread (degrees) | `spread` | number 0 to 90 | 10 |  |
 | Crystal structure | `structure` | Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `Cubic m-3m` |  |
+| Realism | `realism` | number 0 to 1 | 0 | 0: the plain tessellation. Towards 1 the grains look more as if they had grown: sizes spread (when Size spread is 0), the smallest grains removed, boundaries a little wavy and relaxed so that junctions open to equal angles. The settings below override what Realism chooses; Grain Realism is the same as a filter. |
+| Orientation gradient (degrees per unit length) | `gradient` | number 0 to 90 | 0 | Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain. |
+| Relaxation sweeps | `relax` | whole number -1 to 100 | -1 | *advanced* -1: 5 x Realism. |
+| Boundary roughness (fraction of the grain size) | `roughness` | number 0 to 0.5 | NaN | *advanced* Empty: 0.06 x Realism. |
+| Remove smallest grains (fraction) | `coarsen` | number 0 to 0.95 | NaN | *advanced* Empty: 0.1 x Realism. |
 | Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Wavelet

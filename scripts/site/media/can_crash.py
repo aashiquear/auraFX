@@ -9,4 +9,4 @@ n = afx.time()[1]
 # Fit the camera at a middle step so both the falling plate and the crushed can stay in frame.
 afx.time(n // 2)
 afx.view([1.0, -0.75, 0.12], up=[0, 0, 1]); afx.reset_camera()
-afx.save_animation(OUT, fps=14, frames=n, width=720, height=450, cue=lambda t: afx.time(round(t * (n - 1))))
+afx.save_animation(OUT, poster=OUT[:-4] + '.jpg', fps=14, frames=n, width=720, height=450, cue=lambda t: afx.time(round(t * (n - 1))))

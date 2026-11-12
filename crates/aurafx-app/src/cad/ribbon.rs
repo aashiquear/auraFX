@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 /// Where a new feature goes by default: the middle of the top of the part built so far.
 pub(super) fn top_center(state: &State) -> ([f64; 3], bool) {
     let s = state.session.lock();
-    match s.cad_edit.as_ref().and_then(|e| e.summary.as_ref()).filter(|_| s.cad_edit.as_ref().is_some_and(|e| !e.document.features.is_empty())) {
+    match s.cad_edit.as_ref().and_then(|e| e.summary.as_ref()).filter(|_| s.cad_edit.as_ref().is_some_and(|e| !e.active().features.is_empty())) {
         Some(sum) => {
             let (lo, hi) = sum.bounds;
             ([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, hi[2]], true)
@@ -23,7 +23,7 @@ pub(super) fn top_center(state: &State) -> ([f64; 3], bool) {
 /// A feature name not used yet: "Box", "Box 2", ...
 pub(super) fn unique(state: &State, base: &str) -> String {
     let s = state.session.lock();
-    let names: Vec<String> = s.cad_edit.as_ref().map(|e| e.document.features.iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
+    let names: Vec<String> = s.cad_edit.as_ref().map(|e| e.active().features.iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
     if !names.iter().any(|n| n == base) {
         return base.to_string();
     }
@@ -34,7 +34,7 @@ pub(super) fn selected_name(state: &State) -> Option<String> {
     let s = state.session.lock();
     let e = s.cad_edit.as_ref()?;
     let id = e.selected?;
-    e.document.feature(id).map(|f| f.name.clone())
+    e.active().feature(id).map(|f| f.name.clone())
 }
 
 fn button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
@@ -154,6 +154,92 @@ fn features_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bo
         let name = unique(state, "Thread");
         op(state, "add", json!({"kind": "thread", "name": name, "major_diameter": 8, "pitch": 1.25, "length": 12, "at": z(0.0)}));
     }
+    ui.separator();
+    // From sketches kept with the part (Sketch tab, Keep as a sketch).
+    let (sweep, loft) = swept_choices(state);
+    for (label, opname, choice, tip) in [
+        (
+            "Sweep",
+            "sweep",
+            sweep,
+            "Sweep the closed outline of one kept sketch along the open path of another; choose the sketches and add or cut in the feature panel",
+        ),
+        ("Loft", "loft", loft, "Loft through the closed outlines of kept sketches on parallel planes; choose the sections and add or cut in the feature panel"),
+    ] {
+        let why = choice.as_ref().err().cloned().unwrap_or_default();
+        if ui.add_enabled(choice.is_ok(), egui::Button::new(crate::icons::with(label))).on_hover_text(tip).on_disabled_hover_text(why).clicked() {
+            if let Ok(mut a) = choice {
+                a["name"] = json!(unique(state, label));
+                op(state, opname, a);
+            }
+        }
+    }
+}
+
+/// What the Sweep and Loft buttons would make from the sketches kept with the part: the
+/// operation's arguments, or why the button is off (and what to draw first).
+pub(super) fn swept_choices(state: &State) -> (Result<Value, String>, Result<Value, String>) {
+    let s = state.session.lock();
+    let Some(doc) = s.cad_edit.as_ref().map(|e| e.active().clone()) else { return (Err(String::new()), Err(String::new())) };
+    drop(s);
+    let used = |name: &str| {
+        doc.features.iter().any(|f| match &f.shape {
+            aurafx_cad::Shape::SketchSweep { profile, path, .. } => profile == name || path == name,
+            aurafx_cad::Shape::SketchLoft { sections } => sections.iter().any(|x| x == name),
+            _ => false,
+        })
+    };
+    // Sketches no feature uses yet come first: the ones just drawn.
+    let mut all: Vec<&aurafx_cad::SavedSketch> = doc.sketches.iter().collect();
+    all.sort_by_key(|k| used(&k.name));
+    let closed: Vec<&str> = all.iter().filter(|k| !k.sketch.profiles().is_empty()).map(|k| k.name.as_str()).collect();
+    let open: Vec<&str> = all.iter().filter(|k| !k.sketch.open_paths().is_empty()).map(|k| k.name.as_str()).collect();
+    let how = "Draw each on the Sketch tab and finish it with Keep as a sketch.";
+    let sweep = if closed.is_empty() && open.is_empty() {
+        Err(format!("A sweep needs two sketches kept with the part: a profile (a closed outline) and a path (an open line). {how}"))
+    } else if open.is_empty() {
+        Err(format!("A sweep needs a path too: a sketch with an open line (lines and arcs end to end), starting where the profile is. {how}"))
+    } else if closed.is_empty() {
+        Err(format!("A sweep needs a profile too: a sketch with a closed outline, on a plane the path leaves at right angles. {how}"))
+    } else {
+        let mut why = String::new();
+        let mut found = None;
+        'pairs: for p in &closed {
+            for q in &open {
+                match aurafx_cad::swept::sweep_geometry(&doc, "Sweep", p, q) {
+                    Ok(_) => {
+                        found = Some(json!({"profile": p, "path": q}));
+                        break 'pairs;
+                    }
+                    Err(e) if why.is_empty() => why = e.to_string(),
+                    Err(_) => {}
+                }
+            }
+        }
+        found.ok_or(why)
+    };
+    let loft = if closed.len() < 2 {
+        Err(format!(
+            "A loft needs two or more sketches kept with the part, each a closed outline, on parallel planes at different heights (set a sketch's Offset). The part has {}. {how}",
+            closed.len()
+        ))
+    } else {
+        // The first closed sketch and every other one parallel to it at a height of its own.
+        let mut picked: Vec<String> = vec![closed[0].to_string()];
+        for name in &closed[1..] {
+            let mut tryout = picked.clone();
+            tryout.push(name.to_string());
+            if aurafx_cad::swept::loft_geometry(&doc, "Loft", &tryout).is_ok() {
+                picked = tryout;
+            }
+        }
+        if picked.len() >= 2 {
+            Ok(json!({"sections": picked}))
+        } else {
+            Err("A loft needs its sketches on parallel planes at different heights: these are on one plane, or on planes that cross (set a sketch's Offset before drawing it).".to_string())
+        }
+    };
+    (sweep, loft)
 }
 
 fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool) {
@@ -177,7 +263,7 @@ fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool
     if has_part && button(ui, "A face…", "Choose any flat face of the part (click it in the 3D view) and draw on it") {
         super::pick::open(state, super::PickKind::SketchFace);
     }
-    let planes = state.session.lock().cad_edit.as_ref().map(|e| e.document.planes.clone()).unwrap_or_default();
+    let planes = state.session.lock().cad_edit.as_ref().map(|e| e.active().planes.clone()).unwrap_or_default();
     for p in planes {
         if button(ui, &p.name, &format!("Draw on the reference plane {} ({})", p.name, p.how)) {
             super::sketch::begin_on_frame(state, p.frame, Some(p.name.clone()), false);
@@ -367,7 +453,7 @@ fn part_menu(state: &mut State, ui: &mut egui::Ui, run: &str, extra: Value) {
         }
     }
     ui.separator();
-    if ui.button("Blank part").on_hover_text("An empty part to model in (edit it with the Python call component_op)").clicked() {
+    if ui.button("Blank part").on_hover_text("An empty part to model in: double-click it under Components to give it features").clicked() {
         ui.close();
         chosen = Some(json!({}));
     }
@@ -407,6 +493,13 @@ pub fn check_fit(state: &mut State) {
 }
 
 fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
+    if let Some(c) = super::focused(state) {
+        ui.label(RichText::new(format!("Editing the component {c} on its own. The assembly's tools are here again when you go back.")).weak());
+        if button(ui, "Back to the assembly", "Show the whole assembly again (also the breadcrumb at the top of the model tree)") {
+            super::focus(state, None);
+        }
+        return;
+    }
     ui.scroll_menu(crate::icons::with("Insert part"), |ui| part_menu(state, ui, "component_add", json!({"at": [0, 0, 0]})))
         .response
         .on_hover_text("Place another part beside this one: a template, a blank part or a CAD file. It keeps its own features; move it in the model tree.");
@@ -435,7 +528,35 @@ fn assemble_tab(state: &mut State, ui: &mut egui::Ui) {
             ui.label(RichText::new(format!("{a} and {b} overlap by {} mm³", super::num_text(*v))).color(crate::theme::ERROR).small());
         }
     }
-    ui.label(RichText::new("Parts are listed, moved and hidden under Components in the feature tree.").weak().small());
+    ui.separator();
+    if ui
+        .add_enabled(has, egui::Button::new(crate::icons::with("Add mate…")))
+        .on_hover_text("Tie two parts together by a face of each: click the two faces, then choose coincident, concentric, distance or angle")
+        .on_disabled_hover_text("A mate is between two parts: insert a second one first")
+        .clicked()
+    {
+        super::pick::open(state, super::PickKind::Mate);
+    }
+    let mates = {
+        let s = state.session.lock();
+        s.cad_edit.as_ref().map(|e| {
+            (
+                e.document.mates.len(),
+                e.summary.as_ref().and_then(|m| m.mate_dof),
+                e.summary.as_ref().map(|m| m.mates.iter().filter(|x| x.1.is_some()).count()).unwrap_or(0),
+            )
+        })
+    };
+    if let Some((n, dof, bad)) = mates.filter(|m| m.0 > 0) {
+        let text = match (bad, dof) {
+            (0, Some(0)) => format!("{n} mate(s): the mated parts are fully held"),
+            (0, Some(d)) => format!("{n} mate(s): {d} way(s) left to move"),
+            (0, None) => format!("{n} mate(s)"),
+            (b, _) => format!("{n} mate(s), {b} not met (see Mates in the model tree)"),
+        };
+        ui.label(RichText::new(text).color(if bad > 0 { crate::theme::ERROR } else { ui.visuals().weak_text_color() }).small());
+    }
+    ui.label(RichText::new("Parts and mates are listed in the model tree: double-click a part to edit its own features.").weak().small());
 }
 
 fn files_tab(state: &mut State, ui: &mut egui::Ui) {
@@ -473,7 +594,7 @@ pub fn export_as(state: &mut State) {
     let (doc, kernel) = {
         let s = state.session.lock();
         match s.cad_edit.as_ref() {
-            Some(e) => (e.document.clone(), s.cad_kernel(e.node)),
+            Some(e) => (e.active().clone(), s.cad_kernel(e.node)),
             None => return,
         }
     };
@@ -505,7 +626,7 @@ pub fn export_as(state: &mut State) {
 
 /// Save the working copy as an `.afxcad` file chosen by the user.
 pub fn save_as(state: &mut State) {
-    let doc = state.session.lock().cad_edit.as_ref().map(|e| e.document.clone());
+    let doc = state.session.lock().cad_edit.as_ref().map(|e| e.active().clone());
     let Some(doc) = doc else { return };
     if let Some(p) = crate::dialogs::FileDialog::new().add_filter("auraFX CAD document", &["afxcad"]).set_file_name("part.afxcad").save_file() {
         let p = if p.extension().is_none() { p.with_extension("afxcad") } else { p };

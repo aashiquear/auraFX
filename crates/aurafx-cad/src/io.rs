@@ -47,6 +47,85 @@ pub fn import_file(path: &Path) -> Result<Document, CadError> {
     Ok(doc)
 }
 
+/// A closed triangle surface (the output of a filter, a body of a Geometry source) as an
+/// imported-body feature: the triangles are kept in the document, so features can add to the
+/// solid and cut from it. The surface must be closed (every edge shared by two triangles); it is
+/// turned outward when it is inside out.
+pub fn mesh_feature(name: &str, points: &[[f64; 3]], tris: &[[u32; 3]]) -> Result<Feature, CadError> {
+    use base64::Engine as _;
+    if tris.is_empty() {
+        return Err(CadError::Edit(format!("'{name}' has no surface triangles to make a solid of")));
+    }
+    // Points that coincide are one corner (surfaces often repeat them along seams).
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for p in points {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    let size = (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max);
+    let tol = (size * 1e-7).max(1e-300);
+    let mut ids: std::collections::HashMap<[i64; 3], u32> = std::collections::HashMap::new();
+    let mut verts: Vec<[f64; 3]> = Vec::new();
+    let remap: Vec<u32> = points
+        .iter()
+        .map(|p| {
+            *ids.entry(std::array::from_fn(|k| ((p[k] - lo[k]) / tol).round() as i64)).or_insert_with(|| {
+                verts.push(*p);
+                verts.len() as u32 - 1
+            })
+        })
+        .collect();
+    let mut tris: Vec<[u32; 3]> = tris.iter().map(|t| t.map(|i| remap[i as usize])).filter(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2]).collect();
+    let mut edges: std::collections::HashMap<(u32, u32), u32> = std::collections::HashMap::new();
+    for t in &tris {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            *edges.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    let open = edges.values().filter(|n| **n == 1).count();
+    let shared = edges.values().filter(|n| **n > 2).count();
+    if open > 0 {
+        return Err(CadError::Edit(format!(
+            "'{name}' is not a closed surface ({open} open edge(s)): a solid needs one. Close it first (Clip Closed Surface, Fill Holes) or use the surface of a volume"
+        )));
+    }
+    if shared > 0 {
+        return Err(CadError::Edit(format!("'{name}' has {shared} edge(s) shared by more than two triangles: it is not the surface of one solid")));
+    }
+    let vol6: f64 = tris
+        .iter()
+        .map(|t| {
+            let p = t.map(|i| glam::DVec3::from_array(verts[i as usize]));
+            p[0].dot(p[1].cross(p[2]))
+        })
+        .sum();
+    if vol6 < 0.0 {
+        tris.iter_mut().for_each(|t| t.swap(1, 2));
+    }
+    // A binary STL in the document, as a mesh file dropped on the window would be.
+    let mut stl: Vec<u8> = Vec::with_capacity(84 + 50 * tris.len());
+    let mut head = [0u8; 80];
+    let label = b"auraFX solid";
+    head[..label.len()].copy_from_slice(label);
+    stl.extend(head);
+    stl.extend((tris.len() as u32).to_le_bytes());
+    for t in &tris {
+        let p = t.map(|i| glam::DVec3::from_array(verts[i as usize]));
+        let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
+        for v in [n, p[0], p[1], p[2]] {
+            for c in v.to_array() {
+                stl.extend((c as f32).to_le_bytes());
+            }
+        }
+        stl.extend([0u8, 0]);
+    }
+    let shape = Shape::Brep { format: "stl".into(), source: name.to_string(), data: base64::engine::general_purpose::STANDARD.encode(stl) };
+    Ok(Feature::new(name, crate::BooleanOp::Add, shape))
+}
+
 /// What a write did.
 #[derive(Debug, Clone)]
 pub struct ExportReport {

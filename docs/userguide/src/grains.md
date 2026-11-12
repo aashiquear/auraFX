@@ -591,9 +591,14 @@ gives every cell to its nearest seed.
 - **Orientations** are random, or a fibre with `<100>` or `<111>` along Z, scattered by
   **Fibre spread** and random about Z.
 - The seed positions are kept as the field array `Seeds`.
+- **Realism** (0 to 1) makes the grains look grown instead of tessellated, and
+  **Orientation gradient** lets every grain's orientation change inside it; see
+  [Grain Realism](#grain-realism) and [Orientation Gradient](#orientation-gradient) below.
+  Both are 0 by default, which gives the plain tessellation with one orientation per grain.
 
 ```python
 v = afx.voronoi_grains(cells=[64, 64, 64], grains=300, size_sigma=0.4, periodic=True)
+grown = afx.voronoi_grains(cells=[64, 64, 64], grains=300, realism=0.8)
 ```
 
 ![Laguerre grains colored by the inverse pole figure key](images/voronoi_grains.png)
@@ -614,9 +619,14 @@ v = afx.voronoi_grains(cells=[64, 64, 64], grains=300, size_sigma=0.4, periodic=
   additively built cubic metals.
 - **Per-grain field arrays:** `GrainBase`, `GrainTop`, `GrainTilt` and `Originating`
   (1 for grains that start inside the build rather than on the base plate).
+- **Realism** (0 to 1) adds what a layered build does to its grains (competitive growth,
+  layers, fine grains at the layer boundaries, curved boundaries), and **Orientation
+  gradient** lets every grain turn as it grows; see [Grain Realism](#grain-realism) and
+  [Orientation Gradient](#orientation-gradient) below. Both are 0 by default.
 
 ```python
 g = afx.columnar_grains(size=(300, 300, 450), voxel=5, width=50, height=150)
+build = afx.columnar_grains(realism=0.8, layer=40, gradient=0.03)
 ```
 
 ![Columnar grains of an additive build colored by the inverse pole figure key for X](images/columnar_grains.png)
@@ -637,6 +647,151 @@ swapped with.
 noisy = v.orientation_noise(sigma=2)
 mixed = v.jumble_orientations()
 ```
+
+### Orientation Gradient
+
+A synthetic grain has one orientation. A grain of additively manufactured material does
+not: its lattice turns slowly as the grain grows from layer to layer, it carries a smooth
+spread of a degree or so, and it is divided into sub-grain cells by low-angle boundaries.
+**Filters › Grains › Orientation Gradient** gives the grains of a volume with `FeatureIds`
+and orientations such an inside. It rewrites the orientation of every cell; the grains
+themselves do not change.
+
+- **Gradient** is the steady turn, in degrees per unit of length along **Direction** (z, the
+  build direction, by default). Every grain turns about one axis of its own. Measured
+  nickel-alloy builds turn by about 0.02 to 0.1 degrees per micrometre; with the volume's
+  lengths in micrometres, 0.05 gives 2 degrees per 40 micrometre layer.
+- **Spread between grains** gives each grain its own rate, lognormal about the gradient
+  (0.5 by default: most grains between half and twice the gradient). 0 makes all alike.
+- **Rotation axis** is random for each grain, random but perpendicular to the direction, or
+  one **Fixed axis** for all grains.
+- **Unturned at** says where a grain keeps the orientation it had: its *centroid* (the
+  grain's average orientation then stays about the same), or its *lowest point* along the
+  direction, as for a grain that grew out of the layer below.
+- **Smooth spread** adds a turn that wanders smoothly inside each grain, with this
+  root-mean-square angle in degrees (0.5 by default; 0.5 to 2 is typical of as-built
+  material). **Spread correlation length** is the distance over which it changes; left at
+  0 it is half of each grain's diameter. A short length gives a mottled reference
+  misorientation map and a larger kernel average misorientation.
+- **Sub-grain cell size** above 0 divides every grain into cells of about that size, each
+  turned a little differently. **Misorientation between cells** is the mean angle across a
+  cell boundary (1 degree by default). Solidification cells in additively manufactured
+  metals are about a micrometre across, so they only show in volumes with finer cells.
+- **Grows with grain size** (advanced) multiplies the gradient, the spread and the cell
+  misorientation by (grain diameter / median diameter) to that power, so that large grains
+  hold more misorientation than small ones. 0.5 to 1 is a reasonable range; 0 is off.
+- **Largest turn** (advanced) is a cap in degrees: no cell turns further than this from the
+  orientation its grain started with. The turn levels off smoothly towards the cap, so
+  near it the gradient is less than asked for.
+
+What the filters that measure see:
+- [SROD](#srod) recovers the gradient: its rate is the gradient times the layer thickness,
+  a little less for grains whose top layer is not full.
+- **Kernel Average Misorientation** along the direction is two thirds of the gradient times
+  the cell size, for the default kernel of one cell each way.
+- **Reference Misorientations** grows with the distance from the grain's centroid along the
+  direction, and its root mean square for the smooth spread alone is the spread asked for.
+
+**Segment Features** compares neighbouring cells, so a grain stays one grain as long as
+the step from one cell to the next stays under the tolerance. The gradient and the smooth
+spread change by a small fraction of a degree per cell. Cell boundaries are the steps that
+count. **Misorientation between cells** is their mean, and about one cell boundary in a
+thousand is 2.5 times steeper, so keep it under 0.4 of the tolerance (under 2 degrees for
+the usual 5) if no cell is to be cut out of its grain. The cap limits something else, the turn from the grain's
+starting orientation: two cells of one grain then differ by at most twice the cap, and a
+long grain cannot turn into the orientation of its neighbour.
+
+With every part at 0 the filter returns its input unchanged. The sources Voronoi Grains,
+Columnar Grains and Pack Grains have an **Orientation gradient** setting that applies the
+filter as it comes, with that gradient along z.
+
+```python
+g = afx.columnar_grains()
+t = g.orientation_gradient(rate=0.05, amplitude=0.8, reference="Lowest point")
+cells = g.orientation_gradient(rate=0.02, cell_size=15, cell_angle=1, cap=4)
+print(t.srod(layer=40).array("SRODRate", "field"))     # about 2 degrees per layer
+```
+
+![Columnar grains with an orientation gradient along the build direction and sub-grain cells, colored by each cell's misorientation from its grain's average orientation](images/grains_orientation_gradient.png)
+
+### Grain Realism
+
+A tessellation has flat faces that meet at whatever angles the seeds give. Grown grains
+have curved faces that meet three at a time at about 120 degrees, sizes that spread more
+widely, and boundaries that wander. Simulating the growth gives this but takes minutes to
+hours. **Filters › Grains › Grain Realism** moves a labelled volume (one with `FeatureIds`)
+most of the way there in a second or so, in three steps:
+
+- **Boundary roughness** pushes the boundaries out of place by a smooth random field, by
+  about this distance in the volume's length unit. **Roughness wavelength** is the distance
+  over which the push changes (left at 0: four times the roughness). A tenth of the grain
+  size, with a wavelength of half the grain size, makes boundaries gently wavy.
+- **Remove smallest grains** gives this share of the grains, smallest first, to their
+  neighbours, as growth consumes its small grains.
+- **Relaxation sweeps** then relax the boundaries. In each sweep a cell takes the grain
+  that holds the largest share of the cells around it, counted with weights that fall off
+  over **Relaxation width** cells. This moves every boundary towards its centre of
+  curvature: corners round off, junctions open towards equal angles, bumps flatten and the
+  smallest grains shrink. Three to five sweeps settle the junctions, and more changes
+  little, because a boundary stops once a sweep would move it by less than half a cell.
+  The width decides what is rounded: 1.5 cells rounds corners and cell-size steps, an
+  eighth of the grain size in cells (2 to 3 for grains 16 to 24 cells across) rounds whole
+  grains.
+- **Periodic** treats opposite faces of the volume as neighbours, for periodic volumes.
+
+Every cell array follows the cells, so a cell that changes grain takes the orientation of
+its new grain. Grains that vanish are dropped, the others are numbered from 1 in their old
+order, and the per-feature field arrays keep their rows. Cells without a feature (id 0)
+stay as they are.
+
+On a flat Voronoi map of 45 grains 24 cells across, four sweeps of width 3 bring the
+spread of the junction angles about 120 degrees from 27 down to 18 degrees and shorten the
+boundaries by 5 %; a phase-field growth run long enough to settle the junctions of such a
+map reaches about 14 degrees and 7 %.
+
+```python
+v = afx.voronoi_grains(cells=[64, 64, 64], grains=100)
+r = v.realistic_grains(relax=4, width=2, coarsen=0.1, roughness=1.0, roughness_length=6)
+```
+
+**Realism on Voronoi Grains.** The source's **Realism** setting (0 to 1) does the same
+while the grains are made, scaled to the grain size: seed radii spread with a log-sigma of
+0.3 × realism (when **Size spread** is 0), which widens the size distribution from a
+log-sigma of about 0.14 towards 0.3; roughness of 0.06 × realism grain sizes; the smallest
+0.1 × realism of the grains removed; and 5 × realism sweeps an eighth of the grain size
+wide. The advanced settings **Relaxation sweeps**, **Boundary roughness** and **Remove
+smallest grains** override these one by one. With realism 0 and those left alone the
+source gives exactly the plain tessellation.
+
+**Realism on Columnar Grains.** Here **Realism** adds what a layered build does:
+
+- **Competitive growth** (set to realism): columns with a `<100>` direction close to Z
+  widen with height and their neighbours narrow, and a column that is overgrown is not
+  replaced. Fewer and wider grains are left towards the top, and those are the
+  well-aligned ones. In the default box, nine grain widths tall, about half as many grains
+  are left at the top as at the bottom with 0.5, and a quarter with 1.
+- **Layer thickness** (40 by default; set it to the build's layer height in the box's
+  length unit) places the layer boundaries.
+- **Columns continuing through a layer** (1 − 0.3 × realism): the others stop at the layer
+  boundary and a new grain starts in their place. Values of 0.6 to 0.9 are typical.
+- **Lean with the scan** (10 × realism degrees): the columns lean along X, one way in even
+  layers and back in odd ones, as under a scan that reverses from layer to layer.
+- **Fine grains at layer boundaries** (0.15 × realism): small equiaxed grains with random
+  orientations, 0.4 grain widths across, sit just above each layer boundary; 1 would
+  cover it with them.
+- **Boundary roughness** (0.05 × realism grain widths) and **Relaxation sweeps**
+  (4 × realism) as in the filter, periodic across X and Y.
+
+Each of these is an advanced setting that can be set on its own with realism at 0, and
+overrides realism when set.
+
+```python
+build = afx.columnar_grains(realism=0.8, layer=40)
+only_competition = afx.columnar_grains(competitive=1, height=2000)
+layered = afx.columnar_grains(layer=50, epitaxial=0.6, scan_tilt=12, equiaxed=0.2)
+```
+
+![Columnar grains as plain columns (left) and with realism 0.8 (right): competitive growth, layers, fine grains at the layer boundaries and relaxed boundaries](images/grains_realism.png)
 
 ### Generate Ensemble Statistics
 
@@ -942,6 +1097,21 @@ g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
 - The texture filters assume no sample symmetry and count every point equally.
 - Voronoi and Laguerre grains are tessellations of random seeds, and columnar grains are
   power diagrams slice by slice; use Pack Grains to match given size and shape statistics.
+- Grain Realism imitates what growth does to the shapes; it is not a growth simulation.
+  Every boundary is treated alike (no dependence on misorientation), relaxation does not
+  move boundaries that are nearly flat, and a thin neck of a grain can be cut in two, which
+  leaves one feature id on two pieces (Segment Features separates them). A sweep smooths
+  the surroundings of every grain in turn, holding up to about 200 MB of them at a time; a
+  128-cube volume of 500 grains takes a few seconds.
+- Competitive growth, layers, lean and fine grains in Columnar Grains are geometric rules
+  with a strength, not a solidification model: the melt pool's shape, the scan pattern
+  beyond a lean along X, and remelting are not represented. Pack Grains has no Realism
+  setting; apply the Grain Realism filter to its output.
+- Orientation Gradient works on voxel volumes and flat maps with cell orientations. The
+  steady turn is a straight ramp per grain; the smooth spread is a sum of six random waves
+  per grain, so it is not a measured spectrum; sub-grain cells are the same pattern of cell
+  centres in every grain, each grain turning its cells independently. The orientations are
+  written as 64-bit numbers.
 - Pack Grains matches the mean size and mean aspect ratios. The spread of sizes and the
   neighbour counts follow from the packing rather than from a goal. Grains cut by the box
   faces of a periodic volume are measured as pieces.

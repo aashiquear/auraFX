@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
+            window.path_to_searchindex_js = "searchindex-67038112.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-dcbdab5c.js"></script>
@@ -349,6 +349,29 @@ e.apply(fix="none")            # leave what the check found as it is
 e.apply(fix=answer_text)       # the text of an assistant's answer (a JSON list of fixes)
 e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs them
 </code></pre>
+<h2 id="a-part-from-a-geometry-source-or-a-surface"><a class="header" href="#a-part-from-a-geometry-source-or-a-surface">A part from a Geometry source or a surface</a></h2>
+<p><strong>Edit in CAD…</strong> is not only for CAD Models. Right-click a <strong>Geometry</strong> source, or any object
+whose surface is closed (a sphere, a clipped and capped part, the surface of a mesh), in the
+Pipeline panel and choose <strong>Edit in CAD…</strong> (also <strong>Model › Edit in CAD…</strong> for the selected
+object). A new CAD Model is made whose first feature is that solid as an <strong>imported body</strong>: its
+triangles are kept in the part, fixed, and every feature of the environment adds to it or cuts
+from it: a hole, a pocket sketched on the Top plane, a rib. A Geometry source with several
+bodies gives one imported body per body, named as the bodies are. The object you started from
+is hidden, not changed; the new part does not follow it afterwards.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_edit_geometry.png" alt="An angle bracket made with geometry commands, opened in the CAD environment: the imported body first in the model tree, a hole and a rib added to it"><span class="img-wrapper"><img src="images/cad_edit_geometry.png" alt="An angle bracket made with geometry commands, opened in the CAD environment: the imported body first in the model tree, a hole and a rib added to it"></span></label></p>
+<pre><code class="language-python">g = afx.mesh.geometry()
+g.cmd("brick x 30 y 20 z 10")
+body = g.result()
+c = afx.cad_from(body, name="Bracket")      # a CAD Model; its first feature is the brick
+c.cad.hole(diameter=6, depth=30, at=(0, 0, 6), name="Bore")
+e = c.edit_cad()                            # or carry on in the window
+</code></pre>
+<p>The surface must be closed (every edge shared by two triangles): an open one is refused with
+the number of open edges; close it first (Clip Closed Surface, or take the surface of a
+volume). Up to 400 000 triangles are kept (Decimate a finer surface first). An imported body is
+triangles, not exact faces: its whole surface is one face named after the body (<code>body 1 surface</code>), while the features you add have their usual faces (<code>Bore side</code>). The exact kernel
+does not cut or join a triangle body, so once features are added the part is built by the
+implicit kernel, and the node’s kernel note says so.</p>
 <h2 id="sketching"><a class="header" href="#sketching">Sketching</a></h2>
 <p>A sketch is a drawing on a plane that a feature extrudes or revolves. Start one from the
 ribbon’s <strong>Sketch</strong> tab:</p>
@@ -358,7 +381,8 @@ highest face, to add a boss or cut a pocket).</li>
 <li><strong>A face…</strong> opens the face picker: click any flat face of the part in the 3D view (or tick it
 in the list) and press <strong>Apply</strong>. Slanted faces work too: the sketch lies on the face, its x
 axis along the world’s x (or y) laid flat on it. With no feature selected, <em>Faces</em> in the
-Feature panel also has <strong>Sketch here</strong> next to each flat face.</li>
+Feature panel also has <strong>Sketch here</strong> next to each flat face. A sketch started on a face
+<a href="#sketches-that-stay-on-their-face">stays on that face</a> when the part changes.</li>
 <li>A <strong>reference plane</strong> (each one has a button in the tab), made with <strong>Plane…</strong>.</li>
 </ul>
 <p>To change an existing feature’s sketch, right-click it in the model tree and choose <strong>Edit
@@ -424,6 +448,104 @@ edited the sketch of an existing feature. The sketch then becomes a feature with
 <p>From Python, <code>e.sketch_new(plane="XY", items=[...])</code> and <code>e.sketch_edit("Bracket")</code> open the
 canvas in the window, and <code>e.sketch(...)</code> with <code>e.extrude(...)</code> builds the same features
 without it.</p>
+<h3 id="sketches-that-stay-on-their-face"><a class="header" href="#sketches-that-stay-on-their-face">Sketches that stay on their face</a></h3>
+<p>A sketch started on a face remembers the face by its name (<code>Plate z+</code>). Every time the part is
+built, the sketch plane is put back on that face as the features before it leave it: make the
+plate thicker and the boss drawn on its top moves up with it; a face that turns takes the
+sketch with it. The Feature panel says <em>On the face …</em> under the feature’s sketch, and the
+sketch canvas says so while you draw. A boss on a face grows out of the part and a cut goes
+into it.</p>
+<p>If the face is gone (its feature was removed, or renamed, so no face has that name any more),
+the feature is marked in red in the model tree and the part does not build; the message names
+the feature and the face. <strong>Right-click the feature › Pick another face…</strong> lists the flat faces
+of the part as it is before that feature (click one in the list, <strong>Apply</strong>), and <strong>Detach from
+its face</strong> leaves the sketch where it last was, no longer following anything. A sketch on a
+principal plane or a reference plane can be given a face the same way (<strong>Put its sketch on a
+face…</strong>).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sketch_on_face.png" alt="A boss and a pocket sketched on the top face of a plate that was then made thicker: both moved with the face; the list of flat faces the boss’s sketch can be moved to is open on the right"><span class="img-wrapper"><img src="images/cad_sketch_on_face.png" alt="A boss and a pocket sketched on the top face of a plate that was then made thicker: both moved with the face; the list of flat faces the boss’s sketch can be moved to is open on the right"></span></label></p>
+<pre><code class="language-python">m.cad.box(size=(40, 30, "t"), at=(0, 0, "t / 2"), name="Plate")
+boss = m.cad.sketch(face="Plate z+").circle(r=5)       # on a face, by its name
+m.cad.extrude(boss, depth=5, name="Boss")              # grows out of the plate
+m.set(t=12)                                            # the boss follows the top face
+m.cad.sketch_face("Boss", "Plate x+")                  # another face for the same sketch
+m.cad.sketch_face("Boss", None)                        # let go of the face
+</code></pre>
+<h3 id="side-faces-keep-their-names"><a class="header" href="#side-faces-keep-their-names">Side faces keep their names</a></h3>
+<p>Every line, arc and circle of a sketch has a number of its own, and the faces an extrusion or a
+revolve makes from them are named by it: <code>Base side 3</code> is the face of entity 3 for as long as
+that entity exists. Adding a line gives it a new number (<code>side 7</code>), deleting one retires its
+number, and the others keep theirs, so a filter below the part that names <code>Base side 3</code> still
+means the same face after the outline gained or lost a line. Files written before entities had
+numbers get them when they are opened, in the order that gives every face the name it had.</p>
+<h3 id="sketches-with-constraints-from-python"><a class="header" href="#sketches-with-constraints-from-python">Sketches with constraints from Python</a></h3>
+<p>The sketch object of <code>m.cad.sketch()</code> draws line by line and takes the same constraints and
+dimensions as the canvas. Each drawing call returns what it drew; a line has <code>.start</code> and <code>.end</code>,
+a circle <code>.center</code>, and passing one of those points to the next call shares the corner:</p>
+<pre><code class="language-python">m.cad.parameter("w", 40)
+s = m.cad.sketch(plane="XY")
+a = s.line((0, 0), (38, 1))            # drawn roughly ...
+b = s.line(a.end, (41, 19))
+c = s.line(b.end, (2, 22))
+d = s.line(c.end, a.start)
+s.fix(a.start)
+s.horizontal(a).vertical(b).horizontal(c).vertical(d)   # ... squared up by constraints
+s.distance(a, "w")                     # a length that follows the dimension w
+s.dimension(a.end, b.end, 20)          # the distance between two points
+print(s.solve())                       # {'status': 'fully defined', 'dof': 0, ...}
+m.cad.extrude(s, depth=5, name="Plate")
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Call</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>s.line(a, b)</code>, <code>s.lines(points, closed=True)</code>, <code>s.point(x, y, fixed=False)</code>, <code>s.add_circle(center, r)</code>, <code>s.arc(center, start, end)</code></td><td>draw; <code>construction=True</code> makes a helper line that is not part of the outline</td></tr>
+<tr><td><code>s.horizontal(l)</code>, <code>vertical(l)</code>, <code>parallel(a, b)</code>, <code>perpendicular(a, b)</code>, <code>equal(a, b)</code>, <code>tangent(a, b)</code>, <code>concentric(a, b)</code></td><td>relations between lines, circles and arcs</td></tr>
+<tr><td><code>s.coincident(p, q)</code>, <code>midpoint(p, l)</code>, <code>point_on(p, l_or_circle)</code>, <code>symmetric(p, q, l)</code>, <code>fix(p)</code></td><td>relations of points</td></tr>
+<tr><td><code>s.distance(l, v)</code>, <code>distance(p, q, v)</code>, <code>distance(p, l, v)</code> (<code>dimension</code> is the same), <code>length</code>, <code>hdistance</code>, <code>vdistance</code>, <code>radius</code>, <code>diameter</code>, <code>angle</code></td><td>driving dimensions: a number, or an expression of the part’s dimensions</td></tr>
+<tr><td><code>s.solve()</code></td><td>the status (<code>fully defined</code>, <code>under-defined</code>, <code>over-defined</code>, <code>failed</code>), the degrees of freedom left, and the points moved to where the constraints put them (<code>a.end.xy</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The ready shapes (<code>rectangle</code>, <code>circle</code>, <code>polygon</code>, <code>regular</code>, and <code>path(points)</code> for an open
+line) can be mixed into the same sketch. <code>extrude</code>, <code>revolve</code>, <code>sketch_add</code>, <code>sweep</code> and <code>loft</code>
+solve the sketch themselves; <code>solve()</code> is for checking it first. A sketch whose constraints
+contradict each other is refused when it is used, with the size of the contradiction.</p>
+<h2 id="sweeps-and-lofts"><a class="header" href="#sweeps-and-lofts">Sweeps and lofts</a></h2>
+<p>A <strong>sweep</strong> moves a closed outline along a path; a <strong>loft</strong> joins closed outlines drawn on
+parallel planes. Both are made from sketches <em>kept with the part</em>:</p>
+<ol>
+<li>On the <strong>Sketch</strong> tab draw the outline and, instead of extruding it, press <strong>Keep as a
+sketch</strong> (in the panel on the right). The sketch appears under <strong>Sketches</strong> in the model tree.</li>
+<li>Draw and keep the second sketch: for a sweep an <strong>open path</strong> (lines and arcs end to end,
+not closed) on a plane the profile’s plane crosses, starting where the profile is; for a loft
+another closed outline on a <strong>parallel plane at another height</strong> (set <strong>Offset</strong> before you draw).</li>
+<li>On the <strong>Features</strong> tab press <strong>Sweep</strong> or <strong>Loft</strong>. A button that is off says, when you
+point at it, what is still missing (a path, a second section, sections on one plane).</li>
+</ol>
+<p>The feature panel of a sweep has <strong>profile</strong> and <strong>path</strong> (each a list of the kept sketches
+that fit, with <strong>Edit…</strong> to open the sketch), <strong>twist</strong> in degrees over the whole path, and
+<strong>Operation</strong> (Add or Cut: a swept cut makes a channel). A loft lists its <strong>sections</strong> with <strong>×</strong>
+to take one out and <strong>Add a section…</strong>. Changing a kept sketch (click it under <em>Sketches</em>,
+change it, <strong>Apply sketch</strong>) rebuilds every sweep and loft that uses it, and its dimensions may
+follow the part’s dimensions like any sketch’s. The faces are named <code>Handle start</code>, <code>Handle end</code>
+and <code>Handle side</code>; <code>Vase bottom</code>, <code>Vase top</code> and <code>Vase side</code>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sweep_loft.png" alt="A handle swept along a bent path and a foot lofted from a square to a circle: the kept sketches in the model tree, the Sweep and Loft buttons, and the sweep’s profile and path in the feature panel"><span class="img-wrapper"><img src="images/cad_sweep_loft.png" alt="A handle swept along a bent path and a foot lofted from a square to a circle: the kept sketches in the model tree, the Sweep and Loft buttons, and the sweep’s profile and path in the feature panel"></span></label></p>
+<pre><code class="language-python">h = afx.cad_model(name="Handle")
+h.cad.clear("Handle")
+h.cad.sketch_add(h.cad.sketch(plane="YZ").circle(r=3), name="Profile")       # looks along x
+h.cad.sketch_add(h.cad.sketch(plane="XY").path([(0, 0), (40, 0), (40, 25)]), name="Path")
+h.cad.sweep("Profile", "Path", name="Handle")                                # op="cut" for a channel
+h.cad.loft([h.cad.sketch(offset=-12).rectangle(20, 20),                      # sketches given in place
+            h.cad.sketch(offset=-3).circle(r=4)], name="Foot")               # are kept as "Foot section"
+h.cad.sketches()                                                             # name, plane, outlines, paths
+</code></pre>
+<p>Both kernels build them: the exact kernel a loft and a sweep along a flat path without twist;
+a twisted sweep, or one along a path that leaves its plane, is built by the implicit kernel
+(the node’s kernel note says why). The profile of a sweep is taken as it is seen along the start of
+the path, so draw it on a plane the path leaves at right angles; a profile lying along the
+path is refused. The sections of a loft must be on parallel planes at different heights.</p>
 <h2 id="kernels-step-and-other-files"><a class="header" href="#kernels-step-and-other-files">Kernels, STEP and other files</a></h2>
 <p>A part is built by one of two kernels, chosen in the CAD Model’s Properties (<strong>Kernel</strong>):</p>
 <ul>
@@ -529,6 +651,69 @@ z), which you can drag or type; <strong>×</strong> removes it. <strong>Check fi
 overlap, with the overlap volume in mm³ (the parts are compared two at a time, on the exact
 solids when the exact kernel builds them), and says so when none do.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_assembly.png" alt="The Assemble tab: a housing with a lid and a flange placed beside it, the flange selected with its position and turn, and Check fit’s list of overlaps"><span class="img-wrapper"><img src="images/cad_assembly.png" alt="The Assemble tab: a housing with a lid and a flange placed beside it, the flange selected with its position and turn, and Check fit’s list of overlaps"></span></label></p>
+<h3 id="editing-a-part-of-the-assembly"><a class="header" href="#editing-a-part-of-the-assembly">Editing a part of the assembly</a></h3>
+<p><strong>Double-click</strong> a part under <em>Components</em> (or right-click it › <strong>Edit component</strong>) to work on
+its own features. The model tree, the feature panel, the ribbon and the sketch canvas then
+belong to that part: the tree starts with a breadcrumb, <strong>Assembly › Part</strong>, and shows the
+part’s dimensions, sketches and features; every button adds to this part; faces are picked on
+it. The part is shown <strong>alone, in its own coordinates</strong> (where it was modelled, not where the
+assembly places it), and the rest of the assembly is hidden until you click the assembly’s name
+in the breadcrumb (or <strong>Back to the assembly</strong> on the Assemble tab, or in the command search).
+The edits are edits of the assembly: one undo history, and <strong>Apply</strong> hands over the whole
+assembly. The timeline’s rollback marker is the assembly’s and rests while a part is edited.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_component_edit.png" alt="A component edited on its own: the breadcrumb to the assembly at the top of the model tree, the cap’s own features, a counterbored hole and a boss added to it"><span class="img-wrapper"><img src="images/cad_component_edit.png" alt="A component edited on its own: the breadcrumb to the assembly at the top of the model tree, the cap’s own features, a counterbored hole and a boss added to it"></span></label></p>
+<pre><code class="language-python">e = m.edit_cad()
+e.edit_component("Cap")                    # every call now acts on the Cap's own part
+e.hole(diameter=8, depth=30, at=(0, 0, 10), name="Bore")
+e.extrude(e.sketch(face="Slab z+").circle(r=3, center=(12, 12)), depth=4, name="Boss")
+e.edit_component(None)                     # back to the assembly
+</code></pre>
+<h3 id="mates-and-motion"><a class="header" href="#mates-and-motion">Mates and motion</a></h3>
+<p>A <strong>mate</strong> ties two parts together by a face of each, and the assembly works out where the
+parts go. On the <strong>Assemble</strong> tab press <strong>Add mate…</strong>, click a face on one part and a face on
+another (or tick them in the list, where each says <em>flat</em> or <em>round</em>), choose the kind and
+press <strong>Apply</strong>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Mate</th><th>Faces</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>coincident</strong></td><td>two flat</td><td>the faces meet in one plane, looking at each other; <strong>flush</strong> has them look the same way</td></tr>
+<tr><td><strong>concentric</strong></td><td>two round (a hole, a pin)</td><td>the two axes become one</td></tr>
+<tr><td><strong>distance</strong></td><td>two flat (or two round)</td><td>parallel, that many mm apart</td></tr>
+<tr><td><strong>angle</strong></td><td>two flat (or two round)</td><td>the angle between them in degrees: 0 as a coincident mate leaves them, 90 at right angles</td></tr>
+<tr><td><strong>fixed</strong></td><td>a part</td><td>the part stays where it is placed: right-click it under <em>Components</em> › <strong>Fix in place</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p>The mates are solved every time the assembly is built, each part moving as little as it can
+from where it is placed, so a part keeps the freedom its mates leave it. The <strong>Mates</strong> section
+of the model tree lists them and says how many ways the mated parts can still move (<em>fully
+held</em> at none); the position and turn shown for a part under <em>Components</em> is where it starts
+from, with where the mates put it underneath. A mate that cannot be met (its face is gone, the
+faces are the wrong kind, or it contradicts another mate) is marked in red with the reason; the
+rest of the assembly still builds. A mate that contradicts the others is refused when you make it.
+Fix one part first: with nothing fixed, both parts of a mate move to meet each other.</p>
+<p><strong>Motion</strong>: every distance and angle mate has a <strong>slider</strong> in the model tree; dragging it
+moves the assembly as it is rebuilt (the parts are built once and only placed again, so this is
+quick), and a drag is one step to undo. For an animation, let the mate follow a dimension of
+the assembly and key that dimension:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_mates.png" alt="A lid hinged on a box by mates: the Mates section of the model tree lists the fixed box, the hinge, the flush fronts and the opening angle with its slider; the lid is open by 40°"><span class="img-wrapper"><img src="images/cad_mates.png" alt="A lid hinged on a box by mates: the Mates section of the model tree lists the fixed box, the hinge, the flush fronts and the opening angle with its slider; the lid is open by 40°"></span></label></p>
+<pre><code class="language-python">e = m.edit_cad()
+e.parameter("gap", 5)
+e.mate("fixed", "Base")
+e.mate("coincident", "Base/Slab z+", "Cap/Slab z-")
+r = e.mate("distance", "Base/Slab x+", "Cap/Slab x-", value="gap", name="Gap")
+print(r["dof"], r["status"])               # 1 '1 way(s) left to move'
+e.mate_set("Gap", value=12)                # moves the cap
+e.mates(); e.placements()                  # each mate with its error, where each part is put
+e.apply()
+m.key("gap", 0, 5); m.key("gap", 1, 40)    # the dimension on the animation: the cap slides
+</code></pre>
+<p>Faces are written <code>Part/Face</code> (<code>e.faces()</code> lists them); a face of the assembly’s own part is
+just <code>Face</code>, and <code>XY</code>, <code>XZ</code>, <code>YZ</code> are the assembly’s planes (<code>e.mate("distance", "XY", "Cap/Slab z-", value=7)</code>). While an assembly has mates it is shown by the exact kernel where
+that builds the parts, because mates read the planes and axes of the faces.</p>
 <p><strong>Add part</strong>, <strong>Cut with part</strong> and <strong>Keep common part</strong> (on the same tab) do something else: they
 make another part a <em>feature</em> of this one, which joins it, removes its volume or keeps only the
 common volume. Use components for parts that stay apart (a bolt in a bracket) and these for parts
@@ -536,7 +721,7 @@ that become one solid.</p>
 <pre><code class="language-python">m = afx.cad_model(name="Housing")
 m.cad.component_add(name="Lid", template="bracket", at=(0, 0, 14))
 m.cad.component_add(name="Bolt", file="bolt.step", at=(20, 0, 14), rotate=(0, 90, 0))
-m.cad.component_op("Lid", "add", kind="cylinder", radius=3, height=6)   # edit a part in place
+m.cad.component_op("Lid", "add", kind="cylinder", radius=3, height=6)   # one edit of a part in place
 m.cad.component_move("Bolt", by=(0, 5, 0))
 m.cad.component_interference()                        # [{'a': 'Lid', 'b': 'Bolt', 'volume': 120.4}]
 m.cad.components()                                    # name, position, turn, visibility
@@ -583,9 +768,14 @@ dimension. The calls:</p>
 <tr><td><code>s = m.cad.sketch(plane="XY")</code>, then <code>.rectangle(w, h, center=...)</code>, <code>.circle(r)</code>, <code>.polygon(points)</code>, <code>.regular(sides, r)</code></td><td>a sketch with its dimensions</td></tr>
 <tr><td><code>m.cad.extrude(s, depth, end="blind")</code></td><td>extrude a sketch (<code>"midplane"</code>, <code>"through_all"</code>; <code>draft</code>, <code>top={"fillet": 1}</code>)</td></tr>
 <tr><td><code>m.cad.revolve(s, angle=360)</code></td><td>revolve a sketch about its vertical axis (x is the radius)</td></tr>
+<tr><td><code>s = m.cad.sketch(face="Plate z+")</code>; <code>s.line</code>, <code>s.horizontal</code>, <code>s.distance</code>, <code>s.solve()</code> …</td><td>a sketch on a face; <a href="#sketches-with-constraints-from-python">lines with constraints and dimensions</a></td></tr>
+<tr><td><code>m.cad.sketch_add(s, name)</code>, <code>sweep(profile, path, twist=0)</code>, <code>loft(sections)</code>, <code>sketches()</code></td><td><a href="#sweeps-and-lofts">sweeps and lofts</a> from kept sketches</td></tr>
+<tr><td><code>m.cad.sketch_face(feature, face)</code></td><td>put a feature’s sketch on another face, or (<code>None</code>) let go of it</td></tr>
+<tr><td><code>afx.cad_from(node)</code></td><td>a CAD Model that starts as the solid another object shows</td></tr>
 <tr><td><code>m.cad.fillet(r)</code>, <code>shell(t)</code>, <code>linear_pattern</code>, <code>grid_pattern</code>, <code>circular_pattern</code>, <code>mirror</code>, <code>split</code>, <code>scale</code></td><td>modifiers on a feature (<code>feature="Base"</code>) or the whole part</td></tr>
 <tr><td><code>m.cad.mirror_about(face_or_point, normal)</code>, <code>draft(faces, angle)</code>, <code>edit("face_pattern", ...)</code>, <code>edit("combine", ...)</code></td><td>operations on faces and bodies</td></tr>
 <tr><td><code>m.cad.component_add(...)</code>, <code>component_move</code>, <code>component_op</code>, <code>component_visible</code>, <code>component_remove</code>, <code>components()</code>, <code>component_interference()</code></td><td>assemblies</td></tr>
+<tr><td><code>e.edit_component(name)</code>; <code>e.mate(kind, a, b, value)</code>, <code>mate_set</code>, <code>mate_remove</code>, <code>mates()</code>, <code>placements()</code></td><td>a part edited in place; <a href="#mates-and-motion">mates</a></td></tr>
 <tr><td><code>m.cad.suppress(name)</code>, <code>remove</code>, <code>rename</code>, <code>move</code></td><td>edit the history</td></tr>
 <tr><td><code>m.cad.configuration("small", width=20)</code>, <code>activate("small")</code></td><td>named variants</td></tr>
 <tr><td><code>m.cad.faces()</code>, <code>volume()</code>, <code>features()</code>, <code>parameters()</code></td><td>read the result</td></tr>
@@ -609,18 +799,23 @@ Face names carry through: an extracted set or a boundary layer can name <code>Bo
 <li>The Implicit kernel describes the part as a distance field. It never fails on a hard
 combination of features, but edges are not exact lines: the faces it reports are labelled
 regions of the surface. The B-rep kernel is exact but refuses a few things (a feature-level
-mirror of a shape that is not symmetric, a sweep): <em>Auto</em> then falls back and says so.</li>
-<li>A sketch on a face is placed where the face was when you picked it; it does not follow the
-face if an earlier feature later moves it. Deleting or adding a line of a sketch renumbers the
-<code>side N</code> faces after it.</li>
-<li>Sweeps and lofts exist in the document (the vase template uses one) but have no button yet.</li>
+mirror of a shape that is not symmetric, a twisted sweep): <em>Auto</em> then falls back and says so.</li>
+<li>A sketch follows its face by the face’s name: renaming the feature that made the face, or
+removing it, leaves the sketch without a face until you pick another. The face must be one
+the features <em>before</em> the sketch’s feature make, and flat.</li>
+<li>A sweep’s path is one open chain of lines and arcs in one sketch (the longest, when a sketch
+has several); a closed path, guide rails and a profile that changes along the path are not
+there. A loft is straight between its sections, which must be on parallel planes.</li>
+<li>Mates read a face’s plane or axis from its triangles. On the exact kernel that is exact; on
+the implicit kernel a small round face may not be recognised as round (the mate then says
+so). Angle mates run from 0 to 180°. There are no gear, cam or limit mates, and no collision
+while dragging (Check fit finds overlaps afterwards).</li>
+<li>A component is edited on its own in its own coordinates; the rest of the assembly is not
+shown beside it, and a component’s own components are not opened from there.</li>
 <li>A dimension that makes a sketch impossible (constraints that contradict each other) is
 refused, and the part keeps its last valid state.</li>
 <li>Sketches start on the principal planes, on reference planes and on flat faces; a curved face
 cannot be sketched on.</li>
-<li>Components are placed rigidly, by position and turn; there are no mates or motion. A component
-is edited in place from Python (<code>component_op</code>); to model it with the sketch canvas, build it as
-its own CAD Model and insert the file.</li>
 <li>Check fit samples the two solids on a grid, so a thin overlap smaller than a cell is missed;
 the result is accurate to a few percent for overlaps that span several cells.</li>
 </ul>

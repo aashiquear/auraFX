@@ -300,9 +300,26 @@ impl Animation {
     }
 }
 
+/// The start of the key of a track that drives a dimension of a CAD Model's document.
+pub const CAD_TRACK: &str = "cad.";
+
 impl Session {
     /// Set a parameter without an undo entry (used while animating).
     pub fn set_param_quiet(&mut self, id: NodeId, key: &str, value: ParamValue) {
+        // "cad.<name>": a dimension of a CAD Model's document (a mate's distance or angle may
+        // follow one, which is how an assembly is animated). The node carries it as an override.
+        if let Some(name) = key.strip_prefix(CAD_TRACK) {
+            let Some(n) = self.nodes.get(&id) else { return };
+            let mut map: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(&n.params.str("parameters")).ok().and_then(|v: serde_json::Value| v.as_object().cloned()).unwrap_or_default();
+            let text = match &value {
+                ParamValue::Float(x) => x.to_string(),
+                ParamValue::Int(i) => i.to_string(),
+                _ => return,
+            };
+            map.insert(name.to_string(), serde_json::Value::String(text));
+            return self.set_param_quiet(id, "parameters", ParamValue::Str(serde_json::Value::Object(map).to_string()));
+        }
         if let Some(n) = self.nodes.get_mut(&id) {
             if n.params.get(key) != Some(&value) {
                 n.params.set(key, value);
@@ -360,9 +377,10 @@ impl Session {
             .iter()
             .filter_map(|tr| {
                 let n = self.nodes.get(&tr.node)?;
-                let v = match tr.display_property() {
-                    Some(name) => display_value(&n.display, name)?,
-                    None => n.params.get(&tr.key)?.clone(),
+                let v = match (tr.display_property(), tr.key.strip_prefix(CAD_TRACK)) {
+                    (Some(name), _) => display_value(&n.display, name)?,
+                    (None, Some(name)) => ParamValue::Float(self.cad_effective_document(tr.node).ok()?.parameter_values().ok()?.get(name).copied()?),
+                    (None, None) => n.params.get(&tr.key)?.clone(),
                 };
                 Some((tr.node, tr.key.clone(), v))
             })

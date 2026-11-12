@@ -62,7 +62,10 @@ impl Document {
 
     /// True when [`Document::resolved`] can change anything (bindings or constrained sketches present).
     pub fn needs_resolution(&self) -> bool {
-        self.features.iter().any(|f| !f.bindings.is_empty() || matches!(f.shape, Shape::SketchExtrude { .. } | Shape::SketchRevolve { .. }))
+        self.features.iter().any(|f| {
+            !f.bindings.is_empty()
+                || matches!(f.shape, Shape::SketchExtrude { .. } | Shape::SketchRevolve { .. } | Shape::SketchSweep { .. } | Shape::SketchLoft { .. })
+        })
     }
 
     /// A copy with every binding evaluated and written into its feature, parameter-driven sketch
@@ -71,7 +74,23 @@ impl Document {
         let vals = self.parameter_values()?;
         let vars = |n: &str| vals.get(n).copied();
         let mut out = self.clone();
-        for f in &mut out.features {
+        // The sketches kept with the part (profiles, paths, sections) follow the parameters too.
+        for s in &mut out.sketches {
+            let report = s.sketch.solve_with(&vals).map_err(|source: ExprError| CadError::Expr { name: format!("sketch {}", s.name), source })?;
+            if !report.converged && report.max_residual > 1e-6 {
+                return Err(CadError::Edit(format!(
+                    "the sketch '{}' cannot be solved: its constraints and dimensions contradict each other (off by {:.3})",
+                    s.name, report.max_residual
+                )));
+            }
+        }
+        for m in &mut out.mates {
+            if let Some(e) = &m.expr {
+                m.value = expr::eval(e, &vars).map_err(|source| CadError::Expr { name: format!("mate {}", m.name), source })?;
+            }
+        }
+        for i in 0..out.features.len() {
+            let f = &mut out.features[i];
             // A switched-off feature is not built: a problem in it must not stop the part.
             if f.suppressed {
                 continue;
@@ -106,6 +125,12 @@ impl Document {
                     )));
                 }
             }
+            // A sketch drawn on a face goes where that face is now; sweeps and lofts drawn as
+            // sketches become the outlines the kernels build.
+            crate::swept::follow_face(&mut out, i)?;
+            let mut f = out.features[i].clone();
+            crate::swept::lower(&out, &mut f)?;
+            out.features[i] = f;
         }
         Ok(out)
     }

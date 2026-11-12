@@ -118,7 +118,12 @@ recorded, and the charts' controls are left out.
 afx.save_animation("run.gif", fps=10)          # time steps (or keyframes if any)
 afx.save_animation("turn.mp4", orbit=72)       # a turntable
 afx.save_animation("all.mp4", views="all")     # every 3D view and chart view, as laid out
+afx.save_animation("clip.mp4", orbit=72, poster="clip.jpg")   # and its first frame as a picture
 ```
+
+`poster=` writes the first frame as a `.jpg` or `.png` beside the video: the still a web page
+shows before the video plays. The short videos on the project page are made with exactly these
+calls (`scripts/site/media/` in the source).
 
 ## Keyframes
 

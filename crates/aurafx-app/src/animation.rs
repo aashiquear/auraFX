@@ -261,8 +261,9 @@ impl State {
     fn encode_for_script(&mut self, req: aurafx_pipeline::session::EncodeRequest) {
         let session = self.session.clone();
         self.status = "Encoding the animation…".into();
+        let poster = self.session.lock().animation_poster.take();
         std::thread::spawn(move || {
-            let r = encode_frames(&req.dir, req.frames, &req.out, req.fps);
+            let r = encode_frames(&req.dir, req.frames, &req.out, req.fps).and_then(|_| write_poster(&req.dir, poster.as_deref()));
             let _ = std::fs::remove_dir_all(&req.dir);
             session.lock().screenshot_results.push((req.id, r));
         });
@@ -285,8 +286,9 @@ impl State {
                         _ => "GIF",
                     }
                 );
+                let poster = self.session.lock().animation_poster.take();
                 std::thread::spawn(move || {
-                    let r = encode_frames(&job.dir, job.total, &out, fps);
+                    let r = encode_frames(&job.dir, job.total, &out, fps).and_then(|_| write_poster(&job.dir, poster.as_deref()));
                     let _ = std::fs::remove_dir_all(&job.dir);
                     let _ = tx.send(r.map(|_| out));
                 });
@@ -310,6 +312,16 @@ impl State {
             self.encode_for_script(r);
         }
     }
+}
+
+/// The first frame of `dir` as a picture (the still shown before a video plays); the format
+/// follows the extension.
+fn write_poster(dir: &std::path::Path, poster: Option<&std::path::Path>) -> Result<(), String> {
+    let Some(poster) = poster else { return Ok(()) };
+    let img = image::open(dir.join("frame_00000.png")).map_err(|e| format!("poster: {e}"))?;
+    let jpeg = matches!(poster.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("jpg" | "jpeg"));
+    let r = if jpeg { img.to_rgb8().save(poster) } else { img.save(poster) };
+    r.map_err(|e| format!("poster {}: {e}", poster.display()))
 }
 
 /// The ffmpeg arguments that encode a video of this extension (MP4: H.264; WebM: VP9).

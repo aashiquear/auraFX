@@ -22,6 +22,10 @@ pub enum PickKind {
     PatternFace,
     /// Start a sketch on the chosen flat face.
     SketchFace,
+    /// Put the sketch of this feature on another flat face (its own is gone).
+    RepairFace(aurafx_cad::Id),
+    /// Two faces of two parts of an assembly, to mate.
+    Mate,
 }
 
 impl PickKind {
@@ -35,11 +39,16 @@ impl PickKind {
             PickKind::MirrorFace => "Mirror: choose the flat face to reflect about",
             PickKind::PatternFace => "Pattern: choose the flat face to put the holes on",
             PickKind::SketchFace => "Sketch: choose the flat face to draw on",
+            PickKind::RepairFace(_) => "Choose the flat face the sketch goes on",
+            PickKind::Mate => "Mate: choose a face on each of two parts",
         }
     }
     /// One face is chosen (a radio list), not several.
     fn single(self) -> bool {
-        matches!(self, PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace)
+        matches!(self, PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace | PickKind::RepairFace(_))
+    }
+    fn flat_only(self) -> bool {
+        self.single()
     }
     fn faces(self) -> bool {
         !matches!(self, PickKind::Fillet | PickKind::Chamfer)
@@ -76,12 +85,30 @@ pub struct Pick {
     pub form: PatternForm,
     /// Where the neutral plane of a draft sits: the bottom of the part.
     pub bottom: f64,
+    /// A mate: its kind (as [`MATE_KINDS`] lists them) and whether the faces look the same way.
+    pub mate: (usize, bool),
+    /// The items in the order they were chosen (a mate keeps the last two).
+    pub order: Vec<usize>,
 }
+
+/// The kinds of mate two picked faces can make.
+pub const MATE_KINDS: [(&str, &str); 4] = [
+    ("coincident", "The two flat faces meet in one plane, looking at each other (flush: looking the same way)"),
+    ("concentric", "The two round faces (a hole and a pin) share one axis"),
+    ("distance", "The two flat faces stay parallel, this far apart"),
+    ("angle", "The angle between the two faces: 0 as a coincident mate leaves them"),
+];
 
 /// List the edges or faces and open the picker.
 pub fn open(state: &mut State, kind: PickKind) {
     let doc = state.session.lock().cad_edit.as_ref().map(|e| e.document_to_build());
-    let Some(doc) = doc else { return };
+    let Some(mut doc) = doc else { return };
+    // A sketch is repaired on the part as it is before its feature (the whole part does not build).
+    if let PickKind::RepairFace(id) = kind {
+        if let Some(i) = doc.features.iter().position(|f| f.id == id) {
+            doc.features.truncate(i);
+        }
+    }
     let bottom = state.session.lock().cad_edit.as_ref().and_then(|e| e.summary.as_ref()).map(|s| s.bounds.0[2]).unwrap_or(0.0);
     let mut dirs: Vec<[f64; 3]> = Vec::new();
     let mut lines: Vec<Vec<[f64; 3]>> = Vec::new();
@@ -100,16 +127,24 @@ pub fn open(state: &mut State, kind: PickKind) {
                     .collect()
             })
             .map_err(|e| format!("{e}")),
-        PickKind::Shell | PickKind::Draft | PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace => {
+        PickKind::Shell | PickKind::Draft | PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace | PickKind::RepairFace(_) | PickKind::Mate => {
             aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 48, true)
                 .map(|ev| {
-                    let flat_only = matches!(kind, PickKind::MirrorFace | PickKind::PatternFace | PickKind::SketchFace);
+                    let flat_only = kind.flat_only();
+                    // Flat by its triangles: the side of an extruded line is flat too.
+                    let shape = |name: &str| aurafx_cad::face_geometry(&ev, name);
                     ev.faces()
-                        .filter(|(_, f)| !flat_only || f.kind == aurafx_cad::FaceKind::Plane)
+                        .filter(|(_, f)| !flat_only || f.kind == aurafx_cad::FaceKind::Plane || shape(&f.name).is_some_and(|g| g.flat))
                         .filter_map(|(_, f)| {
                             ev.face_pick(&f.name).map(|p| {
-                                dirs.push(f.direction);
-                                (f.name.clone(), p, format!("{} mm²", super::num_text(f.area)))
+                                let g = shape(&f.name);
+                                dirs.push(g.filter(|g| g.flat).map(|g| g.dir).unwrap_or(f.direction));
+                                let what = match (kind, g) {
+                                    (PickKind::Mate, Some(g)) if g.flat => "flat, ",
+                                    (PickKind::Mate, Some(g)) if g.round => "round, ",
+                                    _ => "",
+                                };
+                                (f.name.clone(), p, format!("{what}{} mm²", super::num_text(f.area)))
                             })
                         })
                         .collect()
@@ -123,11 +158,23 @@ pub fn open(state: &mut State, kind: PickKind) {
             let size = match kind {
                 PickKind::Shell => "2",
                 PickKind::Draft => "3",
+                PickKind::Mate => "10",
                 _ => "1",
             };
             dirs.resize(n, [0.0, 0.0, 1.0]);
             lines.resize(n, Vec::new());
-            state.cad.pick = Some(Pick { kind, items, dirs, lines, chosen: vec![false; n], size: size.into(), form: PatternForm::default(), bottom });
+            state.cad.pick = Some(Pick {
+                kind,
+                items,
+                dirs,
+                lines,
+                chosen: vec![false; n],
+                size: size.into(),
+                form: PatternForm::default(),
+                bottom,
+                mate: (0, false),
+                order: Vec::new(),
+            });
         }
         Ok(_) => state.toast("Nothing to pick".to_string(), true),
         Err(e) => state.toast(if kind.faces() { format!("{e}") } else { format!("Picking needs the part to be built by the B-rep kernel: {e}") }, true),
@@ -144,11 +191,34 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
         PickKind::MirrorFace => "Mirror: choose the flat face to reflect the part about",
         PickKind::PatternFace => "Pattern: choose the flat face to lay holes or bosses out on",
         PickKind::SketchFace => "Sketch: choose the flat face to draw on",
+        PickKind::RepairFace(_) => "Choose the flat face the sketch goes on (it follows that face from now on)",
+        PickKind::Mate => "Mate: choose one face on each of two parts, then the kind",
     };
     ui.label(RichText::new(title).strong());
     ui.label(RichText::new("Click the part in the 3D view to choose (click again to un-choose), or tick the list.").weak().small());
     match p.kind {
-        PickKind::MirrorFace | PickKind::SketchFace => {}
+        PickKind::MirrorFace | PickKind::SketchFace | PickKind::RepairFace(_) => {}
+        PickKind::Mate => {
+            ui.horizontal_wrapped(|ui| {
+                for (i, (name, tip)) in MATE_KINDS.iter().enumerate() {
+                    ui.selectable_value(&mut p.mate.0, i, *name).on_hover_text(*tip);
+                }
+            });
+            ui.horizontal(|ui| {
+                match p.mate.0 {
+                    2 | 3 => {
+                        ui.label(if p.mate.0 == 2 { "distance" } else { "angle" });
+                        ui.add_sized([70.0, 20.0], egui::TextEdit::singleline(&mut p.size));
+                        ui.label(RichText::new(if p.mate.0 == 2 { "mm, or an expression of the assembly's dimensions" } else { "degrees" }).weak().small());
+                    }
+                    _ => {}
+                }
+                if p.mate.0 != 1 {
+                    ui.checkbox(&mut p.mate.1, "flush").on_hover_text("The two faces look the same way instead of at each other");
+                }
+            });
+            ui.label(RichText::new("A part that should not move needs a fixed mate: right-click it under Components.").weak().small());
+        }
         PickKind::PatternFace => {
             let f = &mut p.form;
             ui.horizontal(|ui| {
@@ -203,8 +273,16 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
                         p.chosen.iter_mut().for_each(|c| *c = false);
                         p.chosen[i] = true;
                     }
-                } else {
-                    ui.checkbox(&mut p.chosen[i], &label);
+                } else if ui.checkbox(&mut p.chosen[i], &label).changed() {
+                    p.order.retain(|k| *k != i);
+                    if p.chosen[i] {
+                        p.order.push(i);
+                        // A mate is between two faces: a third takes the place of the first.
+                        if p.kind == PickKind::Mate && p.order.len() > 2 {
+                            let old = p.order.remove(0);
+                            p.chosen[old] = false;
+                        }
+                    }
                 }
                 ui.label(RichText::new(&p.items[i].2).weak().small());
             });
@@ -214,7 +292,7 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
     let (mut apply, mut cancel) = (false, false);
     ui.horizontal(|ui| {
         let ok = n > 0 || p.kind == PickKind::Shell;
-        let ok = ok && !(p.kind.single() && n != 1);
+        let ok = ok && !(p.kind.single() && n != 1) && !(p.kind == PickKind::Mate && n != 2);
         if ui.add_enabled(ok, egui::Button::new(RichText::new(format!("Apply ({n} chosen)")).strong())).clicked() {
             apply = true;
         }
@@ -229,8 +307,25 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
         let size = super::number_or_expr(&p.size);
         let kind = p.kind;
         let (form, bottom) = (std::mem::take(&mut p.form), p.bottom);
+        let mate_faces: Vec<String> = p.order.iter().filter(|i| p.chosen[**i]).map(|i| p.items[*i].0.clone()).collect();
+        let mate = p.mate;
         state.cad.pick = None;
         match kind {
+            PickKind::Mate => {
+                let mut a = json!({"kind": MATE_KINDS[mate.0.min(3)].0, "a": mate_faces.first(), "b": mate_faces.get(1), "flip": mate.1});
+                if mate.0 >= 2 {
+                    a["value"] = size;
+                }
+                let made = op(state, "mate", a);
+                if let Some(m) = &made {
+                    state.status = format!("Mate {}: {}", m["mate"].as_str().unwrap_or(""), m["status"].as_str().unwrap_or(""));
+                }
+                made
+            }
+            PickKind::RepairFace(id) => {
+                let name = state.session.lock().cad_edit.as_ref().and_then(|e| e.active().feature(id).map(|f| f.name.clone())).unwrap_or_default();
+                op(state, "sketch_face", json!({"feature": name, "face": face_name}))
+            }
             PickKind::Draft => op(state, "draft", json!({"faces": picks, "angle": size, "neutral_origin": [0, 0, bottom], "neutral_normal": [0, 0, 1]})),
             PickKind::MirrorFace => op(state, "mirror_plane", json!({"origin": picks[0], "normal": face_dir, "name": format!("Mirror about {face_name}")})),
             PickKind::PatternFace => {
@@ -370,7 +465,17 @@ pub fn click(state: &mut State, node: aurafx_pipeline::NodeId, world: [f64; 3]) 
             p.chosen.iter_mut().for_each(|c| *c = false);
             p.chosen[i] = true;
         }
-        Some(i) => p.chosen[i] = !p.chosen[i],
+        Some(i) => {
+            p.chosen[i] = !p.chosen[i];
+            p.order.retain(|k| *k != i);
+            if p.chosen[i] {
+                p.order.push(i);
+                if p.kind == PickKind::Mate && p.order.len() > 2 {
+                    let old = p.order.remove(0);
+                    p.chosen[old] = false;
+                }
+            }
+        }
         None => {
             let msg = if p.kind.faces() {
                 format!("'{face}' cannot be chosen here (a pattern or a mirror needs a flat face)")
@@ -379,6 +484,19 @@ pub fn click(state: &mut State, node: aurafx_pipeline::NodeId, world: [f64; 3]) 
             };
             state.toast(msg, true);
         }
+    }
+}
+
+/// Tick the item of the open picker with this label (for scripts and the guide's pictures).
+pub fn choose(state: &mut State, label: &str) {
+    let Some(p) = state.cad.pick.as_mut() else { return };
+    if let Some(i) = p.items.iter().position(|(l, _, _)| l == label) {
+        if p.kind.single() {
+            p.chosen.iter_mut().for_each(|c| *c = false);
+        }
+        p.chosen[i] = true;
+        p.order.retain(|k| *k != i);
+        p.order.push(i);
     }
 }
 

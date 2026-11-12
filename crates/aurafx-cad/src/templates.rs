@@ -10,14 +10,19 @@ use glam::DVec2;
 
 /// `(title, part)` pairs.
 pub fn templates() -> Vec<(&'static str, Document)> {
-    vec![
+    let mut all = vec![
         ("Enclosure (shell + standoffs + vents, parameter-driven width/height)", enclosure()),
         ("Flange with bolt circle (circular pattern holes, counterbore)", flange()),
         ("Knob", demo_part()),
         ("Threaded rod", threaded_rod()),
         ("Lofted vase", vase()),
         ("L-bracket (constrained sketch)", bracket()),
-    ]
+    ];
+    // As a file read back would have them: every feature and sketch entity numbered.
+    for (_, d) in &mut all {
+        d.normalize_ids();
+    }
+    all
 }
 
 /// Open-top box shell with four drilled standoffs and a row of vent slots.

@@ -57,6 +57,7 @@ fn help_for(path: &str) -> &'static str {
         "corner_radius" => "Rounds the box's edges by this radius.",
         "major" | "minor" => "The torus's ring radius and tube radius (mm).",
         "draft_deg" => "Taper of an extrusion's walls in degrees: positive widens it away from the sketch plane.",
+        "twist_deg" => "How far the profile turns about the path over the whole sweep, in degrees (with a twist the sweep is shown by the quick kernel).",
         "angle_deg" => "An angle in degrees: a revolve's sweep (360: all the way round) or a draft's taper.",
         "origin" | "neutral_origin" => "A point on the plane (mm): the mirror's plane, or the draft's neutral plane.",
         "normal" | "neutral_normal" => "The direction the plane faces (x, y, z).",
@@ -176,7 +177,7 @@ pub fn property_manager_ui(state: &mut State, ui: &mut egui::Ui) {
     let (doc, selected, error) = {
         let s = state.session.lock();
         let Some(e) = s.cad_edit.as_ref() else { return };
-        (e.document.clone(), e.selected, e.error.clone())
+        (e.active().clone(), e.selected, e.error.clone())
     };
     // An empty part has nothing to build yet: that is not an error to show.
     let error = error.filter(|_| !doc.features.is_empty() || !doc.components.is_empty());
@@ -295,7 +296,81 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
         }
         ui.end_row();
     });
+    let mut edit_saved: Option<String> = None;
     egui::CollapsingHeader::new(RichText::new("Shape").strong()).id_salt(("pm shape", f.id)).default_open(true).show(ui, |ui| {
+        // A sweep's profile and path, a loft's sections: sketches kept with the part, by name.
+        let closed: Vec<&str> = doc.sketches.iter().filter(|k| !k.sketch.profiles().is_empty()).map(|k| k.name.as_str()).collect();
+        let open: Vec<&str> = doc.sketches.iter().filter(|k| !k.sketch.open_paths().is_empty()).map(|k| k.name.as_str()).collect();
+        match &f.shape {
+            aurafx_cad::Shape::SketchSweep { profile, path, .. } => {
+                egui::Grid::new(("pm sweep", f.id)).num_columns(3).spacing([10.0, 4.0]).show(ui, |ui| {
+                    for (label, key, cur, choices, tip) in [
+                        (
+                            "profile",
+                            "profile",
+                            profile,
+                            &closed,
+                            "The closed outline that is swept: a sketch on a plane the path leaves at right angles, where the path starts",
+                        ),
+                        ("path", "path", path, &open, "The open line the profile follows: lines and arcs joined end to end"),
+                    ] {
+                        ui.label(label).on_hover_text(tip);
+                        let mut sel = cur.clone();
+                        egui::ComboBox::from_id_salt(("pm sweep", f.id, key)).selected_text(cur.as_str()).show_ui(ui, |ui| {
+                            for c in choices.iter() {
+                                ui.selectable_value(&mut sel, c.to_string(), *c);
+                            }
+                            if choices.is_empty() {
+                                ui.label(RichText::new("no kept sketch fits: draw one and keep it").weak().small());
+                            }
+                        });
+                        if &sel != cur {
+                            cx.acts.push(("sweep_set", json!({"feature": f.name, key: sel})));
+                        }
+                        if ui.small_button("Edit…").on_hover_text("Open this sketch on the canvas; the sweep follows when it is applied").clicked() {
+                            edit_saved = Some(cur.clone());
+                        }
+                        ui.end_row();
+                    }
+                });
+            }
+            aurafx_cad::Shape::SketchLoft { sections } => {
+                ui.label(RichText::new("Sections, in the order of their planes:").weak().small());
+                for (i, name) in sections.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}  {name}", i + 1));
+                        if ui.small_button("Edit…").on_hover_text("Open this sketch on the canvas").clicked() {
+                            edit_saved = Some(name.clone());
+                        }
+                        if ui
+                            .add_enabled(sections.len() > 2, egui::Button::new("×").small())
+                            .on_hover_text("Take this section out of the loft (its sketch stays with the part)")
+                            .on_disabled_hover_text("A loft needs two sections")
+                            .clicked()
+                        {
+                            let rest: Vec<&String> = sections.iter().filter(|x| *x != name).collect();
+                            cx.acts.push(("loft_set", json!({"feature": f.name, "sections": rest})));
+                        }
+                    });
+                }
+                let more: Vec<&str> = closed.iter().copied().filter(|c| !sections.iter().any(|x| x == c)).collect();
+                ui.add_enabled_ui(!more.is_empty(), |ui| {
+                    ui.menu_button("Add a section…", |ui| {
+                        for c in &more {
+                            if ui.button(*c).clicked() {
+                                ui.close();
+                                let mut all: Vec<String> = sections.clone();
+                                all.push(c.to_string());
+                                cx.acts.push(("loft_set", json!({"feature": f.name, "sections": all})));
+                            }
+                        }
+                    })
+                    .response
+                    .on_disabled_hover_text("Every kept sketch with a closed outline is a section already: draw another on a parallel plane and keep it");
+                });
+            }
+            _ => {}
+        }
         egui::Grid::new(("pm shape grid", f.id)).num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
             if let Some(shape) = fv.get("shape") {
                 cx.walk(ui, shape, "/shape");
@@ -319,6 +394,15 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
             .id_salt(("pm sketch", f.id))
             .default_open(true)
             .show(ui, |ui| {
+                if let Some(face) = &sketch.face {
+                    ui.label(
+                        RichText::new(format!(
+                            "On the face {face}: it stays on that face when the part changes (right-click the feature in the tree for another face)."
+                        ))
+                        .weak()
+                        .small(),
+                    );
+                }
                 egui::Grid::new(("pm sketch grid", f.id)).num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
                     for (i, name, value, expr) in &dims {
                         ui.label(format!("{name} {i}"));
@@ -392,11 +476,13 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
             }
         });
     }
-    let _ = doc;
     for (name, args) in cx.acts {
         op(state, name, args);
     }
     if edit_sketch {
         super::sketch_edit(state, f.id);
+    }
+    if let Some(name) = edit_saved {
+        super::sketch_saved(state, &name);
     }
 }

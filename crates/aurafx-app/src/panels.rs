@@ -193,8 +193,18 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                         }
                         ui.close();
                     }
-                    if state.session.lock().is_cad_model(r.id) && ui.button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)).clicked() {
-                        crate::cad::enter(state, r.id);
+                    if state.session.lock().is_cad_model(r.id) {
+                        if ui.button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)).clicked() {
+                            crate::cad::enter(state, r.id);
+                            ui.close();
+                        }
+                    } else if state.session.lock().nodes.get(&r.id).is_some_and(|n| n.output.is_some())
+                        && ui
+                            .button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE))
+                            .on_hover_text("Start a CAD part from this object: its solid (a Geometry source's bodies, any closed surface) becomes the first body, to add to and cut from. This object is hidden, not changed.")
+                            .clicked()
+                    {
+                        crate::cad::enter_from(state, r.id);
                         ui.close();
                     }
                     ui.separator();

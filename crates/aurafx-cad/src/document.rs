@@ -92,6 +92,20 @@ pub enum Shape {
     Loft {
         sections: Vec<LoftSection>,
     },
+    /// Sweep the closed outlines of one of the part's sketches along the open path of another
+    /// (both by name, see [`Document::sketches`]). The path starts where it is drawn; the
+    /// profile is taken where its sketch is, seen along the start of the path.
+    SketchSweep {
+        profile: String,
+        path: String,
+        #[serde(default)]
+        twist_deg: f64,
+    },
+    /// Loft through the closed outlines of two or more of the part's sketches (by name), drawn
+    /// on parallel planes at different heights.
+    SketchLoft {
+        sections: Vec<String>,
+    },
     /// Hole from the placement origin going DOWN (−Z): place at a top face and use `BooleanOp::Cut`.
     /// Cutters extend `r + 1 mm` (r = largest radius) above the origin so they break cleanly
     /// through the face.
@@ -161,6 +175,13 @@ pub enum Shape {
 }
 
 impl Shape {
+    /// The constrained sketch inside this shape, if any.
+    pub fn sketch(&self) -> Option<&Sketch> {
+        match self {
+            Shape::SketchExtrude { sketch, .. } | Shape::SketchRevolve { sketch, .. } => Some(sketch),
+            _ => None,
+        }
+    }
     /// The constrained sketch inside this shape, if any.
     pub fn sketch_mut(&mut self) -> Option<&mut Sketch> {
         match self {
@@ -429,6 +450,103 @@ impl Feature {
     }
 }
 
+/// A sketch kept with the part under a name, not yet (or not only) part of a feature: the
+/// profile and the path of a sweep, the sections of a loft.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedSketch {
+    pub name: String,
+    pub sketch: Sketch,
+}
+
+/// What a mate asks of two faces of two parts of an assembly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MateKind {
+    /// Two flat faces in one plane, facing each other (or the same way with `flip`).
+    #[default]
+    Coincident,
+    /// Two round faces (holes, pins) on one axis.
+    Concentric,
+    /// Two flat faces parallel, `value` mm apart; two round faces with parallel axes that far apart.
+    Distance,
+    /// The angle between two faces, in degrees: 0 as a coincident mate leaves them, 90 at right
+    /// angles. For two round faces: the angle between their axes.
+    Angle,
+    /// The part `a` stays where it is placed.
+    Fixed,
+}
+
+impl MateKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            MateKind::Coincident => "coincident",
+            MateKind::Concentric => "concentric",
+            MateKind::Distance => "distance",
+            MateKind::Angle => "angle",
+            MateKind::Fixed => "fixed",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim().to_lowercase().as_str() {
+            "coincident" | "flush" | "touch" => MateKind::Coincident,
+            "concentric" | "coaxial" => MateKind::Concentric,
+            "distance" | "offset" => MateKind::Distance,
+            "angle" => MateKind::Angle,
+            "fixed" | "fix" => MateKind::Fixed,
+            _ => return None,
+        })
+    }
+    /// Whether the mate has a number (a distance or an angle).
+    pub fn has_value(self) -> bool {
+        matches!(self, MateKind::Distance | MateKind::Angle)
+    }
+}
+
+/// One side of a mate: a face of a component, by the component's name and the face's name in
+/// that part. An empty component is the assembly's own part, or the principal planes `XY`,
+/// `XZ` and `YZ` of the assembly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MateRef {
+    #[serde(default)]
+    pub component: String,
+    #[serde(default)]
+    pub face: String,
+}
+
+impl MateRef {
+    /// `Component/Face`, or the face alone for the assembly's own part.
+    pub fn label(&self) -> String {
+        if self.component.is_empty() {
+            self.face.clone()
+        } else if self.face.is_empty() {
+            self.component.clone()
+        } else {
+            format!("{}/{}", self.component, self.face)
+        }
+    }
+}
+
+/// A relation between two parts of an assembly, solved into their placements when the
+/// assembly is built.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Mate {
+    pub name: String,
+    pub kind: MateKind,
+    pub a: MateRef,
+    #[serde(default)]
+    pub b: MateRef,
+    /// Millimetres (distance) or degrees (angle).
+    #[serde(default)]
+    pub value: f64,
+    /// The value as an expression of the assembly's parameters, when it follows one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expr: Option<String>,
+    /// Coincident and distance: the faces look the same way instead of at each other.
+    #[serde(default)]
+    pub flip: bool,
+    #[serde(default)]
+    pub suppressed: bool,
+}
+
 /// A named plane to sketch on (made by offset, angle or three points), kept with the part.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefPlane {
@@ -460,6 +578,12 @@ pub struct Document {
     /// Reference planes to sketch on.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub planes: Vec<RefPlane>,
+    /// Sketches kept under a name: profiles, paths and sections of sweeps and lofts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sketches: Vec<SavedSketch>,
+    /// Relations between the components (an assembly), solved into their placements.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mates: Vec<Mate>,
 }
 
 impl Document {
@@ -503,11 +627,23 @@ impl Document {
             if let Shape::Body { part } = &mut f.shape {
                 part.normalize_ids();
             }
+            // Sketch entities get their stable numbers (older files have none).
+            if let Some(sk) = f.shape.sketch_mut() {
+                sk.normalize_entity_ids();
+            }
+        }
+        for s in &mut self.sketches {
+            s.sketch.normalize_entity_ids();
         }
         self.next_id = next;
         for c in &mut self.components {
             c.document.normalize_ids();
         }
+    }
+
+    /// The sketch kept under `name`.
+    pub fn saved_sketch(&self, name: &str) -> Option<&Sketch> {
+        self.sketches.iter().find(|s| s.name == name).map(|s| &s.sketch)
     }
 
     /// The feature with the given id.

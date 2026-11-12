@@ -34,10 +34,14 @@ pub fn open_plane_form(state: &mut State) {
     state.cad.plane_form = Some(planes::PlaneForm::default());
 }
 pub use guide::{face_menu, Search as CommandSearch};
+pub use pick::choose as pick_choose;
 pub use pick::face_under;
 pub use property_manager::property_manager_ui;
 pub use ribbon::{check_fit, ribbon_ui};
-pub use sketch::{begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, canvas_ui as sketch_canvas_ui, sketching};
+pub use sketch::{
+    begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, begin_saved as sketch_saved, canvas_ui as sketch_canvas_ui,
+    sketching,
+};
 pub use timeline::timeline_ui;
 
 /// The ribbon's tabs.
@@ -181,6 +185,51 @@ pub fn enter(state: &mut State, id: NodeId) {
     }
 }
 
+/// Start a CAD part from the solid a node shows (a Geometry source's bodies, any closed
+/// surface) and open the environment on it; a CAD Model is opened as it is.
+pub fn enter_from(state: &mut State, id: NodeId) {
+    let made = state.session.lock().cad_from_node(id);
+    match made {
+        Ok(new) => {
+            enter(state, new);
+            if new != id {
+                state.status =
+                    "CAD: the solid is the first body of a new part; add to it or cut from it. The object it came from is hidden, not changed.".into();
+            }
+        }
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+}
+
+/// Edit a component of the assembly on its own (its name), or go back to the assembly (`None`).
+pub fn focus(state: &mut State, component: Option<&str>) {
+    if state.cad.sketch.is_some() {
+        state.toast("A sketch is open: finish or cancel it first.".to_string(), true);
+        return;
+    }
+    let r = state.session.lock().cad_env_focus(component);
+    match r {
+        Ok(()) => {
+            state.cad.pick = None;
+            state.cad.plane_form = None;
+            state.cad.fit = None;
+            state.cad.requested = 0;
+            state.cad.last_hint.clear();
+            state.cad.tab = if component.is_some() { RibbonTab::Features } else { RibbonTab::Assemble };
+            state.status = match component {
+                Some(c) => format!("CAD: editing the component {c} on its own, in its own coordinates; the breadcrumb at the top of the model tree goes back"),
+                None => "CAD: back in the assembly".into(),
+            };
+        }
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+}
+
+/// The component being edited on its own, if any.
+pub fn focused(state: &State) -> Option<String> {
+    state.session.lock().cad_edit.as_ref().and_then(|e| e.focused().map(|c| c.name.clone()))
+}
+
 /// Enter on the active node when it is a CAD Model.
 pub fn enter_active(state: &mut State) {
     let id = state.session.lock().active;
@@ -295,7 +344,7 @@ pub fn tick(state: &mut State, ctx: &egui::Context) {
             return;
         }
         if state.cad.sketch.is_none() {
-            let sel = state.session.lock().cad_edit.as_ref().and_then(|e| e.selected.and_then(|id| e.document.feature(id).map(|f| (id, f.name.clone()))));
+            let sel = state.session.lock().cad_edit.as_ref().and_then(|e| e.selected.and_then(|id| e.active().feature(id).map(|f| (id, f.name.clone()))));
             if let Some((id, name)) = sel {
                 if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
                     op(state, "remove", json!({"feature": name}));
@@ -525,6 +574,9 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
                     let kind = match kind.as_str() {
                         "SketchExtrude" | "Extrude" => "extruded sketch".to_string(),
                         "SketchRevolve" | "Revolve" => "revolved sketch".to_string(),
+                        "SketchSweep" | "Sweep" => "sweep".to_string(),
+                        "SketchLoft" | "Loft" => "loft".to_string(),
+                        "Brep" => "imported body".to_string(),
                         k => k.to_lowercase(),
                     };
                     let text = format!(

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6a7fc59f.js";
+            window.path_to_searchindex_js = "searchindex-67038112.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-dcbdab5c.js"></script>
@@ -277,7 +277,11 @@ recorded, and the charts’ controls are left out.</p>
 <pre><code class="language-python">afx.save_animation("run.gif", fps=10)          # time steps (or keyframes if any)
 afx.save_animation("turn.mp4", orbit=72)       # a turntable
 afx.save_animation("all.mp4", views="all")     # every 3D view and chart view, as laid out
+afx.save_animation("clip.mp4", orbit=72, poster="clip.jpg")   # and its first frame as a picture
 </code></pre>
+<p><code>poster=</code> writes the first frame as a <code>.jpg</code> or <code>.png</code> beside the video: the still a web page
+shows before the video plays. The short videos on the project page are made with exactly these
+calls (<code>scripts/site/media/</code> in the source).</p>
 <h2 id="keyframes"><a class="header" href="#keyframes">Keyframes</a></h2>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"><span class="img-wrapper"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"></span></label></p>
 <p>The <strong>Keyframes</strong> tab of the Animation window is a timeline from 0 % to 100 %:</p>

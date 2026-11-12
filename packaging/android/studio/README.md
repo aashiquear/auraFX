@@ -26,6 +26,9 @@ upload key). `./gradlew bundleRelease -PversionCode=10001 -PversionName=0.1.0` s
 version without editing the file. Change `applicationId` in `app/build.gradle` if
 `org.aurafx.app` is not yours in the Play Console.
 
+The project uses the Android Gradle plugin 9.5 with Gradle 9.6 (compile SDK 35); Android Studio
+offers to update them when newer ones are out.
+
 If `gradlew` is missing (a copy of the template made without Gradle installed), open the
 folder in Android Studio, which sets Gradle up from `gradle/wrapper/gradle-wrapper.properties`,
 or run `gradle wrapper` once.

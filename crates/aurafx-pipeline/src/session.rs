@@ -495,6 +495,8 @@ pub struct Session {
     pub animation_views: Option<String>,
     /// A picture of the first frame to write beside the next animation (`save_animation(poster=...)`).
     pub animation_poster: Option<PathBuf>,
+    /// The frame size and background of the next animation of the active 3D view asked for by a script.
+    pub animation_picture: Option<(Option<(u32, u32)>, Option<PictureBackground>)>,
     /// A script asked for the video encoder to be downloaded; the result goes to `screenshot_results`.
     pub ffmpeg_install_request: Option<u64>,
     /// Connections to aurafx-server processes, by host name.
@@ -528,6 +530,8 @@ pub struct LayoutRequest {
     /// Keep the chart views' controls in the picture.
     pub controls: bool,
     pub id: u64,
+    /// The color between the views (None: the window's).
+    pub background: Option<[f32; 3]>,
 }
 
 /// A picture of the 3D view to save.
@@ -542,6 +546,33 @@ pub struct ScreenshotRequest {
     pub id: u64,
     /// Include the scalar bar, labels, annotations and orientation axes.
     pub overlays: bool,
+    /// A background for this picture only (None: as on the screen).
+    pub background: Option<PictureBackground>,
+    /// No message in the window when it is saved (frames of an animation).
+    pub quiet: bool,
+}
+
+impl ScreenshotRequest {
+    /// The view as it is on the screen, with its annotations.
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, size: None, transparent: false, id: 0, overlays: true, background: None, quiet: false }
+    }
+}
+
+/// The background of a picture or an animation: one color, or a gradient from the bottom to the top.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PictureBackground {
+    pub bottom: [f32; 3],
+    pub top: [f32; 3],
+}
+
+impl PictureBackground {
+    pub fn solid(c: [f32; 3]) -> Self {
+        Self { bottom: c, top: c }
+    }
+    pub fn is_gradient(&self) -> bool {
+        self.bottom != self.top
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

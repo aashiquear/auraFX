@@ -33,8 +33,13 @@ pub struct AnimDialog {
     pub preview: Option<(std::time::Instant, f64)>,
     /// Parameter chosen for a new track.
     pub track_key: String,
-    /// What is recorded: 0 the active 3D view, 1 every view as laid out, 2 the chart views.
+    /// What is recorded: 0 the active 3D view, 1 every view as laid out, 2 the chart views,
+    /// 3 every 3D view, 4 one 3D view by number.
     pub views: u8,
+    /// The 3D view of choice 4 (1 = the first).
+    pub view_no: u32,
+    /// The frames' size, shape and background.
+    pub options: crate::picture_options::PictureOptions,
 }
 
 impl Default for AnimDialog {
@@ -49,6 +54,8 @@ impl Default for AnimDialog {
             preview: None,
             track_key: String::new(),
             views: 0,
+            view_no: 1,
+            options: Default::default(),
         }
     }
 }
@@ -72,6 +79,10 @@ pub struct AnimJob {
     pub layout: Option<crate::capture::Views>,
     /// A frame of the layout is being captured.
     pub capturing: bool,
+    /// The active 3D view drawn on its own at a size or with a background other than the screen's.
+    pub picture: Option<(Option<(u32, u32)>, Option<aurafx_pipeline::session::PictureBackground>)>,
+    /// The frame being drawn that way (its result is in the session's `screenshot_results`).
+    pub frame_id: u64,
 }
 
 fn runs(program: &std::path::Path) -> bool {
@@ -205,10 +216,19 @@ impl State {
                 return;
             }
         };
-        self.start_animation_mode(out, fps, mode, orbit.unwrap_or(72), layout);
+        let picture = self.session.lock().animation_picture.take();
+        self.start_animation_mode(out, fps, mode, orbit.unwrap_or(72), layout, picture);
     }
 
-    pub fn start_animation_mode(&mut self, out: PathBuf, fps: f32, mode: AnimMode, orbit_frames: usize, layout: Option<crate::capture::Views>) {
+    pub fn start_animation_mode(
+        &mut self,
+        out: PathBuf,
+        fps: f32,
+        mode: AnimMode,
+        orbit_frames: usize,
+        layout: Option<crate::capture::Views>,
+        picture: Option<(Option<(u32, u32)>, Option<aurafx_pipeline::session::PictureBackground>)>,
+    ) {
         let format = match out.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) {
             Some(e) if e == "mp4" => AnimFormat::Mp4,
             Some(e) if e == "webm" => AnimFormat::Webm,
@@ -255,8 +275,10 @@ impl State {
             start_time_index,
             start_camera,
             start_params,
+            picture: if layout.is_some() { None } else { picture.filter(|p| p.0.is_some() || p.1.is_some()) },
             layout,
             capturing: false,
+            frame_id: 0,
         });
         self.status = format!("Recording {total} frames…");
     }
@@ -293,10 +315,53 @@ impl State {
             if !job.capturing {
                 job.capturing = true;
                 self.capture.animation_result = None;
-                self.capture.request(crate::capture::Request { path, views, transparent: false, controls: false, done: crate::capture::Done::Animation });
+                self.capture.request(crate::capture::Request {
+                    path,
+                    views,
+                    transparent: false,
+                    controls: false,
+                    done: crate::capture::Done::Animation,
+                    background: self.anim_dialog.options.gap_color(),
+                });
                 return;
             }
             match self.capture.animation_result.take() {
+                None => return,
+                Some(Err(e)) => {
+                    self.toast(format!("Frame capture failed: {e}"), true);
+                    self.anim_job = None;
+                    return;
+                }
+                Some(Ok(())) => {
+                    let job = self.anim_job.as_mut().unwrap();
+                    job.capturing = false;
+                }
+            }
+        } else if let Some((size, background)) = job.picture {
+            // Drawn once more at the asked size or background, through the screenshot path.
+            if !job.capturing {
+                let id = {
+                    let mut s = self.session.lock();
+                    s.next_screenshot_id += 1;
+                    s.next_screenshot_id
+                };
+                job.capturing = true;
+                job.frame_id = id;
+                self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest {
+                    size,
+                    id,
+                    background,
+                    quiet: true,
+                    ..aurafx_pipeline::session::ScreenshotRequest::new(path)
+                });
+                return;
+            }
+            let id = job.frame_id;
+            let got = {
+                let mut s = self.session.lock();
+                s.screenshot_results.iter().position(|r| r.0 == id).map(|i| s.screenshot_results.remove(i).1)
+            };
+            match got {
                 None => return,
                 Some(Err(e)) => {
                     self.toast(format!("Frame capture failed: {e}"), true);
@@ -489,7 +554,10 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    let mut start: Option<(PathBuf, f32, AnimMode, usize, u8)> = None;
+    let mut start: Option<(PathBuf, f32, AnimMode, usize)> = None;
+    let view = state.viewport.size();
+    let n_views = state.capture.pane_rects.iter().filter(|(p, _)| crate::capture::is_view(*p)).count();
+    let n_3d = state.views.len() + 1;
     let ntimes = state.session.lock().times.len();
     egui::Window::new("Animation").open(&mut open).collapsible(false).resizable(false).default_width(420.0).show(ctx, |ui| {
         {
@@ -568,21 +636,24 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
                 ui.end_row();
             }
         });
-        ui.horizontal(|ui| {
-            ui.label("Record");
-            ui.radio_value(&mut d.views, 0, "the active 3D view");
-            ui.radio_value(&mut d.views, 1, "all views").on_hover_text("Every visible 3D view and chart view, as they are laid out in the window");
-            ui.radio_value(&mut d.views, 2, "chart views");
+        ui.separator();
+        ui.set_min_width(480.0);
+        ui.label("Record");
+        crate::screenshot_ui::which_views_ui(ui, &mut d.views, &mut d.view_no, n_views, n_3d);
+        d.options.reset_size(view);
+        egui::Grid::new("anim picture").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+            if d.views == 0 {
+                d.options.size_rows(ui, view);
+            }
+            ui.label("Background");
+            d.options.background_ui(ui, false, d.views != 0);
+            ui.end_row();
         });
-        ui.label(
-            RichText::new(if d.views == 0 {
-                "Frames are captured at the current 3D view size."
-            } else {
-                "Frames are cut out of the window, with every view where it is laid out; this window is hidden while recording."
-            })
-            .weak()
-            .small(),
-        );
+        if d.views != 0 {
+            ui.label(RichText::new("Frames are cut out of the window, with every view where it is laid out; this window is hidden while recording.").weak().small());
+        } else if d.format == AnimFormat::Gif && d.options.width > 960 {
+            ui.label(RichText::new("GIF frames are scaled down to 960 pixels wide; MP4, WebM and PNG frames keep the size.").weak().small());
+        }
         if ui.button(RichText::new(format!("{} Save…", crate::icons::FLOPPY_DISK)).strong()).clicked() {
             let (ext, label) = match d.format {
                 AnimFormat::Gif => ("gif", "Animated GIF"),
@@ -592,7 +663,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
             };
             if let Some(p) = crate::dialogs::FileDialog::new().add_filter(label, &[ext]).set_file_name(format!("animation.{ext}")).save_file() {
                 let p = if p.extension().is_none() { p.with_extension(ext) } else { p };
-                start = Some((p, d.fps, d.mode, d.orbit_frames, d.views));
+                start = Some((p, d.fps, d.mode, d.orbit_frames));
             }
         }
     });
@@ -600,13 +671,11 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
         state.anim_dialog.open = false;
         state.anim_dialog.preview = None;
     }
-    if let Some((p, fps, mode, frames, views)) = start {
-        let layout = match views {
-            1 => Some(crate::capture::Views::All),
-            2 => Some(crate::capture::Views::Charts),
-            _ => None,
-        };
-        state.start_animation_mode(p, fps, mode, frames, layout);
+    if let Some((p, fps, mode, frames)) = start {
+        let d = &state.anim_dialog;
+        let layout = crate::screenshot_ui::layout_of(d.views, d.view_no);
+        let picture = Some((d.options.size(view), d.options.background()));
+        state.start_animation_mode(p, fps, mode, frames, layout, picture);
     }
 }
 

@@ -42,7 +42,7 @@ android {
     }
 
     // The app is the native library app/src/main/jniLibs/<abi>/libaurafx.so (no Java code).
-    packagingOptions {
+    packaging {
         jniLibs {
             useLegacyPackaging true
             keepDebugSymbols += ['**/libaurafx.so']

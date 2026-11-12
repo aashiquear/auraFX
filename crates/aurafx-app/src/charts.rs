@@ -237,6 +237,7 @@ pub fn chart_view_ui(state: &mut State, ui: &mut egui::Ui, id: u32) {
                 transparent: false,
                 controls: false,
                 done: crate::capture::Done::Toast,
+                background: None,
             });
         }
     }

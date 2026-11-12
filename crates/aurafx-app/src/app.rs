@@ -985,13 +985,7 @@ impl State {
                         .set_file_name("scene.glb")
                         .save_file()
                     {
-                        self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest {
-                            path,
-                            size: None,
-                            transparent: false,
-                            id: 0,
-                            overlays: true,
-                        });
+                        self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest::new(path));
                     }
                 }
                 if ui.button("Animation…").on_hover_text("Time steps, a camera orbit or keyframes, saved as GIF, MP4 or PNG frames").clicked() {
@@ -2091,6 +2085,17 @@ impl eframe::App for AuraApp {
                     let t = arg.trim()[7..].trim().to_string();
                     let tx = self.state.python.sender();
                     self.state.plugin_panels.open_panel(&t, &tx);
+                }
+                // The Save Screenshot window; "screenshot example" also chooses a 16 : 9 picture on
+                // a gradient (the user guide's picture of the window).
+                "show" if arg.trim().to_ascii_lowercase().starts_with("screenshot") => {
+                    self.state.save_screenshot_dialog();
+                    if arg.trim().eq_ignore_ascii_case("screenshot example") {
+                        let o = &mut self.state.screenshot_dialog.options;
+                        o.bg = crate::picture_options::Bg::Gradient;
+                        o.shape = crate::picture_options::Shape::Ratio(16, 9);
+                        (o.width, o.height) = (1920, 1080);
+                    }
                 }
                 "show" if arg.eq_ignore_ascii_case("animation") => {
                     self.state.anim_dialog.open = true;

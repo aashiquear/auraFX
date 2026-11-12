@@ -105,10 +105,17 @@ smooth = case.temporal_interpolator(interval=0.01).temporal_snap_to_time_step(mo
 | **Keyframes** | the keyframe timeline described below |
 
 Pick the frame rate and the format: **GIF**, **MP4** or **WebM** (VP9, smaller and plays in web
-pages; both need the video encoder, see below) or a folder of **PNG frames** (`afx.save_animation("turn.webm")`). Frames are captured at the 3D view's size, with the legend, labels and
+pages; both need the video encoder, see below) or a folder of **PNG frames** (`afx.save_animation("turn.webm")`). Frames carry the legend, labels and
 annotations.
 
-**Record › all views** records every visible 3D view and chart view in each frame, placed as
+For the active 3D view the window has the same **Shape**, **Size** and **Background** choices
+as Save Screenshot (see [Exporting](exporting.md)): the view's shape or a ratio such as 16 : 9,
+the frame size in pixels (GIF frames are scaled down to 960 wide; MP4, WebM and PNG frames keep
+the size), and the background as on screen, white, black, a color or a gradient. A video has
+no transparent background. From Python:
+`afx.save_animation("turn.mp4", orbit=72, width=1920, height=1080, background=["white", "#6b8cbd"])`.
+
+**Record › all views** (or **the 3D views**, or **3D view** *N* when there are several) records every visible 3D view and chart view in each frame, placed as
 they are laid out in the window: the charts follow the time steps (a chart of a Plot Over Line
 changes with the data) while the 3D views play. **Record › chart views** records only the
 charts. These frames have the window's pixels; the Animation window is hidden while they are

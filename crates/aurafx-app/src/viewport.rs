@@ -828,7 +828,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 Some((0, sh)) => ((sh as u64 * w as u64 / h.max(1) as u64).max(1) as u32, sh),
                 Some(s) => s,
             };
-            let as_shown = (sw, sh) == (w, h) && !req.transparent;
+            let as_shown = (sw, sh) == (w, h) && !req.transparent && req.background.is_none();
             let vp = &mut state.viewport;
             let max = vp.renderer.as_ref().unwrap().max_size();
             let ext = req.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
@@ -839,7 +839,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                     let out = vp.offscreen.run(&overlays, rect.width(), sw, sh);
                     (out.shapes.into_iter().map(|c| c.shape).collect::<Vec<_>>(), out.pixels_per_point)
                 });
-                let bg = (!req.transparent).then_some(vp.settings.background);
+                let bg = (!req.transparent).then_some(req.background.map(|b| b.bottom).unwrap_or(vp.settings.background));
                 let res = crate::svg_export::write(&req.path, &prims, sw, sh, bg, ov.as_ref().map(|(s, k)| (s.as_slice(), *k)));
                 outcome = Some((req.clone(), res));
             } else if matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl" | "html") {
@@ -867,6 +867,13 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 let mut settings = vp.settings.clone();
                 settings.transparent = req.transparent;
                 settings.interacting = false;
+                // A gradient is put behind a picture drawn on a transparent background, so the
+                // edges of the objects blend into it cleanly.
+                let gradient = req.background.filter(|b| b.is_gradient());
+                if let Some(b) = req.background {
+                    settings.background = if b.is_gradient() { [0, 1, 2].map(|k| 0.5 * (b.bottom[k] + b.top[k])) } else { b.bottom };
+                    settings.transparent |= b.is_gradient();
+                }
                 let mut shot_layers = remote.clone();
                 let mut shot_draws = Some(draws.clone());
                 if settings.lighting.ray_tracing {
@@ -891,7 +898,9 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                         // Overlays laid out as on the view (same width in points), scaled up.
                         let shot_overlays = crate::overlays::Overlays { background: settings.background, ..overlays.clone() };
                         let res = if req.overlays { vp.offscreen.read(r, &shot_overlays, rect.width()) } else { r.read_pixels() }.and_then(|(w, h, mut px)| {
-                            if req.transparent {
+                            if let Some(g) = gradient {
+                                over_gradient(&mut px, w, h, g.bottom, g.top);
+                            } else if req.transparent {
                                 aurafx_render::renderer::unpremultiply(&mut px);
                             }
                             save_picture(&req.path, &px, w, h)
@@ -916,6 +925,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         state.viewport.sync_texture(recreated);
         if let Some((req, res)) = outcome {
             match &res {
+                Ok(()) if req.quiet => {}
                 Ok(()) => state.toast(format!("Saved {}", req.path.display()), false),
                 Err(e) => state.toast(format!("Screenshot failed: {e:#}"), true),
             }
@@ -1150,5 +1160,35 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
     }
     if close {
         state.viewport.pick = None;
+    }
+}
+
+/// Put a picture with premultiplied alpha (RGBA bytes, top row first) on a background that goes
+/// from `bottom` to `top`; the result is opaque.
+pub fn over_gradient(px: &mut [u8], w: u32, h: u32, bottom: [f32; 3], top: [f32; 3]) {
+    let (w, h) = (w as usize, h as usize);
+    for y in 0..h {
+        let t = if h > 1 { y as f32 / (h - 1) as f32 } else { 0.0 };
+        let bg = [0, 1, 2].map(|k| ((top[k] + (bottom[k] - top[k]) * t).clamp(0.0, 1.0) * 255.0).round() as u32);
+        for p in px[y * w * 4..(y + 1) * w * 4].chunks_exact_mut(4) {
+            let a = p[3] as u32;
+            for k in 0..3 {
+                p[k] = (p[k] as u32 + (255 - a) * bg[k] / 255).min(255) as u8;
+            }
+            p[3] = 255;
+        }
+    }
+}
+
+#[cfg(test)]
+mod gradient_tests {
+    #[test]
+    fn a_gradient_goes_behind_the_picture() {
+        // Two rows: a clear pixel and an opaque red one in each.
+        let mut px = vec![0, 0, 0, 0, 255, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 255];
+        super::over_gradient(&mut px, 2, 2, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        assert_eq!(&px[0..4], &[255, 255, 255, 255], "top row: the top color");
+        assert_eq!(&px[4..8], &[255, 0, 0, 255], "opaque pixels stay");
+        assert_eq!(&px[8..12], &[0, 0, 0, 255], "bottom row: the bottom color");
     }
 }

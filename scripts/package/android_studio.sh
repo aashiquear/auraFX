@@ -45,7 +45,7 @@ cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/THIRD-PARTY-NOTICES.txt" "$
 
 # The Gradle wrapper (gradlew and its jar), when Gradle is here to write it.
 if command -v gradle >/dev/null; then
-  (cd "$PROJ" && gradle wrapper --gradle-version 8.11.1 --quiet) || echo "gradle wrapper failed; the zip ships without gradlew" >&2
+  (cd "$PROJ" && gradle wrapper --gradle-version 9.6.0 --quiet) || echo "gradle wrapper failed; the zip ships without gradlew" >&2
   rm -rf "$PROJ/.gradle"
 fi
 (cd "$WORK" && zip -qry "$OUT/auraFX-$VERSION-android-studio.zip" auraFX-android-studio)

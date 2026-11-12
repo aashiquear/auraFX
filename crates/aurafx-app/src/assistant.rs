@@ -159,7 +159,7 @@ impl Assistant {
             0x5649_0000_0000 + (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(1) & 0xffff_ffff);
         let path = std::env::temp_dir().join(format!("aurafx_assistant_view_{}_{id}.png", std::process::id()));
         session.lock().screenshot_request =
-            Some(aurafx_pipeline::session::ScreenshotRequest { path: path.clone(), size: Some((960, 0)), transparent: false, id, overlays: true });
+            Some(aurafx_pipeline::session::ScreenshotRequest { size: Some((960, 0)), id, ..aurafx_pipeline::session::ScreenshotRequest::new(path.clone()) });
         self.pending_view = Some((id, path, text, pipeline));
     }
 

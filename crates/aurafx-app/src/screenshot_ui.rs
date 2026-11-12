@@ -1,19 +1,20 @@
-//! File › Save Screenshot: the active 3D view (size, transparent background) or every open
-//! view as laid out (3D views and charts, `capture`), then the file.
+//! File › Save Screenshot: the active 3D view (size, shape, background) or several views as
+//! laid out (3D views and charts, `capture`), then the file.
 
 use crate::app::State;
+use crate::picture_options::PictureOptions;
 use aurafx_pipeline::session::ScreenshotRequest;
 
 #[derive(Default)]
 pub struct ScreenshotDialog {
     pub open: bool,
-    width: u32,
-    height: u32,
-    keep_aspect: bool,
-    transparent: bool,
+    pub options: PictureOptions,
     no_overlays: bool,
-    /// What the picture shows: 0 the active 3D view, 1 every view as laid out, 2 the chart views.
+    /// What the picture shows: 0 the active 3D view, 1 every view as laid out, 2 the chart
+    /// views, 3 every 3D view, 4 one 3D view by number.
     pub which: u8,
+    /// The 3D view of choice 4 (1 = the first).
+    pub view_no: u32,
     /// Keep the chart views' controls in a picture of several views.
     controls: bool,
 }
@@ -22,10 +23,41 @@ impl ScreenshotDialog {
     /// Open with the view's size.
     pub fn show_for(&mut self, view: (u32, u32)) {
         if !self.open {
-            (self.width, self.height) = view;
-            self.keep_aspect = true;
+            self.options.reset_size(view);
+            self.view_no = self.view_no.max(1);
         }
         self.open = true;
+    }
+}
+
+/// The choice of what is shown, shared with the Animation window. Returns the layout to cut out
+/// of the window, or None for the active 3D view drawn on its own.
+pub fn which_views_ui(ui: &mut egui::Ui, which: &mut u8, view_no: &mut u32, n_views: usize, n_3d: usize) {
+    ui.horizontal_wrapped(|ui| {
+        ui.radio_value(which, 0, "the active 3D view").on_hover_text("Drawn on its own at the size below");
+        ui.radio_value(which, 1, format!("all views ({n_views})")).on_hover_text("Every visible 3D view and chart view, as they are laid out in the window");
+        if n_3d > 1 {
+            ui.radio_value(which, 3, format!("the 3D views ({n_3d})")).on_hover_text("Every visible 3D view, as laid out, without the charts");
+            ui.radio_value(which, 4, "3D view").on_hover_text("One of the 3D views, by its number");
+            if *which == 4 {
+                *view_no = (*view_no).clamp(1, n_3d as u32);
+                ui.add(egui::DragValue::new(view_no).range(1..=n_3d as u32));
+            }
+        } else if *which == 3 || *which == 4 {
+            *which = 0;
+        }
+        ui.radio_value(which, 2, "chart views");
+    });
+}
+
+/// The views a choice of `which_views_ui` stands for (None: the active 3D view on its own).
+pub fn layout_of(which: u8, view_no: u32) -> Option<crate::capture::Views> {
+    match which {
+        1 => Some(crate::capture::Views::All),
+        2 => Some(crate::capture::Views::Charts),
+        3 => Some(crate::capture::Views::Views3d),
+        4 => crate::capture::Views::parse(&format!("view {}", view_no.saturating_sub(1))),
+        _ => None,
     }
 }
 
@@ -37,59 +69,30 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     let mut open = true;
     let mut save = false;
     let n_views = state.capture.pane_rects.iter().filter(|(p, _)| crate::capture::is_view(*p)).count();
-    egui::Window::new("Save Screenshot").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+    let n_3d = state.views.len() + 1;
+    egui::Window::new("Save Screenshot").open(&mut open).collapsible(false).resizable(false).default_width(460.0).show(ctx, |ui| {
         let d = &mut state.screenshot_dialog;
-        let aspect = view.0.max(1) as f64 / view.1.max(1) as f64;
-        ui.horizontal(|ui| {
-            ui.label("Picture of");
-            ui.radio_value(&mut d.which, 0, "the active 3D view");
-            ui.radio_value(&mut d.which, 1, format!("all views ({n_views})")).on_hover_text("Every visible 3D view and chart view, as they are laid out in the window");
-            ui.radio_value(&mut d.which, 2, "chart views");
-        });
+        ui.label("Picture of");
+        which_views_ui(ui, &mut d.which, &mut d.view_no, n_views, n_3d);
+        ui.separator();
         if d.which != 0 {
             ui.weak("The views are cut out of the window and placed as they are laid out; the picture has the window's pixels (a larger window gives a larger picture).");
-            ui.checkbox(&mut d.transparent, "transparent background between the views");
-            ui.checkbox(&mut d.controls, "keep the chart views' controls");
+            egui::Grid::new("shot several").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+                ui.label("Background");
+                d.options.background_ui(ui, true, true);
+                ui.end_row();
+                ui.label("Charts");
+                ui.checkbox(&mut d.controls, "keep their controls");
+                ui.end_row();
+            });
             ui.separator();
             save = ui.button("Save…").clicked();
             return;
         }
         egui::Grid::new("shot").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.label("Size");
-            ui.horizontal(|ui| {
-                let w = ui.add(egui::DragValue::new(&mut d.width).range(16..=16384).suffix(" px"));
-                ui.label("×");
-                let h = ui.add(egui::DragValue::new(&mut d.height).range(16..=16384).suffix(" px"));
-                if d.keep_aspect && w.changed() {
-                    d.height = (d.width as f64 / aspect).round().max(1.0) as u32;
-                }
-                if d.keep_aspect && h.changed() {
-                    d.width = (d.height as f64 * aspect).round().max(1.0) as u32;
-                }
-            });
-            ui.end_row();
-            ui.label("");
-            ui.horizontal(|ui| {
-                for (label, k) in [("view", 1u32), ("2×", 2), ("4×", 4)] {
-                    if ui.small_button(label).on_hover_text("A multiple of the view's size").clicked() {
-                        (d.width, d.height) = (view.0 * k, view.1 * k);
-                    }
-                }
-                if ui.small_button("1920×1080").clicked() {
-                    (d.width, d.height) = (1920, 1080);
-                    d.keep_aspect = false;
-                }
-                if ui.small_button("3840×2160").clicked() {
-                    (d.width, d.height) = (3840, 2160);
-                    d.keep_aspect = false;
-                }
-            });
-            ui.end_row();
-            ui.label("");
-            ui.checkbox(&mut d.keep_aspect, "keep the view's shape");
-            ui.end_row();
+            d.options.size_rows(ui, view);
             ui.label("Background");
-            ui.checkbox(&mut d.transparent, "transparent");
+            d.options.background_ui(ui, true, false);
             ui.end_row();
             ui.label("Annotations");
             let mut on = !d.no_overlays;
@@ -98,7 +101,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
             }
             ui.end_row();
         });
-        if d.width != view.0 || d.height != view.1 {
+        if d.options.size(view).is_some() {
             ui.weak("Point sizes and line widths are in pixels, so they look thinner in a larger picture.");
         }
         if state.viewport.settings.lighting.ray_tracing {
@@ -111,8 +114,16 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     if save && state.screenshot_dialog.which != 0 {
         if let Some(path) = crate::dialogs::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("aurafx-views.png").save_file() {
             let d = &state.screenshot_dialog;
-            let views = if d.which == 1 { crate::capture::Views::All } else { crate::capture::Views::Charts };
-            state.capture.request(crate::capture::Request { path, views, transparent: d.transparent, controls: d.controls, done: crate::capture::Done::Toast });
+            if let Some(views) = layout_of(d.which, d.view_no) {
+                state.capture.request(crate::capture::Request {
+                    path,
+                    views,
+                    transparent: d.options.transparent(),
+                    controls: d.controls,
+                    done: crate::capture::Done::Toast,
+                    background: d.options.gap_color(),
+                });
+            }
             state.screenshot_dialog.open = false;
         }
         return;
@@ -128,8 +139,13 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
             .save_file()
         {
             let d = &state.screenshot_dialog;
-            let size = if (d.width, d.height) == view { None } else { Some((d.width, d.height)) };
-            state.viewport.request_screenshot(ScreenshotRequest { path, size, transparent: d.transparent, id: 0, overlays: !d.no_overlays });
+            state.viewport.request_screenshot(ScreenshotRequest {
+                size: d.options.size(view),
+                transparent: d.options.transparent(),
+                overlays: !d.no_overlays,
+                background: d.options.background(),
+                ..ScreenshotRequest::new(path)
+            });
             state.screenshot_dialog.open = false;
         }
     }

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b758227f.js";
+            window.path_to_searchindex_js = "searchindex-73b86d3f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-dcbdab5c.js"></script>
@@ -181,10 +181,21 @@
 <h2 id="screenshots"><a class="header" href="#screenshots">Screenshots</a></h2>
 <p><strong>File › Save Screenshot…</strong> (Ctrl+Shift+S) opens a small dialog:</p>
 <ul>
-<li><strong>Size</strong>: the view’s size, a multiple of it (2×, 4×), 1920×1080, 3840×2160, or any size;
-<strong>keep the view’s shape</strong> ties width and height together. Point sizes and line widths are
-in pixels, so they look thinner in a larger picture.</li>
-<li><strong>Background › transparent</strong> saves a PNG with an alpha channel, with clean edges.</li>
+<li><strong>Picture of</strong>: the active 3D view, all views, the 3D views only, one 3D view by its number
+(these two appear when there are several 3D views), or the chart views. The rest of this
+list is for the active 3D view; pictures of several views are described below.</li>
+<li><strong>Shape</strong>: the view’s own, a fixed ratio (16 : 9 for video and slides, 4 : 3, 3 : 2, 1 : 1,
+21 : 9, 9 : 16 upright, 4 : 5), or <em>any</em> to set width and height separately. A picture
+wider or taller than the view shows more or less at the sides; the height seen stays.</li>
+<li><strong>Size</strong>: the width and height in pixels (the other follows the shape), with buttons for
+the view’s size, 2× and 4× of it, and 1280, 1920, 2560 and 3840 wide (1920 at 16 : 9 is
+1080p, 3840 is 4K). Point sizes and line widths are in pixels, so they look thinner in a
+larger picture.</li>
+<li><strong>Background</strong>: <em>as on screen</em>, <em>transparent</em> (a PNG or TIFF with an alpha channel, with
+clean edges), <em>white</em> or <em>black</em> (a blank background for print and slides), a <em>color</em> of
+your choice, or a <em>gradient</em> from one color at the bottom to another at the top. The choice
+is for the picture only; the view on the screen keeps its background. Legend and label
+text turns dark or light to stay readable on it.</li>
 <li>The file’s extension chooses the format: <strong>PNG</strong> (the default), <strong>JPEG</strong> (smaller, no
 transparency), <strong>BMP</strong>, <strong>TIFF</strong>, or <strong>SVG</strong> for a vector picture.</li>
 <li><strong>Annotations</strong> includes the legend, axes-grid labels, time label, text annotations and
@@ -200,15 +211,23 @@ afx.screenshot("fig.png", width=3840, transparent=True) # keeps the view's shape
 afx.screenshot("fig.png", width=1600, height=900, annotations=False)
 afx.screenshot("fig.jpg")                               # JPEG, BMP (.bmp) or TIFF (.tif) by the extension
 afx.screenshot("fig.svg")
+afx.screenshot("fig.png", width=1920, height=1080, background="white")
+afx.screenshot("fig.png", background="#1b2a41")                       # or (r, g, b)
+afx.screenshot("fig.png", background=[(0.93, 0.95, 0.98), "#6b8cbd"])  # gradient: bottom, top
 </code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/screenshot_options.png" alt="The Save Screenshot window: what the picture shows, its shape and size, and a gradient background"><span class="img-wrapper"><img src="images/screenshot_options.png" alt="The Save Screenshot window: what the picture shows, its shape and size, and a gradient background"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/screenshot_gradient.png" alt="A picture saved at 16 : 9 on a gradient background"><span class="img-wrapper"><img src="images/screenshot_gradient.png" alt="A picture saved at 16 : 9 on a gradient background"></span></label></p>
 <p><code>afx.screenshot</code> returns only when the file is written, so a script can change the camera or
 the data between pictures.</p>
 <h3 id="all-views-in-one-picture"><a class="header" href="#all-views-in-one-picture">All views in one picture</a></h3>
 <p>For a slide or a report with several views side by side, choose <strong>Picture of › all views</strong> in
 the same dialog: every visible 3D view and chart view is saved in one PNG, each where it sits
 in the window, with tab bars, panels and menus left out and the charts’ controls hidden
-(<strong>keep the chart views’ controls</strong> keeps them). <strong>chart views</strong> saves only the charts. The
-background between the views is the window’s, or transparent. The picture has the window’s
+(<strong>keep their controls</strong> keeps them). <strong>the 3D views</strong> saves the 3D views without the charts,
+<strong>3D view</strong> <em>N</em> one of them, and <strong>chart views</strong> only the charts. The space between the views
+is the window’s color, transparent, white, black or a color you choose
+(<code>afx.screenshot("slide.png", views="all", background="white")</code>); each view keeps its own
+background. The picture has the window’s
 pixels, so a larger (or full-screen) window gives a larger picture. Only views whose tab is in
 front are in the picture.</p>
 <pre><code class="language-python">afx.screenshot("slide.png", views="all")            # every visible view, as laid out

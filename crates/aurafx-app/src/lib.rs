@@ -23,6 +23,7 @@ mod overlays;
 mod palette;
 mod panels;
 mod pick;
+mod picture_options;
 mod plugin_panels;
 mod plugins_ui;
 mod ray_tracing;

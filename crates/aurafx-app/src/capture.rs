@@ -80,6 +80,8 @@ pub struct Request {
     /// Keep the chart views' controls (their boxes and buttons) in the picture.
     pub controls: bool,
     pub done: Done,
+    /// The color between the views (None: the window's).
+    pub background: Option<Color32>,
 }
 
 #[derive(Default)]
@@ -156,7 +158,7 @@ impl State {
         let got = self.capture.inflight.as_ref().and_then(|(_, _, _, rx)| rx.try_recv().ok());
         if let Some(img) = got {
             let (req, rects, screen, _) = self.capture.inflight.take().unwrap();
-            let bg = if req.transparent { Color32::TRANSPARENT } else { ctx.global_style().visuals.panel_fill };
+            let bg = if req.transparent { Color32::TRANSPARENT } else { req.background.unwrap_or(ctx.global_style().visuals.panel_fill) };
             let out = compose(&img, screen, &rects, bg);
             let r = out.save(&req.path).map_err(|e| format!("cannot write {}: {e}", req.path.display()));
             self.capture_finished(&req, r);
@@ -179,9 +181,14 @@ impl State {
         let req = self.session.lock().layout_request.take();
         if let Some(r) = req {
             match Views::parse(&r.views) {
-                Some(views) => {
-                    self.capture.request(Request { path: r.path, views, transparent: r.transparent, controls: r.controls, done: Done::Script(r.id) })
-                }
+                Some(views) => self.capture.request(Request {
+                    path: r.path,
+                    views,
+                    transparent: r.transparent,
+                    controls: r.controls,
+                    done: Done::Script(r.id),
+                    background: r.background.map(|c| Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8)),
+                }),
                 None => self
                     .session
                     .lock()

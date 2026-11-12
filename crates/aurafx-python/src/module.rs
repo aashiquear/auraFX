@@ -1014,12 +1014,62 @@ fn view(direction: Bound<'_, PyAny>, up: Option<[f64; 3]>) -> PyResult<()> {
     Ok(())
 }
 
+/// A color given as a name (white, black, gray), '#rrggbb', or three numbers (0 to 1, or 0 to 255).
+fn parse_rgb(v: &Bound<'_, PyAny>) -> PyResult<[f32; 3]> {
+    if let Ok(s) = v.extract::<String>() {
+        let t = s.trim().to_ascii_lowercase();
+        return match t.as_str() {
+            "white" | "blank" => Ok([1.0; 3]),
+            "black" => Ok([0.0; 3]),
+            "gray" | "grey" => Ok([0.5; 3]),
+            _ => {
+                let h = t.trim_start_matches('#');
+                let byte = |i: usize| h.get(i..i + 2).and_then(|x| u8::from_str_radix(x, 16).ok());
+                match (h.len() == 6, byte(0), byte(2), byte(4)) {
+                    (true, Some(r), Some(g), Some(b)) => Ok([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]),
+                    _ => Err(PyValueError::new_err(format!("{s:?} is not a color: use white, black, gray, '#rrggbb' or (r, g, b)"))),
+                }
+            }
+        };
+    }
+    let c: [f32; 3] = v.extract().map_err(|_| PyValueError::new_err("a color is a name, '#rrggbb' or three numbers (r, g, b)"))?;
+    let k = if c.iter().any(|x| *x > 1.0) { 255.0 } else { 1.0 };
+    Ok([(c[0] / k).clamp(0.0, 1.0), (c[1] / k).clamp(0.0, 1.0), (c[2] / k).clamp(0.0, 1.0)])
+}
+
+/// The `background=` of a picture or an animation: None or 'screen' (as on the screen),
+/// 'transparent', a color, or two colors [bottom, top] for a gradient. Returns (transparent, background).
+fn parse_background(v: Option<&Bound<'_, PyAny>>) -> PyResult<(bool, Option<aurafx_pipeline::session::PictureBackground>)> {
+    use aurafx_pipeline::session::PictureBackground;
+    let Some(v) = v else { return Ok((false, None)) };
+    if let Ok(s) = v.extract::<String>() {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "screen" | "" => return Ok((false, None)),
+            "transparent" => return Ok((true, None)),
+            _ => {}
+        }
+    }
+    if !v.is_instance_of::<pyo3::types::PyString>() {
+        if let Ok(n) = v.len() {
+            if n == 2 {
+                let (a, b) = (v.get_item(0)?, v.get_item(1)?);
+                return Ok((false, Some(PictureBackground { bottom: parse_rgb(&a)?, top: parse_rgb(&b)? })));
+            }
+        }
+    }
+    Ok((false, Some(PictureBackground::solid(parse_rgb(v)?))))
+}
+
 /// Save a picture of the active 3D view: `afx.screenshot("fig.png", width=1920)`.
+/// `width` and `height` set the pixels (one of them keeps the view's shape, both set the
+/// shape too: `width=1920, height=1080`). `background` is "screen" (the default),
+/// "transparent", a color ("white", "black", "#1a2b3c", (r, g, b)) or two colors
+/// `[bottom, top]` for a gradient.
 /// With `views`, a picture of several views as they are laid out in the window: "all" (every
 /// visible 3D view and chart view), "charts", "3d", "chart" (the Charts panel), "chart N"
 /// (the chart titled Chart N) or "view N"; `controls=True` keeps the charts' boxes and buttons.
 #[pyfunction]
-#[pyo3(signature = (path, width=None, height=None, transparent=false, annotations=true, views=None, controls=false))]
+#[pyo3(signature = (path, width=None, height=None, transparent=false, annotations=true, views=None, controls=false, background=None))]
 #[allow(clippy::too_many_arguments)]
 fn screenshot(
     py: Python<'_>,
@@ -1030,6 +1080,23 @@ fn screenshot(
     annotations: bool,
     views: Option<String>,
     controls: bool,
+    background: Option<Bound<'_, PyAny>>,
+) -> PyResult<()> {
+    let (clear, background) = parse_background(background.as_ref())?;
+    screenshot_with(py, path, width, height, transparent || clear, annotations, views, controls, background)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn screenshot_with(
+    py: Python<'_>,
+    path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    transparent: bool,
+    annotations: bool,
+    views: Option<String>,
+    controls: bool,
+    background: Option<aurafx_pipeline::session::PictureBackground>,
 ) -> PyResult<()> {
     if let Some(views) = views {
         if width.is_some() || height.is_some() {
@@ -1039,7 +1106,14 @@ fn screenshot(
             let mut s = session().lock();
             s.next_screenshot_id += 1;
             let id = s.next_screenshot_id;
-            s.layout_request = Some(aurafx_pipeline::session::LayoutRequest { path: std::path::PathBuf::from(path), views, transparent, controls, id });
+            s.layout_request = Some(aurafx_pipeline::session::LayoutRequest {
+                path: std::path::PathBuf::from(path),
+                views,
+                transparent,
+                controls,
+                id,
+                background: background.map(|b| b.bottom),
+            });
             s.revision += 1;
             id
         };
@@ -1048,7 +1122,7 @@ fn screenshot(
         }
         return wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")));
     }
-    let id = request_screenshot(path, width, height, transparent, annotations);
+    let id = request_screenshot(path, width, height, transparent, annotations, background);
     // Wait until the app has saved it (a ray-traced picture may take a while).
     wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
 }
@@ -1077,10 +1151,17 @@ fn export_scene(py: Python<'_>, path: String) -> PyResult<()> {
     if !matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl" | "html") {
         return Err(PyValueError::new_err("export_scene writes .glb, .obj, .x3d, .wrl or .html files (afx.screenshot('fig.svg') for a vector picture)"));
     }
-    screenshot(py, path, None, None, false, true, None, false)
+    screenshot_with(py, path, None, None, false, true, None, false, None)
 }
 
-fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, transparent: bool, overlays: bool) -> u64 {
+fn request_screenshot(
+    path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    transparent: bool,
+    overlays: bool,
+    background: Option<aurafx_pipeline::session::PictureBackground>,
+) -> u64 {
     let mut s = session().lock();
     // One of width/height keeps the view's aspect ratio (the UI fills in the other).
     let size = match (width, height) {
@@ -1091,7 +1172,14 @@ fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, tra
     };
     s.next_screenshot_id += 1;
     let id = s.next_screenshot_id;
-    s.screenshot_request = Some(aurafx_pipeline::session::ScreenshotRequest { path: std::path::PathBuf::from(path), size, transparent, id, overlays });
+    s.screenshot_request = Some(aurafx_pipeline::session::ScreenshotRequest {
+        size,
+        transparent,
+        id,
+        overlays,
+        background,
+        ..aurafx_pipeline::session::ScreenshotRequest::new(std::path::PathBuf::from(path))
+    });
     s.revision += 1;
     id
 }
@@ -1682,10 +1770,14 @@ fn load_state(path: String) -> PyResult<()> {
 /// `views="all"` records every visible 3D view and chart view as laid out in the window
 /// ("charts", "3d", "chart N" and "view N" as for `afx.screenshot`).
 ///
+/// `width` and `height` set the frames' pixels (one of them keeps the view's shape) and
+/// `background` their background, as for `afx.screenshot` (a color, or `[bottom, top]` for a
+/// gradient; not "transparent"), for an animation of the active 3D view.
+///
 /// `poster="clip.jpg"` also writes the first frame as a picture (.jpg or .png), the still a
 /// web page shows before the video plays.
 #[pyfunction]
-#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None, poster=None))]
+#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None, poster=None, background=None))]
 #[allow(clippy::too_many_arguments)]
 fn save_animation(
     py: Python<'_>,
@@ -1698,10 +1790,22 @@ fn save_animation(
     height: Option<u32>,
     views: Option<String>,
     poster: Option<String>,
+    background: Option<Bound<'_, PyAny>>,
 ) -> PyResult<()> {
+    let (clear, background) = parse_background(background.as_ref())?;
+    if clear {
+        return Err(PyValueError::new_err("an animation has no transparent background: give a color, or two for a gradient"));
+    }
     session().lock().animation_poster = poster.map(std::path::PathBuf::from);
     let Some(cue) = cue else {
         let mut s = session().lock();
+        let size = match (width, height) {
+            (Some(w), Some(h)) => Some((w, h)),
+            (Some(w), None) => Some((w, 0)),
+            (None, Some(h)) => Some((0, h)),
+            _ => None,
+        };
+        s.animation_picture = (size.is_some() || background.is_some()).then_some((size, background));
         s.animation_views = views;
         s.animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
         return Ok(());
@@ -1735,7 +1839,7 @@ fn save_animation(
                 }
             }
             cue.call1((t,))?;
-            screenshot(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false, true, views.clone(), false)?;
+            screenshot_with(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false, true, views.clone(), false, background)?;
         }
         Ok(())
     };

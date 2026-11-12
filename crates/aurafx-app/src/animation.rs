@@ -74,14 +74,110 @@ pub struct AnimJob {
     pub capturing: bool,
 }
 
+fn runs(program: &std::path::Path) -> bool {
+    let mut c = std::process::Command::new(program);
+    c.arg("-version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // no console window
+    }
+    c.status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Where auraFX keeps programs it downloaded for the user (the video encoder).
+pub fn tools_dir() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("AURAFX_DATA_DIR") {
+        return Some(PathBuf::from(d).join("tools"));
+    }
+    directories::ProjectDirs::from("org", "aurafx", "auraFX").map(|d| d.data_dir().join("tools"))
+}
+
+fn own_ffmpeg() -> Option<PathBuf> {
+    tools_dir().map(|d| d.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }))
+}
+
+/// The video encoder: `ffmpeg` on the PATH, else the copy auraFX downloaded. The answer is kept
+/// for a few seconds (the Animation window asks every frame).
+pub fn ffmpeg_path() -> Option<PathBuf> {
+    static CACHE: std::sync::Mutex<Option<(std::time::Instant, Option<PathBuf>)>> = std::sync::Mutex::new(None);
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, p)) = c.as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(3) {
+            return p.clone();
+        }
+    }
+    let found = if runs(std::path::Path::new("ffmpeg")) { Some(PathBuf::from("ffmpeg")) } else { own_ffmpeg().filter(|p| p.exists() && runs(p)) };
+    *c = Some((std::time::Instant::now(), found.clone()));
+    found
+}
+
 pub fn ffmpeg_available() -> bool {
-    std::process::Command::new("ffmpeg")
-        .arg("-version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    ffmpeg_path().is_some()
+}
+
+/// The address of a ready-made encoder for this machine, or None when there is none.
+pub fn ffmpeg_download_url() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-x64.gz"),
+        ("linux", "aarch64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-arm64.gz"),
+        ("macos", "aarch64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz"),
+        ("macos", "x86_64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-x64.gz"),
+        ("windows", "x86_64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz"),
+        _ => None,
+    }
+}
+
+/// The state of the encoder download: None when idle, else megabytes so far or the outcome.
+pub enum FfmpegDownload {
+    Running(f32),
+    Failed(String),
+}
+static FFMPEG_DOWNLOAD: std::sync::Mutex<Option<FfmpegDownload>> = std::sync::Mutex::new(None);
+
+pub fn ffmpeg_download_state<R>(f: impl FnOnce(&Option<FfmpegDownload>) -> R) -> R {
+    f(&FFMPEG_DOWNLOAD.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Download the encoder into the tools folder and check it runs (blocking; see
+/// `start_ffmpeg_download` for the window).
+pub fn install_ffmpeg() -> Result<PathBuf, String> {
+    if let Some(p) = ffmpeg_path() {
+        return Ok(p);
+    }
+    let url = ffmpeg_download_url().ok_or("there is no ready-made ffmpeg for this kind of machine; install ffmpeg and put it on the PATH")?;
+    let dest = own_ffmpeg().ok_or("no data folder to keep the encoder in")?;
+    let set = |s: Option<FfmpegDownload>| *FFMPEG_DOWNLOAD.lock().unwrap_or_else(|e| e.into_inner()) = s;
+    set(Some(FfmpegDownload::Running(0.0)));
+    let r = aurafx_ai::fetch_to_file(url, &dest, &|done, _| set(Some(FfmpegDownload::Running(done as f32 / 1.0e6))))
+        .map_err(|e| format!("downloading the video encoder failed: {e:#}"))
+        .and_then(|_| {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+            }
+            if runs(&dest) {
+                Ok(dest.clone())
+            } else {
+                let _ = std::fs::remove_file(&dest);
+                Err("the downloaded encoder does not run on this machine; install ffmpeg and put it on the PATH".to_string())
+            }
+        });
+    set(r.as_ref().err().map(|e| FfmpegDownload::Failed(e.clone())));
+    r
+}
+
+/// Start the download in the background (the Animation window shows its progress).
+pub fn start_ffmpeg_download(ctx: egui::Context) {
+    if ffmpeg_download_state(|s| matches!(s, Some(FfmpegDownload::Running(_)))) {
+        return;
+    }
+    *FFMPEG_DOWNLOAD.lock().unwrap_or_else(|e| e.into_inner()) = Some(FfmpegDownload::Running(0.0));
+    std::thread::spawn(move || {
+        let _ = install_ffmpeg();
+        ctx.request_repaint();
+    });
 }
 
 impl State {
@@ -120,7 +216,7 @@ impl State {
             _ => AnimFormat::Gif,
         };
         if matches!(format, AnimFormat::Mp4 | AnimFormat::Webm) && !ffmpeg_available() {
-            self.toast("MP4 and WebM need ffmpeg on the PATH; choose GIF or PNG frames instead", true);
+            self.toast("MP4 and WebM need the video encoder (ffmpeg): File > Animation offers to download it, or afx.install_ffmpeg(); GIF and PNG frames need nothing", true);
             return;
         }
         let ntimes = self.session.lock().times.len();
@@ -311,6 +407,15 @@ impl State {
         if let Some(r) = enc {
             self.encode_for_script(r);
         }
+        let tool = self.session.lock().ffmpeg_install_request.take();
+        if let Some(id) = tool {
+            let session = self.session.clone();
+            self.status = "Downloading the video encoder…".into();
+            std::thread::spawn(move || {
+                let r = install_ffmpeg().map(|_| ());
+                session.lock().screenshot_results.push((id, r));
+            });
+        }
     }
 }
 
@@ -340,10 +445,13 @@ pub fn encode_frames(dir: &std::path::Path, total: usize, out: &std::path::Path,
         let frames: Vec<PathBuf> = (0..total).map(|i| dir.join(format!("frame_{i:05}.png"))).collect();
         return encode_gif(&frames, out, fps).map_err(|e| format!("{e:#}"));
     };
-    if !ffmpeg_available() {
-        return Err(format!("{} needs ffmpeg on the PATH", ext.to_uppercase()));
-    }
-    let st = std::process::Command::new("ffmpeg")
+    let Some(ffmpeg) = ffmpeg_path() else {
+        return Err(format!(
+            "{} needs the video encoder (ffmpeg): afx.install_ffmpeg() or File > Animation downloads it, or put ffmpeg on the PATH",
+            ext.to_uppercase()
+        ));
+    };
+    let st = std::process::Command::new(ffmpeg)
         .args(["-y", "-loglevel", "error", "-framerate", &fps.to_string(), "-i"])
         .arg(dir.join("frame_%05d.png"))
         .args(codec)
@@ -418,12 +526,47 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
                 ui.radio_value(&mut d.format, AnimFormat::Gif, "GIF");
                 let ff = ffmpeg_available();
                 ui.add_enabled_ui(ff, |ui| {
-                    ui.radio_value(&mut d.format, AnimFormat::Mp4, "MP4").on_disabled_hover_text("Install ffmpeg to export MP4");
-                    ui.radio_value(&mut d.format, AnimFormat::Webm, "WebM").on_disabled_hover_text("Install ffmpeg to export WebM");
+                    ui.radio_value(&mut d.format, AnimFormat::Mp4, "MP4").on_disabled_hover_text("Needs the video encoder: see the line below");
+                    ui.radio_value(&mut d.format, AnimFormat::Webm, "WebM").on_disabled_hover_text("Needs the video encoder: see the line below");
                 });
                 ui.radio_value(&mut d.format, AnimFormat::Png, "PNG frames");
             });
             ui.end_row();
+            if !ffmpeg_available() {
+                ui.label("");
+                ui.vertical(|ui| {
+                    let running = ffmpeg_download_state(|s| match s {
+                        Some(FfmpegDownload::Running(mb)) => Some(*mb),
+                        _ => None,
+                    });
+                    if let Some(mb) = running {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(format!("Downloading the video encoder… {mb:.0} MB"));
+                        });
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+                    } else if ffmpeg_download_url().is_some() {
+                        if ui
+                            .button("Download the video encoder")
+                            .on_hover_text(
+                                "MP4 and WebM are written by ffmpeg, a separate free program (GPL) that auraFX runs. This fetches a ready-made copy (about 30 MB, from github.com/eugeneware/ffmpeg-static) into auraFX's own data folder; nothing else on the machine changes. An ffmpeg already on the PATH is used instead when there is one.",
+                            )
+                            .clicked()
+                        {
+                            start_ffmpeg_download(ui.ctx().clone());
+                        }
+                    } else {
+                        ui.label(RichText::new("MP4 and WebM need ffmpeg on the PATH").weak().small());
+                    }
+                    if let Some(e) = ffmpeg_download_state(|s| match s {
+                        Some(FfmpegDownload::Failed(e)) => Some(e.clone()),
+                        _ => None,
+                    }) {
+                        ui.colored_label(crate::theme::ERROR, e);
+                    }
+                });
+                ui.end_row();
+            }
         });
         ui.horizontal(|ui| {
             ui.label("Record");

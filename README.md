@@ -91,8 +91,8 @@ any setup.
 | Linux (x86_64, aarch64) | `.tar.gz`, `.AppImage` | `curl -fsSL https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.sh \| sh` |
 | macOS (Apple silicon, Intel) | `.dmg` | same command as Linux |
 | Windows 10/11 (x64) | `-setup.exe` installer, portable `.zip` | `irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1 \| iex` |
-| Android 8+ | `.apk` (viewer build) | download and open the APK |
-| iOS / iPadOS 15+ | unsigned `.ipa` (viewer build) | sign and install with Xcode, AltStore or Sideloadly |
+| Android 8+ | `.apk` (viewer build), and an Android Studio project (`-android-studio.zip`) | download and open the APK; the project builds a signed app bundle for the Play Console |
+| iOS / iPadOS 15+ | unsigned `.ipa` (viewer build), and an Xcode project (`-ios-xcode.zip`) | sign and install with Xcode, AltStore or Sideloadly; the project signs with your own developer team |
 
 The mobile builds are viewers: they open, filter, render and chart data, chat with the AI
 assistant and submit jobs to remote machines, but they do not embed Python. Packages are built by

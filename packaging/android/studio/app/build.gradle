@@ -1,0 +1,51 @@
+plugins {
+    id 'com.android.application'
+}
+
+def versionProps = new Properties()
+file("$rootDir/version.properties").withInputStream { versionProps.load(it) }
+def keystoreFile = file("$rootDir/keystore.properties")
+def keystoreProps = new Properties()
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'org.aurafx.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.aurafx.app'
+        minSdk 26
+        targetSdk 35
+        versionCode((project.findProperty('versionCode') ?: versionProps['versionCode']).toString().toInteger())
+        versionName((project.findProperty('versionName') ?: versionProps['versionName']).toString())
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreFile.exists()) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Without keystore.properties the release bundle is built unsigned.
+            signingConfig keystoreFile.exists() ? signingConfigs.release : null
+        }
+    }
+
+    // The app is the native library app/src/main/jniLibs/<abi>/libaurafx.so (no Java code).
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+            keepDebugSymbols += ['**/libaurafx.so']
+        }
+    }
+}

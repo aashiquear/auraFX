@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-67038112.js";
+            window.path_to_searchindex_js = "searchindex-b758227f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-dcbdab5c.js"></script>
@@ -267,7 +267,7 @@ smooth = case.temporal_interpolator(interval=0.01).temporal_snap_to_time_step(mo
 </table>
 </div>
 <p>Pick the frame rate and the format: <strong>GIF</strong>, <strong>MP4</strong> or <strong>WebM</strong> (VP9, smaller and plays in web
-pages; both need <code>ffmpeg</code> on the PATH) or a folder of <strong>PNG frames</strong> (<code>afx.save_animation("turn.webm")</code>). Frames are captured at the 3D view’s size, with the legend, labels and
+pages; both need the video encoder, see below) or a folder of <strong>PNG frames</strong> (<code>afx.save_animation("turn.webm")</code>). Frames are captured at the 3D view’s size, with the legend, labels and
 annotations.</p>
 <p><strong>Record › all views</strong> records every visible 3D view and chart view in each frame, placed as
 they are laid out in the window: the charts follow the time steps (a chart of a Plot Over Line
@@ -279,11 +279,19 @@ afx.save_animation("turn.mp4", orbit=72)       # a turntable
 afx.save_animation("all.mp4", views="all")     # every 3D view and chart view, as laid out
 afx.save_animation("clip.mp4", orbit=72, poster="clip.jpg")   # and its first frame as a picture
 </code></pre>
+<h3 id="the-video-encoder"><a class="header" href="#the-video-encoder">The video encoder</a></h3>
+<p>MP4 and WebM are written by <strong>ffmpeg</strong>, a separate free program that auraFX runs; it is not
+part of the download. An <code>ffmpeg</code> already on the PATH is used. When there is none, the
+Animation window shows <strong>Download the video encoder</strong> under the formats: it fetches a
+ready-made copy (about 30 MB, from the ffmpeg-static project on GitHub) into auraFX’s own data
+folder (<code>tools/</code> beside the saved layout; on Linux <code>~/.local/share/aurafx/tools</code>) and MP4 and
+WebM work from then on. <code>afx.install_ffmpeg()</code> does the same from a script. GIF and PNG frames
+never need it. Phones and tablets have no encoder download: use GIF there.</p>
 <p><code>poster=</code> writes the first frame as a <code>.jpg</code> or <code>.png</code> beside the video: the still a web page
 shows before the video plays. The short videos on the project page are made with exactly these
 calls (<code>scripts/site/media/</code> in the source).</p>
 <h2 id="keyframes"><a class="header" href="#keyframes">Keyframes</a></h2>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"><span class="img-wrapper"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track; with no ffmpeg on the machine, the button that downloads the video encoder"><span class="img-wrapper"><img src="images/animation.png" alt="The Animation window with a camera track and an opacity track; with no ffmpeg on the machine, the button that downloads the video encoder"></span></label></p>
 <p>The <strong>Keyframes</strong> tab of the Animation window is a timeline from 0 % to 100 %:</p>
 <ol>
 <li>Move the slider, set up the view, press <strong>Key view at …</strong> to record the camera.</li>

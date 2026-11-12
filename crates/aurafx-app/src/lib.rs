@@ -53,6 +53,49 @@ fn load_icon() -> Option<Arc<egui::IconData>> {
     Some(Arc::new(egui::IconData { rgba: img.into_raw(), width: w, height: h }))
 }
 
+/// On Linux the taskbar and the window switcher take an application's icon from its desktop
+/// entry (found by the window's application id, `aurafx`), not from the window. A copy of the
+/// program run on its own (a build from source, an unpacked archive, an AppImage that was not
+/// integrated) has no entry and shows a generic icon, so write one for this user when none
+/// exists anywhere. `AURAFX_NO_DESKTOP_ENTRY=1` turns this off; an installed entry is never touched.
+#[cfg(target_os = "linux")]
+fn ensure_desktop_entry() {
+    if std::env::var_os("AURAFX_NO_DESKTOP_ENTRY").is_some() {
+        return;
+    }
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return };
+    let data_home = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| home.join(".local/share"));
+    let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    let own = data_home.join("applications/aurafx.desktop");
+    // An entry this function wrote earlier is kept current (the program may have moved).
+    let ours = std::fs::read_to_string(&own).map(|s| s.contains("X-auraFX-SelfRegistered=true")).unwrap_or(false);
+    let exists = own.exists() || dirs.split(':').any(|d| !d.is_empty() && std::path::Path::new(d).join("applications/aurafx.desktop").exists());
+    if exists && !ours {
+        return;
+    }
+    let exe = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());
+    let Some(exe) = exe else { return };
+    let icon = data_home.join("icons/hicolor/256x256/apps/aurafx.png");
+    let entry = format!(
+        "[Desktop Entry]\nType=Application\nName=auraFX\nGenericName=Scientific Visualization\nComment=Visualize, analyze and run simulations with AI and Python\nExec=\"{}\" %F\nIcon={}\nTerminal=false\nCategories=Science;Education;Graphics;Physics;DataVisualization;\nStartupWMClass=aurafx\nX-auraFX-SelfRegistered=true\n",
+        exe.display(),
+        icon.display()
+    );
+    if std::fs::read_to_string(&own).is_ok_and(|s| s == entry) && icon.exists() {
+        return;
+    }
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(icon.parent().unwrap())?;
+        std::fs::write(&icon, include_bytes!("../../../assets/icons/aurafx-256.png"))?;
+        std::fs::create_dir_all(own.parent().unwrap())?;
+        std::fs::write(&own, entry)
+    };
+    match write() {
+        Ok(()) => tracing::info!("wrote {} so the taskbar shows the auraFX icon", own.display()),
+        Err(e) => tracing::warn!("no desktop entry written ({e}); the taskbar may show a generic icon"),
+    }
+}
+
 pub fn init_logging() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -94,6 +137,10 @@ pub fn main_desktop() -> eframe::Result<()> {
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("auraFX {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    if !args.iter().any(|a| a == "--jupyter-kernel" || a == "--install-jupyter-kernel") {
+        ensure_desktop_entry();
     }
     if args.iter().any(|a| a == "--install-jupyter-kernel") {
         match jupyter::install_kernel_spec() {

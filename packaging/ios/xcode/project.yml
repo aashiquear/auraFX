@@ -1,0 +1,39 @@
+# The Xcode project of the auraFX iOS app, generated with XcodeGen (brew install xcodegen;
+# `xcodegen generate` in this folder). scripts/package/ios_xcode.sh fills the @...@ values,
+# builds lib/libaurafx_ios.a and writes the project; the generated auraFX.xcodeproj is in the zip.
+name: auraFX
+options:
+  bundleIdPrefix: org.aurafx
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "@VERSION@"
+    CURRENT_PROJECT_VERSION: "@BUILD@"
+    ENABLE_BITCODE: "NO"
+targets:
+  auraFX:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.aurafx.app
+        PRODUCT_NAME: auraFX
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTED_PLATFORMS: iphoneos
+        SDKROOT: iphoneos
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: "NO"
+        LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/lib"
+        OTHER_LDFLAGS: "-laurafx_ios @NATIVE_LIBS@"
+        DEAD_CODE_STRIPPING: "YES"
+        STRIP_INSTALLED_PRODUCT: "YES"

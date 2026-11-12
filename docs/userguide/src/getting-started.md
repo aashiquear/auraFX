@@ -19,11 +19,22 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
 | Android 8 or newer | `auraFX-<version>-android.apk` | a viewer build (files, filters, rendering; no Python console, no simulations); allow the install from the browser or file manager |
 | iOS / iPadOS 15 or newer | `auraFX-<version>-ios-unsigned.ipa` | a viewer build; sign and install it with Xcode, AltStore or Sideloadly using your own Apple ID |
 
+For signing and store uploads the releases also carry the two mobile apps as projects:
+`auraFX-<version>-ios-xcode.zip` opens in Xcode (choose your team under *Signing & Capabilities*,
+then Run or Archive; `ios_sign.sh` inside signs the unsigned `.ipa` instead), and
+`auraFX-<version>-android-studio.zip` opens in Android Studio (`./gradlew bundleRelease` builds
+the app bundle for the Play Console, signed with the key named in `keystore.properties`, with
+the version name and code in `version.properties`). Both hold the app prebuilt, so neither
+needs Rust; each has a README with the steps.
+
 Desktop packages bundle Python 3.12 with NumPy, so the Python console works without setup;
 the packages carry `aurafx-server` as well, for reading data on another machine (see [Data on
 another machine](client-server.md): **File › Open on Server… › Install server** copies it to a
-host over SSH). On Linux the installer also sets up the `.desktop` entry
-(`scripts/install-desktop.sh` does only that, for a build from source).
+host over SSH). On Linux the installer also sets up the `.desktop` entry, which is where the
+taskbar takes the icon from. A copy started on its own (an AppImage, an unpacked archive, a
+build from source) writes that entry for your user at its first start when none is installed
+(`~/.local/share/applications/aurafx.desktop` and an icon beside it; set
+`AURAFX_NO_DESKTOP_ENTRY=1` to prevent it), so the icon appears from the next start on.
 
 To build from source you need Rust 1.95 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:

@@ -9,7 +9,7 @@ use std::path::Path;
 
 /// The version written into every file. Bump it when a change would not load in an older
 /// program; reading accepts every version up to this one.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// What an `.afxcad` file holds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-67038112.js";
+            window.path_to_searchindex_js = "searchindex-b758227f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-dcbdab5c.js"></script>
@@ -199,11 +199,21 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
 </tbody>
 </table>
 </div>
+<p>For signing and store uploads the releases also carry the two mobile apps as projects:
+<code>auraFX-&lt;version&gt;-ios-xcode.zip</code> opens in Xcode (choose your team under <em>Signing &amp; Capabilities</em>,
+then Run or Archive; <code>ios_sign.sh</code> inside signs the unsigned <code>.ipa</code> instead), and
+<code>auraFX-&lt;version&gt;-android-studio.zip</code> opens in Android Studio (<code>./gradlew bundleRelease</code> builds
+the app bundle for the Play Console, signed with the key named in <code>keystore.properties</code>, with
+the version name and code in <code>version.properties</code>). Both hold the app prebuilt, so neither
+needs Rust; each has a README with the steps.</p>
 <p>Desktop packages bundle Python 3.12 with NumPy, so the Python console works without setup;
 the packages carry <code>aurafx-server</code> as well, for reading data on another machine (see <a href="client-server.html">Data on
 another machine</a>: <strong>File › Open on Server… › Install server</strong> copies it to a
-host over SSH). On Linux the installer also sets up the <code>.desktop</code> entry
-(<code>scripts/install-desktop.sh</code> does only that, for a build from source).</p>
+host over SSH). On Linux the installer also sets up the <code>.desktop</code> entry, which is where the
+taskbar takes the icon from. A copy started on its own (an AppImage, an unpacked archive, a
+build from source) writes that entry for your user at its first start when none is installed
+(<code>~/.local/share/applications/aurafx.desktop</code> and an icon beside it; set
+<code>AURAFX_NO_DESKTOP_ENTRY=1</code> to prevent it), so the icon appears from the next start on.</p>
 <p>To build from source you need Rust 1.95 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:</p>
 <pre><code class="language-bash">cargo build --release

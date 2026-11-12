@@ -68,7 +68,7 @@ Volumes are not exported (they are not geometry).
 ## Animations
 
 **File › Animation…** records the time steps, a turntable or the keyframes as **GIF**, **MP4** or
-**WebM** (VP9, for web pages; both need `ffmpeg` on the PATH) or a folder of PNG frames, of the active 3D view or of all views as laid
+**WebM** (VP9, for web pages; both are written by the video encoder ffmpeg, which the Animation window downloads on request when it is not installed; see [Time and animation](time-animation.md)) or a folder of PNG frames, of the active 3D view or of all views as laid
 out (`afx.save_animation("all.mp4", views="all")`); see
 [Time, charts and animation](time-animation.md).
 

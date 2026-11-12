@@ -17,7 +17,36 @@ pub fn open_guide(ctx: &egui::Context, page: &str) {
         Some(p) => format!("file://{}", p.display()),
         None => format!("https://aashiquear.github.io/auraFX/docs/userguide/book/{page}"),
     };
-    ctx.open_url(egui::OpenUrl::new_tab(url));
+    let _ = ctx;
+    open_in_browser(&url);
+}
+
+/// Open an address or a file with the system's default program (the browser for a page).
+pub fn open_in_browser(url: &str) {
+    let mut c = if cfg!(target_os = "windows") {
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg(url);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        // An AppImage's own libraries must not reach the browser it starts.
+        c.env_remove("LD_LIBRARY_PATH");
+        c
+    };
+    c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    match c.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => tracing::warn!("cannot open {url}: {e}"),
+    }
 }
 
 /// Start a new CAD part and open the CAD environment on it.
@@ -195,7 +224,7 @@ pub fn crash_window(state: &mut State, ctx: &egui::Context) {
                     ui.ctx().copy_text(report.display().to_string());
                 }
                 if ui.button("Report a bug").on_hover_text("Opens the project's issue page in your browser").clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab("https://github.com/aashiquear/auraFX/issues/new"));
+                    open_in_browser("https://github.com/aashiquear/auraFX/issues/new");
                 }
                 if ui.button("Close").clicked() {
                     close = true;

@@ -117,13 +117,22 @@ jobs:
         run: |
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
           scripts/package/android_apk.sh dist
+      - name: Android Studio project
+        continue-on-error: true
+        # The same libraries as a Gradle project to sign and bundle for the Play Console; the
+        # bundle is built once here (unsigned) to prove the project works.
+        env:
+          ANDROID_STUDIO_VERIFY: "1"
+        run: scripts/package/android_studio.sh dist
       - uses: actions/upload-artifact@v4
         with:
           name: aurafx-android
-          path: dist/*.apk
+          path: |
+            dist/*.apk
+            dist/*-android-studio.zip
 
   ios:
-    name: iOS (unsigned .ipa, viewer build)
+    name: iOS (unsigned .ipa + Xcode project, viewer build)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -135,6 +144,15 @@ jobs:
           key: package-ios
       - name: Build IPA
         run: scripts/package/ios.sh dist
+      - name: Xcode project
+        continue-on-error: true
+        # The app as a project to open in Xcode and sign with one's own developer account;
+        # built once here without signing to prove it links.
+        env:
+          IOS_XCODE_VERIFY: "1"
+        run: |
+          brew install xcodegen
+          scripts/package/ios_xcode.sh dist
       - uses: actions/upload-artifact@v4
         with:
           name: aurafx-ios

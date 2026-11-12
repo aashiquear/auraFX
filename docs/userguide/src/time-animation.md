@@ -105,7 +105,7 @@ smooth = case.temporal_interpolator(interval=0.01).temporal_snap_to_time_step(mo
 | **Keyframes** | the keyframe timeline described below |
 
 Pick the frame rate and the format: **GIF**, **MP4** or **WebM** (VP9, smaller and plays in web
-pages; both need `ffmpeg` on the PATH) or a folder of **PNG frames** (`afx.save_animation("turn.webm")`). Frames are captured at the 3D view's size, with the legend, labels and
+pages; both need the video encoder, see below) or a folder of **PNG frames** (`afx.save_animation("turn.webm")`). Frames are captured at the 3D view's size, with the legend, labels and
 annotations.
 
 **Record › all views** records every visible 3D view and chart view in each frame, placed as
@@ -121,13 +121,23 @@ afx.save_animation("all.mp4", views="all")     # every 3D view and chart view, a
 afx.save_animation("clip.mp4", orbit=72, poster="clip.jpg")   # and its first frame as a picture
 ```
 
+### The video encoder
+
+MP4 and WebM are written by **ffmpeg**, a separate free program that auraFX runs; it is not
+part of the download. An `ffmpeg` already on the PATH is used. When there is none, the
+Animation window shows **Download the video encoder** under the formats: it fetches a
+ready-made copy (about 30 MB, from the ffmpeg-static project on GitHub) into auraFX's own data
+folder (`tools/` beside the saved layout; on Linux `~/.local/share/aurafx/tools`) and MP4 and
+WebM work from then on. `afx.install_ffmpeg()` does the same from a script. GIF and PNG frames
+never need it. Phones and tablets have no encoder download: use GIF there.
+
 `poster=` writes the first frame as a `.jpg` or `.png` beside the video: the still a web page
 shows before the video plays. The short videos on the project page are made with exactly these
 calls (`scripts/site/media/` in the source).
 
 ## Keyframes
 
-![The Animation window with a camera track and an opacity track](images/animation.png)
+![The Animation window with a camera track and an opacity track; with no ffmpeg on the machine, the button that downloads the video encoder](images/animation.png)
 
 The **Keyframes** tab of the Animation window is a timeline from 0 % to 100 %:
 

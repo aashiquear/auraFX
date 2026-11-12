@@ -495,6 +495,8 @@ pub struct Session {
     pub animation_views: Option<String>,
     /// A picture of the first frame to write beside the next animation (`save_animation(poster=...)`).
     pub animation_poster: Option<PathBuf>,
+    /// A script asked for the video encoder to be downloaded; the result goes to `screenshot_results`.
+    pub ffmpeg_install_request: Option<u64>,
     /// Connections to aurafx-server processes, by host name.
     pub remote_clients: std::collections::HashMap<String, Arc<crate::remote::RemoteClient>>,
     /// Outputs of server nodes larger than this come back as their surface (0 = default).

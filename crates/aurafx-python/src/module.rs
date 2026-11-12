@@ -1053,6 +1053,22 @@ fn screenshot(
     wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
 }
 
+/// Make MP4 and WebM export work on a machine without ffmpeg: downloads a ready-made copy of
+/// the encoder (about 30 MB) into auraFX's own data folder. Does nothing when ffmpeg is already
+/// on the PATH or was downloaded before. The Animation window has the same as a button.
+#[pyfunction]
+fn install_ffmpeg(py: Python<'_>) -> PyResult<()> {
+    let id = {
+        let mut s = session().lock();
+        s.next_screenshot_id += 1;
+        let id = s.next_screenshot_id;
+        s.ffmpeg_install_request = Some(id);
+        s.revision += 1;
+        id
+    };
+    wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("install_ffmpeg: {e}")))
+}
+
 /// Export the visible objects as a 3D scene: `afx.export_scene("scene.glb")` (glTF binary, for
 /// Blender, three.js, PowerPoint, ...) or `.obj` (with vertex colors).
 #[pyfunction]
@@ -1656,7 +1672,8 @@ fn load_state(path: String) -> PyResult<()> {
 
 /// Record an animation: keyframes if any were added (key_camera / node.key), otherwise time
 /// steps, or a 360° camera orbit with orbit=frames.
-/// The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).
+/// The format follows the extension: .gif, .mp4 or .webm (these two need the video encoder:
+/// `afx.install_ffmpeg()` fetches it once) or .png (a folder of frames).
 ///
 /// With `cue`, a Python function called with the animation time t (0..1) before each frame
 /// (after the keyframes are applied), the script renders the frames itself and returns when
@@ -3284,6 +3301,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(screenshot, m)?)?;
     m.add_function(wrap_pyfunction!(clear, m)?)?;
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
+    m.add_function(wrap_pyfunction!(install_ffmpeg, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
     m.add_function(wrap_pyfunction!(set_shortcut, m)?)?;
     m.add_function(wrap_pyfunction!(gpu_filters, m)?)?;

@@ -18,6 +18,8 @@
 | **Plugins** | the Plugins window (also **Edit › Plugins…**) |
 | **Lighting** | in **View › Lighting**; the choices are saved with the settings |
 
+The window scrolls when it is shorter than its list (a laptop screen); drag its corner to resize it.
+
 Settings live in `~/.config/aurafx/settings.toml` (Linux) or the app's config folder on
 other systems; the window layout in `~/.local/share/aurafx/app.ron`.
 

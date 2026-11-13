@@ -1996,7 +1996,10 @@ impl State {
             return;
         }
         let mut open = true;
-        egui::Window::new("Settings").open(&mut open).resizable(true).default_width(520.0).show_fit(ctx, |ui| {
+        // On a desktop the list scrolls when the window is shorter than it (a laptop screen); the
+        // touch interfaces scroll every window themselves.
+        let desktop = !crate::touch::mode().is_touch();
+        egui::Window::new("Settings").open(&mut open).resizable(true).default_width(520.0).default_height(560.0).vscroll(desktop).show_fit(ctx, |ui| {
             ui.heading("Appearance");
             ui.horizontal(|ui| {
                 ui.label("Theme");

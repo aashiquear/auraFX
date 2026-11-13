@@ -13,6 +13,8 @@ mod crash;
 mod dialogs;
 mod goal_stats;
 mod icons;
+#[cfg(target_os = "ios")]
+mod ios_safe_area;
 mod jobs_panel;
 mod jupyter;
 mod lighting_ui;
@@ -155,6 +157,8 @@ pub fn run(options: eframe::NativeOptions, files: Vec<PathBuf>, script: Option<P
 /// Desktop entry point: parses command-line arguments.
 pub fn main_desktop() -> eframe::Result<()> {
     init_logging();
+    #[cfg(target_os = "ios")]
+    ios_safe_area::install();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
         println!(

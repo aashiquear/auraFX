@@ -211,6 +211,13 @@ pub fn raw_input_hook(ctx: &egui::Context, raw: &mut egui::RawInput, keyboard_ro
     if let Some(s) = raw.safe_area_insets {
         st.system = [s.0.top, s.0.bottom, s.0.left, s.0.right];
     }
+    // iOS: the window tells the windowing library it has no insets, so that the picture covers
+    // the whole screen (see `ios_safe_area`); the real ones come from there.
+    #[cfg(target_os = "ios")]
+    if crate::ios_safe_area::installed() {
+        let zoom = ctx.zoom_factor().max(0.1);
+        st.system = crate::ios_safe_area::insets().map(|v| v / zoom);
+    }
     if let Some(src) = INSETS_SOURCE.get() {
         let now = raw.time.unwrap_or(0.0);
         if st.asked < 0.0 || now - st.asked > 0.25 || now < st.asked {

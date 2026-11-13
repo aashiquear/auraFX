@@ -4,6 +4,7 @@
 
 use super::{editing, CadUi};
 use crate::app::{LayoutAction, Pane, State};
+use crate::touch::FitScreen;
 use aurafx_pipeline::{CheckReport, Fix, FixMode, RunMode};
 use egui::RichText;
 
@@ -94,7 +95,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     .default_width(720.0)
     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
     .open(&mut open)
-    .show(ctx, |ui| {
+    .show_fit(ctx, |ui| {
         egui::CollapsingHeader::new("What changed in the part").id_salt("cad diff").default_open(n_conf == 0 || d.show_diff).show(ui, |ui| {
             let text = d.report.diff.describe();
             for line in text.lines() {
@@ -232,7 +233,7 @@ pub fn hold_banner(state: &mut State, ui: &mut egui::Ui) {
     egui::Frame::NONE.fill(egui::Color32::from_rgb(90, 70, 30)).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("{n} node(s) below the CAD part were not re-run.")).small());
-            if ui.small_button("Run now").clicked() {
+            if crate::touch::small_button(ui, "Run now").clicked() {
                 state.session.lock().cad_run_held();
             }
         });

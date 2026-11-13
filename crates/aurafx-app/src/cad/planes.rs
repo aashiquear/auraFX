@@ -168,10 +168,10 @@ pub fn list_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(&p.name).strong());
                 ui.label(RichText::new(&p.how).weak().small());
-                if ui.small_button("Sketch").on_hover_text("Start a sketch on this plane").clicked() {
+                if crate::touch::small_button(ui, "Sketch").on_hover_text("Start a sketch on this plane").clicked() {
                     sketch_on = Some(p.clone());
                 }
-                if ui.small_button("×").on_hover_text("Remove the plane (sketches already on it keep their place)").clicked() {
+                if crate::touch::small_button(ui, "×").on_hover_text("Remove the plane (sketches already on it keep their place)").clicked() {
                     remove = Some(p.name.clone());
                 }
             });

@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-73b86d3f.js";
+            window.path_to_searchindex_js = "searchindex-eb3c3298.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-dcbdab5c.js"></script>
+        <script src="toc-f1c4f5ea.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -223,7 +223,7 @@
 <li><code>afx.job(id, tail=50)</code>: Status of a job (dict with state, exit_code, log tail, outputs).</li>
 <li><code>afx.jobs()</code></li>
 <li><code>afx.key_camera(t, interp='linear')</code>: Keyframe the current 3D view camera at animation time t (0..1); <code>interp</code> says how it moves on to the next key: “linear”, “step”, “ease in”, “ease out”, “ease in-out”, “exponential”.</li>
-<li><code>afx.layout(name)</code>: Window layout preset: “full”, “visualize”, “analyze”, “script” or “simulate”.</li>
+<li><code>afx.layout(name)</code>: Window layout preset: “full”, “visualize”, “analyze”, “script”, “simulate” or “compact”; or a layout by the window’s shape: “automatic” (follows the window as it changes), “wide” (view left, tabs right), “tall” (view on top, tabs below), “tall2” (view on top, two tab groups below).</li>
 <li><code>afx.lighting(**options)</code>: 3D view lighting and screen effects, e.g. <code>afx.lighting(shadows=True, ssao=True)</code>.  Options: light_kit, lights (list of dicts: direction, color, intensity, camera_relative, shadows; [] for the light kit), ambient, shadows, edl, edl_strength, ssao, ssao_strength, ssao_radius, fxaa, tone_mapping (“none”, “reinhard”, “aces”), exposure. <code>afx.lighting()</code> with no options returns the defaults.</li>
 <li><code>afx.link_views(on=True)</code>: Link (or unlink) the cameras of all 3D views.</li>
 <li><code>afx.load(path, host=None, processes=None, launcher=None, stream=None, **kwargs)</code>: Open a file. With <code>host=</code> (a host from the Simulations panel, an ssh alias or user@machine, or “local”) or an <code>ssh://host/path</code> URL, the file is read on that machine by aurafx-server and filters added below it run there too. <code>stream=N</code> reads a file larger than memory in N pieces one after another (on this computer unless <code>host=</code> says otherwise).</li>

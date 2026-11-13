@@ -4,6 +4,7 @@
 //! Settings) inserts sources straight away.
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use aurafx_filters::{ParamKind, ParamSpec, ParamValue};
 use egui::RichText;
 
@@ -103,9 +104,12 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
     };
     let mut open = true;
     let (mut insert, mut cancel) = (false, false);
-    egui::Window::new(format!("Add {}", def.label)).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(
-        ctx,
-        |ui| {
+    egui::Window::new(format!("Add {}", def.label))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show_fit(ctx, |ui| {
             ui.set_max_width(420.0);
             ui.label(def.description);
             ui.add_space(6.0);
@@ -203,8 +207,7 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                     cancel = true;
                 }
             });
-        },
-    );
+        });
     if insert {
         let d = state.source_dialog.take().unwrap();
         if d.dont_ask {

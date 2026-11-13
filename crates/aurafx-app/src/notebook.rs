@@ -405,16 +405,16 @@ pub fn notebook_ui(state: &mut State, ui: &mut egui::Ui) {
                         _ => c.count.map(|n| format!("[{n}]")).unwrap_or_else(|| "[ ]".into()),
                     };
                     ui.label(RichText::new(tag).monospace().weak());
-                    if c.kind == CellKind::Code && ui.small_button(crate::icons::PLAY).on_hover_text("Run (Shift+Enter)").clicked() {
+                    if c.kind == CellKind::Code && crate::touch::small_button(ui, crate::icons::PLAY).on_hover_text("Run (Shift+Enter)").clicked() {
                         action = Some((i, "run"));
                     }
-                    if ui.small_button("↑").on_hover_text("Move up").clicked() {
+                    if crate::touch::small_button(ui, "↑").on_hover_text("Move up").clicked() {
                         action = Some((i, "up"));
                     }
-                    if ui.small_button("↓").on_hover_text("Move down").clicked() {
+                    if crate::touch::small_button(ui, "↓").on_hover_text("Move down").clicked() {
                         action = Some((i, "down"));
                     }
-                    if ui.small_button("×").on_hover_text("Delete the cell").clicked() {
+                    if crate::touch::small_button(ui, "×").on_hover_text("Delete the cell").clicked() {
                         action = Some((i, "delete"));
                     }
                 });

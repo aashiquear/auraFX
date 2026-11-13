@@ -66,6 +66,9 @@ Warp), the camera buttons (Reset, +X, +Y, +Z, Iso) and, for the selected object,
 representation, the array it is colored by and the color map. The status bar at the bottom
 names the GPU in use and counts the visible points and cells.
 
+On an iPad, an iPhone or an Android device the same program has an interface made for fingers
+and for the size of the screen: see [Tablets and phones](touch.md).
+
 ## Opening a file
 
 - **File › Open…** (Ctrl+O), or drop a file onto the window, or start the app with the file

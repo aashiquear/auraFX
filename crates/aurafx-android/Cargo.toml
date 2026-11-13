@@ -15,3 +15,5 @@ path = "src/lib.rs"
 aurafx-app = { path = "../aurafx-app", default-features = false }
 eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "android-native-activity"] }
 winit = { version = "0.30", features = ["android-native-activity"] }
+# Asking the system for the window's insets (the version the windowing library already uses).
+jni = "0.22"

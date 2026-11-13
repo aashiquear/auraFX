@@ -3,6 +3,7 @@
 
 use crate::app::State;
 use crate::picture_options::PictureOptions;
+use crate::touch::FitScreen;
 use aurafx_pipeline::session::ScreenshotRequest;
 
 #[derive(Default)]
@@ -70,7 +71,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     let mut save = false;
     let n_views = state.capture.pane_rects.iter().filter(|(p, _)| crate::capture::is_view(*p)).count();
     let n_3d = state.views.len() + 1;
-    egui::Window::new("Save Screenshot").open(&mut open).collapsible(false).resizable(false).default_width(460.0).show(ctx, |ui| {
+    egui::Window::new("Save Screenshot").open(&mut open).collapsible(false).resizable(false).default_width(460.0).show_fit(ctx, |ui| {
         let d = &mut state.screenshot_dialog;
         ui.label("Picture of");
         which_views_ui(ui, &mut d.which, &mut d.view_no, n_views, n_3d);

@@ -659,8 +659,16 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
     }
     let widget_dragging = state.viewport.widget_drag.is_some();
     let cam = &mut state.viewport.camera;
+    // Two fingers on a touch screen (never a mouse): they pan, pinch to zoom (below) and turn the
+    // view about its axis, and the first finger does not orbit meanwhile.
+    let two_fingers = ui.input(|i| i.multi_touch()).filter(|t| t.num_touches >= 2 && (response.hovered() || response.dragged()));
     if widget_dragging {
         // The widget owns this drag.
+    } else if let Some(t) = two_fingers {
+        cam.pan((t.translation_delta.x / size.y) as f64, (t.translation_delta.y / size.y) as f64);
+        if t.rotation_delta.abs() > 1e-4 {
+            cam.roll(-t.rotation_delta as f64);
+        }
     } else if !selecting && response.dragged_by(egui::PointerButton::Primary) && !mods.shift && !mods.command {
         cam.rotate((drag.x / size.x) as f64 * 1.5, (drag.y / size.y) as f64 * 1.5);
     } else if response.dragged_by(egui::PointerButton::Middle) || (!selecting && response.dragged_by(egui::PointerButton::Primary) && mods.shift) {
@@ -1057,71 +1065,14 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
     let id = egui::Id::new(("viewport_toolbar", state.viewport.id));
     egui::Area::new(id).fixed_pos(rect.left_top() + Vec2::new(8.0, 8.0)).order(egui::Order::Middle).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let m = &mut state.viewport.mode;
-                ui.selectable_value(m, InteractMode::Navigate, icons::ARROWS_OUT_CARDINAL).on_hover_text("Navigate: rotate, pan, zoom (Esc)");
-                ui.selectable_value(m, InteractMode::Pick, icons::CROSSHAIR).on_hover_text("Pick: click a surface to read values (P, or Ctrl+click)");
-                ui.selectable_value(m, InteractMode::Ruler, icons::RULER).on_hover_text("Ruler: click two points to measure the distance (M)");
-                ui.selectable_value(m, InteractMode::SelectCells, icons::SELECTION)
-                    .on_hover_text("Select visible cells in a rectangle (S). Shift adds, Ctrl removes.");
-                ui.selectable_value(m, InteractMode::SelectPoints, icons::DOTS_NINE)
-                    .on_hover_text("Select points in a rectangle (D). Shift adds, Ctrl removes.");
-                if matches!(state.viewport.mode, InteractMode::SelectCells | InteractMode::SelectPoints) {
-                    let t = state.viewport.select_through;
-                    if ui.selectable_label(t, icons::STACK).on_hover_text("Select through: include cells hidden behind the visible surface").clicked() {
-                        state.viewport.select_through = !t;
-                    }
-                }
-                ui.separator();
-                let vid = state.viewport.id;
-                if ui.small_button(icons::COLUMNS).on_hover_text("Split: add a 3D view to the right").clicked() {
-                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: false, only: None });
-                }
-                if ui.small_button(icons::ROWS).on_hover_text("Split: add a 3D view below").clicked() {
-                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true, only: None });
-                }
-                ui.scroll_menu(icons::CUBE, |ui| {
-                    ui.label(egui::RichText::new("Look from").weak());
-                    for (label, dir, up) in crate::views::VIEW_DIRECTIONS {
-                        if ui.button(*label).clicked() {
-                            ui.close();
-                            let b = state.session.lock().visible_bounds();
-                            state.viewport.camera.set_view(*dir, *up, &b);
-                            state.viewport.mark_camera_initialized();
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("Reset camera").clicked() {
-                        ui.close();
-                        let b = state.session.lock().visible_bounds();
-                        state.viewport.camera.reset_to_bounds(&b);
-                    }
-                })
-                .response
-                .on_hover_text("Camera direction for this view");
-                if !state.views.is_empty() {
-                    let link_icon = if state.viewport.linked { icons::LINK } else { icons::LINK_BREAK };
-                    if ui.selectable_label(state.viewport.linked, link_icon).on_hover_text("Link this view's camera with the other linked views").clicked() {
-                        state.viewport.linked = !state.viewport.linked;
-                    }
-                    if ui.small_button(icons::COPY).on_hover_text("Match: copy this camera to every other view once").clicked() {
-                        state.camera_match_from = Some(vid);
-                    }
-                }
-                if let Some(sel) = &sel {
-                    ui.separator();
-                    ui.label(format!("{} {}", sel.ids.len(), if sel.assoc == Association::Points { "points" } else { "cells" }));
-                    if ui.small_button("Extract").on_hover_text("Create an Extract Selection node").clicked() {
-                        let r = state.session.lock().extract_selection();
-                        if let Err(e) = r {
-                            state.toast(format!("{e:#}"), true);
-                        }
-                    }
-                    if ui.small_button(icons::X).on_hover_text("Clear selection").clicked() {
-                        state.session.lock().clear_selection();
-                    }
-                }
-            });
+            if crate::touch::mode().is_touch() {
+                // No wider than the view: the row scrolls sideways.
+                egui::ScrollArea::horizontal().id_salt("view toolbar").max_width((rect.width() - 28.0).max(120.0)).show(ui, |ui| {
+                    ui.horizontal(|ui| viewport_toolbar_items(state, ui, &sel));
+                });
+            } else {
+                ui.horizontal(|ui| viewport_toolbar_items(state, ui, &sel));
+            }
         });
     });
     // Pick result card.
@@ -1134,7 +1085,7 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
                 ui.set_max_width(320.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(format!("{} {}", icons::CROSSHAIR, pk.node_name)).strong());
-                    if ui.small_button(icons::X).clicked() {
+                    if crate::touch::small_button(ui, icons::X).clicked() {
                         close = true;
                     }
                 });
@@ -1160,6 +1111,82 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
     }
     if close {
         state.viewport.pick = None;
+    }
+}
+
+/// The buttons of a 3D view's toolbar.
+fn viewport_toolbar_items(state: &mut State, ui: &mut egui::Ui, sel: &Option<aurafx_pipeline::Selection>) {
+    use crate::icons;
+    let m = &mut state.viewport.mode;
+    ui.selectable_value(m, InteractMode::Navigate, icons::ARROWS_OUT_CARDINAL).on_hover_text("Navigate: rotate, pan, zoom (Esc)");
+    ui.selectable_value(m, InteractMode::Pick, icons::CROSSHAIR).on_hover_text("Pick: click a surface to read values (P, or Ctrl+click)");
+    ui.selectable_value(m, InteractMode::Ruler, icons::RULER).on_hover_text("Ruler: click two points to measure the distance (M)");
+    ui.selectable_value(m, InteractMode::SelectCells, icons::SELECTION).on_hover_text("Select visible cells in a rectangle (S). Shift adds, Ctrl removes.");
+    ui.selectable_value(m, InteractMode::SelectPoints, icons::DOTS_NINE).on_hover_text("Select points in a rectangle (D). Shift adds, Ctrl removes.");
+    if matches!(state.viewport.mode, InteractMode::SelectCells | InteractMode::SelectPoints) {
+        let t = state.viewport.select_through;
+        if ui.selectable_label(t, icons::STACK).on_hover_text("Select through: include cells hidden behind the visible surface").clicked() {
+            state.viewport.select_through = !t;
+        }
+    }
+    ui.separator();
+    let vid = state.viewport.id;
+    if crate::touch::mode().is_touch() {
+        // The view on the whole screen, and back.
+        let on = state.touch.view_maximized;
+        let (icon, tip) = if on { (icons::CORNERS_IN, "Show the panels again") } else { (icons::CORNERS_OUT, "Give the 3D view the whole screen") };
+        if ui.selectable_label(on, icon).on_hover_text(tip).clicked() {
+            state.touch.view_maximized = !on;
+        }
+    }
+    // (A phone has no room for a second view: Windows > New view still adds one.)
+    let split = !crate::touch::mode().is_phone();
+    if split && crate::touch::small_button(ui, icons::COLUMNS).on_hover_text("Split: add a 3D view to the right").clicked() {
+        state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: false, only: None });
+    }
+    if split && crate::touch::small_button(ui, icons::ROWS).on_hover_text("Split: add a 3D view below").clicked() {
+        state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true, only: None });
+    }
+    ui.scroll_menu(icons::CUBE, |ui| {
+        ui.label(egui::RichText::new("Look from").weak());
+        for (label, dir, up) in crate::views::VIEW_DIRECTIONS {
+            if ui.button(*label).clicked() {
+                ui.close();
+                let b = state.session.lock().visible_bounds();
+                state.viewport.camera.set_view(*dir, *up, &b);
+                state.viewport.mark_camera_initialized();
+            }
+        }
+        ui.separator();
+        if ui.button("Reset camera").clicked() {
+            ui.close();
+            let b = state.session.lock().visible_bounds();
+            state.viewport.camera.reset_to_bounds(&b);
+        }
+    })
+    .response
+    .on_hover_text("Camera direction for this view");
+    if !state.views.is_empty() {
+        let link_icon = if state.viewport.linked { icons::LINK } else { icons::LINK_BREAK };
+        if ui.selectable_label(state.viewport.linked, link_icon).on_hover_text("Link this view's camera with the other linked views").clicked() {
+            state.viewport.linked = !state.viewport.linked;
+        }
+        if crate::touch::small_button(ui, icons::COPY).on_hover_text("Match: copy this camera to every other view once").clicked() {
+            state.camera_match_from = Some(vid);
+        }
+    }
+    if let Some(sel) = &sel {
+        ui.separator();
+        ui.label(format!("{} {}", sel.ids.len(), if sel.assoc == Association::Points { "points" } else { "cells" }));
+        if crate::touch::small_button(ui, "Extract").on_hover_text("Create an Extract Selection node").clicked() {
+            let r = state.session.lock().extract_selection();
+            if let Err(e) = r {
+                state.toast(format!("{e:#}"), true);
+            }
+        }
+        if crate::touch::small_button(ui, icons::X).on_hover_text("Clear selection").clicked() {
+            state.session.lock().clear_selection();
+        }
     }
 }
 

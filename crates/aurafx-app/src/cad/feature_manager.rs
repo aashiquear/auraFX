@@ -91,7 +91,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                                 Some(v) => ui.label(RichText::new(format!("= {}", super::num_text(*v))).weak().small()),
                                 None => ui.label(RichText::new("?").color(crate::theme::ERROR)),
                             };
-                            if ui.small_button("×").on_hover_text("Remove this dimension").clicked() {
+                            if crate::touch::small_button(ui, "×").on_hover_text("Remove this dimension").clicked() {
                                 acts.push(Act::Op("remove_parameter", json!({"name": p.name})));
                             }
                         });
@@ -102,7 +102,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                     let (n, e) = &mut state.cad.new_param;
                     ui.add_sized([70.0, 20.0], egui::TextEdit::singleline(n).hint_text("name"));
                     ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(e).hint_text("40 mm"));
-                    if ui.small_button("Add").clicked() && !n.trim().is_empty() && !e.trim().is_empty() {
+                    if crate::touch::small_button(ui, "Add").clicked() && !n.trim().is_empty() && !e.trim().is_empty() {
                         acts.push(Act::Op("parameter", json!({"name": n.trim(), "expr": e.trim()})));
                         n.clear();
                         e.clear();
@@ -271,7 +271,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                         });
                     });
                 }
-                if rollback.is_some() && ui.small_button("Roll forward to the end").clicked() {
+                if rollback.is_some() && crate::touch::small_button(ui, "Roll forward to the end").clicked() {
                     acts.push(Act::Rollback(None));
                 }
             },
@@ -348,7 +348,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                                     acts.push(Act::Op("component_remove", json!({"component": c.name})));
                                 }
                             });
-                            if ui.small_button("×").on_hover_text("Remove this part from the assembly").clicked() {
+                            if crate::touch::small_button(ui, "×").on_hover_text("Remove this part from the assembly").clicked() {
                                 acts.push(Act::Op("component_remove", json!({"component": c.name})));
                             }
                         });
@@ -428,7 +428,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                                 r.on_hover_text(&what);
                             }
                         }
-                        if ui.small_button("×").on_hover_text("Remove this mate").clicked() {
+                        if crate::touch::small_button(ui, "×").on_hover_text("Remove this mate").clicked() {
                             acts.push(Act::Op("mate_remove", json!({"mate": m.name})));
                         }
                     });
@@ -497,7 +497,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                                     }
                                 }
                             }
-                            if ui.small_button("×").clicked() {
+                            if crate::touch::small_button(ui, "×").clicked() {
                                 acts.push(Act::Op("remove_finish", json!({"index": i})));
                             }
                         });
@@ -522,7 +522,7 @@ pub fn feature_manager_ui(state: &mut State, ui: &mut egui::Ui) {
                             if r.clicked() {
                                 acts.push(Act::Op("activate", json!({"name": c.name})));
                             }
-                            if ui.small_button("×").on_hover_text("Remove this configuration").clicked() {
+                            if crate::touch::small_button(ui, "×").on_hover_text("Remove this configuration").clicked() {
                                 acts.push(Act::Op("remove_configuration", json!({"name": c.name})));
                             }
                         });

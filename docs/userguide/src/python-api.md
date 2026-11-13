@@ -47,7 +47,7 @@ Every function of the `aurafx` module (`import aurafx as afx`) and every method 
 - `afx.job(id, tail=50)`: Status of a job (dict with state, exit_code, log tail, outputs).
 - `afx.jobs()`
 - `afx.key_camera(t, interp='linear')`: Keyframe the current 3D view camera at animation time t (0..1); `interp` says how it moves on to the next key: "linear", "step", "ease in", "ease out", "ease in-out", "exponential".
-- `afx.layout(name)`: Window layout preset: "full", "visualize", "analyze", "script" or "simulate".
+- `afx.layout(name)`: Window layout preset: "full", "visualize", "analyze", "script", "simulate" or "compact"; or a layout by the window's shape: "automatic" (follows the window as it changes), "wide" (view left, tabs right), "tall" (view on top, tabs below), "tall2" (view on top, two tab groups below).
 - `afx.lighting(**options)`: 3D view lighting and screen effects, e.g. `afx.lighting(shadows=True, ssao=True)`.  Options: light_kit, lights (list of dicts: direction, color, intensity, camera_relative, shadows; [] for the light kit), ambient, shadows, edl, edl_strength, ssao, ssao_strength, ssao_radius, fxaa, tone_mapping ("none", "reinhard", "aces"), exposure. `afx.lighting()` with no options returns the defaults.
 - `afx.link_views(on=True)`: Link (or unlink) the cameras of all 3D views.
 - `afx.load(path, host=None, processes=None, launcher=None, stream=None, **kwargs)`: Open a file. With `host=` (a host from the Simulations panel, an ssh alias or user@machine, or "local") or an `ssh://host/path` URL, the file is read on that machine by aurafx-server and filters added below it run there too. `stream=N` reads a file larger than memory in N pieces one after another (on this computer unless `host=` says otherwise).

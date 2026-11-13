@@ -34,6 +34,7 @@ mod shortcuts;
 mod source_dialog;
 mod svg_export;
 mod theme;
+pub mod touch;
 mod view_menu;
 mod viewport;
 mod views;
@@ -110,10 +111,37 @@ pub fn init_logging() {
 pub fn native_options() -> eframe::NativeOptions {
     let mut viewport =
         egui::ViewportBuilder::default().with_inner_size([1600.0, 950.0]).with_min_inner_size([900.0, 600.0]).with_title("auraFX").with_app_id("aurafx");
+    // `AURAFX_WINDOW=390x844`: a window of that size (points), as small as a phone's screen when
+    // asked. With `AURAFX_INTERFACE` this shows the tablet and phone interfaces on a desktop machine.
+    if let Some((w, h)) = window_size_from_env() {
+        viewport = viewport.with_inner_size([w, h]).with_min_inner_size([w.min(320.0), h.min(320.0)]);
+    }
     if let Some(icon) = load_icon() {
         viewport = viewport.with_icon(icon);
     }
     eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() }
+}
+
+/// The size `AURAFX_WINDOW=WIDTHxHEIGHT` asks for, in points.
+fn window_size_from_env() -> Option<(f32, f32)> {
+    parse_window_size(&std::env::var("AURAFX_WINDOW").ok()?)
+}
+
+fn parse_window_size(text: &str) -> Option<(f32, f32)> {
+    let (w, h) = text.trim().split_once(['x', 'X'])?;
+    let (w, h): (f32, f32) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    ((200.0..=10000.0).contains(&w) && (200.0..=10000.0).contains(&h)).then_some((w, h))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn window_size_text() {
+        assert_eq!(super::parse_window_size("390x844"), Some((390.0, 844.0)));
+        assert_eq!(super::parse_window_size(" 1180 X 820 "), Some((1180.0, 820.0)));
+        assert_eq!(super::parse_window_size("390"), None);
+        assert_eq!(super::parse_window_size("10x10"), None);
+    }
 }
 
 /// The connection file when the app runs as a Jupyter kernel (`--jupyter-kernel FILE`).

@@ -1,6 +1,7 @@
 //! Python console panel.
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use crate::worker::PythonResult;
 use egui::RichText;
 
@@ -67,7 +68,7 @@ afx.describe()     # text summary of the whole pipeline
 "#;
 
 pub fn console_ui(state: &mut State, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "console top", |ui| {
         if ui.button(format!("{} Run  (Ctrl+Enter)", crate::icons::PLAY)).clicked() {
             submit(state);
         }
@@ -101,13 +102,13 @@ pub fn console_ui(state: &mut State, ui: &mut egui::Ui) {
         });
     });
     if state.console.show_help {
-        egui::Window::new("Python quick reference").open(&mut state.console.show_help).default_width(620.0).show(ui.ctx(), |ui| {
+        egui::Window::new("Python quick reference").open(&mut state.console.show_help).default_width(620.0).show_fit(ui.ctx(), |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add(egui::TextEdit::multiline(&mut CHEAT_SHEET.to_string()).code_editor().desired_width(f32::INFINITY).interactive(false));
             });
         });
     }
-    let input_h = 76.0;
+    let input_h = if crate::touch::mode().is_touch() { 110.0 } else { 76.0 };
     let out_h = (ui.available_height() - input_h).max(40.0);
     egui::ScrollArea::vertical().id_salt("py_out").auto_shrink([false, false]).max_height(out_h).stick_to_bottom(true).show(ui, |ui| {
         if state.console.entries.is_empty() {
@@ -141,7 +142,7 @@ pub fn console_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.label(RichText::new("Tab:").weak());
             let comps = state.console.completions.clone();
             for c in comps.iter().take(30) {
-                if ui.small_button(c).clicked() {
+                if crate::touch::small_button(ui, c).clicked() {
                     apply_completion(&mut state.console, c);
                 }
             }

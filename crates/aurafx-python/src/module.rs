@@ -1658,12 +1658,12 @@ fn set_theme(mode: String) -> PyResult<()> {
     Ok(())
 }
 
-/// Window layout preset: "full", "visualize", "analyze", "script" or "simulate".
+/// Window layout preset: "full", "visualize", "analyze", "script", "simulate" or "compact"; or a layout by the window's shape: "automatic" (follows the window as it changes), "wide" (view left, tabs right), "tall" (view on top, tabs below), "tall2" (view on top, two tab groups below).
 #[pyfunction]
 fn layout(name: String) -> PyResult<()> {
     let m = name.to_ascii_lowercase();
-    if !["full", "visualize", "analyze", "script", "simulate"].contains(&m.as_str()) {
-        return Err(PyValueError::new_err("layout must be one of full, visualize, analyze, script, simulate"));
+    if !["full", "visualize", "analyze", "script", "simulate", "compact", "automatic", "wide", "tall", "tall2"].contains(&m.as_str()) {
+        return Err(PyValueError::new_err("layout must be one of full, visualize, analyze, script, simulate, compact, automatic, wide, tall, tall2"));
     }
     app_command(format!("layout {m}"));
     Ok(())

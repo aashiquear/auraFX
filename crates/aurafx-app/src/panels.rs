@@ -10,7 +10,7 @@ use egui::RichText;
 
 pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
     crate::cad::hold_banner(state, ui);
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "pipeline top", |ui| {
         if ui.button(crate::icons::FOLDER_OPEN).on_hover_text("Open file").clicked() {
             state.open_file_dialog();
         }
@@ -110,11 +110,11 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.label(RichText::new(format!("{} selected", multi_sel.len())).strong());
             for (id, label) in [("append_datasets", "Append"), ("append_attributes", "Append arrays")] {
                 let tip = aurafx_filters::find(id).map(|d| d.description).unwrap_or_default();
-                if ui.small_button(label).on_hover_text(tip).clicked() {
+                if crate::touch::small_button(ui, label).on_hover_text(tip).clicked() {
                     state.add_filter(id);
                 }
             }
-            if ui.small_button("Clear").on_hover_text("Select only the active node").clicked() {
+            if crate::touch::small_button(ui, "Clear").on_hover_text("Select only the active node").clicked() {
                 state.pipeline_selection.clear();
             }
         });
@@ -361,7 +361,7 @@ fn text_param(ui: &mut egui::Ui, node: NodeId, key: &str, value: &str, kind: Tex
                 apply = true;
             }
             if dirty {
-                if ui.small_button("Revert").clicked() {
+                if crate::touch::small_button(ui, "Revert").clicked() {
                     s = value.to_string();
                 }
                 ui.label(RichText::new("not applied yet").weak().small());
@@ -408,7 +408,7 @@ pub(crate) fn param_widget(
             if v.is_nan() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("auto").weak());
-                    if ui.small_button("edit").on_hover_text("Replace the automatic value with an explicit one").clicked() {
+                    if crate::touch::small_button(ui, "edit").on_hover_text("Replace the automatic value with an explicit one").clicked() {
                         out = Some(auto_fill(state, id, spec));
                     }
                 });
@@ -419,7 +419,7 @@ pub(crate) fn param_widget(
                     if r.drag_stopped() || (r.changed() && !r.dragged()) {
                         out = Some(ParamValue::Float(v));
                     }
-                    if spec.default.as_f64().map(|d| d.is_nan()).unwrap_or(false) && ui.small_button("auto").clicked() {
+                    if spec.default.as_f64().map(|d| d.is_nan()).unwrap_or(false) && crate::touch::small_button(ui, "auto").clicked() {
                         out = Some(ParamValue::Float(f64::NAN));
                     }
                 });
@@ -430,7 +430,7 @@ pub(crate) fn param_widget(
             if v.iter().any(|x| x.is_nan()) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("auto (data center)").weak());
-                    if ui.small_button("edit").clicked() {
+                    if crate::touch::small_button(ui, "edit").clicked() {
                         out = Some(auto_fill(state, id, spec));
                     }
                 });
@@ -447,12 +447,12 @@ pub(crate) fn param_widget(
                     }
                     if spec.key == "normal" {
                         for (l, n) in [("X", [1.0, 0.0, 0.0]), ("Y", [0.0, 1.0, 0.0]), ("Z", [0.0, 0.0, 1.0])] {
-                            if ui.small_button(l).clicked() {
+                            if crate::touch::small_button(ui, l).clicked() {
                                 out = Some(ParamValue::Vec3(n));
                             }
                         }
                     }
-                    if spec.default.as_vec3().map(|d| d[0].is_nan()).unwrap_or(false) && ui.small_button("auto").clicked() {
+                    if spec.default.as_vec3().map(|d| d[0].is_nan()).unwrap_or(false) && crate::touch::small_button(ui, "auto").clicked() {
                         out = Some(ParamValue::Vec3([f64::NAN; 3]));
                     }
                 });
@@ -570,7 +570,7 @@ fn inputs_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId, m: aurafx_filters
                     ui.label(format!("Input {}", k + 2));
                     ui.horizontal(|ui| {
                         ui.label(ename);
-                        if ui.small_button(crate::icons::TRASH).on_hover_text("Remove this input").clicked() {
+                        if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Remove this input").clicked() {
                             new_extra = Some(extra.iter().map(|e| e.0).filter(|x| x != eid).collect());
                         }
                     });
@@ -744,7 +744,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     n.follow_latest = follow;
                 }
             }
-            if ui.small_button("Reload now").clicked() {
+            if crate::touch::small_button(ui, "Reload now").clicked() {
                 let path = match &state.session.lock().nodes[&id].kind {
                     aurafx_pipeline::NodeKind::Reader { path, .. } => path.clone(),
                     _ => return,
@@ -986,7 +986,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         if changed {
                             d.range = Some(r);
                         }
-                        if d.range.is_some() && ui.small_button("auto").clicked() {
+                        if d.range.is_some() && crate::touch::small_button(ui, "auto").clicked() {
                             d.range = None;
                         }
                         ui.checkbox(&mut d.log_scale, "log");
@@ -1073,7 +1073,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         ui.add(egui::DragValue::new(&mut d.roughness).range(0.02..=1.0).speed(0.01).prefix("rough ")).on_hover_text("Small: sharp highlights and mirror-like reflections; 1: matte");
                         ui.add(egui::DragValue::new(&mut d.specular).range(0.0..=1.0).speed(0.01).prefix("shine ")).on_hover_text("Strength of highlights on non-metals");
                         let default = aurafx_pipeline::DisplayProps::default();
-                        if (d.metallic, d.roughness, d.specular) != (default.metallic, default.roughness, default.specular) && ui.small_button("reset").clicked() {
+                        if (d.metallic, d.roughness, d.specular) != (default.metallic, default.roughness, default.specular) && crate::touch::small_button(ui, "reset").clicked() {
                             (d.metallic, d.roughness, d.specular) = (default.metallic, default.roughness, default.specular);
                         }
                     });
@@ -1095,12 +1095,12 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                                 .map(|t| std::path::Path::new(t).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| t.to_string()))
                                 .unwrap_or_else(|| "none".into());
                             ui.label(shown).on_hover_text(d.texture.clone().unwrap_or_else(|| "An image shown on the surface through its texture coordinates".into()));
-                            if ui.small_button("Choose…").on_hover_text("Pick a PNG or JPEG image to show on the surface").clicked() {
+                            if crate::touch::small_button(ui, "Choose…").on_hover_text("Pick a PNG or JPEG image to show on the surface").clicked() {
                                 if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg"]).pick_file() {
                                     d.texture = Some(p.to_string_lossy().into_owned());
                                 }
                             }
-                            if d.texture.is_some() && ui.small_button(crate::icons::X).on_hover_text("No texture").clicked() {
+                            if d.texture.is_some() && crate::touch::small_button(ui, crate::icons::X).on_hover_text("No texture").clicked() {
                                 d.texture = None;
                             }
                         });
@@ -1294,7 +1294,7 @@ pub fn information_ui(state: &mut State, ui: &mut egui::Ui) {
 // ------------------------------------------------------------------ log
 
 pub fn log_ui(state: &mut State, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "log top", |ui| {
         if ui.button("Clear").clicked() {
             state.session.lock().log.clear();
         }
@@ -1335,7 +1335,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
     };
     let Some(ds) = ds else { return };
     let table_mode = matches!(ds, aurafx_data::DataSet::Table(_));
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "sheet top", |ui| {
         ui.label(RichText::new(&name).strong());
         if !table_mode {
             ui.selectable_value(&mut state.spreadsheet_assoc, Association::Points, "Points");
@@ -1362,7 +1362,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
     let page_size = 200;
     let pages = n_rows.div_ceil(page_size).max(1);
     state.spreadsheet_page = state.spreadsheet_page.min(pages - 1);
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "sheet pages", |ui| {
         if ui.button(crate::icons::CARET_LEFT).clicked() && state.spreadsheet_page > 0 {
             state.spreadsheet_page -= 1;
         }

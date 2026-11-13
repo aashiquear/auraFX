@@ -2,6 +2,7 @@
 //! and write PNG frames, an animated GIF, or an MP4 (when ffmpeg is installed).
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use egui::RichText;
 use std::path::PathBuf;
 
@@ -559,7 +560,7 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
     let n_views = state.capture.pane_rects.iter().filter(|(p, _)| crate::capture::is_view(*p)).count();
     let n_3d = state.views.len() + 1;
     let ntimes = state.session.lock().times.len();
-    egui::Window::new("Animation").open(&mut open).collapsible(false).resizable(false).default_width(420.0).show(ctx, |ui| {
+    egui::Window::new("Animation").open(&mut open).collapsible(false).resizable(false).default_width(420.0).show_fit(ctx, |ui| {
         {
             let d = &mut state.anim_dialog;
             if ntimes < 2 && d.mode == AnimMode::Time {
@@ -744,7 +745,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
     for (i, k) in anim.camera.iter().enumerate() {
         ui.horizontal(|ui| {
             ui.add_space(16.0);
-            if ui.small_button(pct(k.t)).on_hover_text("Jump here").clicked() {
+            if crate::touch::small_button(ui, pct(k.t)).on_hover_text("Jump here").clicked() {
                 state.anim_dialog.t = k.t;
                 state.apply_animation_time(k.t);
             }
@@ -754,7 +755,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     changed.camera[i].interp = interp;
                 }
             }
-            if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this keyframe").clicked() {
+            if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Delete this keyframe").clicked() {
                 remove_cam = Some(i);
             }
         });
@@ -839,7 +840,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     }
                     _ => String::new(),
                 };
-                let b = ui.small_button(format!("{} = {txt}", pct(k.t))).on_hover_text("Jump here; right-click to delete this keyframe");
+                let b = crate::touch::small_button(ui, format!("{} = {txt}", pct(k.t))).on_hover_text("Jump here; right-click to delete this keyframe");
                 if b.clicked() {
                     state.anim_dialog.t = k.t;
                     state.apply_animation_time(k.t);
@@ -857,7 +858,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     }
                 }
             }
-            if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this track").clicked() {
+            if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Delete this track").clicked() {
                 remove_track = Some(ti);
             }
         });
@@ -878,7 +879,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
         ui.label("Frames");
         ui.add(egui::DragValue::new(&mut changed.frames).range(2..=3600));
     });
-    if !anim.is_empty() && ui.small_button("Clear all keyframes").clicked() {
+    if !anim.is_empty() && crate::touch::small_button(ui, "Clear all keyframes").clicked() {
         changed.camera.clear();
         changed.tracks.clear();
     }

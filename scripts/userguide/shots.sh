@@ -38,7 +38,19 @@ for name in "${names[@]}"; do
   pkill -x aurafx 2>/dev/null; sleep 0.5
   rm -f "$ron"   # a fresh default layout for every picture
   light_theme
-  ( cd "$root" && AURAFX_PLUGIN_PATH="$tmp/plugins_empty" env -u WAYLAND_DISPLAY "$app" --script "$tmp/run.py" > "$tmp/$name.log" 2>&1 & )
+  # A script may ask for another interface, window size or safe area with a comment line such as
+  #   # shot: interface=phone window=390x844 safe_area=47,34,0,0
+  # (the tablet and phone pictures); the others get the desktop interface in the standard window.
+  shot_env=()
+  for kv in $(sed -n 's/^# *shot: *//p' "$script" | head -1); do
+    case "$kv" in
+      interface=*) shot_env+=("AURAFX_INTERFACE=${kv#interface=}") ;;
+      window=*) shot_env+=("AURAFX_WINDOW=${kv#window=}") ;;
+      safe_area=*) shot_env+=("AURAFX_SAFE_AREA=${kv#safe_area=}") ;;
+      keyboard=*) shot_env+=("AURAFX_KEYBOARD=${kv#keyboard=}") ;;
+    esac
+  done
+  ( cd "$root" && AURAFX_PLUGIN_PATH="$tmp/plugins_empty" env -u WAYLAND_DISPLAY -u AURAFX_INTERFACE -u AURAFX_WINDOW -u AURAFX_SAFE_AREA -u AURAFX_KEYBOARD "${shot_env[@]}" "$app" --script "$tmp/run.py" > "$tmp/$name.log" 2>&1 & )
   if grep -q "afx.screenshot" "$script"; then
     for i in $(seq 1 120); do [ -f "$png" ] && break; sleep 0.5; done
     sleep 1

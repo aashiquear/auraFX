@@ -15,6 +15,11 @@ pub const SKIP_BACK: &str = "\u{E5A4}";
 pub const SKIP_FORWARD: &str = "\u{E5A6}";
 pub const CARET_LEFT: &str = "\u{E138}";
 pub const CARET_RIGHT: &str = "\u{E13A}";
+pub const CARET_DOWN: &str = "\u{E136}";
+/// Arrows pointing inward (leave the whole-screen view).
+pub const CORNERS_IN: &str = "\u{E09C}";
+/// Four corners (the view on the whole screen).
+pub const CORNERS_OUT: &str = "\u{E1D0}";
 pub const GEAR: &str = "\u{E270}";
 pub const TREE_STRUCTURE: &str = "\u{E67C}";
 pub const SLIDERS: &str = "\u{E432}";

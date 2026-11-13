@@ -2,6 +2,7 @@
 
 use crate::app::State;
 use crate::settings::Settings;
+use crate::touch::FitScreen;
 use crate::worker::PythonResult;
 use aurafx_ai::{AiConfig, ChatMessage, ProviderKind, Role, StreamEvent};
 use egui::RichText;
@@ -338,7 +339,7 @@ impl Assistant {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut p.name).desired_width(110.0));
                     ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(2).desired_width(300.0));
-                    if ui.small_button("×").on_hover_text("Remove this prompt").clicked() {
+                    if crate::touch::small_button(ui, "×").on_hover_text("Remove this prompt").clicked() {
                         remove = Some(i);
                     }
                 });
@@ -377,7 +378,7 @@ impl Assistant {
             if let Some(d) = &dir {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(d.display().to_string()).monospace().small());
-                    if ui.small_button("Open").clicked() {
+                    if crate::touch::small_button(ui, "Open").clicked() {
                         let _ = crate::plugins_ui::open_in_os(d);
                     }
                 });
@@ -427,7 +428,7 @@ pub fn describe_window(state: &mut State, ctx: &egui::Context) {
     };
     let mut open = true;
     let mut go = false;
-    egui::Window::new(format!("{} Describe a filter", crate::icons::SPARKLE)).open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+    egui::Window::new(format!("{} Describe a filter", crate::icons::SPARKLE)).open(&mut open).collapsible(false).default_width(460.0).show_fit(ctx, |ui| {
         match &active {
             Some(n) => ui.label(format!("Say what you want to see in \"{n}\"; the assistant adds the filters that show it.")),
             None => ui.label(RichText::new("Select an object in the Pipeline first.").color(crate::theme::ERROR)),
@@ -468,7 +469,7 @@ pub fn describe_window(state: &mut State, ctx: &egui::Context) {
 
 pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
     // Header: provider + model quick switch.
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "assistant top", |ui| {
         let a = &mut state.assistant;
         let before = a.cfg.provider;
         egui::ComboBox::from_id_salt("asst_provider").selected_text(a.cfg.provider.label()).width(140.0).show_ui(ui, |ui| {
@@ -519,7 +520,8 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         ui.colored_label(crate::theme::ERROR, e);
     }
     ui.separator();
-    let input_h = 100.0;
+    // (The text box and the row of buttons below it; both are taller in the touch interfaces.)
+    let input_h = if crate::touch::mode().is_touch() { 160.0 } else { 100.0 };
     let h = (ui.available_height() - input_h).max(60.0);
     let mut run_code: Option<String> = None;
     let mut send_text: Option<String> = None;
@@ -529,7 +531,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.label(RichText::new("Ask about your data or tell me what to visualize, e.g.\n• \"slice this through the middle and color by temperature\"\n• \"what arrays does this file have?\"\n• \"make an isosurface at the mean value\"\n• \"plot the maximum stress over time\"").weak());
             ui.add_space(6.0);
             for s in ["Describe the loaded data", "Show a slice colored by the main scalar", "Make a contour at the median value", "What filters would help analyze this?"] {
-                if ui.small_button(s).clicked() {
+                if crate::touch::small_button(ui, s).clicked() {
                     send_text = Some(s.to_string());
                 }
             }
@@ -559,7 +561,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                         if ui.button(format!("{} Run code {}", crate::icons::PLAY, if blocks.len() > 1 { format!("#{}", k + 1) } else { String::new() })).clicked() {
                             run_code = Some(b.clone());
                         }
-                        if ui.small_button("Copy to console").clicked() {
+                        if crate::touch::small_button(ui, "Copy to console").clicked() {
                             state.console.input = b.clone();
                         }
                     });
@@ -568,7 +570,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                     let _ = idx;
                     let col = if *err { crate::theme::ERROR } else { ui.visuals().text_color() };
                     ui.label(RichText::new(text.trim_end()).monospace().small().color(col));
-                    if *err && ui.small_button("Ask AI to fix").clicked() {
+                    if *err && crate::touch::small_button(ui, "Ask AI to fix").clicked() {
                         send_text = Some(format!("Running your code failed with:\n```\n{}\n```\nPlease fix it.", text.trim_end()));
                     }
                 }
@@ -599,7 +601,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         state.assistant.focus_input = false;
     }
     let enter = resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "assistant send", |ui| {
         // Saved prompts: one click puts it in the box (the selected object filled in).
         let object = state.session.lock().active_node().map(|n| n.name.clone()).unwrap_or_else(|| "the data".into());
         let prompts = state.assistant.cfg.prompts.clone();

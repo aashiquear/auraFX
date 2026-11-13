@@ -9,6 +9,7 @@
 | **Theme** | dark, light, system or **high contrast** (black panels, white text and borders, thick yellow outlines on the control under the mouse and the one in use); the 3D background per theme |
 | **Ask before adding a source** | adding a source opens a window to insert it with its standard settings or change them first (on by default) |
 | **UI scale** | enlarges the whole interface |
+| **Interface** | *Automatic* (Desktop on a computer; Tablet or Phone on a tablet or a phone, by its screen), *Desktop*, *Tablet* or *Phone*; the window says which one is in use. In Tablet and Phone, **Keep room for the on-screen keyboard** (see [Tablets and phones](touch.md)) |
 | **Orientation axes**, **Time label** | shown in the 3D views |
 | **Filter threads** | cores used by the parallel filters (0 = all); takes effect at the next start; `AURAFX_THREADS` overrides it |
 | **Default color map** | for new objects |
@@ -76,3 +77,6 @@ color blindness.
 | `AURAFX_DATA_DIR` | where settings and state are kept |
 | `OLLAMA_HOST`, `ANTHROPIC_API_KEY` | AI providers |
 | `PYO3_PYTHON` (at build time) | which Python to embed |
+| `AURAFX_INTERFACE` | `desktop`, `tablet` or `phone`: the interface, whatever the setting is |
+| `AURAFX_WINDOW` | the size of the window at start, as `WIDTHxHEIGHT` in points (for example `390x844`) |
+| `AURAFX_SAFE_AREA`, `AURAFX_KEYBOARD` | strips to keep free, as a tablet's or a phone's system does (see [Tablets and phones](touch.md#trying-it-on-a-computer)) |

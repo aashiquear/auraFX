@@ -26,7 +26,7 @@ pub fn timeline_ui(state: &mut State, ui: &mut egui::Ui) {
     };
     let n = features.len();
     let upto = rollback.unwrap_or(n);
-    ui.horizontal(|ui| {
+    let row = |ui: &mut egui::Ui| {
         ui.label(RichText::new("Timeline").strong());
         if ui.add_enabled(undo > 0, egui::Button::new("Undo")).clicked() {
             state.session.lock().cad_env_undo();
@@ -35,7 +35,9 @@ pub fn timeline_ui(state: &mut State, ui: &mut egui::Ui) {
             state.session.lock().cad_env_redo();
         }
         ui.separator();
-        egui::ScrollArea::horizontal().id_salt("cad timeline").max_width(ui.available_width() - 330.0).show(ui, |ui| {
+        // Room on the right for the summary; a phone keeps a strip of the timeline anyway.
+        let room = if crate::touch::mode().is_touch() { (ui.available_width() - 330.0).max(180.0) } else { ui.available_width() - 330.0 };
+        egui::ScrollArea::horizontal().id_salt("cad timeline").max_width(room).show(ui, |ui| {
             ui.horizontal(|ui| {
                 for (i, (id, name, suppressed)) in features.iter().enumerate() {
                     if i == upto {
@@ -98,5 +100,15 @@ pub fn timeline_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.label(RichText::new(format!("{} kernel · {} ms · volume {} mm³", s.kernel, s.ms.round(), super::num_text(s.volume))).weak().small());
             }
         });
-    });
+    };
+    if crate::touch::mode().is_phone() {
+        // A phone: the whole row scrolls sideways (the summary is laid out from its right end).
+        let width = ui.available_width().max(900.0);
+        egui::ScrollArea::horizontal().id_salt("cad timeline row").show(ui, |ui| {
+            ui.set_max_width(width);
+            ui.horizontal(row);
+        });
+    } else {
+        ui.horizontal(row);
+    }
 }

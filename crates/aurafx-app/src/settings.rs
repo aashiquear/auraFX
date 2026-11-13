@@ -42,6 +42,12 @@ pub struct Settings {
     pub gpu_filters: bool,
     /// Show the welcome window at start.
     pub show_welcome: bool,
+    /// The interface: Automatic (Desktop on a computer; Tablet or Phone on a tablet or a phone),
+    /// or one of them whatever the device is.
+    pub interface: crate::touch::InterfaceChoice,
+    /// Touch interfaces: leave the lower part of the screen free while typing, where the system
+    /// does not say how tall its on-screen keyboard is.
+    pub keyboard_room: bool,
 }
 
 impl Default for Settings {
@@ -69,6 +75,8 @@ impl Default for Settings {
             shortcuts: Default::default(),
             gpu_filters: true,
             show_welcome: true,
+            interface: Default::default(),
+            keyboard_room: true,
         }
     }
 }

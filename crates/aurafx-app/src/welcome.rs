@@ -2,6 +2,7 @@
 //! first start (and from Help › Welcome). Also the way to open the user guide.
 
 use crate::app::{LayoutAction, Pane, State};
+use crate::touch::FitScreen;
 use egui::RichText;
 
 /// Open a chapter of the user guide in the browser: the copy beside the program when there is
@@ -133,7 +134,7 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .default_width(640.0)
-        .show(ctx, |ui| {
+        .show_fit(ctx, |ui| {
             ui.label("One window for viewing and analyzing simulation results and experimental data, modeling parts, meshing them, synthesizing microstructures and running solvers. Pick where to start:");
             ui.add_space(4.0);
             egui::Grid::new("welcome cards").num_columns(2).spacing([10.0, 10.0]).show(ui, |ui| {
@@ -155,7 +156,8 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                             });
                         });
                     });
-                    if k % 2 == 1 {
+                    // Two cards in a row; one on a phone.
+                    if k % 2 == 1 || crate::touch::mode().is_phone() {
                         ui.end_row();
                     }
                 }
@@ -210,7 +212,7 @@ pub fn crash_window(state: &mut State, ctx: &egui::Context) {
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+        .show_fit(ctx, |ui| {
             ui.label("Sorry about that. What went wrong was written to a file on this computer (nothing was sent anywhere):");
             ui.add(egui::Label::new(RichText::new(report.display().to_string()).monospace().small()).wrap());
             ui.label("Attaching it to a bug report helps to fix the cause.");

@@ -1,6 +1,7 @@
 //! File dialogs: native (rfd) on desktop, an in-app browser where native dialogs are not
 //! available (Android, iOS, or builds without the `native-dialogs` feature).
 
+use crate::touch::FitScreen;
 use std::path::{Path, PathBuf};
 
 /// True when native OS file dialogs are available in this build.
@@ -115,7 +116,7 @@ pub fn file_browser_ui(fb: &mut FileBrowser, ctx: &egui::Context) -> Option<Path
     }
     let mut chosen = None;
     let mut open = true;
-    egui::Window::new("Open file").open(&mut open).default_size([520.0, 480.0]).show(ctx, |ui| {
+    egui::Window::new("Open file").open(&mut open).default_size([520.0, 480.0]).fit_own_scroll(ctx).show(ctx, |ui| {
         ui.horizontal(|ui| {
             if ui.button(crate::icons::CARET_LEFT).on_hover_text("Parent folder").clicked() {
                 if let Some(p) = fb.dir.parent() {

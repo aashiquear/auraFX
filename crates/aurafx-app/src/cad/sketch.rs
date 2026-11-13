@@ -1264,7 +1264,7 @@ pub fn props_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.label(RichText::new(format!("= {}", num_text(d.value))).weak().small());
                 }
             }
-            if ui.small_button("×").on_hover_text("Remove this constraint").clicked() {
+            if crate::touch::small_button(ui, "×").on_hover_text("Remove this constraint").clicked() {
                 remove = Some(i);
             }
         });

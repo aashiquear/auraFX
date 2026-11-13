@@ -3,6 +3,7 @@
 //! statistics with the goals.
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use aurafx_data::DataSet;
 use aurafx_filters::ParamValue;
 use aurafx_pipeline::{NodeId, NodeKind};
@@ -227,7 +228,7 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
     }
     let mut open = true;
     let mut pack = false;
-    egui::Window::new("Goal Statistics").open(&mut open).default_width(560.0).show(ctx, |ui| {
+    egui::Window::new("Goal Statistics").open(&mut open).default_width(560.0).show_fit(ctx, |ui| {
         let gs = &mut state.goal_stats;
         let g = &mut gs.goals;
         ui.label(match gs.node {

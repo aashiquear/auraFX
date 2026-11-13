@@ -3,6 +3,7 @@
 //! Python thread) with that event, and its new items replace the old.
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use crate::worker::PythonRequest;
 use egui::RichText;
 use serde_json::{json, Value};
@@ -122,7 +123,7 @@ pub fn panels_ui(state: &mut State, ctx: &egui::Context) {
         }
         let mut open = true;
         let mut event: Option<Value> = None;
-        egui::Window::new(&title).id(egui::Id::new(("plugin panel", &title))).open(&mut open).default_width(300.0).show(ctx, |ui| {
+        egui::Window::new(&title).id(egui::Id::new(("plugin panel", &title))).open(&mut open).default_width(300.0).show_fit(ctx, |ui| {
             if v.pending.is_some() {
                 ui.spinner();
             }

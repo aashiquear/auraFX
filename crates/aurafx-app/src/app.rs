@@ -5,6 +5,7 @@ use crate::console::Console;
 use crate::menus::MenuExt;
 use crate::palette::Palette;
 use crate::settings::Settings;
+use crate::touch::FitScreen;
 use crate::viewport::Viewport;
 use crate::worker::{spawn_pipeline_worker, PythonWorker};
 use aurafx_filters::Association;
@@ -47,6 +48,14 @@ impl Pane {
         Pane::Charts,
         Pane::Notebook,
     ];
+    /// Whether the pane has anything to show in this build (the Python console and the notebook
+    /// need the embedded Python, which the tablet and phone builds do not have).
+    pub fn available(self) -> bool {
+        match self {
+            Pane::Python | Pane::Notebook => cfg!(feature = "python"),
+            _ => true,
+        }
+    }
     pub fn title(self) -> &'static str {
         match self {
             Pane::Pipeline => "Pipeline",
@@ -159,6 +168,20 @@ pub struct State {
     pub open_chart_panes: Vec<u32>,
     /// Pictures of the views as laid out (`capture`).
     pub capture: crate::capture::Capture,
+    /// The touch interfaces' own state (the phone's menu list, the view on the whole screen).
+    pub touch: crate::touch::TouchUi,
+    /// The layout follows the shape of the window (Windows > Layouts > Automatic).
+    pub auto_layout: bool,
+    /// The shape the automatic layout was last built for.
+    pub layout_class: Option<crate::touch::LayoutClass>,
+}
+
+/// One of the top menus: its name and the function that adds its items.
+pub struct TopMenu {
+    pub label: &'static str,
+    /// Shown in the accent color (the CAD menu, while a part is edited).
+    pub accent: bool,
+    pub ui: fn(&mut State, &mut egui::Ui),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +193,15 @@ pub enum LayoutPreset {
     Analyze,
     Script,
     Simulate,
+    /// Follow the shape of the window: the layout is rebuilt when the window (or the screen)
+    /// turns from wide to tall or back.
+    Automatic,
+    /// The 3D view on the left, every panel as a tab on the right.
+    Wide,
+    /// The 3D view on top, every panel as a tab below.
+    Tall,
+    /// The 3D view on top, two tab groups side by side below.
+    TallTwo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,14 +322,147 @@ pub fn compact_tree() -> egui_tiles::Tree<Pane> {
     egui_tiles::Tree::new(id, root, tiles)
 }
 
+/// A tab group of the panes in `panes` that are in `open` (all of them when `open` is `None`)
+/// and have something to show in this build; `None` when that leaves nothing.
+fn tab_group(tiles: &mut egui_tiles::Tiles<Pane>, panes: &[Pane], open: Option<&[Pane]>) -> Option<egui_tiles::TileId> {
+    let ids: Vec<_> = panes.iter().copied().filter(|p| p.available() && open.is_none_or(|o| o.contains(p))).map(|p| tiles.insert_pane(p)).collect();
+    (!ids.is_empty()).then(|| tiles.insert_tab_tile(ids))
+}
+
+/// The simulation runner starts programs on this machine or over SSH, which a tablet's or a
+/// phone's system does not allow: the automatic layouts leave it out there (Windows > Simulations
+/// still opens it).
+fn jobs_in_touch_layouts() -> bool {
+    !cfg!(any(target_os = "ios", target_os = "android"))
+}
+
+/// The layout for a window of this shape (`crate::touch::LayoutClass`). With `open`, only those
+/// panes are shown (a layout rebuilt because the screen was turned keeps what was open), and the
+/// further 3D views, chart views and the notebook among them get a place too.
+pub fn class_tree(class: crate::touch::LayoutClass, open: Option<&[Pane]>) -> egui_tiles::Tree<Pane> {
+    use crate::touch::LayoutClass;
+    use egui_tiles::LinearDir::{Horizontal, Vertical};
+    let extra: Vec<Pane> = open.unwrap_or(&[]).iter().copied().filter(|p| matches!(p, Pane::View(_) | Pane::Chart(_) | Pane::Notebook)).collect();
+    if matches!(class, LayoutClass::Workbench | LayoutClass::TabletWide) {
+        let mut tree = default_tree();
+        if class == LayoutClass::TabletWide {
+            // A tablet is narrower than a desktop window and its controls are larger: the side
+            // columns get more of the width.
+            if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Linear(lin))) = tree.root().and_then(|r| tree.tiles.get_mut(r)) {
+                let kids = lin.children.clone();
+                for (k, share) in kids.iter().zip([0.24, 0.46, 0.30]) {
+                    lin.shares.set_share(*k, share);
+                }
+            }
+        }
+        for p in Pane::ALL {
+            let leave_out = !p.available() || (p == Pane::Jobs && class == LayoutClass::TabletWide && !jobs_in_touch_layouts());
+            if tree.tiles.find_pane(&p).is_some() && (open.is_some_and(|o| !o.contains(&p)) || (class == LayoutClass::TabletWide && leave_out)) {
+                hide_pane(&mut tree, p);
+            }
+        }
+        for p in extra.into_iter().filter(|p| p.available()) {
+            show_pane(&mut tree, p);
+        }
+        return tree;
+    }
+    let mut tiles = egui_tiles::Tiles::default();
+    // The 3D views share the first group.
+    let views: Vec<Pane> = std::iter::once(Pane::Viewport).chain(extra.iter().copied().filter(|p| matches!(p, Pane::View(_)))).collect();
+    let others: Vec<Pane> = extra.iter().copied().filter(|p| !matches!(p, Pane::View(_))).collect();
+    let view = tab_group(&mut tiles, &views, open);
+    let jobs: &[Pane] = if jobs_in_touch_layouts() { &[Pane::Jobs] } else { &[] };
+    let mut children: Vec<(egui_tiles::TileId, f32)> = Vec::new();
+    let dir = if class == LayoutClass::PhoneWide { Horizontal } else { Vertical };
+    if let Some(v) = view {
+        children.push((v, if class == LayoutClass::PhoneWide { 0.56 } else { 0.5 }));
+    }
+    if class == LayoutClass::TabletTall {
+        let left: Vec<Pane> = [Pane::Pipeline, Pane::Charts, Pane::Spreadsheet, Pane::Python, Pane::Log].into_iter().chain(others).collect();
+        let right: Vec<Pane> = [Pane::Properties, Pane::Information, Pane::Assistant].into_iter().chain(jobs.iter().copied()).collect();
+        let groups: Vec<_> = [tab_group(&mut tiles, &left, open), tab_group(&mut tiles, &right, open)].into_iter().flatten().collect();
+        match groups.len() {
+            0 => {}
+            1 => children.push((groups[0], 0.5)),
+            _ => {
+                let row = tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(egui_tiles::Linear::new(Horizontal, groups))));
+                children.push((row, 0.5));
+            }
+        }
+    } else {
+        // A phone: one tab group. The simulation runner and the Python console want more room
+        // than a phone has; Windows opens them.
+        let mut all: Vec<Pane> = vec![Pane::Pipeline, Pane::Properties, Pane::Information, Pane::Charts, Pane::Spreadsheet, Pane::Assistant, Pane::Log];
+        if let Some(o) = open {
+            all.extend([Pane::Jobs, Pane::Python].into_iter().filter(|p| o.contains(p)));
+        }
+        all.extend(others);
+        if let Some(g) = tab_group(&mut tiles, &all, open) {
+            children.push((g, if class == LayoutClass::PhoneWide { 0.44 } else { 0.5 }));
+        }
+    }
+    if children.is_empty() {
+        // Everything was closed: start again from the whole layout.
+        return class_tree(class, None);
+    }
+    let root = match children.len() {
+        1 => children[0].0,
+        _ => {
+            let mut lin = egui_tiles::Linear::new(dir, children.iter().map(|c| c.0).collect());
+            for (id, share) in &children {
+                lin.shares.set_share(*id, *share);
+            }
+            tiles.insert_new(egui_tiles::Tile::Container(egui_tiles::Container::Linear(lin)))
+        }
+    };
+    #[allow(deprecated)]
+    let id = egui::Id::new("aurafx_layout");
+    egui_tiles::Tree::new(id, root, tiles)
+}
+
+/// The panes of a layout, and those that are the front tab of their group.
+fn panes_of(tree: &egui_tiles::Tree<Pane>) -> (Vec<Pane>, Vec<Pane>) {
+    let open: Vec<Pane> = tree.tiles.iter().filter_map(|(_, t)| if let egui_tiles::Tile::Pane(p) = t { Some(*p) } else { None }).collect();
+    let front: Vec<Pane> = tree
+        .tiles
+        .iter()
+        .filter_map(|(_, t)| match t {
+            egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs)) => tabs.active.and_then(|a| tree.tiles.get_pane(&a)).copied(),
+            _ => None,
+        })
+        .collect();
+    (open, front)
+}
+
+/// Rebuild `tree` for a window of another shape, keeping which panes are open and, where the
+/// new groups allow it, which tabs are in front.
+pub fn reshape_tree(tree: &mut egui_tiles::Tree<Pane>, class: crate::touch::LayoutClass) {
+    let (open, front) = panes_of(tree);
+    *tree = class_tree(class, Some(&open));
+    for p in front.into_iter().filter(|p| !matches!(p, Pane::Viewport)) {
+        tree.make_active(|_, t| matches!(t, egui_tiles::Tile::Pane(q) if *q == p));
+    }
+}
+
 pub fn apply_preset(tree: &mut egui_tiles::Tree<Pane>, preset: LayoutPreset) {
     if preset == LayoutPreset::Compact {
         *tree = compact_tree();
         return;
     }
+    // The layouts by shape. (Automatic is applied by the app, which knows the window.)
+    let by_shape = match preset {
+        LayoutPreset::Wide => Some(crate::touch::LayoutClass::PhoneWide),
+        LayoutPreset::Tall => Some(crate::touch::LayoutClass::PhoneTall),
+        LayoutPreset::TallTwo => Some(crate::touch::LayoutClass::TabletTall),
+        _ => None,
+    };
+    if let Some(class) = by_shape {
+        *tree = class_tree(class, None);
+        return;
+    }
     *tree = default_tree();
     let (hide, front): (&[Pane], &[Pane]) = match preset {
-        LayoutPreset::Full | LayoutPreset::Compact => (&[], &[]),
+        LayoutPreset::Full | LayoutPreset::Compact | LayoutPreset::Automatic | LayoutPreset::Wide | LayoutPreset::Tall | LayoutPreset::TallTwo => (&[], &[]),
         LayoutPreset::Visualize => (&[Pane::Python, Pane::Charts, Pane::Spreadsheet, Pane::Log, Pane::Assistant, Pane::Jobs, Pane::Information], &[]),
         LayoutPreset::Analyze => (&[Pane::Jobs, Pane::Log], &[Pane::Charts, Pane::Information]),
         LayoutPreset::Script => (&[Pane::Jobs, Pane::Spreadsheet, Pane::Charts], &[Pane::Python, Pane::Assistant]),
@@ -315,6 +480,16 @@ pub struct AuraApp {
     pub state: State,
     pub tree: egui_tiles::Tree<Pane>,
     layout_checked: bool,
+    /// A touch interface is shown (its layout is kept apart from the desktop's).
+    touch_layout: bool,
+    /// The layout of the other kind of interface: the desktop's while a touch interface is
+    /// shown, the touch one's otherwise.
+    other_tree: Option<egui_tiles::Tree<Pane>>,
+    /// Whether the layout follows the window's shape in the other kind of interface.
+    other_auto: bool,
+    /// The layout was restored from the last run: an automatic layout built over it keeps which
+    /// panels were open.
+    keep_open: bool,
 }
 
 pub fn default_tree() -> egui_tiles::Tree<Pane> {
@@ -381,7 +556,9 @@ impl AuraApp {
             }
         }
         let viewport = Viewport::new(cc, settings.background);
-        let tree = cc.storage.and_then(|s| s.get_string("layout_v4")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(default_tree);
+        let stored_tree: Option<egui_tiles::Tree<Pane>> = cc.storage.and_then(|s| s.get_string("layout_v4")).and_then(|s| serde_json::from_str(&s).ok());
+        let keep_open = stored_tree.is_some();
+        let tree = stored_tree.unwrap_or_else(default_tree);
         let assistant = Assistant::new(&settings);
         let (anim_tx, anim_rx) = std::sync::mpsc::channel();
         let mut state = State {
@@ -442,6 +619,10 @@ impl AuraApp {
             source_dialog: None,
             open_chart_panes: Vec::new(),
             capture: Default::default(),
+            touch: Default::default(),
+            // The desktop's layout follows the window only when the user chose Automatic.
+            auto_layout: cc.storage.and_then(|s| s.get_string("layout_auto")).is_some_and(|s| s == "true"),
+            layout_class: None,
         };
         // Scripts see that an app with a 3D view is running before the first frame.
         state.session.lock().view_ids = vec![0];
@@ -457,11 +638,38 @@ impl AuraApp {
                 Err(e) => tracing::error!("cannot read script {}: {e}", p.display()),
             }
         }
-        let mut app = Self { state, tree, layout_checked: false };
+        // The touch interfaces keep their own layout, which follows the screen's shape unless a
+        // named layout was chosen.
+        let other_tree = cc.storage.and_then(|s| s.get_string("layout_touch_v1")).and_then(|s| serde_json::from_str(&s).ok());
+        let other_auto = cc.storage.and_then(|s| s.get_string("layout_touch_auto")).is_none_or(|s| s != "false");
+        let mut app = Self { state, tree, layout_checked: false, touch_layout: false, other_tree, other_auto, keep_open };
         let max_id =
             app.tree.tiles.iter().filter_map(|(_, t)| if let egui_tiles::Tile::Pane(Pane::View(id)) = t { Some(*id) } else { None }).max().unwrap_or(0);
         app.state.next_view_id = max_id + 1;
         app
+    }
+
+    /// Going from the desktop interface to a touch one or back: each has its own layout, and its
+    /// own choice of following the window's shape (a tablet or a phone does unless a layout was
+    /// chosen by name; the desktop only when Automatic was chosen).
+    fn sync_interface_layout(&mut self, mode: crate::touch::Mode) {
+        if mode.is_touch() == self.touch_layout {
+            return;
+        }
+        self.touch_layout = mode.is_touch();
+        std::mem::swap(&mut self.state.auto_layout, &mut self.other_auto);
+        let mine = std::mem::replace(&mut self.tree, default_tree());
+        self.keep_open = false;
+        if let Some(t) = self.other_tree.replace(mine) {
+            self.tree = t;
+            self.keep_open = true;
+        } else if self.touch_layout {
+            // No touch layout yet: the one for the screen's shape.
+            self.state.auto_layout = true;
+        }
+        self.state.layout_class = None;
+        self.state.touch.menu_open = false;
+        self.state.touch.view_maximized = false;
     }
 }
 
@@ -887,486 +1095,39 @@ impl State {
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
     }
 
+    /// The top menus, in order. The menu bar, the tablet's overflow menu and the phone's menu
+    /// list all show these, so they cannot drift apart.
+    pub(crate) fn top_menus(&self) -> Vec<TopMenu> {
+        let mut m = vec![
+            TopMenu { label: "File", accent: false, ui: Self::menu_file },
+            TopMenu { label: "Edit", accent: false, ui: Self::menu_edit },
+            TopMenu { label: "Sources", accent: false, ui: Self::menu_sources },
+        ];
+        if crate::cad::editing(self) {
+            m.push(TopMenu { label: "CAD", accent: true, ui: |s, ui| crate::cad::menu_ui(s, ui) });
+        }
+        m.extend([
+            TopMenu { label: "Filters", accent: false, ui: Self::menu_filters },
+            TopMenu { label: "View", accent: false, ui: Self::menu_view },
+            TopMenu { label: "Windows", accent: false, ui: Self::menu_windows },
+            TopMenu { label: "Simulate", accent: false, ui: Self::menu_simulate },
+            TopMenu { label: "Remote", accent: false, ui: Self::menu_remote },
+            TopMenu { label: "Model", accent: false, ui: Self::menu_model },
+            TopMenu { label: "Help", accent: false, ui: Self::menu_help },
+        ]);
+        m
+    }
+
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.add(egui::Image::new(egui::include_image!("../../../assets/icons/aurafx-32.png")).fit_to_exact_size(egui::vec2(20.0, 20.0)));
-            ui.scroll_menu("File", |ui| {
-                if ui.button("Open…    Ctrl+O").clicked() {
-                    ui.close();
-                    self.open_file_dialog();
+            for m in self.top_menus() {
+                if m.accent {
+                    ui.scroll_menu(RichText::new(m.label).color(crate::theme::ACCENT), |ui| (m.ui)(self, ui));
+                } else {
+                    ui.scroll_menu(m.label, |ui| (m.ui)(self, ui));
                 }
-                if ui
-                    .button(format!("{} Open on Server…", crate::icons::CLOUD))
-                    .on_hover_text("Read and filter a file on another machine (over SSH); only what you view comes back")
-                    .clicked()
-                {
-                    ui.close();
-                    self.server.open = true;
-                }
-                let has_data = self.session.lock().active_node().map(|n| n.output.is_some()).unwrap_or(false);
-                if ui.add_enabled(has_data, egui::Button::new("Save Data…")).on_hover_text("Write the selected node's data (VTK, CSV, STL, PLY)").clicked() {
-                    ui.close();
-                    self.save_data_dialog();
-                }
-                if ui.button("Import Pipeline…").on_hover_text("Build a pipeline from a pipeline file (.json) or the pipeline a .dream3d file records; it starts from the selected data when its files are not found").clicked() {
-                    ui.close();
-                    self.import_pipeline_dialog();
-                }
-                ui.separator();
-                if ui.button("Save State    Ctrl+S").on_hover_text("Save the pipeline, display settings and camera to an .afx file").clicked() {
-                    ui.close();
-                    self.save_state_dialog(false);
-                }
-                if ui.button("Save State As…").clicked() {
-                    ui.close();
-                    self.save_state_dialog(true);
-                }
-                let last = Self::last_session_path();
-                if ui
-                    .add_enabled(last.exists(), egui::Button::new("Restore Last Session"))
-                    .on_hover_text("Reopen the pipeline you had when auraFX was last closed")
-                    .clicked()
-                {
-                    ui.close();
-                    self.load_state(last);
-                }
-                ui.scroll_menu("Open Sample Data", |ui| {
-                    if ui.button("Heated disk in a flow (Exodus)").on_hover_text("The disk_out_ref sample: a heated disk in a flow, with temperature, pressure and velocity").clicked() {
-                        ui.close();
-                        self.open_sample("disk_out_ref.ex2");
-                    }
-                    if ui
-                        .button("Curved quarter cylinder (Lagrange cells)")
-                        .on_hover_text("Four cubic Lagrange hexahedra; try Display › Curved cells and Tessellate")
-                        .clicked()
-                    {
-                        ui.close();
-                        self.open_sample("lagrange_annulus.vtu");
-                    }
-                    if ui.button("Wavelet volume (generated)").clicked() {
-                        ui.close();
-                        self.add_filter("wavelet");
-                    }
-                    if ui.button("Sphere (generated)").clicked() {
-                        ui.close();
-                        self.add_filter("sphere");
-                    }
-                });
-                ui.scroll_menu("Open Recent", |ui| {
-                    if self.settings.recent_files.is_empty() {
-                        ui.label("No recent files");
-                    }
-                    let recent = self.settings.recent_files.clone();
-                    for p in recent {
-                        if ui.button(p.display().to_string()).clicked() {
-                            ui.close();
-                            self.open_file(p);
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("Clear list").clicked() {
-                        self.settings.recent_files.clear();
-                        self.settings.save();
-                    }
-                });
-                ui.separator();
-                if ui.button("Save Screenshot…    Ctrl+Shift+S").clicked() {
-                    ui.close();
-                    self.save_screenshot_dialog();
-                }
-                if ui.button("Export Scene…").on_hover_text("The visible objects as a glTF (.glb) or OBJ file, for Blender, web viewers, slides").clicked() {
-                    ui.close();
-                    if let Some(path) = crate::dialogs::FileDialog::new()
-                        .add_filter("glTF binary", &["glb"])
-                        .add_filter("Wavefront OBJ (vertex colors)", &["obj"])
-                        .add_filter("X3D", &["x3d"])
-                        .add_filter("VRML 2.0", &["wrl"])
-                .add_filter("Web page you can turn (HTML)", &["html"])
-                        .set_file_name("scene.glb")
-                        .save_file()
-                    {
-                        self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest::new(path));
-                    }
-                }
-                if ui.button("Animation…").on_hover_text("Time steps, a camera orbit or keyframes, saved as GIF, MP4 or PNG frames").clicked() {
-                    ui.close();
-                    self.anim_dialog.open = true;
-                }
-                if ui.button("Export Python trace…").clicked() {
-                    ui.close();
-                    let trace = self.session.lock().trace.join("\n");
-                    if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Python", &["py"]).set_file_name("aurafx_trace.py").save_file() {
-                        let _ = std::fs::write(p, format!("import aurafx as afx\n\n{trace}\n"));
-                    }
-                }
-                ui.separator();
-                if ui.button("Settings…    Ctrl+,").clicked() {
-                    ui.close();
-                    self.show_settings = true;
-                }
-                ui.separator();
-                if ui.button("Quit").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            });
-            ui.scroll_menu("Edit", |ui| {
-                let (ul, rl) = {
-                    let s = self.session.lock();
-                    (s.undo_label().map(|l| l.to_string()), s.redo_label().map(|l| l.to_string()))
-                };
-                if ui.add_enabled(ul.is_some(), egui::Button::new(format!("Undo {}    Ctrl+Z", ul.clone().unwrap_or_default()))).clicked() {
-                    ui.close();
-                    self.undo();
-                }
-                if ui.add_enabled(rl.is_some(), egui::Button::new(format!("Redo {}    Ctrl+Shift+Z", rl.clone().unwrap_or_default()))).clicked() {
-                    ui.close();
-                    self.redo();
-                }
-                ui.separator();
-                let active = self.session.lock().active;
-                if ui.add_enabled(active.is_some(), egui::Button::new("Delete active node    Del")).clicked() {
-                    ui.close();
-                    if let Some(a) = active {
-                        self.session.lock().remove_node(a);
-                    }
-                }
-                if ui.add_enabled(active.is_some(), egui::Button::new("Rename active node")).clicked() {
-                    ui.close();
-                    if let Some(a) = active {
-                        let name = self.session.lock().nodes.get(&a).map(|n| n.name.clone()).unwrap_or_default();
-                        self.rename_target = Some((a, name));
-                    }
-                }
-                ui.separator();
-                if ui.button("Plugins…").on_hover_text("Python plugins that add filters, sources and readers").clicked() {
-                    ui.close();
-                    self.plugins.open = true;
-                }
-                if ui.button("Settings…    Ctrl+,").clicked() {
-                    ui.close();
-                    self.show_settings = true;
-                }
-            });
-            ui.scroll_menu("Sources", |ui| {
-                if let Some(id) = crate::menus::source_menu(ui) {
-                    crate::source_dialog::insert_source(self, id);
-                }
-            });
-            if crate::cad::editing(self) {
-                ui.scroll_menu(RichText::new("CAD").color(crate::theme::ACCENT), |ui| crate::cad::menu_ui(self, ui));
             }
-            ui.scroll_menu("Filters", |ui| {
-                let ctx_info = crate::menus::node_context(self, None);
-                match &ctx_info {
-                    Some((info, timed)) => {
-                        if let Some(id) = crate::menus::suggestion_buttons(ui, info, *timed) {
-                            self.add_filter(id);
-                        }
-                    }
-                    None => {
-                        ui.label(RichText::new("Open a file or add a source first: filters work on the selected object.").weak().small());
-                        ui.separator();
-                    }
-                }
-                if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |_| true) {
-                    self.add_filter(id);
-                }
-                ui.separator();
-                if ui
-                    .button(format!("{} Describe a filter…", crate::icons::SPARKLE))
-                    .on_hover_text("Say in words what you want to see; the assistant adds the filters that show it")
-                    .clicked()
-                {
-                    ui.close();
-                    self.assistant.describe_open = true;
-                }
-                if ui.button("Plot Over Time…").on_hover_text("Open the Charts panel's over-time tools").clicked() {
-                    ui.close();
-                    self.layout_actions.push(LayoutAction::Show(Pane::Charts));
-                }
-                ui.separator();
-                if ui.button("Search…    Ctrl+K").clicked() {
-                    ui.close();
-                    self.palette.open = true;
-                }
-            });
-            ui.scroll_menu("View", |ui| {
-                if ui.button("Reset camera    R").clicked() {
-                    ui.close();
-                    self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
-                }
-                for (label, dir, up) in [
-                    ("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
-                    ("-X", [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
-                    ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
-                    ("-Y", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
-                    ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
-                    ("-Z", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
-                    ("Isometric", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
-                ] {
-                    if ui.button(format!("Look from {label}")).clicked() {
-                        ui.close();
-                        self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
-                    }
-                }
-                ui.separator();
-                ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
-                ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
-                ui.scroll_menu(format!("{} Lighting", crate::icons::CIRCLE_HALF), |ui| {
-                    crate::lighting_ui::lighting_ui(ui, &mut self.settings.lighting);
-                    if !self.settings.lighting.lights.is_empty() {
-                        ui.checkbox(&mut self.settings.show_light_widgets, "Show lights in the view").on_hover_text("Drag the sun handles to aim the lights");
-                    }
-                });
-                if ui
-                    .button(format!("{} New Chart View", crate::icons::WAVE_SINE))
-                    .on_hover_text("A chart of the selected object's arrays beside the other charts (choose its object in the chart's first box)")
-                    .clicked()
-                {
-                    ui.close();
-                    let active = self.session.lock().active;
-                    self.session.lock().new_chart_view(active);
-                }
-                if ui.button(format!("{} Color Map Editor…", crate::icons::PENCIL_SIMPLE)).clicked() {
-                    ui.close();
-                    self.cmap_editor.open = true;
-                }
-                if ui
-                    .button(format!("{} Goal Statistics…", crate::icons::DOTS_NINE))
-                    .on_hover_text("Edit the grain size and shape distributions of a synthetic microstructure with live plots, then pack it")
-                    .clicked()
-                {
-                    ui.close();
-                    self.goal_stats.open = true;
-                }
-                {
-                    let mut s = self.session.lock();
-                    let mut t = s.show_time_label;
-                    if ui.checkbox(&mut t, "Time label").changed() {
-                        s.show_time_label = t;
-                    }
-                }
-                ui.scroll_menu("Annotations", |ui| {
-                    let id = ui.make_persistent_id("new_note");
-                    let mut text: String = ui.data_mut(|d| d.get_temp(id)).unwrap_or_default();
-                    ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut text).hint_text("text").desired_width(160.0));
-                    });
-                    ui.data_mut(|d| d.insert_temp(id, text.clone()));
-                    ui.horizontal_wrapped(|ui| {
-                        for corner in ["upper left", "upper right", "lower right", "upper center", "lower center"] {
-                            if ui.small_button(corner).clicked() && !text.trim().is_empty() {
-                                self.session.lock().annotations.push(aurafx_pipeline::Annotation { text: text.clone(), corner: corner.into(), size: 16.0 });
-                                ui.data_mut(|d| d.remove::<String>(id));
-                            }
-                        }
-                    });
-                    let n = self.session.lock().annotations.len();
-                    if ui.add_enabled(n > 0, egui::Button::new(format!("Clear {n} annotation(s)"))).clicked() {
-                        self.session.lock().annotations.clear();
-                    }
-                });
-                ui.separator();
-                ui.label("Theme");
-                for m in crate::theme::ThemeMode::ALL {
-                    if ui.radio(self.settings.theme == m, m.label()).clicked() {
-                        self.settings.theme = m;
-                        self.settings.dark_theme = m != crate::theme::ThemeMode::Light;
-                        crate::theme::apply(ui.ctx(), m, self.settings.ui_scale);
-                        self.settings.save();
-                    }
-                }
-                ui.separator();
-                let dark = ui.ctx().theme() == egui::Theme::Dark;
-                ui.horizontal(|ui| {
-                    ui.label(if dark { "3D background (dark theme)" } else { "3D background (light theme)" });
-                    let mut c = self.settings.background_for(dark);
-                    if ui.color_edit_button_rgb(&mut c).changed() {
-                        if dark {
-                            self.settings.background = c;
-                        } else {
-                            self.settings.background_light = c;
-                        }
-                        self.settings.save();
-                    }
-                    if ui.small_button("Default").clicked() {
-                        let d = Settings::default();
-                        if dark {
-                            self.settings.background = d.background;
-                        } else {
-                            self.settings.background_light = d.background_light;
-                        }
-                        self.settings.save();
-                    }
-                });
-            });
-            ui.scroll_menu("Windows", |ui| {
-                for p in Pane::ALL {
-                    let mut open = self.open_panes.contains(&p);
-                    if ui.checkbox(&mut open, format!("{} {}", p.icon(), p.title())).clicked() {
-                        self.layout_actions.push(if open { LayoutAction::Show(p) } else { LayoutAction::Hide(p) });
-                    }
-                }
-                ui.separator();
-                ui.menu_button("Plugin panels", |ui| {
-                    if ui.button(format!("{} Look again", crate::icons::ARROW_CLOCKWISE)).on_hover_text("Panels added by @afx.panel in Python plugins").clicked() {
-                        let tx = self.python.sender();
-                        self.plugin_panels.refresh_titles(&tx);
-                    }
-                    if self.plugin_panels.titles.is_empty() {
-                        ui.label(RichText::new("None yet: a Python plugin adds one with @afx.panel(\"Title\")").weak());
-                    }
-                    for t in self.plugin_panels.titles.clone() {
-                        let open = self.plugin_panels.open.contains_key(&t);
-                        if ui.selectable_label(open, &t).clicked() {
-                            if open {
-                                self.plugin_panels.open.remove(&t);
-                            } else {
-                                let tx = self.python.sender();
-                                self.plugin_panels.open_panel(&t, &tx);
-                            }
-                            ui.close();
-                        }
-                    }
-                });
-                ui.separator();
-                ui.label(RichText::new("3D views").weak());
-                if ui.button(format!("{} New view side by side", crate::icons::COLUMNS)).clicked() {
-                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: false, only: None });
-                    ui.close();
-                }
-                if ui.button(format!("{} New view above / below", crate::icons::ROWS)).clicked() {
-                    self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: true, only: None });
-                    ui.close();
-                }
-                let all_linked = self.viewport.linked && self.views.values().all(|v| v.linked);
-                let mut linked = all_linked;
-                if ui
-                    .add_enabled(!self.views.is_empty(), egui::Checkbox::new(&mut linked, format!("{} Link all cameras", crate::icons::LINK)))
-                    .on_hover_text("Rotating, zooming or choosing +X/+Y/+Z/Iso in one view applies to all linked views")
-                    .changed()
-                {
-                    self.link_all_views(linked);
-                }
-                if ui.add_enabled(!self.views.is_empty(), egui::Button::new("Match all views to the active camera")).clicked() {
-                    self.camera_match_from = Some(self.active_view);
-                    ui.close();
-                }
-                ui.separator();
-                ui.label(RichText::new("Layouts").weak());
-                for (label, preset, tip) in [
-                    ("Full workbench", LayoutPreset::Full, "Every panel"),
-                    ("Visualize", LayoutPreset::Visualize, "Pipeline, properties and a large 3D view"),
-                    ("Analyze", LayoutPreset::Analyze, "3D view with charts, spreadsheet and statistics"),
-                    ("Script", LayoutPreset::Script, "Python console and assistant beside the 3D view"),
-                    ("Simulate", LayoutPreset::Simulate, "Simulation runner, logs and GPUs"),
-                    ("Compact (tabs only)", LayoutPreset::Compact, "Every panel as a tab: best on small screens"),
-                ] {
-                    if ui.button(label).on_hover_text(tip).clicked() {
-                        self.layout_actions.push(LayoutAction::Preset(preset));
-                        ui.close();
-                    }
-                }
-                ui.separator();
-                if ui.button("Reset layout").clicked() {
-                    self.layout_actions.push(LayoutAction::Preset(LayoutPreset::Full));
-                    ui.close();
-                }
-            });
-            ui.scroll_menu("Simulate", |ui| {
-                if ui.button("Run a simulation…").clicked() {
-                    ui.close();
-                    self.status = "Use the Simulations panel to configure and run a job.".into();
-                }
-                ui.label(RichText::new("Templates: LAMMPS, MOOSE, OpenFOAM, Python, custom").weak());
-            });
-            ui.scroll_menu("Remote", |ui| {
-                if ui
-                    .button(format!("{} Open data on another machine…", crate::icons::CLOUD))
-                    .on_hover_text("Add a machine, install aurafx-server there, choose where the picture is drawn, and open a file on it")
-                    .clicked()
-                {
-                    ui.close();
-                    self.server.open = true;
-                }
-                if ui.button(format!("{} Machines and jobs…", crate::icons::DESKTOP_TOWER)).on_hover_text("The Simulations panel: machines, jobs, files").clicked() {
-                    ui.close();
-                    self.layout_actions.push(LayoutAction::Show(Pane::Jobs));
-                }
-            });
-            ui.scroll_menu("Model", |ui| {
-                ui.label(RichText::new("Make what a solver needs").weak().small());
-                if ui
-                    .button(format!("{} New CAD part", crate::icons::CUBE))
-                    .on_hover_text("A parametric part: sketches, extrusions, holes, fillets. Opens the CAD environment, which says what to do next.")
-                    .clicked()
-                {
-                    ui.close();
-                    crate::welcome::new_cad_part(self);
-                }
-                if ui.button(format!("{} Open a CAD file…", crate::icons::FOLDER_OPEN)).on_hover_text("STEP, IGES, 3MF, .sc or .afxcad: opens as a CAD Model you can edit").clicked() {
-                    ui.close();
-                    self.open_file_dialog();
-                }
-                {
-                    // The selected object as the first body of a CAD part: a Geometry source, any closed surface.
-                    let (active, is_cad) = {
-                        let s = self.session.lock();
-                        (s.active.filter(|a| s.nodes.get(a).is_some_and(|n| n.output.is_some())), s.active.is_some_and(|a| s.is_cad_model(a)))
-                    };
-                    if ui
-                        .add_enabled(active.is_some() && !crate::cad::editing(self), egui::Button::new(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)))
-                        .on_hover_text(if is_cad {
-                            "Open the CAD environment on the selected part"
-                        } else {
-                            "Start a CAD part from the selected object: its solid (a Geometry source's bodies, any closed surface) becomes the first body, to add to and cut from. The object itself is hidden, not changed."
-                        })
-                        .on_disabled_hover_text("Select an object in the Pipeline panel first: a CAD Model, a Geometry source or anything with a closed surface")
-                        .clicked()
-                    {
-                        ui.close();
-                        if let Some(id) = active {
-                            crate::cad::enter_from(self, id);
-                        }
-                    }
-                }
-                if ui
-                    .button(format!("{} New geometry (commands)", crate::icons::CUBE))
-                    .on_hover_text("Solids from short commands, with menus that insert them and the steps to a hexahedral or tetrahedral mesh")
-                    .clicked()
-                {
-                    ui.close();
-                    crate::welcome::new_geometry(self);
-                }
-                ui.separator();
-                ui.label(RichText::new("Meshing filters (on the selected object)").weak().small());
-                let ctx_info = crate::menus::node_context(self, None);
-                if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |f| f.category == "Mesh" || f.id == "mesh_quality") {
-                    self.add_filter(id);
-                }
-            });
-            ui.scroll_menu("Help", |ui| {
-                if ui.button("Welcome").on_hover_text("Where to start, and a few things worth knowing").clicked() {
-                    ui.close();
-                    self.show_welcome = true;
-                }
-                if ui.button("User guide").on_hover_text("Every feature with pictures, in your browser").clicked() {
-                    ui.close();
-                    crate::welcome::open_guide(ui.ctx(), "index.html");
-                }
-                if ui.button("Keyboard shortcuts").clicked() {
-                    ui.close();
-                    self.show_shortcuts = true;
-                }
-                if ui.button("Python API cheat sheet").clicked() {
-                    ui.close();
-                    self.console.show_help = true;
-                }
-                if ui.button("About auraFX").clicked() {
-                    ui.close();
-                    self.show_about = true;
-                }
-            });
             if ui.available_width() < 260.0 {
                 return;
             }
@@ -1381,8 +1142,662 @@ impl State {
         });
     }
 
+    /// The items of the Sources menu.
+    fn menu_sources(&mut self, ui: &mut egui::Ui) {
+        if let Some(id) = crate::menus::source_menu(ui) {
+            crate::source_dialog::insert_source(self, id);
+        }
+    }
+
+    /// The items of the File menu.
+    fn menu_file(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Open…    Ctrl+O").clicked() {
+            ui.close();
+            self.open_file_dialog();
+        }
+        if ui
+            .button(format!("{} Open on Server…", crate::icons::CLOUD))
+            .on_hover_text("Read and filter a file on another machine (over SSH); only what you view comes back")
+            .clicked()
+        {
+            ui.close();
+            self.server.open = true;
+        }
+        let has_data = self.session.lock().active_node().map(|n| n.output.is_some()).unwrap_or(false);
+        if ui.add_enabled(has_data, egui::Button::new("Save Data…")).on_hover_text("Write the selected node's data (VTK, CSV, STL, PLY)").clicked() {
+            ui.close();
+            self.save_data_dialog();
+        }
+        if ui.button("Import Pipeline…").on_hover_text("Build a pipeline from a pipeline file (.json) or the pipeline a .dream3d file records; it starts from the selected data when its files are not found").clicked() {
+            ui.close();
+            self.import_pipeline_dialog();
+        }
+        ui.separator();
+        if ui.button("Save State    Ctrl+S").on_hover_text("Save the pipeline, display settings and camera to an .afx file").clicked() {
+            ui.close();
+            self.save_state_dialog(false);
+        }
+        if ui.button("Save State As…").clicked() {
+            ui.close();
+            self.save_state_dialog(true);
+        }
+        let last = Self::last_session_path();
+        if ui
+            .add_enabled(last.exists(), egui::Button::new("Restore Last Session"))
+            .on_hover_text("Reopen the pipeline you had when auraFX was last closed")
+            .clicked()
+        {
+            ui.close();
+            self.load_state(last);
+        }
+        ui.scroll_menu("Open Sample Data", |ui| {
+            if ui
+                .button("Heated disk in a flow (Exodus)")
+                .on_hover_text("The disk_out_ref sample: a heated disk in a flow, with temperature, pressure and velocity")
+                .clicked()
+            {
+                ui.close();
+                self.open_sample("disk_out_ref.ex2");
+            }
+            if ui
+                .button("Curved quarter cylinder (Lagrange cells)")
+                .on_hover_text("Four cubic Lagrange hexahedra; try Display › Curved cells and Tessellate")
+                .clicked()
+            {
+                ui.close();
+                self.open_sample("lagrange_annulus.vtu");
+            }
+            if ui.button("Wavelet volume (generated)").clicked() {
+                ui.close();
+                self.add_filter("wavelet");
+            }
+            if ui.button("Sphere (generated)").clicked() {
+                ui.close();
+                self.add_filter("sphere");
+            }
+        });
+        ui.scroll_menu("Open Recent", |ui| {
+            if self.settings.recent_files.is_empty() {
+                ui.label("No recent files");
+            }
+            let recent = self.settings.recent_files.clone();
+            for p in recent {
+                if ui.button(p.display().to_string()).clicked() {
+                    ui.close();
+                    self.open_file(p);
+                }
+            }
+            ui.separator();
+            if ui.button("Clear list").clicked() {
+                self.settings.recent_files.clear();
+                self.settings.save();
+            }
+        });
+        ui.separator();
+        if ui.button("Save Screenshot…    Ctrl+Shift+S").clicked() {
+            ui.close();
+            self.save_screenshot_dialog();
+        }
+        if ui.button("Export Scene…").on_hover_text("The visible objects as a glTF (.glb) or OBJ file, for Blender, web viewers, slides").clicked() {
+            ui.close();
+            if let Some(path) = crate::dialogs::FileDialog::new()
+                .add_filter("glTF binary", &["glb"])
+                .add_filter("Wavefront OBJ (vertex colors)", &["obj"])
+                .add_filter("X3D", &["x3d"])
+                .add_filter("VRML 2.0", &["wrl"])
+                .add_filter("Web page you can turn (HTML)", &["html"])
+                .set_file_name("scene.glb")
+                .save_file()
+            {
+                self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest::new(path));
+            }
+        }
+        if ui.button("Animation…").on_hover_text("Time steps, a camera orbit or keyframes, saved as GIF, MP4 or PNG frames").clicked() {
+            ui.close();
+            self.anim_dialog.open = true;
+        }
+        if ui.button("Export Python trace…").clicked() {
+            ui.close();
+            let trace = self.session.lock().trace.join("\n");
+            if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Python", &["py"]).set_file_name("aurafx_trace.py").save_file() {
+                let _ = std::fs::write(p, format!("import aurafx as afx\n\n{trace}\n"));
+            }
+        }
+        ui.separator();
+        if ui.button("Settings…    Ctrl+,").clicked() {
+            ui.close();
+            self.show_settings = true;
+        }
+        ui.separator();
+        if ui.button("Quit").clicked() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    /// The items of the Edit menu.
+    fn menu_edit(&mut self, ui: &mut egui::Ui) {
+        let (ul, rl) = {
+            let s = self.session.lock();
+            (s.undo_label().map(|l| l.to_string()), s.redo_label().map(|l| l.to_string()))
+        };
+        if ui.add_enabled(ul.is_some(), egui::Button::new(format!("Undo {}    Ctrl+Z", ul.clone().unwrap_or_default()))).clicked() {
+            ui.close();
+            self.undo();
+        }
+        if ui.add_enabled(rl.is_some(), egui::Button::new(format!("Redo {}    Ctrl+Shift+Z", rl.clone().unwrap_or_default()))).clicked() {
+            ui.close();
+            self.redo();
+        }
+        ui.separator();
+        let active = self.session.lock().active;
+        if ui.add_enabled(active.is_some(), egui::Button::new("Delete active node    Del")).clicked() {
+            ui.close();
+            if let Some(a) = active {
+                self.session.lock().remove_node(a);
+            }
+        }
+        if ui.add_enabled(active.is_some(), egui::Button::new("Rename active node")).clicked() {
+            ui.close();
+            if let Some(a) = active {
+                let name = self.session.lock().nodes.get(&a).map(|n| n.name.clone()).unwrap_or_default();
+                self.rename_target = Some((a, name));
+            }
+        }
+        ui.separator();
+        if ui.button("Plugins…").on_hover_text("Python plugins that add filters, sources and readers").clicked() {
+            ui.close();
+            self.plugins.open = true;
+        }
+        if ui.button("Settings…    Ctrl+,").clicked() {
+            ui.close();
+            self.show_settings = true;
+        }
+    }
+
+    /// The items of the Filters menu.
+    fn menu_filters(&mut self, ui: &mut egui::Ui) {
+        let ctx_info = crate::menus::node_context(self, None);
+        match &ctx_info {
+            Some((info, timed)) => {
+                if let Some(id) = crate::menus::suggestion_buttons(ui, info, *timed) {
+                    self.add_filter(id);
+                }
+            }
+            None => {
+                ui.label(RichText::new("Open a file or add a source first: filters work on the selected object.").weak().small());
+                ui.separator();
+            }
+        }
+        if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |_| true) {
+            self.add_filter(id);
+        }
+        ui.separator();
+        if ui
+            .button(format!("{} Describe a filter…", crate::icons::SPARKLE))
+            .on_hover_text("Say in words what you want to see; the assistant adds the filters that show it")
+            .clicked()
+        {
+            ui.close();
+            self.assistant.describe_open = true;
+        }
+        if ui.button("Plot Over Time…").on_hover_text("Open the Charts panel's over-time tools").clicked() {
+            ui.close();
+            self.layout_actions.push(LayoutAction::Show(Pane::Charts));
+        }
+        ui.separator();
+        if ui.button("Search…    Ctrl+K").clicked() {
+            ui.close();
+            self.palette.open = true;
+        }
+    }
+
+    /// The items of the View menu.
+    fn menu_view(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Reset camera    R").clicked() {
+            ui.close();
+            self.session.lock().camera_request = Some(CameraRequest::ResetToBounds);
+        }
+        for (label, dir, up) in [
+            ("+X", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            ("-X", [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            ("+Y", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+            ("-Y", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
+            ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+            ("-Z", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
+            ("Isometric", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
+        ] {
+            if ui.button(format!("Look from {label}")).clicked() {
+                ui.close();
+                self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
+            }
+        }
+        ui.separator();
+        ui.checkbox(&mut self.viewport.camera.orthographic, "Orthographic projection");
+        ui.checkbox(&mut self.settings.show_orientation_axes, "Orientation axes");
+        ui.scroll_menu(format!("{} Lighting", crate::icons::CIRCLE_HALF), |ui| {
+            crate::lighting_ui::lighting_ui(ui, &mut self.settings.lighting);
+            if !self.settings.lighting.lights.is_empty() {
+                ui.checkbox(&mut self.settings.show_light_widgets, "Show lights in the view").on_hover_text("Drag the sun handles to aim the lights");
+            }
+        });
+        if ui
+            .button(format!("{} New Chart View", crate::icons::WAVE_SINE))
+            .on_hover_text("A chart of the selected object's arrays beside the other charts (choose its object in the chart's first box)")
+            .clicked()
+        {
+            ui.close();
+            let active = self.session.lock().active;
+            self.session.lock().new_chart_view(active);
+        }
+        if ui.button(format!("{} Color Map Editor…", crate::icons::PENCIL_SIMPLE)).clicked() {
+            ui.close();
+            self.cmap_editor.open = true;
+        }
+        if ui
+            .button(format!("{} Goal Statistics…", crate::icons::DOTS_NINE))
+            .on_hover_text("Edit the grain size and shape distributions of a synthetic microstructure with live plots, then pack it")
+            .clicked()
+        {
+            ui.close();
+            self.goal_stats.open = true;
+        }
+        {
+            let mut s = self.session.lock();
+            let mut t = s.show_time_label;
+            if ui.checkbox(&mut t, "Time label").changed() {
+                s.show_time_label = t;
+            }
+        }
+        ui.scroll_menu("Annotations", |ui| {
+            let id = ui.make_persistent_id("new_note");
+            let mut text: String = ui.data_mut(|d| d.get_temp(id)).unwrap_or_default();
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut text).hint_text("text").desired_width(160.0));
+            });
+            ui.data_mut(|d| d.insert_temp(id, text.clone()));
+            ui.horizontal_wrapped(|ui| {
+                for corner in ["upper left", "upper right", "lower right", "upper center", "lower center"] {
+                    if crate::touch::small_button(ui, corner).clicked() && !text.trim().is_empty() {
+                        self.session.lock().annotations.push(aurafx_pipeline::Annotation { text: text.clone(), corner: corner.into(), size: 16.0 });
+                        ui.data_mut(|d| d.remove::<String>(id));
+                    }
+                }
+            });
+            let n = self.session.lock().annotations.len();
+            if ui.add_enabled(n > 0, egui::Button::new(format!("Clear {n} annotation(s)"))).clicked() {
+                self.session.lock().annotations.clear();
+            }
+        });
+        ui.separator();
+        ui.label("Theme");
+        for m in crate::theme::ThemeMode::ALL {
+            if ui.radio(self.settings.theme == m, m.label()).clicked() {
+                self.settings.theme = m;
+                self.settings.dark_theme = m != crate::theme::ThemeMode::Light;
+                crate::theme::apply(ui.ctx(), m, self.settings.ui_scale);
+                self.settings.save();
+            }
+        }
+        ui.separator();
+        let dark = ui.ctx().theme() == egui::Theme::Dark;
+        ui.horizontal(|ui| {
+            ui.label(if dark { "3D background (dark theme)" } else { "3D background (light theme)" });
+            let mut c = self.settings.background_for(dark);
+            if ui.color_edit_button_rgb(&mut c).changed() {
+                if dark {
+                    self.settings.background = c;
+                } else {
+                    self.settings.background_light = c;
+                }
+                self.settings.save();
+            }
+            if crate::touch::small_button(ui, "Default").clicked() {
+                let d = Settings::default();
+                if dark {
+                    self.settings.background = d.background;
+                } else {
+                    self.settings.background_light = d.background_light;
+                }
+                self.settings.save();
+            }
+        });
+    }
+
+    /// The items of the Windows menu.
+    fn menu_windows(&mut self, ui: &mut egui::Ui) {
+        for p in Pane::ALL {
+            // A tablet or a phone does not list the panels its build has nothing to show in.
+            if crate::touch::mode().is_touch() && !p.available() {
+                continue;
+            }
+            let mut open = self.open_panes.contains(&p);
+            if ui.checkbox(&mut open, format!("{} {}", p.icon(), p.title())).clicked() {
+                self.layout_actions.push(if open { LayoutAction::Show(p) } else { LayoutAction::Hide(p) });
+            }
+        }
+        ui.separator();
+        ui.menu_button("Plugin panels", |ui| {
+            if ui.button(format!("{} Look again", crate::icons::ARROW_CLOCKWISE)).on_hover_text("Panels added by @afx.panel in Python plugins").clicked() {
+                let tx = self.python.sender();
+                self.plugin_panels.refresh_titles(&tx);
+            }
+            if self.plugin_panels.titles.is_empty() {
+                ui.label(RichText::new("None yet: a Python plugin adds one with @afx.panel(\"Title\")").weak());
+            }
+            for t in self.plugin_panels.titles.clone() {
+                let open = self.plugin_panels.open.contains_key(&t);
+                if ui.selectable_label(open, &t).clicked() {
+                    if open {
+                        self.plugin_panels.open.remove(&t);
+                    } else {
+                        let tx = self.python.sender();
+                        self.plugin_panels.open_panel(&t, &tx);
+                    }
+                    ui.close();
+                }
+            }
+        });
+        ui.separator();
+        ui.label(RichText::new("3D views").weak());
+        if ui.button(format!("{} New view side by side", crate::icons::COLUMNS)).clicked() {
+            self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: false, only: None });
+            ui.close();
+        }
+        if ui.button(format!("{} New view above / below", crate::icons::ROWS)).clicked() {
+            self.layout_actions.push(LayoutAction::SplitView { from: self.active_view, vertical: true, only: None });
+            ui.close();
+        }
+        let all_linked = self.viewport.linked && self.views.values().all(|v| v.linked);
+        let mut linked = all_linked;
+        if ui
+            .add_enabled(!self.views.is_empty(), egui::Checkbox::new(&mut linked, format!("{} Link all cameras", crate::icons::LINK)))
+            .on_hover_text("Rotating, zooming or choosing +X/+Y/+Z/Iso in one view applies to all linked views")
+            .changed()
+        {
+            self.link_all_views(linked);
+        }
+        if ui.add_enabled(!self.views.is_empty(), egui::Button::new("Match all views to the active camera")).clicked() {
+            self.camera_match_from = Some(self.active_view);
+            ui.close();
+        }
+        ui.separator();
+        ui.label(RichText::new("Layouts").weak());
+        for (label, preset, tip) in [
+            ("Full workbench", LayoutPreset::Full, "Every panel"),
+            ("Visualize", LayoutPreset::Visualize, "Pipeline, properties and a large 3D view"),
+            ("Analyze", LayoutPreset::Analyze, "3D view with charts, spreadsheet and statistics"),
+            ("Script", LayoutPreset::Script, "Python console and assistant beside the 3D view"),
+            ("Simulate", LayoutPreset::Simulate, "Simulation runner, logs and GPUs"),
+            ("Compact (tabs only)", LayoutPreset::Compact, "Every panel as a tab: best on small screens"),
+        ] {
+            if ui.button(label).on_hover_text(tip).clicked() {
+                self.layout_actions.push(LayoutAction::Preset(preset));
+                ui.close();
+            }
+        }
+        ui.label(RichText::new("Layouts by window shape").weak());
+        if ui
+            .radio(self.auto_layout, "Automatic")
+            .on_hover_text("Follow the window: a wide one gets the workbench, a tall one the view on top and the panels below, a small one a single group of tabs. Turning a tablet or a phone changes the layout with it.")
+            .clicked()
+        {
+            self.layout_actions.push(LayoutAction::Preset(LayoutPreset::Automatic));
+            ui.close();
+        }
+        for (label, preset, tip) in [
+            (
+                "Wide (view left, tabs right)",
+                LayoutPreset::Wide,
+                "The 3D view on the left and every panel as a tab on the right: a phone held wide, a low window",
+            ),
+            ("Tall (view on top, tabs below)", LayoutPreset::Tall, "The 3D view on top and every panel as a tab below: a phone held tall, a narrow window"),
+            ("Tall, two tab groups", LayoutPreset::TallTwo, "The 3D view on top and two groups of tabs side by side below: a tablet held tall, a tall window"),
+        ] {
+            if ui.button(label).on_hover_text(tip).clicked() {
+                self.layout_actions.push(LayoutAction::Preset(preset));
+                ui.close();
+            }
+        }
+        ui.separator();
+        if ui.button("Reset layout").clicked() {
+            self.layout_actions.push(LayoutAction::Preset(LayoutPreset::Full));
+            ui.close();
+        }
+    }
+
+    /// The items of the Simulate menu.
+    fn menu_simulate(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Run a simulation…").clicked() {
+            ui.close();
+            self.status = "Use the Simulations panel to configure and run a job.".into();
+        }
+        ui.label(RichText::new("Templates: LAMMPS, MOOSE, OpenFOAM, Python, custom").weak());
+    }
+
+    /// The items of the Remote menu.
+    fn menu_remote(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .button(format!("{} Open data on another machine…", crate::icons::CLOUD))
+            .on_hover_text("Add a machine, install aurafx-server there, choose where the picture is drawn, and open a file on it")
+            .clicked()
+        {
+            ui.close();
+            self.server.open = true;
+        }
+        if ui.button(format!("{} Machines and jobs…", crate::icons::DESKTOP_TOWER)).on_hover_text("The Simulations panel: machines, jobs, files").clicked() {
+            ui.close();
+            self.layout_actions.push(LayoutAction::Show(Pane::Jobs));
+        }
+    }
+
+    /// The items of the Model menu.
+    fn menu_model(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("Make what a solver needs").weak().small());
+        if ui
+            .button(format!("{} New CAD part", crate::icons::CUBE))
+            .on_hover_text("A parametric part: sketches, extrusions, holes, fillets. Opens the CAD environment, which says what to do next.")
+            .clicked()
+        {
+            ui.close();
+            crate::welcome::new_cad_part(self);
+        }
+        if ui
+            .button(format!("{} Open a CAD file…", crate::icons::FOLDER_OPEN))
+            .on_hover_text("STEP, IGES, 3MF, .sc or .afxcad: opens as a CAD Model you can edit")
+            .clicked()
+        {
+            ui.close();
+            self.open_file_dialog();
+        }
+        {
+            // The selected object as the first body of a CAD part: a Geometry source, any closed surface.
+            let (active, is_cad) = {
+                let s = self.session.lock();
+                (s.active.filter(|a| s.nodes.get(a).is_some_and(|n| n.output.is_some())), s.active.is_some_and(|a| s.is_cad_model(a)))
+            };
+            if ui
+                .add_enabled(active.is_some() && !crate::cad::editing(self), egui::Button::new(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)))
+                .on_hover_text(if is_cad {
+                    "Open the CAD environment on the selected part"
+                } else {
+                    "Start a CAD part from the selected object: its solid (a Geometry source's bodies, any closed surface) becomes the first body, to add to and cut from. The object itself is hidden, not changed."
+                })
+                .on_disabled_hover_text("Select an object in the Pipeline panel first: a CAD Model, a Geometry source or anything with a closed surface")
+                .clicked()
+            {
+                ui.close();
+                if let Some(id) = active {
+                    crate::cad::enter_from(self, id);
+                }
+            }
+        }
+        if ui
+            .button(format!("{} New geometry (commands)", crate::icons::CUBE))
+            .on_hover_text("Solids from short commands, with menus that insert them and the steps to a hexahedral or tetrahedral mesh")
+            .clicked()
+        {
+            ui.close();
+            crate::welcome::new_geometry(self);
+        }
+        ui.separator();
+        ui.label(RichText::new("Meshing filters (on the selected object)").weak().small());
+        let ctx_info = crate::menus::node_context(self, None);
+        if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |f| f.category == "Mesh" || f.id == "mesh_quality") {
+            self.add_filter(id);
+        }
+    }
+
+    /// The items of the Help menu.
+    fn menu_help(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Welcome").on_hover_text("Where to start, and a few things worth knowing").clicked() {
+            ui.close();
+            self.show_welcome = true;
+        }
+        if ui.button("User guide").on_hover_text("Every feature with pictures, in your browser").clicked() {
+            ui.close();
+            crate::welcome::open_guide(ui.ctx(), "index.html");
+        }
+        if ui.button("Keyboard shortcuts").clicked() {
+            ui.close();
+            self.show_shortcuts = true;
+        }
+        if ui.button("Python API cheat sheet").clicked() {
+            ui.close();
+            self.console.show_help = true;
+        }
+        if ui.button("About auraFX").clicked() {
+            ui.close();
+            self.show_about = true;
+        }
+    }
+
+    /// The tablet's menu bar: the same menus with room for a finger. Those that do not fit the
+    /// width go into a last menu instead of being cut off.
+    fn menu_bar_tablet(&mut self, ui: &mut egui::Ui) {
+        egui::MenuBar::new().ui(ui, |ui| {
+            ui.spacing_mut().button_padding = egui::vec2(10.0, 8.0);
+            ui.add(egui::Image::new(egui::include_image!("../../../assets/icons/aurafx-32.png")).fit_to_exact_size(egui::vec2(24.0, 24.0)));
+            let menus = self.top_menus();
+            let gap = ui.spacing().item_spacing.x;
+            let pad = 2.0 * ui.spacing().button_padding.x + gap;
+            let widths: Vec<f32> =
+                menus.iter().map(|m| egui::WidgetText::from(m.label).into_galley(ui, None, f32::INFINITY, egui::TextStyle::Button).size().x + pad).collect();
+            // The two buttons on the right, and the overflow menu when it is needed.
+            let button = ui.spacing().interact_size.x.max(44.0) + gap;
+            let room = ui.available_width() - 2.0 * button;
+            let mut shown = menus.len();
+            if widths.iter().sum::<f32>() > room {
+                let mut used = button;
+                shown = 0;
+                for w in &widths {
+                    if used + w > room {
+                        break;
+                    }
+                    used += w;
+                    shown += 1;
+                }
+            }
+            let title = |m: &TopMenu| if m.accent { RichText::new(m.label).color(crate::theme::ACCENT) } else { RichText::new(m.label) };
+            for m in &menus[..shown] {
+                ui.scroll_menu(title(m), |ui| (m.ui)(self, ui));
+            }
+            if shown < menus.len() {
+                ui.scroll_menu(RichText::new(crate::icons::DOTS_THREE).size(20.0), |ui| {
+                    for m in &menus[shown..] {
+                        ui.scroll_menu(title(m), |ui| (m.ui)(self, ui));
+                    }
+                })
+                .response
+                .on_hover_text("More menus");
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| self.search_and_ask(ui));
+        });
+    }
+
+    /// The two buttons at the right of a touch interface's top bar: the assistant and the search.
+    fn search_and_ask(&mut self, ui: &mut egui::Ui) {
+        let icon = |i: &str| egui::Button::new(RichText::new(i).size(20.0)).min_size(egui::vec2(44.0, crate::touch::TOUCH_HEIGHT));
+        if ui.add(icon(crate::icons::SPARKLE)).on_hover_text("Ask AI: the Assistant panel").clicked() {
+            self.assistant.focus_input = true;
+            self.layout_actions.push(LayoutAction::Show(Pane::Assistant));
+            self.touch.menu_open = false;
+            self.touch.view_maximized = false;
+        }
+        if ui.add(icon(crate::icons::MAGNIFYING_GLASS)).on_hover_text("Search filters, sources and actions").clicked() {
+            self.palette.open = true;
+            self.touch.menu_open = false;
+        }
+        if self.touch.view_maximized && ui.add(icon(crate::icons::CORNERS_IN)).on_hover_text("Show the panels again").clicked() {
+            self.touch.view_maximized = false;
+        }
+    }
+
+    /// The phone's top bar: one menu button, the name, the search and the assistant.
+    fn menu_bar_phone(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let open = self.touch.menu_open;
+            let icon = if open { crate::icons::X } else { crate::icons::LIST };
+            let b = egui::Button::new(RichText::new(icon).size(22.0)).min_size(egui::vec2(48.0, crate::touch::TOUCH_HEIGHT)).selected(open);
+            if ui.add(b).on_hover_text("Menu: File, Edit, Sources, Filters, View, Windows and the others").clicked() {
+                self.touch.menu_open = !open;
+            }
+            ui.add(egui::Image::new(egui::include_image!("../../../assets/icons/aurafx-32.png")).fit_to_exact_size(egui::vec2(24.0, 24.0)));
+            if crate::cad::editing(self) {
+                ui.label(RichText::new("CAD").strong().color(crate::theme::ACCENT));
+            } else {
+                ui.label(RichText::new("auraFX").strong());
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| self.search_and_ask(ui));
+        });
+    }
+
+    /// The phone's menu: the top menus as a list over the whole screen. A menu's name opens its
+    /// items below it; choosing an item closes the list.
+    fn menu_list_ui(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().id_salt("menu list").auto_shrink([false, false]).show(ui, |ui| {
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                // Rows like a menu's: no button frames.
+                let v = &mut ui.style_mut().visuals.widgets;
+                v.inactive.weak_bg_fill = Color32::TRANSPARENT;
+                v.inactive.bg_stroke = egui::Stroke::NONE;
+                for m in self.top_menus() {
+                    let open = self.touch.menu_section == Some(m.label);
+                    let caret = if open { crate::icons::CARET_DOWN } else { crate::icons::CARET_RIGHT };
+                    let mut title = RichText::new(format!("{caret}   {}", m.label)).size(17.0).strong();
+                    if m.accent {
+                        title = title.color(crate::theme::ACCENT);
+                    }
+                    if ui.add(egui::Button::new(title).min_size(egui::vec2(0.0, 46.0))).clicked() {
+                        self.touch.menu_section = if open { None } else { Some(m.label) };
+                    }
+                    if open {
+                        let chosen = ui
+                            .scope_builder(egui::UiBuilder::new().closable(), |ui| {
+                                ui.indent(("menu list", m.label), |ui| (m.ui)(self, ui));
+                                ui.should_close()
+                            })
+                            .inner;
+                        if chosen {
+                            self.touch.menu_open = false;
+                        }
+                    }
+                    ui.separator();
+                }
+            });
+        });
+    }
+
     fn toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
+        if crate::touch::mode().is_touch() {
+            // One row that scrolls sideways instead of being cut off or taking several rows.
+            egui::ScrollArea::horizontal().id_salt("toolbar").show(ui, |ui| ui.horizontal(|ui| self.toolbar_items(ui)));
+            return;
+        }
+        ui.horizontal_wrapped(|ui| self.toolbar_items(ui));
+    }
+
+    fn toolbar_items(&mut self, ui: &mut egui::Ui) {
+        {
             if ui.button(format!("{} Open", crate::icons::FOLDER_OPEN)).on_hover_text("Open data file (Ctrl+O)").clicked() {
                 self.open_file_dialog();
             }
@@ -1421,7 +1836,7 @@ impl State {
                 ("+Z", [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
                 ("Iso", [1.0, 1.0, 1.0], [0.0, 0.0, 1.0]),
             ] {
-                if ui.small_button(crate::icons::with(label)).on_hover_text(format!("Look from {label}")).clicked() {
+                if crate::touch::small_button(ui, crate::icons::with(label)).on_hover_text(format!("Look from {label}")).clicked() {
                     self.session.lock().camera_request = Some(CameraRequest::View { direction: dir, up });
                 }
             }
@@ -1484,7 +1899,7 @@ impl State {
                     }
                 }
             }
-        });
+        }
     }
 
     fn time_bar(&mut self, ui: &mut egui::Ui) {
@@ -1495,7 +1910,15 @@ impl State {
         if n < 2 {
             return;
         }
-        ui.horizontal(|ui| {
+        if crate::touch::mode().is_touch() {
+            egui::ScrollArea::horizontal().id_salt("time bar").show(ui, |ui| ui.horizontal(|ui| self.time_bar_items(ui, n, idx, t)));
+            return;
+        }
+        ui.horizontal(|ui| self.time_bar_items(ui, n, idx, t));
+    }
+
+    fn time_bar_items(&mut self, ui: &mut egui::Ui, n: usize, idx: usize, t: Option<f64>) {
+        {
             ui.label(RichText::new(format!("{} Time", crate::icons::CLOCK)).strong());
             if ui.button(crate::icons::SKIP_BACK).on_hover_text("First").clicked() {
                 self.session.lock().set_time_index(0);
@@ -1518,7 +1941,7 @@ impl State {
             }
             ui.label(format!("step {}/{}  t = {}", idx + 1, n, t.map(|v| aurafx_data::info::g(v)).unwrap_or_default()));
             ui.add(egui::DragValue::new(&mut self.play_fps).range(0.5..=60.0).speed(0.5).suffix(" fps"));
-        });
+        }
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1540,6 +1963,20 @@ impl State {
             } else {
                 ui.label(RichText::new(crate::icons::CHECK_CIRCLE).color(crate::theme::OK));
             }
+            if crate::touch::mode().is_touch() {
+                // One line whatever the width: the message, cut short when it does not fit, and
+                // on a tablet the counts on the right.
+                let counts = format!("{nodes} nodes | {pts} points, {cells} cells | {:.0} fps", self.viewport.fps());
+                if crate::touch::mode().is_phone() {
+                    ui.add(egui::Label::new(&self.status).truncate()).on_hover_text(format!("{}\n{counts}", self.status));
+                } else {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(counts);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| ui.add(egui::Label::new(&self.status).truncate()));
+                    });
+                }
+                return;
+            }
             ui.label(&self.status);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(format!(
@@ -1559,7 +1996,7 @@ impl State {
             return;
         }
         let mut open = true;
-        egui::Window::new("Settings").open(&mut open).resizable(true).default_width(520.0).show(ctx, |ui| {
+        egui::Window::new("Settings").open(&mut open).resizable(true).default_width(520.0).show_fit(ctx, |ui| {
             ui.heading("Appearance");
             ui.horizontal(|ui| {
                 ui.label("Theme");
@@ -1580,6 +2017,41 @@ impl State {
             });
             ui.checkbox(&mut self.settings.ask_source_settings, "Ask before adding a source")
                 .on_hover_text("Adding a source opens a window to insert it with its standard settings or change them first");
+            ui.separator();
+            ui.heading("Interface");
+            ui.horizontal(|ui| {
+                ui.label("Interface");
+                let before = self.settings.interface;
+                egui::ComboBox::from_id_salt("interface_mode").selected_text(self.settings.interface.label()).show_ui(ui, |ui| {
+                    for (c, tip) in [
+                        (crate::touch::InterfaceChoice::Automatic, "Desktop on a computer; Tablet or Phone on a tablet or a phone, by the size of its screen"),
+                        (crate::touch::InterfaceChoice::Desktop, "Menus, panels and windows for a mouse and a keyboard"),
+                        (crate::touch::InterfaceChoice::Tablet, "Controls sized for a finger, windows that stay on the screen, layouts that follow how the screen is held"),
+                        (crate::touch::InterfaceChoice::Phone, "One menu button, the 3D view and one group of tabs"),
+                    ] {
+                        ui.selectable_value(&mut self.settings.interface, c, c.label()).on_hover_text(tip);
+                    }
+                });
+                if before != self.settings.interface {
+                    self.settings.save();
+                }
+                let now = crate::touch::mode();
+                let note = if crate::touch::mode_from_env() {
+                    format!("(now {}, set by AURAFX_INTERFACE)", now.label())
+                } else {
+                    format!("(now {})", now.label())
+                };
+                ui.label(RichText::new(note).weak().small());
+            });
+            if crate::touch::mode().is_touch() {
+                if ui
+                    .checkbox(&mut self.settings.keyboard_room, "Keep room for the on-screen keyboard")
+                    .on_hover_text("While you type, the lower part of the screen is left free for the keyboard where the system does not say how tall it is. Turn it off with a hardware keyboard.")
+                    .changed()
+                {
+                    self.settings.save();
+                }
+            }
             ui.separator();
             ui.heading("Keyboard");
             ui.label(RichText::new("Type keys like Ctrl+Shift+S, R, F5 or Space (several with commas), or press Record and then the key.").weak().small());
@@ -1679,7 +2151,7 @@ impl State {
     fn about_window(&mut self, ctx: &egui::Context) {
         if self.show_about {
             let mut open = true;
-            egui::Window::new("About auraFX").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            egui::Window::new("About auraFX").open(&mut open).collapsible(false).resizable(false).show_fit(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add(egui::Image::new(egui::include_image!("../../../assets/icons/aurafx-128.png")).fit_to_exact_size(egui::vec2(96.0, 96.0)));
                     ui.heading(format!("auraFX {}", env!("CARGO_PKG_VERSION")));
@@ -1701,7 +2173,7 @@ impl State {
             static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
             let lines = LINES.get_or_init(|| include_str!("../../../THIRD-PARTY-NOTICES.txt").lines().collect());
             let mut open = true;
-            egui::Window::new("Third-party licences").open(&mut open).default_size([680.0, 520.0]).show(ctx, |ui| {
+            egui::Window::new("Third-party licences").open(&mut open).default_size([680.0, 520.0]).fit_own_scroll(ctx).show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} Find", crate::icons::MAGNIFYING_GLASS));
                     ui.add(egui::TextEdit::singleline(&mut self.licence_find).hint_text("a crate or a licence, e.g. Apache-2.0").desired_width(260.0));
@@ -1721,7 +2193,7 @@ impl State {
         }
         if self.show_shortcuts {
             let mut open = true;
-            egui::Window::new("Keyboard shortcuts").open(&mut open).collapsible(false).show(ctx, |ui| {
+            egui::Window::new("Keyboard shortcuts").open(&mut open).collapsible(false).show_fit(ctx, |ui| {
                 egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
                     for (a, label, _) in crate::shortcuts::ACTIONS {
                         let keys = self.settings.shortcuts.of(a);
@@ -1767,7 +2239,11 @@ impl State {
             for (msg, _, err) in &self.toasts {
                 let fill = if *err { Color32::from_rgb(120, 40, 40) } else { Color32::from_rgb(40, 80, 50) };
                 egui::Frame::popup(ui.style()).fill(fill).show(ui, |ui| {
-                    ui.set_max_width(420.0);
+                    if crate::touch::mode().is_touch() {
+                        ui.set_max_width((ctx.content_rect().width() - 56.0).clamp(120.0, 420.0));
+                    } else {
+                        ui.set_max_width(420.0);
+                    }
                     ui.label(RichText::new(msg).color(Color32::WHITE));
                 });
             }
@@ -1860,19 +2336,62 @@ impl egui_tiles::Behavior<Pane> for TreeBehavior<'_> {
     fn is_tab_closable(&self, _tiles: &egui_tiles::Tiles<Pane>, _tile_id: egui_tiles::TileId) -> bool {
         true
     }
+
+    // Tabs, their close buttons and the bars between panels sized for a finger in the touch
+    // interfaces (the other values are the dock's own).
+    fn tab_bar_height(&self, _style: &egui::Style) -> f32 {
+        if crate::touch::mode().is_touch() {
+            crate::touch::TOUCH_HEIGHT
+        } else {
+            24.0
+        }
+    }
+
+    fn close_button_outer_size(&self) -> f32 {
+        if crate::touch::mode().is_touch() {
+            20.0
+        } else {
+            12.0
+        }
+    }
+
+    fn gap_width(&self, _style: &egui::Style) -> f32 {
+        if crate::touch::mode().is_touch() {
+            4.0
+        } else {
+            1.0
+        }
+    }
 }
 
 impl eframe::App for AuraApp {
     fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx_owned = root_ui.ctx().clone();
         let ctx = &ctx_owned;
+        let mode = crate::touch::resolve(ctx, self.state.settings.interface);
+        crate::touch::sync_style(ctx, mode, self.state.settings.theme, self.state.settings.ui_scale);
+        self.sync_interface_layout(mode);
         if !self.layout_checked {
             self.layout_checked = true;
             // Phones and small windows start with the compact layout.
-            if ctx.content_rect().width() < 820.0 {
+            if !mode.is_touch() && !self.state.auto_layout && ctx.content_rect().width() < 820.0 {
                 self.tree = compact_tree();
             }
         }
+        if self.state.auto_layout {
+            // The layout follows the shape of the whole window (not of what an on-screen
+            // keyboard leaves of it).
+            let class = crate::touch::layout_class(mode, ctx.viewport_rect().size());
+            if self.state.layout_class != Some(class) {
+                if self.state.layout_class.is_some() || self.keep_open {
+                    reshape_tree(&mut self.tree, class);
+                } else {
+                    self.tree = class_tree(class, None);
+                }
+                self.state.layout_class = Some(class);
+            }
+        }
+        self.keep_open = false;
         self.state.open_panes = Pane::ALL.iter().copied().filter(|p| self.tree.tiles.find_pane(p).is_some()).collect();
         let st = &mut self.state;
         st.viewport.frame_begin(ctx, frame);
@@ -1992,18 +2511,37 @@ impl eframe::App for AuraApp {
             st.assistant.tick_view(&session);
         }
         let cad_open = crate::cad::editing(st);
-        egui::Panel::top("menu").show(root_ui, |ui| st.menu_bar(ui));
-        egui::Panel::top("toolbar").show(root_ui, |ui| {
-            if cad_open {
-                crate::cad::ribbon_ui(st, ui);
-            } else {
-                st.toolbar(ui);
-                st.time_bar(ui);
-            }
+        if cad_open && !st.touch.cad_open && mode.is_phone() {
+            st.toast("CAD modeling is made for a larger screen. On a phone every command is still here: the ribbon's rows scroll sideways, and the model tree and the feature panel are tabs.", false);
+        }
+        st.touch.cad_open = cad_open;
+        // Nothing of the app under the system's status bar, cut-out or gesture bar (a tablet or a
+        // phone; no strips on a desktop system).
+        crate::touch::safe_area_strips(root_ui);
+        if !mode.is_touch() {
+            st.touch.menu_open = false;
+            st.touch.view_maximized = false;
+        }
+        egui::Panel::top("menu").show(root_ui, |ui| match mode {
+            crate::touch::Mode::Desktop => st.menu_bar(ui),
+            crate::touch::Mode::Tablet => st.menu_bar_tablet(ui),
+            crate::touch::Mode::Phone => st.menu_bar_phone(ui),
         });
-        egui::Panel::bottom("status").show(root_ui, |ui| st.status_bar(ui));
-        if cad_open {
-            egui::Panel::bottom("cad_timeline").show(root_ui, |ui| crate::cad::timeline_ui(st, ui));
+        // The phone's menu list and a view on the whole screen put the tool rows away.
+        let rows = !(st.touch.menu_open && mode.is_phone()) && !st.touch.view_maximized;
+        if rows {
+            egui::Panel::top("toolbar").show(root_ui, |ui| {
+                if cad_open {
+                    crate::cad::ribbon_ui(st, ui);
+                } else {
+                    st.toolbar(ui);
+                    st.time_bar(ui);
+                }
+            });
+            egui::Panel::bottom("status").show(root_ui, |ui| st.status_bar(ui));
+            if cad_open {
+                egui::Panel::bottom("cad_timeline").show(root_ui, |ui| crate::cad::timeline_ui(st, ui));
+            }
         }
 
         // Commands from Python / the AI assistant.
@@ -2031,6 +2569,10 @@ impl eframe::App for AuraApp {
                         "script" => LayoutPreset::Script,
                         "simulate" => LayoutPreset::Simulate,
                         "compact" => LayoutPreset::Compact,
+                        "automatic" | "auto" => LayoutPreset::Automatic,
+                        "wide" => LayoutPreset::Wide,
+                        "tall" => LayoutPreset::Tall,
+                        "tall2" | "tall two" => LayoutPreset::TallTwo,
                         _ => LayoutPreset::Full,
                     };
                     self.state.layout_actions.push(LayoutAction::Preset(p));
@@ -2041,6 +2583,14 @@ impl eframe::App for AuraApp {
                     }
                 }
                 "show" if arg.trim().eq_ignore_ascii_case("welcome") => self.state.show_welcome = true,
+                // "show menu [name]": the phone's menu list, with that menu's items shown.
+                "show" if arg.trim().to_ascii_lowercase().starts_with("menu") => {
+                    let name = arg.trim()[4..].trim();
+                    self.state.touch.menu_open = mode.is_phone();
+                    self.state.touch.menu_section = self.state.top_menus().iter().find(|m| m.label.eq_ignore_ascii_case(name)).map(|m| m.label);
+                }
+                // "show whole view": the 3D view on the whole screen (the touch interfaces).
+                "show" if arg.trim().eq_ignore_ascii_case("whole view") => self.state.touch.view_maximized = mode.is_touch(),
                 // "show cad search [text]": the CAD command search with that text typed.
                 "show" if arg.trim().to_ascii_lowercase().starts_with("cad search") => {
                     if crate::cad::editing(&self.state) {
@@ -2380,7 +2930,17 @@ impl eframe::App for AuraApp {
             match a {
                 LayoutAction::Show(p) => show_pane(&mut self.tree, p),
                 LayoutAction::Hide(p) => hide_pane(&mut self.tree, p),
-                LayoutAction::Preset(pr) => apply_preset(&mut self.tree, pr),
+                LayoutAction::Preset(LayoutPreset::Automatic) => {
+                    // Rebuilt for the window's shape at the start of the next frame.
+                    self.state.auto_layout = true;
+                    self.state.layout_class = None;
+                }
+                LayoutAction::Preset(pr) => {
+                    // A layout chosen by name stays as it is when the window changes shape.
+                    self.state.auto_layout = false;
+                    self.state.layout_class = None;
+                    apply_preset(&mut self.tree, pr)
+                }
                 LayoutAction::SplitView { from, vertical, only } => {
                     let anchor = self.tree.tiles.find_pane(&crate::views::pane_for(from)).or_else(|| self.tree.tiles.find_pane(&Pane::Viewport));
                     let id = self.state.new_view_with(only);
@@ -2437,10 +2997,24 @@ impl eframe::App for AuraApp {
         let fill = if ctx.theme() == egui::Theme::Dark { crate::theme::dark_visuals().panel_fill } else { crate::theme::light_visuals().panel_fill };
         self.state.capture_poll_session();
         self.state.capture_begin_frame();
-        egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(2)).fill(fill)).show(root_ui, |ui| {
-            let mut behavior = TreeBehavior { state: &mut self.state };
-            self.tree.ui(&mut behavior, ui);
-        });
+        if mode.is_touch() && (self.state.touch.menu_open || self.state.touch.view_maximized) {
+            let menu = self.state.touch.menu_open && mode.is_phone();
+            egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(if menu { 8 } else { 0 })).fill(fill)).show(root_ui, |ui| {
+                if menu {
+                    self.state.menu_list_ui(ui);
+                } else {
+                    // The active 3D view alone.
+                    let id = self.state.active_view;
+                    self.state.capture.pane_rects.push((crate::views::pane_for(id), ui.max_rect()));
+                    self.state.view_pane_ui(ui, id);
+                }
+            });
+        } else {
+            egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::same(2)).fill(fill)).show(root_ui, |ui| {
+                let mut behavior = TreeBehavior { state: &mut self.state };
+                self.tree.ui(&mut behavior, ui);
+            });
+        }
         self.state.capture_end_frame(ctx);
 
         let open_views: Vec<u32> = self
@@ -2515,7 +3089,7 @@ impl eframe::App for AuraApp {
         if let Some((id, mut name)) = st.rename_target.take() {
             let mut keep = true;
             let mut done = false;
-            egui::Window::new("Rename").collapsible(false).resizable(false).show(ctx, |ui| {
+            egui::Window::new("Rename").collapsible(false).resizable(false).show_fit(ctx, |ui| {
                 let r = ui.text_edit_singleline(&mut name);
                 r.request_focus();
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -2543,10 +3117,23 @@ impl eframe::App for AuraApp {
         visuals.panel_fill.to_normalized_gamma_f32()
     }
 
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        crate::touch::raw_input_hook(ctx, raw_input, self.state.settings.keyboard_room);
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if let Ok(s) = serde_json::to_string(&self.tree) {
+        // The desktop's layout and the touch interfaces' are kept apart: trying Phone on a
+        // desktop machine leaves the desktop layout as it was.
+        let (desktop, touch) = if self.touch_layout { (self.other_tree.as_ref(), Some(&self.tree)) } else { (Some(&self.tree), self.other_tree.as_ref()) };
+        let (desktop_auto, touch_auto) = if self.touch_layout { (self.other_auto, self.state.auto_layout) } else { (self.state.auto_layout, self.other_auto) };
+        if let Some(s) = desktop.and_then(|t| serde_json::to_string(t).ok()) {
             storage.set_string("layout_v4", s);
         }
+        if let Some(s) = touch.and_then(|t| serde_json::to_string(t).ok()) {
+            storage.set_string("layout_touch_v1", s);
+        }
+        storage.set_string("layout_auto", desktop_auto.to_string());
+        storage.set_string("layout_touch_auto", touch_auto.to_string());
         self.state.settings.save();
         // Keep the last pipeline so it can be restored next time.
         let cam = self.state.camera_state();

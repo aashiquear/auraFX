@@ -51,7 +51,7 @@ pub fn lighting_ui(ui: &mut egui::Ui, l: &mut Lighting) -> bool {
                         light.color = rgb;
                     }
                     ui.add(egui::DragValue::new(&mut light.intensity).range(0.0..=3.0).speed(0.01)).on_hover_text("Intensity");
-                    if count > 1 && ui.small_button(crate::icons::X).on_hover_text("Remove").clicked() {
+                    if count > 1 && crate::touch::small_button(ui, crate::icons::X).on_hover_text("Remove").clicked() {
                         remove = Some(k);
                     }
                 });

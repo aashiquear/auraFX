@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-73b86d3f.js";
+            window.path_to_searchindex_js = "searchindex-eb3c3298.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-dcbdab5c.js"></script>
+        <script src="toc-f1c4f5ea.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -189,6 +189,7 @@
 <tr><td><strong>Theme</strong></td><td>dark, light, system or <strong>high contrast</strong> (black panels, white text and borders, thick yellow outlines on the control under the mouse and the one in use); the 3D background per theme</td></tr>
 <tr><td><strong>Ask before adding a source</strong></td><td>adding a source opens a window to insert it with its standard settings or change them first (on by default)</td></tr>
 <tr><td><strong>UI scale</strong></td><td>enlarges the whole interface</td></tr>
+<tr><td><strong>Interface</strong></td><td><em>Automatic</em> (Desktop on a computer; Tablet or Phone on a tablet or a phone, by its screen), <em>Desktop</em>, <em>Tablet</em> or <em>Phone</em>; the window says which one is in use. In Tablet and Phone, <strong>Keep room for the on-screen keyboard</strong> (see <a href="touch.html">Tablets and phones</a>)</td></tr>
 <tr><td><strong>Orientation axes</strong>, <strong>Time label</strong></td><td>shown in the 3D views</td></tr>
 <tr><td><strong>Filter threads</strong></td><td>cores used by the parallel filters (0 = all); takes effect at the next start; <code>AURAFX_THREADS</code> overrides it</td></tr>
 <tr><td><strong>Default color map</strong></td><td>for new objects</td></tr>
@@ -256,6 +257,9 @@ color blindness.</p>
 <tr><td><code>AURAFX_DATA_DIR</code></td><td>where settings and state are kept</td></tr>
 <tr><td><code>OLLAMA_HOST</code>, <code>ANTHROPIC_API_KEY</code></td><td>AI providers</td></tr>
 <tr><td><code>PYO3_PYTHON</code> (at build time)</td><td>which Python to embed</td></tr>
+<tr><td><code>AURAFX_INTERFACE</code></td><td><code>desktop</code>, <code>tablet</code> or <code>phone</code>: the interface, whatever the setting is</td></tr>
+<tr><td><code>AURAFX_WINDOW</code></td><td>the size of the window at start, as <code>WIDTHxHEIGHT</code> in points (for example <code>390x844</code>)</td></tr>
+<tr><td><code>AURAFX_SAFE_AREA</code>, <code>AURAFX_KEYBOARD</code></td><td>strips to keep free, as a tablet’s or a phone’s system does (see <a href="touch.html#trying-it-on-a-computer">Tablets and phones</a>)</td></tr>
 </tbody>
 </table>
 </div>

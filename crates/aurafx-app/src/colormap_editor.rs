@@ -2,6 +2,7 @@
 //! values, reverse it, split it into bands, save it as a preset, import/export ParaView `.json`.
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use aurafx_filters::Association;
 use aurafx_pipeline::colormap::{self, ColorMap};
 use aurafx_pipeline::{DisplayProps, NodeId};
@@ -66,7 +67,7 @@ pub fn editor_ui(state: &mut State, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    egui::Window::new("Color Map Editor").open(&mut open).resizable(false).default_width(440.0).show(ctx, |ui| body(state, ui));
+    egui::Window::new("Color Map Editor").open(&mut open).resizable(false).default_width(440.0).show_fit(ctx, |ui| body(state, ui));
     if !open {
         state.cmap_editor.open = false;
     }
@@ -278,7 +279,7 @@ fn body(state: &mut State, ui: &mut egui::Ui) {
             if a.changed() || b.changed() {
                 d.range = Some(r);
             }
-            if ui.small_button("Fit to data").on_hover_text("Use the data's minimum and maximum").clicked() {
+            if crate::touch::small_button(ui, "Fit to data").on_hover_text("Use the data's minimum and maximum").clicked() {
                 d.range = None;
             }
         });
@@ -364,10 +365,10 @@ fn body(state: &mut State, ui: &mut egui::Ui) {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::new(80.0, 12.0), Sense::hover());
                     crate::widgets::paint_map(ui.painter(), r, &m);
-                    if ui.small_button(&m.name).on_hover_text("Use on this object").clicked() {
+                    if crate::touch::small_button(ui, &m.name).on_hover_text("Use on this object").clicked() {
                         state.apply_colormap_preset(id, &m.name);
                     }
-                    if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this preset").clicked() {
+                    if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Delete this preset").clicked() {
                         state.settings.user_colormaps.retain(|x| x.name != m.name);
                         state.settings.save();
                         colormap::remove_user(&m.name);

@@ -127,7 +127,7 @@ impl PictureOptions {
                         ui.color_edit_button_rgb(&mut self.bottom);
                         ui.label("top");
                         ui.color_edit_button_rgb(&mut self.top);
-                        if ui.small_button("swap").clicked() {
+                        if crate::touch::small_button(ui, "swap").clicked() {
                             std::mem::swap(&mut self.bottom, &mut self.top);
                         }
                     });
@@ -191,7 +191,7 @@ impl PictureOptions {
         ui.label("");
         ui.horizontal_wrapped(|ui| {
             for (label, k) in [("view", 1u32), ("2×", 2), ("4×", 4)] {
-                if ui.small_button(label).on_hover_text("A multiple of the view's size").clicked() {
+                if crate::touch::small_button(ui, label).on_hover_text("A multiple of the view's size").clicked() {
                     self.width = view.0 * k;
                     if self.shape == Shape::Free {
                         self.height = view.1 * k;
@@ -200,7 +200,7 @@ impl PictureOptions {
                 }
             }
             for &w in WIDTHS {
-                if ui.small_button(format!("{w} wide")).on_hover_text("1920 wide at 16 : 9 is 1080p, 3840 is 4K").clicked() {
+                if crate::touch::small_button(ui, format!("{w} wide")).on_hover_text("1920 wide at 16 : 9 is 1080p, 3840 is 4K").clicked() {
                     self.width = w;
                     self.height_from_width(view);
                 }

@@ -1009,6 +1009,33 @@ finds things, the documentation and the project page) and its fixes:
 - The project page gained a CAD and meshing section and the features of iterations 85 to 89;
   its clips are all made in the light theme with their posters by the script.
 
+Done in iteration 91 (2026-11-12): **a touch interface for tablets and phones**; the desktop
+interface is drawn by the code it was (five whole-window guide pictures retaken and compared).
+
+- Three interfaces, Desktop, Tablet and Phone (`crates/aurafx-app/src/touch.rs`): Automatic is
+  Desktop on a computer and, on iOS and Android, Tablet or Phone by the screen's shorter side
+  (Phone under 600 points). Settings > Interface > Interface and `AURAFX_INTERFACE` set it by
+  hand; `AURAFX_WINDOW=WxH` and `AURAFX_SAFE_AREA=top,bottom,left,right` show a device's screen
+  on a desktop machine, and a `# shot:` line in a screenshot script passes them.
+- Safe areas: the system's insets are given to egui before every frame (iOS through the
+  windowing library; Android asked through JNI by `aurafx-android`: system bars, cut-out and
+  what the keyboard covers) and the strips are reserved as panels in the panel color, so no
+  part of the app is under the status bar, a cut-out, the home indicator or the gesture bar.
+- Touch style (40-point controls, wider scroll bars, larger text and tabs); the menus are one
+  function each, shown by the desktop menu bar, the tablet's bar with an overflow menu and the
+  phone's menu list; the tool rows and the CAD ribbon scroll sideways.
+- Floating windows go through `FitScreen::show_fit`: anchored inside the safe area, never
+  dragged by a finger, no larger than the screen, scrolling contents; text boxes bring up the
+  keyboard and the app leaves room for it.
+- Layouts by window shape (Windows > Layouts by window shape: Automatic, Wide, Tall, Tall with
+  two tab groups; `afx.layout('automatic'|'wide'|'tall'|'tall2')`): the touch interfaces follow
+  the turning of the screen, keeping which panels are open; the desktop only when asked.
+- 3D view: two fingers pan, pinch and twist (one orbits, a double tap resets, a long press
+  opens the context menu); a button gives the view the whole screen.
+- Not done: the real keyboard height on iOS (a share of the screen is kept free instead),
+  composed text input on Android (needs the game activity, a decision), drag and drop of tabs
+  with a finger was not tried on a device.
+
 Done in iteration 90 (G4c, 2026-11-12), two additions to the synthetic microstructures:
 
 - Orientation Gradient (`orientation_gradient`): the cells of every grain turned by a rotation

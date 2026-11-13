@@ -49,63 +49,102 @@ pub fn ribbon_ui(state: &mut State, ui: &mut egui::Ui) {
         let s = state.session.lock();
         (s.cad_edit.as_ref().is_some_and(|e| e.changed), s.cad_edit.as_ref().is_some_and(|e| e.error.is_none()))
     };
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(format!("{} CAD", crate::icons::CUBE)).strong().color(crate::theme::ACCENT));
-        for (k, t) in RibbonTab::ALL.into_iter().enumerate() {
-            if ui.selectable_label(state.cad.tab == t, crate::icons::with(t.label())).on_hover_text(format!("{}  (Alt+{})", t.about(), k + 1)).clicked() {
-                state.cad.tab = t;
-            }
-        }
-        if ui
-            .button(format!("{} Search", crate::icons::MAGNIFYING_GLASS))
-            .on_hover_text("Every CAD command by name: press S in the 3D view (or Ctrl+K), type a few letters, Enter")
-            .clicked()
-        {
-            state.cad.search = Some(super::guide::Search::default());
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(crate::icons::with("Discard")).on_hover_text("Leave the CAD environment; the part is as it was (Esc)").clicked() {
-                super::discard(state);
-            }
-            let empty = state.session.lock().cad_edit.as_ref().is_some_and(|e| e.document.features.is_empty() && e.document.components.is_empty());
-            let why_not = if empty {
-                "The part is empty: add a sketch or a shape first (the Next strip at the top left offers them)."
-            } else {
-                "The part does not build (the reason is in red at the top of the right panel): fix or undo the last change first."
-            };
-            if ui
-                .add_enabled(can_apply, egui::Button::new(crate::icons::with("Apply, keep editing")))
-                .on_hover_text("Hand the part to the pipeline and stay here")
-                .on_disabled_hover_text(why_not)
-                .clicked()
-            {
-                super::apply(state, true);
-            }
-            let apply = egui::Button::new(RichText::new(format!("{} Apply", crate::icons::CHECK_CIRCLE)).strong());
-            if ui
-                .add_enabled(can_apply, apply)
-                .on_hover_text("Hand the part to the pipeline and leave; the nodes below it re-run (Ctrl+Enter)")
-                .on_disabled_hover_text(why_not)
-                .clicked()
-            {
-                super::apply(state, false);
-            }
-            if changed {
-                ui.label(RichText::new("unapplied changes").weak().small());
-            }
+    if crate::touch::mode().is_phone() {
+        // A phone: the whole row scrolls sideways.
+        let width = ui.available_width().max(HEAD_WIDTH_TOUCH);
+        egui::ScrollArea::horizontal().id_salt("cad ribbon head").show(ui, |ui| {
+            ui.set_max_width(width);
+            ui.horizontal(|ui| ribbon_head(state, ui, changed, can_apply));
         });
-    });
+    } else if crate::touch::mode().is_touch() {
+        // A tablet: Apply and Discard stay in view on the right, the tabs scroll in what is left.
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ribbon_apply(state, ui, changed, can_apply);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    egui::ScrollArea::horizontal().id_salt("cad ribbon head").show(ui, |ui| ui.horizontal(|ui| ribbon_tabs(state, ui)));
+                });
+            });
+        });
+    } else {
+        ui.horizontal(|ui| ribbon_head(state, ui, changed, can_apply));
+    }
     ui.separator();
     let (at, has_part) = top_center(state);
     let tab = state.cad.tab;
-    ui.horizontal_wrapped(|ui| match tab {
+    let tab_ui = |ui: &mut egui::Ui| match tab {
         RibbonTab::Features => features_tab(state, ui, at, has_part),
         RibbonTab::Sketch => sketch_tab(state, ui, at, has_part),
         RibbonTab::Modify => modify_tab(state, ui),
         RibbonTab::Inspect => inspect_tab(state, ui),
         RibbonTab::Assemble => assemble_tab(state, ui),
         RibbonTab::Files => files_tab(state, ui),
-    });
+    };
+    if crate::touch::mode().is_touch() {
+        egui::ScrollArea::horizontal().id_salt("cad ribbon").show(ui, |ui| ui.horizontal(tab_ui));
+    } else {
+        ui.horizontal_wrapped(tab_ui);
+    }
+}
+
+/// The width the first row of the ribbon needs in the touch interfaces (its right-hand buttons
+/// are laid out from the right, so a narrower screen scrolls a row of this width).
+const HEAD_WIDTH_TOUCH: f32 = 1320.0;
+
+/// The first row of the ribbon: the tabs and the command search, and Apply and Discard on the right.
+fn ribbon_head(state: &mut State, ui: &mut egui::Ui, changed: bool, can_apply: bool) {
+    ribbon_tabs(state, ui);
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ribbon_apply(state, ui, changed, can_apply));
+}
+
+/// The ribbon's tabs and the command search.
+fn ribbon_tabs(state: &mut State, ui: &mut egui::Ui) {
+    ui.label(RichText::new(format!("{} CAD", crate::icons::CUBE)).strong().color(crate::theme::ACCENT));
+    for (k, t) in RibbonTab::ALL.into_iter().enumerate() {
+        if ui.selectable_label(state.cad.tab == t, crate::icons::with(t.label())).on_hover_text(format!("{}  (Alt+{})", t.about(), k + 1)).clicked() {
+            state.cad.tab = t;
+        }
+    }
+    if ui
+        .button(format!("{} Search", crate::icons::MAGNIFYING_GLASS))
+        .on_hover_text("Every CAD command by name: press S in the 3D view (or Ctrl+K), type a few letters, Enter")
+        .clicked()
+    {
+        state.cad.search = Some(super::guide::Search::default());
+    }
+}
+
+/// Discard, Apply and Apply, keep editing (laid out from the right).
+fn ribbon_apply(state: &mut State, ui: &mut egui::Ui, changed: bool, can_apply: bool) {
+    if ui.button(crate::icons::with("Discard")).on_hover_text("Leave the CAD environment; the part is as it was (Esc)").clicked() {
+        super::discard(state);
+    }
+    let empty = state.session.lock().cad_edit.as_ref().is_some_and(|e| e.document.features.is_empty() && e.document.components.is_empty());
+    let why_not = if empty {
+        "The part is empty: add a sketch or a shape first (the Next strip at the top left offers them)."
+    } else {
+        "The part does not build (the reason is in red at the top of the right panel): fix or undo the last change first."
+    };
+    if ui
+        .add_enabled(can_apply, egui::Button::new(crate::icons::with("Apply, keep editing")))
+        .on_hover_text("Hand the part to the pipeline and stay here")
+        .on_disabled_hover_text(why_not)
+        .clicked()
+    {
+        super::apply(state, true);
+    }
+    let apply = egui::Button::new(RichText::new(format!("{} Apply", crate::icons::CHECK_CIRCLE)).strong());
+    if ui
+        .add_enabled(can_apply, apply)
+        .on_hover_text("Hand the part to the pipeline and leave; the nodes below it re-run (Ctrl+Enter)")
+        .on_disabled_hover_text(why_not)
+        .clicked()
+    {
+        super::apply(state, false);
+    }
+    if changed {
+        ui.label(RichText::new("unapplied changes").weak().small());
+    }
 }
 
 fn features_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool) {

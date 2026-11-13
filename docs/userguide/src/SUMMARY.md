@@ -8,6 +8,7 @@
 - [Filters](filters.md)
 - [Coloring and color maps](coloring.md)
 - [Views, layouts and the window](views.md)
+- [Tablets and phones](touch.md)
 - [Selection, picking and widgets](selection-widgets.md)
 - [Time, charts and animation](time-animation.md)
 

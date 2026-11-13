@@ -57,6 +57,7 @@ layout presets:
 | **Script** | the view with a tall Python console |
 | **Simulate** | the simulations panel, the log and the view |
 
+**Compact (tabs only)** puts every panel in one group of tabs.
 **Reset layout** returns to the default. Panels can be dragged by their tabs into new
 positions or into tabs of each other; the arrangement is remembered between sessions.
 
@@ -64,6 +65,26 @@ positions or into tabs of each other; the arrangement is remembered between sess
 afx.layout("analyze")
 afx.show_panel("Charts"); afx.hide_panel("Log")
 ```
+
+### Layouts by window shape
+
+Below the presets, the **Windows** menu has the layouts that go by the shape of the window
+rather than by the task:
+
+| Entry | Layout | Python |
+|---|---|---|
+| **Automatic** | follows the window: wide, the full workbench; taller than wide, the view on top and two tab groups below; small (a side under 600 points), the view and one tab group. The layout is rebuilt when the window changes from one shape to another, keeping which panels are open | `afx.layout("automatic")` |
+| **Wide (view left, tabs right)** | the 3D view on the left, every panel as a tab on the right | `afx.layout("wide")` |
+| **Tall (view on top, tabs below)** | the 3D view on top, every panel as a tab below | `afx.layout("tall")` |
+| **Tall, two tab groups** | the 3D view on top, two groups of tabs side by side below | `afx.layout("tall2")` |
+
+![The layout for a tall window: the view on top, two tab groups below](images/layout_tall.png)
+
+**Automatic** is a choice like the others in the Desktop interface: it stays on (the dot
+beside it) until a preset or one of the other layouts is chosen, and it is off unless you
+turn it on. On a tablet or a phone it is on from the start, so the layout follows how the
+device is held (see [Tablets and phones](touch.md)). The one-tab-group layouts leave out the
+Simulations panel and the Python console, which want more room; **Windows** opens them.
 
 ## Theme and scale
 

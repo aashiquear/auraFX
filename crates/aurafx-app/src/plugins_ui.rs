@@ -1,6 +1,7 @@
 //! Plugins window: Python plugins that add filters, sources and readers.
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use egui::RichText;
 use std::path::{Path, PathBuf};
 
@@ -97,7 +98,7 @@ pub fn plugins_ui(st: &mut State, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    egui::Window::new(format!("{} Plugins", crate::icons::PLUS)).open(&mut open).resizable(true).default_width(560.0).show(ctx, |ui| {
+    egui::Window::new(format!("{} Plugins", crate::icons::PLUS)).open(&mut open).resizable(true).default_width(560.0).show_fit(ctx, |ui| {
         #[cfg(not(feature = "python"))]
         {
             ui.label("Python is not included in this build, so plugins are unavailable.");
@@ -187,12 +188,17 @@ fn body(st: &mut State, ui: &mut egui::Ui) {
                     ui.label(RichText::new("off").weak());
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if st.settings.plugin_paths.contains(&p.path) && ui.small_button(crate::icons::TRASH).on_hover_text("Stop loading this file").clicked() {
+                    if st.settings.plugin_paths.contains(&p.path)
+                        && crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Stop loading this file").clicked()
+                    {
                         st.settings.plugin_paths.retain(|x| x != &p.path);
                         st.settings.save();
                         st.sync_plugins(false);
                     }
-                    if ui.small_button(format!("{} Edit", crate::icons::PENCIL_SIMPLE)).on_hover_text("Open in your editor; saving reloads it").clicked() {
+                    if crate::touch::small_button(ui, format!("{} Edit", crate::icons::PENCIL_SIMPLE))
+                        .on_hover_text("Open in your editor; saving reloads it")
+                        .clicked()
+                    {
                         if let Err(e) = open_in_os(&p.path) {
                             st.toast(format!("Could not open {}: {e}", p.path.display()), true);
                         }

@@ -206,7 +206,10 @@ pub fn steps_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId, commands: &str
             }
         });
         ui.horizontal(|ui| {
-            if ui.small_button("Open the guide chapter").on_hover_text("Geometry and meshing in the user guide: every command with pictures").clicked() {
+            if crate::touch::small_button(ui, "Open the guide chapter")
+                .on_hover_text("Geometry and meshing in the user guide: every command with pictures")
+                .clicked()
+            {
                 crate::welcome::open_guide(ui.ctx(), "geometry.html");
             }
             ui.label(RichText::new("or ask the assistant to write the commands").weak().small());

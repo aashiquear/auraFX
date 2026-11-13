@@ -2,6 +2,7 @@
 //! that machine and only what is drawn comes back.
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use aurafx_jobs::Host;
 use egui::RichText;
 use std::sync::mpsc::Receiver;
@@ -164,7 +165,7 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
     let mut open = true;
     let mut to_open: Option<(Host, String)> = None;
     let mut add_host: Option<Host> = None;
-    egui::Window::new(format!("{} Remote: open data on another machine", crate::icons::CLOUD)).open(&mut open).default_width(560.0).show(ctx, |ui| {
+    egui::Window::new(format!("{} Remote: open data on another machine", crate::icons::CLOUD)).open(&mut open).default_width(560.0).show_fit(ctx, |ui| {
         ui.label(
             RichText::new(
                 "aurafx-server reads and filters the file on that machine (over SSH); this window shows the result. \
@@ -236,7 +237,7 @@ pub fn server_ui(st: &mut State, ctx: &egui::Context) {
                 if !aliases.is_empty() {
                     ui.label(RichText::new("from ~/.ssh/config:").weak().small());
                     for a in aliases.into_iter().filter(|a| !hosts.iter().any(|h| &h.name == a)).take(8) {
-                        if ui.small_button(format!("+ {a}")).clicked() {
+                        if crate::touch::small_button(ui, format!("+ {a}")).clicked() {
                             add_host = Some(Host { name: a.clone(), kind: aurafx_jobs::HostKind::Ssh { target: a, port: None, identity: None, jump: None }, setup: String::new(), server_processes: 0, launcher: String::new() });
                         }
                     }

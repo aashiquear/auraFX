@@ -239,7 +239,7 @@ fn part_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document) {
             for (i, f) in s.faces.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{i}  {}  ({}, {} mm²)", f.name, f.kind, num_text(f.area))).small());
-                    if f.kind == "plane" && ui.small_button("Sketch here").on_hover_text("Start a sketch on this flat face").clicked() {
+                    if f.kind == "plane" && crate::touch::small_button(ui, "Sketch here").on_hover_text("Start a sketch on this flat face").clicked() {
                         sketch_on = Some(f.clone());
                     }
                 });
@@ -263,11 +263,11 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
     ui.horizontal(|ui| {
         ui.label(RichText::new(&f.name).strong());
         if matches!(f.shape, aurafx_cad::Shape::SketchExtrude { .. } | aurafx_cad::Shape::SketchRevolve { .. })
-            && ui.small_button("Edit sketch…").on_hover_text("Open the sketch canvas on this feature's sketch").clicked()
+            && crate::touch::small_button(ui, "Edit sketch…").on_hover_text("Open the sketch canvas on this feature's sketch").clicked()
         {
             edit_sketch = true;
         }
-        if ui.small_button("Delete").clicked() {
+        if crate::touch::small_button(ui, "Delete").clicked() {
             cx.acts.push(("remove", json!({"feature": f.name})));
         }
     });
@@ -327,7 +327,10 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
                         if &sel != cur {
                             cx.acts.push(("sweep_set", json!({"feature": f.name, key: sel})));
                         }
-                        if ui.small_button("Edit…").on_hover_text("Open this sketch on the canvas; the sweep follows when it is applied").clicked() {
+                        if crate::touch::small_button(ui, "Edit…")
+                            .on_hover_text("Open this sketch on the canvas; the sweep follows when it is applied")
+                            .clicked()
+                        {
                             edit_saved = Some(cur.clone());
                         }
                         ui.end_row();
@@ -339,7 +342,7 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
                 for (i, name) in sections.iter().enumerate() {
                     ui.horizontal(|ui| {
                         ui.label(format!("{}  {name}", i + 1));
-                        if ui.small_button("Edit…").on_hover_text("Open this sketch on the canvas").clicked() {
+                        if crate::touch::small_button(ui, "Edit…").on_hover_text("Open this sketch on the canvas").clicked() {
                             edit_saved = Some(name.clone());
                         }
                         if ui
@@ -453,7 +456,7 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
                 let mv = serde_json::to_value(m).unwrap_or(Value::Null);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(mv.get("kind").and_then(|k| k.as_str()).unwrap_or("?")).strong());
-                    if ui.small_button("Remove").clicked() {
+                    if crate::touch::small_button(ui, "Remove").clicked() {
                         cx.acts.push(("remove_modifier", json!({"feature": f.name, "index": i})));
                     }
                 });
@@ -468,7 +471,7 @@ fn feature_properties(state: &mut State, ui: &mut egui::Ui, doc: &Document, f: &
             for b in &f.bindings {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{} = {}", b.path, b.expr)).small().monospace());
-                    if ui.small_button("×").on_hover_text("Stop following the expression; keep the current value").clicked() {
+                    if crate::touch::small_button(ui, "×").on_hover_text("Stop following the expression; keep the current value").clicked() {
                         let val = fv.pointer(&b.path).and_then(|v| v.as_f64()).unwrap_or(0.0);
                         cx.acts.push(("set", json!({"feature": f.name, "path": b.path, "value": val})));
                     }

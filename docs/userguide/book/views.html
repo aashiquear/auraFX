@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-73b86d3f.js";
+            window.path_to_searchindex_js = "searchindex-eb3c3298.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-dcbdab5c.js"></script>
+        <script src="toc-f1c4f5ea.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -237,11 +237,34 @@ layout presets:</p>
 </tbody>
 </table>
 </div>
-<p><strong>Reset layout</strong> returns to the default. Panels can be dragged by their tabs into new
+<p><strong>Compact (tabs only)</strong> puts every panel in one group of tabs.
+<strong>Reset layout</strong> returns to the default. Panels can be dragged by their tabs into new
 positions or into tabs of each other; the arrangement is remembered between sessions.</p>
 <pre><code class="language-python">afx.layout("analyze")
 afx.show_panel("Charts"); afx.hide_panel("Log")
 </code></pre>
+<h3 id="layouts-by-window-shape"><a class="header" href="#layouts-by-window-shape">Layouts by window shape</a></h3>
+<p>Below the presets, the <strong>Windows</strong> menu has the layouts that go by the shape of the window
+rather than by the task:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Entry</th><th>Layout</th><th>Python</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Automatic</strong></td><td>follows the window: wide, the full workbench; taller than wide, the view on top and two tab groups below; small (a side under 600 points), the view and one tab group. The layout is rebuilt when the window changes from one shape to another, keeping which panels are open</td><td><code>afx.layout("automatic")</code></td></tr>
+<tr><td><strong>Wide (view left, tabs right)</strong></td><td>the 3D view on the left, every panel as a tab on the right</td><td><code>afx.layout("wide")</code></td></tr>
+<tr><td><strong>Tall (view on top, tabs below)</strong></td><td>the 3D view on top, every panel as a tab below</td><td><code>afx.layout("tall")</code></td></tr>
+<tr><td><strong>Tall, two tab groups</strong></td><td>the 3D view on top, two groups of tabs side by side below</td><td><code>afx.layout("tall2")</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/layout_tall.png" alt="The layout for a tall window: the view on top, two tab groups below"><span class="img-wrapper"><img src="images/layout_tall.png" alt="The layout for a tall window: the view on top, two tab groups below"></span></label></p>
+<p><strong>Automatic</strong> is a choice like the others in the Desktop interface: it stays on (the dot
+beside it) until a preset or one of the other layouts is chosen, and it is off unless you
+turn it on. On a tablet or a phone it is on from the start, so the layout follows how the
+device is held (see <a href="touch.html">Tablets and phones</a>). The one-tab-group layouts leave out the
+Simulations panel and the Python console, which want more room; <strong>Windows</strong> opens them.</p>
 <h2 id="theme-and-scale"><a class="header" href="#theme-and-scale">Theme and scale</a></h2>
 <p><strong>Settings › Theme</strong> chooses dark, light or follow-the-system; the 3D background follows the
 theme (and can be set per theme). <strong>UI scale</strong> enlarges the whole interface. From Python:
@@ -267,7 +290,7 @@ parameter and display changes. <strong>File › Save State</strong> writes every
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="selection-widgets.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="touch.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -281,7 +304,7 @@ parameter and display changes. <strong>File › Save State</strong> writes every
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="selection-widgets.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="touch.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

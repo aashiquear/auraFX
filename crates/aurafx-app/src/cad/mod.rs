@@ -18,6 +18,7 @@ mod sketch_snap;
 mod timeline;
 
 use crate::app::{LayoutAction, Pane, State};
+use crate::touch::FitScreen;
 use aurafx_cad::Id;
 use aurafx_pipeline::NodeId;
 use egui::RichText;
@@ -378,7 +379,7 @@ pub fn dialogs_ui(state: &mut State, ctx: &egui::Context) {
         return;
     }
     let changed = state.session.lock().cad_edit.as_ref().map(|e| e.changed).unwrap_or(false);
-    egui::Window::new("Leave the CAD environment?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+    egui::Window::new("Leave the CAD environment?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show_fit(ctx, |ui| {
         ui.label(if changed { "The part has changes. Apply hands them to the pipeline; discard throws them away." } else { "The part has no changes." });
         ui.horizontal(|ui| {
             if ui.button("Apply").clicked() {
@@ -529,7 +530,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
                         Some(v) => ui.label(RichText::new(format!("= {} mm", trim_num(*v))).weak()),
                         None => ui.label(RichText::new("?").color(crate::theme::ERROR)),
                     };
-                    if over.is_some() && ui.small_button("reset").on_hover_text("Use the document's own value again").clicked() {
+                    if over.is_some() && crate::touch::small_button(ui, "reset").on_hover_text("Use the document's own value again").clicked() {
                         ui.data_mut(|d| d.remove_temp::<String>(text_id));
                         let _ = state.session.lock().cad_set_parameter(id, &p.name, &serde_json::Value::Null);
                     }

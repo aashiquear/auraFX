@@ -465,6 +465,7 @@ version = "0.1.0"
 dependencies = [
  "aurafx-app",
  "eframe",
+ "jni",
  "winit",
 ]
 

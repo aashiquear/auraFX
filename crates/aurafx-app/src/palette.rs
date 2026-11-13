@@ -144,14 +144,28 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     let mut close = false;
     let mut run: Option<usize> = None;
     let screen = ctx.content_rect();
+    // A tablet or a phone: no wider than the screen, and near its top (above the keyboard).
+    let touch = crate::touch::mode().is_touch();
+    let width = if touch { (screen.width() - 24.0).clamp(200.0, 560.0) } else { 560.0 };
+    let top = if touch { 56.0 } else { 80.0 };
     #[allow(deprecated)]
-    egui::Area::new(egui::Id::new("palette")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - 280.0, screen.top() + 80.0)).show(
+    egui::Area::new(egui::Id::new("palette")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - width / 2.0, screen.top() + top)).show(
         ctx,
         |ui| {
             egui::Frame::window(ui.style()).show(ui, |ui| {
-                ui.set_width(560.0);
-                let resp =
-                    ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY));
+                ui.set_width(width);
+                let resp = if touch {
+                    // No Esc key on a touch screen: a button closes the search.
+                    ui.horizontal(|ui| {
+                        if ui.button(crate::icons::X).on_hover_text("Close the search").clicked() {
+                            close = true;
+                        }
+                        ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY))
+                    })
+                    .inner
+                } else {
+                    ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY))
+                };
                 resp.request_focus();
                 let (esc, enter, up, down) = ui.input_mut(|i| {
                     (

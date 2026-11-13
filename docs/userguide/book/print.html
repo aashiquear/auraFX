@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-73b86d3f.js";
+            window.path_to_searchindex_js = "searchindex-eb3c3298.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-dcbdab5c.js"></script>
+        <script src="toc-f1c4f5ea.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -233,7 +233,7 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
 <tr><td>macOS 11 or newer (Apple silicon, Intel)</td><td><code>auraFX-&lt;version&gt;-macos-&lt;arch&gt;.dmg</code></td><td>drag the app to Applications, or use the installer line; the app is signed ad hoc, so the first start is <strong>right-click › Open</strong></td></tr>
 <tr><td>Windows 10/11 (x64)</td><td><code>auraFX-&lt;version&gt;-windows-x64-setup.exe</code>, <code>auraFX-&lt;version&gt;-windows-x64.zip</code></td><td>the installer adds a Start-menu entry and file associations; the zip is portable (unpack anywhere and run <code>aurafx.exe</code>)</td></tr>
 <tr><td>Android 8 or newer</td><td><code>auraFX-&lt;version&gt;-android.apk</code></td><td>a viewer build (files, filters, rendering; no Python console, no simulations); allow the install from the browser or file manager</td></tr>
-<tr><td>iOS / iPadOS 15 or newer</td><td><code>auraFX-&lt;version&gt;-ios-unsigned.ipa</code></td><td>a viewer build; sign and install it with Xcode, AltStore or Sideloadly using your own Apple ID</td></tr>
+<tr><td>iOS / iPadOS 15 or newer</td><td><code>auraFX-&lt;version&gt;-ios-unsigned.ipa</code></td><td>a viewer build; sign and install it with Xcode, AltStore, Sideloadly or <code>xtool install</code> (on Linux or Windows too) using your own Apple ID</td></tr>
 </tbody>
 </table>
 </div>
@@ -281,6 +281,8 @@ dragged to another place.</p>
 Warp), the camera buttons (Reset, +X, +Y, +Z, Iso) and, for the selected object, its
 representation, the array it is colored by and the color map. The status bar at the bottom
 names the GPU in use and counts the visible points and cells.</p>
+<p>On an iPad, an iPhone or an Android device the same program has an interface made for fingers
+and for the size of the screen: see <a href="#tablets-and-phones">Tablets and phones</a>.</p>
 <h2 id="opening-a-file"><a class="header" href="#opening-a-file">Opening a file</a></h2>
 <ul>
 <li><strong>File › Open…</strong> (Ctrl+O), or drop a file onto the window, or start the app with the file
@@ -984,11 +986,34 @@ layout presets:</p>
 </tbody>
 </table>
 </div>
-<p><strong>Reset layout</strong> returns to the default. Panels can be dragged by their tabs into new
+<p><strong>Compact (tabs only)</strong> puts every panel in one group of tabs.
+<strong>Reset layout</strong> returns to the default. Panels can be dragged by their tabs into new
 positions or into tabs of each other; the arrangement is remembered between sessions.</p>
 <pre><code class="language-python">afx.layout("analyze")
 afx.show_panel("Charts"); afx.hide_panel("Log")
 </code></pre>
+<h3 id="layouts-by-window-shape"><a class="header" href="#layouts-by-window-shape">Layouts by window shape</a></h3>
+<p>Below the presets, the <strong>Windows</strong> menu has the layouts that go by the shape of the window
+rather than by the task:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Entry</th><th>Layout</th><th>Python</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Automatic</strong></td><td>follows the window: wide, the full workbench; taller than wide, the view on top and two tab groups below; small (a side under 600 points), the view and one tab group. The layout is rebuilt when the window changes from one shape to another, keeping which panels are open</td><td><code>afx.layout("automatic")</code></td></tr>
+<tr><td><strong>Wide (view left, tabs right)</strong></td><td>the 3D view on the left, every panel as a tab on the right</td><td><code>afx.layout("wide")</code></td></tr>
+<tr><td><strong>Tall (view on top, tabs below)</strong></td><td>the 3D view on top, every panel as a tab below</td><td><code>afx.layout("tall")</code></td></tr>
+<tr><td><strong>Tall, two tab groups</strong></td><td>the 3D view on top, two groups of tabs side by side below</td><td><code>afx.layout("tall2")</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/layout_tall.png" alt="The layout for a tall window: the view on top, two tab groups below"><span class="img-wrapper"><img src="images/layout_tall.png" alt="The layout for a tall window: the view on top, two tab groups below"></span></label></p>
+<p><strong>Automatic</strong> is a choice like the others in the Desktop interface: it stays on (the dot
+beside it) until a preset or one of the other layouts is chosen, and it is off unless you
+turn it on. On a tablet or a phone it is on from the start, so the layout follows how the
+device is held (see <a href="#tablets-and-phones">Tablets and phones</a>). The one-tab-group layouts leave out the
+Simulations panel and the Python console, which want more room; <strong>Windows</strong> opens them.</p>
 <h2 id="theme-and-scale"><a class="header" href="#theme-and-scale">Theme and scale</a></h2>
 <p><strong>Settings › Theme</strong> chooses dark, light or follow-the-system; the 3D background follows the
 theme (and can be set per theme). <strong>UI scale</strong> enlarges the whole interface. From Python:
@@ -1005,6 +1030,128 @@ While a CAD part is being edited, Ctrl+K searches the CAD commands instead.</p>
 parameter and display changes. <strong>File › Save State</strong> writes everything to an <code>.afx</code> file (see
 <a href="#getting-started">Getting started</a>); <code>afx.save_state("work.afx")</code> and
 <code>afx.load_state("work.afx")</code> do the same from Python.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="tablets-and-phones"><a class="header" href="#tablets-and-phones">Tablets and phones</a></h1>
+<p>On an iPad, an iPhone or an Android device auraFX shows a touch interface: the same program,
+with controls sized for a finger and a layout that fits the screen. There are three interfaces:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Interface</th><th>For</th><th>What changes</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Desktop</strong></td><td>a mouse and a keyboard</td><td>nothing: the interface of the other chapters</td></tr>
+<tr><td><strong>Tablet</strong></td><td>a screen whose shorter side is 600 points or more</td><td>larger controls, tabs and menu rows; windows that stay on the screen; layouts that follow how the tablet is held</td></tr>
+<tr><td><strong>Phone</strong></td><td>smaller screens</td><td>the Tablet’s controls, one menu button in place of the menu bar, and the 3D view with one group of tabs</td></tr>
+</tbody>
+</table>
+</div>
+<p>The interface is chosen by itself (Desktop on a computer; Tablet or Phone on a tablet or a
+phone, by its screen), and <strong>Settings › Interface › Interface</strong> sets it by hand: <em>Automatic</em>,
+<em>Desktop</em>, <em>Tablet</em> or <em>Phone</em>. A small laptop with a touch screen can use Tablet; an iPad with
+a keyboard and a trackpad can use Desktop.</p>
+<h2 id="tablet"><a class="header" href="#tablet">Tablet</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/touch_tablet.png" alt="The Tablet interface held wide"><span class="img-wrapper"><img src="images/touch_tablet.png" alt="The Tablet interface held wide"></span></label></p>
+<p>Held wide, a tablet shows the workbench: Pipeline and Properties on the left, the 3D view with
+Charts, Spreadsheet and Log below it, the Assistant on the right. Buttons, sliders, tick boxes,
+tabs and menu rows are tall enough to tap, the scroll bars are wider, and the text is a little
+larger. The tool row scrolls sideways when it is longer than the screen.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/touch_tablet_tall.png" alt="The Tablet interface held tall"><span class="img-wrapper"><img src="images/touch_tablet_tall.png" alt="The Tablet interface held tall"></span></label></p>
+<p>Held tall, the 3D view takes the upper half and the panels sit below it in two groups of tabs.
+The menus that do not fit the width are in the last menu of the bar (<strong>⋯</strong>), so none is cut off.</p>
+<h2 id="phone"><a class="header" href="#phone">Phone</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/touch_phone.png" alt="The Phone interface held tall"><span class="img-wrapper"><img src="images/touch_phone.png" alt="The Phone interface held tall"></span></label></p>
+<p>A phone shows the 3D view and one group of tabs: Pipeline, Properties, Information, Charts,
+Spreadsheet, Assistant and Log. The tab bar scrolls sideways. Held wide, the view is on the
+left and the tabs are on the right:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/touch_phone_wide.png" alt="The Phone interface held wide"><span class="img-wrapper"><img src="images/touch_phone_wide.png" alt="The Phone interface held wide"></span></label></p>
+<p>The top bar has the <strong>menu button</strong> (three lines) on the left and the <strong>Ask AI</strong> and <strong>Search</strong>
+buttons on the right. The menu button opens every menu of the menu bar as a list over the
+whole screen: tap a menu’s name to see its items, tap an item to choose it, tap the button
+again (now a ×) to close the list.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/touch_phone_menu.png" alt="The menu list on a phone"><span class="img-wrapper"><img src="images/touch_phone_menu.png" alt="The menu list on a phone"></span></label></p>
+<p>The <strong>Search</strong> button opens the command palette (see <a href="#command-palette">Views, layouts and the
+window</a>), which is the quickest way to a filter on a small screen.</p>
+<p>The button with four corners in the 3D view’s toolbar gives the view the <strong>whole screen</strong> (the
+tool row, the status line and the panels are put away); the same button, or the one that
+appears in the top bar, brings them back. It is there on a tablet too.</p>
+<h3 id="the-cad-environment"><a class="header" href="#the-cad-environment">The CAD environment</a></h3>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/touch_tablet_cad.png" alt="The CAD environment on a tablet"><span class="img-wrapper"><img src="images/touch_tablet_cad.png" alt="The CAD environment on a tablet"></span></label></p>
+<p>On a tablet the ribbon keeps <strong>Apply</strong>, <strong>Apply, keep editing</strong> and <strong>Discard</strong> in view on the
+right; its tabs and its row of commands scroll sideways when they are wider than the screen.
+The CAD environment also opens on a phone, where both rows and the timeline scroll sideways
+and the model tree and the feature panel are tabs, but it is made for a larger screen (the
+app says so once): a tablet held wide has room for it.</p>
+<h2 id="fingers-in-the-3d-view"><a class="header" href="#fingers-in-the-3d-view">Fingers in the 3D view</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Gesture</th><th>Does</th></tr>
+</thead>
+<tbody>
+<tr><td>Drag with one finger</td><td>orbit</td></tr>
+<tr><td>Drag with two fingers</td><td>pan</td></tr>
+<tr><td>Pinch</td><td>zoom</td></tr>
+<tr><td>Twist two fingers</td><td>turn the view about its axis</td></tr>
+<tr><td>Double tap</td><td>reset the camera to the visible data</td></tr>
+<tr><td>Press and hold</td><td>the menu a right-click opens: what can be done with the object under the finger</td></tr>
+</tbody>
+</table>
+</div>
+<p>The mode buttons of the view’s toolbar (pick, ruler, select cells, select points) work with a
+tap or a one-finger drag as they do with the mouse.</p>
+<p><strong>Press and hold</strong> stands in for the right mouse button everywhere: on an object in the
+Pipeline, on a CAD feature, on a step of the timeline. Pressing and holding a button shows the
+text a mouse shows when it rests on it, which is how to read why a button is faded or
+disabled; lift the finger after a second and the button is not pressed.</p>
+<h2 id="windows-and-the-keyboard"><a class="header" href="#windows-and-the-keyboard">Windows and the keyboard</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/touch_phone_settings.png" alt="The Settings window on a phone"><span class="img-wrapper"><img src="images/touch_phone_settings.png" alt="The Settings window on a phone"></span></label></p>
+<p>Floating windows (Settings, Save Screenshot, Animation, the file browser, the Welcome window
+and the others) stay inside the screen and are placed by the app: a finger on a window or on a
+text box in it does not drag the window away. A window taller than the screen scrolls; on a
+phone a window is as wide as the screen.</p>
+<p>Tapping a text box puts the cursor in it and brings up the on-screen keyboard. On Android the
+app shrinks to the part of the screen above the keyboard. On an iPad or an iPhone the app
+leaves the lower part of the screen free while you type (about a third of a tall screen, half
+of a wide one); with a hardware keyboard turn that off with <strong>Settings › Interface › Keep room
+for the on-screen keyboard</strong>.</p>
+<p>The app stays clear of the strips the system keeps for itself: the status bar, a camera
+cut-out, the home indicator or the gesture bar, in both ways of holding the device. The strips
+are filled with the panel color.</p>
+<h2 id="layouts-by-shape"><a class="header" href="#layouts-by-shape">Layouts by shape</a></h2>
+<p>In the Tablet and Phone interfaces the layout follows the screen: turn the device and the
+panels are rearranged, keeping which ones are open. Choosing a layout by name in the
+<strong>Windows</strong> menu stops that until <strong>Automatic</strong> is chosen again. The same layouts are in the
+Desktop interface (see <a href="#layouts-by-window-shape">Layouts by window shape</a>).</p>
+<h2 id="limits"><a class="header" href="#limits">Limits</a></h2>
+<ul>
+<li>The tablet and phone builds have no embedded Python: the Python console, the Notebook and
+Python plugins are not there. Filters, sources, readers, the 3D view, charts, the
+spreadsheet, the CAD environment and the assistant are.</li>
+<li>The simulation runner starts programs on the machine or over SSH, which a tablet’s or a
+phone’s system does not allow; it is left out of the automatic layouts there.</li>
+<li>Files are opened with the app’s own file browser, from the app’s documents folder.</li>
+<li>On Android the keyboard types plain characters; word suggestions and input methods that
+compose characters (accents by long press, Chinese, Japanese, Korean) are not passed to the app.</li>
+</ul>
+<h2 id="trying-it-on-a-computer"><a class="header" href="#trying-it-on-a-computer">Trying it on a computer</a></h2>
+<p>The touch interfaces can be tried on a computer, which is also how the pictures of this chapter
+are made:</p>
+<pre><code class="language-sh">AURAFX_INTERFACE=phone AURAFX_WINDOW=390x844 AURAFX_SAFE_AREA=47,34,0,0 aurafx
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variable</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>AURAFX_INTERFACE</code></td><td><code>desktop</code>, <code>tablet</code> or <code>phone</code>: the interface, whatever the setting is</td></tr>
+<tr><td><code>AURAFX_WINDOW</code></td><td>the size of the window in points, as <code>WIDTHxHEIGHT</code></td></tr>
+<tr><td><code>AURAFX_SAFE_AREA</code></td><td>strips to keep free as <code>top,bottom,left,right</code> in points, as a device’s status bar and home indicator would</td></tr>
+<tr><td><code>AURAFX_KEYBOARD</code></td><td>a height in points to keep free at the bottom while a text box has the focus, as an on-screen keyboard would</td></tr>
+</tbody>
+</table>
+</div>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="selection-picking-and-widgets"><a class="header" href="#selection-picking-and-widgets">Selection, picking and widgets</a></h1>
 <h2 id="picking-values"><a class="header" href="#picking-values">Picking values</a></h2>
@@ -3795,7 +3942,7 @@ five components of the tensor a map gives (a lower bound of the density). A map 
 turns steadily about its normal gives back that rate over b within 2 %.</p>
 <pre><code class="language-python">g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
 </code></pre>
-<h2 id="limits"><a class="header" href="#limits">Limits</a></h2>
+<h2 id="limits-1"><a class="header" href="#limits-1">Limits</a></h2>
 <ul>
 <li>Hexagonal-grid EDAX <code>.h5</code> files, Oxford <code>.h5oina</code> files, and <code>.dream3d</code> neighbor lists are not
 read yet (hexagonal <code>.ang</code> files are, resampled on a square grid).</li>
@@ -4494,7 +4641,7 @@ name.</p>
 t = m.mesh_quality(output="Summary table")        # one row per metric
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/mesh_quality_table.png" alt="The quality summary of an inclusion mesh with harmonic grains in the Spreadsheet, and the mesh colored by scaled Jacobian"><span class="img-wrapper"><img src="images/mesh_quality_table.png" alt="The quality summary of an inclusion mesh with harmonic grains in the Spreadsheet, and the mesh colored by scaled Jacobian"></span></label></p>
-<h2 id="limits-1"><a class="header" href="#limits-1">Limits</a></h2>
+<h2 id="limits-2"><a class="header" href="#limits-2">Limits</a></h2>
 <ul>
 <li>Surfaces are drawn by contouring each body’s distance field, so sharp edges are rounded
 over about one cell. Raise <strong>Resolution</strong> for crisper edges. The <code>Volume</code> and
@@ -4574,7 +4721,7 @@ extruded sketch has <code>bottom</code>, <code>top</code> and one <code>side N</
 sketch (the sketch’s own order). <code>Bore side</code> is the wall of a hole named <em>Bore</em>; <code>Base z+</code> is
 the top of a brick named <em>Base</em>. Rename a feature and its faces are renamed with it, which the
 later <em>downstream check</em> uses to follow them.</p>
-<h2 id="the-cad-environment"><a class="header" href="#the-cad-environment">The CAD environment</a></h2>
+<h2 id="the-cad-environment-1"><a class="header" href="#the-cad-environment-1">The CAD environment</a></h2>
 <p>Editing happens in one mode of the same window. Open it from <strong>Sources › CAD Model…</strong> (which
 adds a new part and opens it), from <strong>Edit in CAD…</strong> (right-click a CAD Model in the Pipeline,
 or the button at the top of its Properties), or from Python with <code>part.edit_cad()</code>. While it
@@ -5152,7 +5299,7 @@ version. The state files (<code>.afx</code>) hold the part inside, so a session 
 <p>A CAD model feeds the same tools as Geometry: <strong>Overlay Mesh</strong> turns its surface into
 hexahedra, <strong>Tet Mesh</strong> into tetrahedra, <strong>Assign Grains</strong> and the solver cases follow.
 Face names carry through: an extracted set or a boundary layer can name <code>Bore side</code>.</p>
-<h2 id="limits-2"><a class="header" href="#limits-2">Limits</a></h2>
+<h2 id="limits-3"><a class="header" href="#limits-3">Limits</a></h2>
 <ul>
 <li>The Implicit kernel describes the part as a distance field. It never fails on a hard
 combination of features, but edges are not exact lines: the faces it reports are labelled
@@ -5190,6 +5337,7 @@ the result is accurate to a few percent for overlaps that span several cells.</l
 <tr><td><strong>Theme</strong></td><td>dark, light, system or <strong>high contrast</strong> (black panels, white text and borders, thick yellow outlines on the control under the mouse and the one in use); the 3D background per theme</td></tr>
 <tr><td><strong>Ask before adding a source</strong></td><td>adding a source opens a window to insert it with its standard settings or change them first (on by default)</td></tr>
 <tr><td><strong>UI scale</strong></td><td>enlarges the whole interface</td></tr>
+<tr><td><strong>Interface</strong></td><td><em>Automatic</em> (Desktop on a computer; Tablet or Phone on a tablet or a phone, by its screen), <em>Desktop</em>, <em>Tablet</em> or <em>Phone</em>; the window says which one is in use. In Tablet and Phone, <strong>Keep room for the on-screen keyboard</strong> (see <a href="#tablets-and-phones">Tablets and phones</a>)</td></tr>
 <tr><td><strong>Orientation axes</strong>, <strong>Time label</strong></td><td>shown in the 3D views</td></tr>
 <tr><td><strong>Filter threads</strong></td><td>cores used by the parallel filters (0 = all); takes effect at the next start; <code>AURAFX_THREADS</code> overrides it</td></tr>
 <tr><td><strong>Default color map</strong></td><td>for new objects</td></tr>
@@ -5257,6 +5405,9 @@ color blindness.</p>
 <tr><td><code>AURAFX_DATA_DIR</code></td><td>where settings and state are kept</td></tr>
 <tr><td><code>OLLAMA_HOST</code>, <code>ANTHROPIC_API_KEY</code></td><td>AI providers</td></tr>
 <tr><td><code>PYO3_PYTHON</code> (at build time)</td><td>which Python to embed</td></tr>
+<tr><td><code>AURAFX_INTERFACE</code></td><td><code>desktop</code>, <code>tablet</code> or <code>phone</code>: the interface, whatever the setting is</td></tr>
+<tr><td><code>AURAFX_WINDOW</code></td><td>the size of the window at start, as <code>WIDTHxHEIGHT</code> in points (for example <code>390x844</code>)</td></tr>
+<tr><td><code>AURAFX_SAFE_AREA</code>, <code>AURAFX_KEYBOARD</code></td><td>strips to keep free, as a tablet’s or a phone’s system does (see <a href="#trying-it-on-a-computer">Tablets and phones</a>)</td></tr>
 </tbody>
 </table>
 </div>
@@ -9198,7 +9349,7 @@ color blindness.</p>
 <li><code>afx.job(id, tail=50)</code>: Status of a job (dict with state, exit_code, log tail, outputs).</li>
 <li><code>afx.jobs()</code></li>
 <li><code>afx.key_camera(t, interp='linear')</code>: Keyframe the current 3D view camera at animation time t (0..1); <code>interp</code> says how it moves on to the next key: “linear”, “step”, “ease in”, “ease out”, “ease in-out”, “exponential”.</li>
-<li><code>afx.layout(name)</code>: Window layout preset: “full”, “visualize”, “analyze”, “script” or “simulate”.</li>
+<li><code>afx.layout(name)</code>: Window layout preset: “full”, “visualize”, “analyze”, “script”, “simulate” or “compact”; or a layout by the window’s shape: “automatic” (follows the window as it changes), “wide” (view left, tabs right), “tall” (view on top, tabs below), “tall2” (view on top, two tab groups below).</li>
 <li><code>afx.lighting(**options)</code>: 3D view lighting and screen effects, e.g. <code>afx.lighting(shadows=True, ssao=True)</code>.  Options: light_kit, lights (list of dicts: direction, color, intensity, camera_relative, shadows; [] for the light kit), ambient, shadows, edl, edl_strength, ssao, ssao_strength, ssao_radius, fxaa, tone_mapping (“none”, “reinhard”, “aces”), exposure. <code>afx.lighting()</code> with no options returns the defaults.</li>
 <li><code>afx.link_views(on=True)</code>: Link (or unlink) the cameras of all 3D views.</li>
 <li><code>afx.load(path, host=None, processes=None, launcher=None, stream=None, **kwargs)</code>: Open a file. With <code>host=</code> (a host from the Simulations panel, an ssh alias or user@machine, or “local”) or an <code>ssh://host/path</code> URL, the file is read on that machine by aurafx-server and filters added below it run there too. <code>stream=N</code> reads a file larger than memory in N pieces one after another (on this computer unless <code>host=</code> says otherwise).</li>

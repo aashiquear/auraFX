@@ -39,6 +39,8 @@ fi
 cargo build --release -p aurafx-app --bin aurafx --no-default-features --target aarch64-apple-ios --manifest-path "$ROOT/Cargo.toml"
 APP="$WORK/Payload/auraFX.app"
 cp "$ROOT/target/aarch64-apple-ios/release/aurafx" "$APP/aurafx"
+# See the script: without this the app is stopped at launch on iOS 27 (no scene life cycle yet).
+python3 "$ROOT/scripts/package/ios_sdk_stamp.py" "$APP/aurafx" "${IOS_SDK_STAMP:-26.0}"
 sed "s/@VERSION@/$VERSION/g" "$ROOT/packaging/ios/Info.plist" > "$APP/Info.plist"
 icon() { # size file
   if command -v sips >/dev/null; then sips -z "$1" "$1" "$ROOT/assets/branding/emblem.png" --out "$2" >/dev/null

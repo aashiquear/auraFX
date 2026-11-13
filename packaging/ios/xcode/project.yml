@@ -19,6 +19,14 @@ targets:
     sources:
       - Sources
       - Assets.xcassets
+    # The app does not use the scene life cycle yet (its window library starts the earlier way),
+    # and iOS 27 stops such an app at launch when it says it was built with the iOS 27 SDK:
+    # say iOS 26 (see scripts/package/ios_sdk_stamp.py). Runs before code signing.
+    postBuildScripts:
+      - name: Stamp the SDK version
+        basedOnDependencyAnalysis: false
+        script: |
+          xcrun vtool -set-build-version ios 15.0 26.0 -replace -output "$TARGET_BUILD_DIR/$EXECUTABLE_PATH" "$TARGET_BUILD_DIR/$EXECUTABLE_PATH"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.aurafx.app

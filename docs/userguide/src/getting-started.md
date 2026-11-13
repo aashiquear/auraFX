@@ -17,7 +17,7 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
 | macOS 11 or newer (Apple silicon, Intel) | `auraFX-<version>-macos-<arch>.dmg` | drag the app to Applications, or use the installer line; the app is signed ad hoc, so the first start is **right-click › Open** |
 | Windows 10/11 (x64) | `auraFX-<version>-windows-x64-setup.exe`, `auraFX-<version>-windows-x64.zip` | the installer adds a Start-menu entry and file associations; the zip is portable (unpack anywhere and run `aurafx.exe`) |
 | Android 8 or newer | `auraFX-<version>-android.apk` | a viewer build (files, filters, rendering; no Python console, no simulations); allow the install from the browser or file manager |
-| iOS / iPadOS 15 or newer | `auraFX-<version>-ios-unsigned.ipa` | a viewer build; sign and install it with Xcode, AltStore or Sideloadly using your own Apple ID |
+| iOS / iPadOS 15 or newer | `auraFX-<version>-ios-unsigned.ipa` | a viewer build; sign and install it with Xcode, AltStore, Sideloadly or `xtool install` (on Linux or Windows too) using your own Apple ID |
 
 For signing and store uploads the releases also carry the two mobile apps as projects:
 `auraFX-<version>-ios-xcode.zip` opens in Xcode (choose your team under *Signing & Capabilities*,

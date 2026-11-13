@@ -28,6 +28,13 @@ From a terminal:
 folder (macOS with Xcode, Rust with the `aarch64-apple-ios` target, and XcodeGen). The project
 is described by `project.yml`; `xcodegen generate` writes `auraFX.xcodeproj` again from it.
 
+## Without a Mac
+
+The unsigned `.ipa` itself is built on Linux as well: `scripts/package/ios.sh` uses the iOS SDK
+and linker that [xtool](https://xtool.sh) sets up (`xtool setup`), and
+`xtool install auraFX-<version>-ios-unsigned.ipa` signs it for your Apple account and puts it
+on a connected iPad or iPhone.
+
 ## Signing the unsigned .ipa instead
 
 `scripts/package/ios_sign.sh auraFX-<version>-ios-unsigned.ipa "Apple Development: Your Name (ID)" profile.mobileprovision`

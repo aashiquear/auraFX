@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-38522f5f.js";
+            window.path_to_searchindex_js = "searchindex-e758388e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -689,6 +689,19 @@
 <h3 id="coordinates"><a class="header" href="#coordinates">Coordinates</a></h3>
 <p>Adds the point positions as a 3-component point array Coordinates (to color or compute by position).</p>
 <p>Python: <code>coordinates</code> · also found by: positions, xyz, points as array, coordinates</p>
+<h3 id="curvature"><a class="header" href="#curvature">Curvature</a></h3>
+<p>Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.</p>
+<p>Python: <code>curvature</code> · also found by: gaussian curvature, mean curvature, bending, principal curvature, surface analysis</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Curvature</td><td><code>kind</code></td><td>Gaussian / Mean</td><td><code>Gaussian</code></td><td></td></tr>
+</tbody>
+</table>
+</div>
 <h3 id="density-map"><a class="header" href="#density-map">Density Map</a></h3>
 <p>Where pairs of values of two arrays gather: a Gaussian kernel density on an image (x across, y up), with the density levels holding 50, 90 and 99 % of the samples as field data (contour the image at them).</p>
 <p>Python: <code>density_map</code> · also found by: 2d density, joint distribution, kde, scatter density, heat map, density estimate</p>
@@ -1598,20 +1611,6 @@
 </thead>
 <tbody>
 <tr><td>Stress tensor</td><td><code>array</code></td><td>array</td><td>(the active array)</td><td></td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="data-analysis"><a class="header" href="#data-analysis">Data Analysis</a></h2>
-<h3 id="curvature"><a class="header" href="#curvature">Curvature</a></h3>
-<p>Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.</p>
-<p>Python: <code>curvature</code> · also found by: gaussian curvature, mean curvature, bending, principal curvature, surface analysis</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
-</thead>
-<tbody>
-<tr><td>Curvature</td><td><code>kind</code></td><td>Gaussian / Mean</td><td><code>Gaussian</code></td><td></td></tr>
 </tbody>
 </table>
 </div>

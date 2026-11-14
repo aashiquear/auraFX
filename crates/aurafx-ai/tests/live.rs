@@ -17,6 +17,7 @@ fn ollama_stream() {
     for ev in rx {
         match ev {
             StreamEvent::Delta(d) => text.push_str(&d),
+            StreamEvent::Thinking(_) => {}
             StreamEvent::Done => break,
             StreamEvent::Error(e) => panic!("{e}"),
         }

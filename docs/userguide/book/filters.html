@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-38522f5f.js";
+            window.path_to_searchindex_js = "searchindex-e758388e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -182,6 +182,10 @@
 choose the filter, adjust it in Properties. Every filter is also a method in Python
 (<code>node.slice(...)</code>), and the assistant knows all of them.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/filters_pipeline.png" alt="A slice, a contour and a clip of the same file"><span class="img-wrapper"><img src="images/filters_pipeline.png" alt="A slice, a contour and a clip of the same file"></span></label></p>
+<p>The <strong>Filters</strong> menu lists the filters by group (Common, Data, Geometry, Mesh, Grains…) and,
+first, <strong>All filters</strong>: every filter by name in one list, for when you know the name but not
+the group. Filters that may not work on the selected object are faded and say why. <strong>Search…</strong>
+(Ctrl+K) finds filters, sources and actions by name or by what they do.</p>
 <h2 id="common-filters-toolbar"><a class="header" href="#common-filters-toolbar">Common filters (toolbar)</a></h2>
 <div class="table-wrapper">
 <table>
@@ -332,7 +336,7 @@ afx.gpu_benchmark(100)     # [{'filter': 'Contour', 'cpu_s': ..., 'gpu_s': ...},
 turns it off before start. Data bigger than the GPU’s buffers is sent in slabs.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/gpu_filters.png" alt="The Performance settings with the GPU switch, and timings of Slice and Contour on a 201^3 grid with and without the GPU, written in the 3D view"><span class="img-wrapper"><img src="images/gpu_filters.png" alt="The Performance settings with the GPU switch, and timings of Slice and Contour on a 201^3 grid with and without the GPU, written in the 3D view"></span></label></p>
 <h2 id="surface-operations"><a class="header" href="#surface-operations">Surface operations</a></h2>
-<p>Eight filters work on surfaces and lines (<strong>Filters › Geometry</strong>, <strong>Data Analysis</strong>):</p>
+<p>Eight filters work on surfaces and lines (<strong>Filters › Geometry</strong> and <strong>Filters › Data</strong>):</p>
 <ul>
 <li><strong>Reverse Sense</strong> turns a surface inside out: every polygon’s vertex order is reversed, and by
 default the sign of its normals arrays too.</li>
@@ -362,7 +366,7 @@ light = sphere_surface.decimate(reduction=0.5)
 </code></pre>
 <h2 id="extracting-parts-and-making-tetrahedra"><a class="header" href="#extracting-parts-and-making-tetrahedra">Extracting parts and making tetrahedra</a></h2>
 <ul>
-<li><strong>Iso Volume</strong> (<strong>Filters › Data Analysis</strong>) keeps the part where a point scalar lies between a
+<li><strong>Iso Volume</strong> (<strong>Filters › Data</strong>) keeps the part where a point scalar lies between a
 <em>Lower</em> and an <em>Upper</em> value. It cuts through the cells where the scalar reaches those values,
 so the result’s outer faces are the two value surfaces, not cell faces. Of a field that grows
 linearly along x, the part between a quarter and three quarters is exactly half the box.</li>
@@ -390,7 +394,7 @@ half = closed_surface.clip_closed_surface(origin=(0, 0, 0), normal=(0, 0, 1))
 tets = points.delaunay_3d(alpha=0.0)
 </code></pre>
 <h2 id="tensors-derivatives-and-tables"><a class="header" href="#tensors-derivatives-and-tables">Tensors, derivatives and tables</a></h2>
-<p><strong>Fields of vectors and tensors</strong> (<strong>Filters › Data Analysis</strong>):</p>
+<p><strong>Fields of vectors and tensors</strong> (<strong>Filters › Data</strong>):</p>
 <ul>
 <li><strong>Compute Derivatives</strong> of a point vector field (a velocity, a displacement) adds its
 gradient <code>&lt;name&gt;_gradient</code> (9 components, dv_i/dx_j), the strain rate <code>&lt;name&gt;_strain_rate</code>
@@ -433,7 +437,7 @@ pts = afx.load("probe.csv").table_to_points(x="X", y="Y", z="Z")
 spec = afx.load("signal.csv").table_fft(dt=0.001)
 </code></pre>
 <h2 id="scattered-points-onto-grids-and-lines"><a class="header" href="#scattered-points-onto-grids-and-lines">Scattered points onto grids and lines</a></h2>
-<p><strong>Point Interpolator</strong> (<strong>Filters › Data Analysis</strong>) carries the point arrays of scattered points
+<p><strong>Point Interpolator</strong> (<strong>Filters › Data</strong>) carries the point arrays of scattered points
 (particles, probe measurements, a point cloud) onto other points. Each new value is a weighted mean
 of the nearest points:</p>
 <div class="table-wrapper">
@@ -458,7 +462,7 @@ onto that data’s points, keeping its cells and arrays. <code>vtkValidPointMask
 near. A linear field sampled by 20 000 random points comes back within 2 % (Shepard, Gaussian) and
 SPH on a lattice of particles within 1 %.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/point_interpolator.png" alt="Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel"><span class="img-wrapper"><img src="images/point_interpolator.png" alt="Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel"></span></label></p>
-<p><strong>Lines to plot</strong> (all in <strong>Filters › Data Analysis</strong>, shown in the Charts panel):</p>
+<p><strong>Lines to plot</strong> (all in <strong>Filters › Data</strong>, shown in the Charts panel):</p>
 <ul>
 <li><strong>Resample To Line</strong> samples a straight line at evenly spaced points, <strong>at the cell boundaries</strong>
 (where the line enters and leaves each cell) or <strong>at the cell centres</strong> (once in the middle of
@@ -485,7 +489,7 @@ to place; the field’s z component is not used.</p>
 <pre><code class="language-python">s = flow.evenly_spaced_streamlines_2d(vectors="V", separation=0.05)
 </code></pre>
 <h2 id="statistics"><a class="header" href="#statistics">Statistics</a></h2>
-<p>In <strong>Filters › Data Analysis</strong>; <em>variables</em> is a list of array names (<code>T, p</code>; <code>V</code> is a vector’s
+<p>In <strong>Filters › Data</strong>; <em>variables</em> is a list of array names (<code>T, p</code>; <code>V</code> is a vector’s
 magnitude, <code>V[1]</code> its second component), empty for every array with one value; <em>data</em> chooses the
 point or cell arrays (table columns for tables).</p>
 <ul>
@@ -517,7 +521,7 @@ c = afx.chart_view(w.compute_quartiles(), y=["Q1"])
 w.plot("RTData", style="box")
 </code></pre>
 <h2 id="outliers-and-change-points"><a class="header" href="#outliers-and-change-points">Outliers and change points</a></h2>
-<p>In <strong>Filters › Data Analysis</strong>:</p>
+<p>In <strong>Filters › Data</strong>:</p>
 <ul>
 <li><strong>Find Outliers</strong> marks the points or cells of an array whose value stands out (a vector by its
 length): <strong>Robust z-score</strong> (0.6745 × the distance from the median over the median absolute

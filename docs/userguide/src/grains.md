@@ -357,7 +357,7 @@ To Image** puts an unevenly spaced grid on an even one.
 
 ### Image filters on volumes
 
-In **Filters › Data Analysis**, for any image data (an EBSD map's quality arrays, an optical or
+In **Filters › Data**, for any image data (an EBSD map's quality arrays, an optical or
 X-ray volume): **Median Image** (the median of a box of cells, against speckle), **Gaussian Smooth
 Image** (a standard deviation in cells), **Otsu Threshold** (one to four thresholds that best
 split the histogram; a label array and the thresholds as field data) and **Binary Morphology**

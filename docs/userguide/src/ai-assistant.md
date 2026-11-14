@@ -8,6 +8,26 @@ through the middle and color by temperature", "what arrays does this file have?"
 maximum stress over time", "why does my contour look cracked?". The assistant answers and,
 when something should happen in the app, writes Python using the `afx` API.
 
+## Conversations
+
+Every message, yours and the assistant's, has a **copy** button beside its name; each block of
+code has **Copy code** and **Copy to console** next to **Run code**.
+
+The buttons at the top of the panel, after the model:
+
+- **+** starts a new conversation. The one on screen stays in the history.
+- the **clock** lists the previous conversations, newest first, by the start of their first
+  question. Click one to open it and carry on; the bin beside each deletes it.
+- the **bin** deletes the conversation on screen.
+
+A conversation is saved when the assistant has replied (pictures sent with messages are not
+kept), as one JSON file in `conversations/` in auraFX's data folder (on Linux
+`~/.local/share/aurafx/conversations`). Code in a conversation opened from the history is
+not run again by itself. `afx.conversation("file.json")` shows such a file in the panel, and
+`afx.conversation()` starts a new one.
+
+![A conversation in the Assistant panel: copy buttons beside each message, and the new, history and delete buttons at the top](images/assistant_conversation.png)
+
 ## What the assistant sees
 
 A text description of your pipeline: the objects, their filters and parameters, array names
@@ -88,6 +108,13 @@ Choose the provider and model in the panel's drop-downs or in **Settings**:
 No model is chosen at first: the model list beside the provider shows `<no model>` until you
 pick one, and the choice is kept for the next start. With `<no model>`, messages are not sent:
 pick a model first.
+
+**Models that reason first.** Some Ollama models reason before they answer, and the reasoning
+counts against the tokens of a reply: on a long request such a model can spend the whole reply
+reasoning and never answer. auraFX therefore asks for the answer directly. **Settings › AI
+assistant › Let the model reason before it answers** turns reasoning on (the reply then gets
+four times **Max tokens**); while the model reasons, the panel shows the end of its reasoning.
+A reply that ends without an answer says so instead of waiting.
 
 Answers stream as they are produced. The suggestion buttons under the welcome text are good
 first questions for a new file.

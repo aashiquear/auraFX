@@ -1489,6 +1489,15 @@ fn lighting(py: Python<'_>, options: Option<&Bound<'_, PyDict>>) -> PyResult<Py<
     Ok(py.None())
 }
 
+/// Show a conversation file (JSON with a title and messages, as the assistant keeps them in the
+/// conversations folder of the app's data folder) in the Assistant panel; without a path, start a
+/// new conversation. Code in the shown conversation is not run.
+#[pyfunction]
+#[pyo3(signature = (path=None))]
+fn conversation(path: Option<String>) {
+    app_command(format!("assistant_conversation {}", path.unwrap_or_default()));
+}
+
 /// Put a saved prompt (by name) in the assistant's box, the selected object filled in.
 #[pyfunction]
 fn assistant_prompt(name: String) {
@@ -3411,6 +3420,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gpu_filters, m)?)?;
     m.add_function(wrap_pyfunction!(gpu_benchmark, m)?)?;
     m.add_function(wrap_pyfunction!(assistant_prompt, m)?)?;
+    m.add_function(wrap_pyfunction!(conversation, m)?)?;
     m.add_function(wrap_pyfunction!(annotate, m)?)?;
     m.add_function(wrap_pyfunction!(key_camera, m)?)?;
     m.add_function(wrap_pyfunction!(import_colormaps, m)?)?;

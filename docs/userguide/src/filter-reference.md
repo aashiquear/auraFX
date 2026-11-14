@@ -450,6 +450,16 @@ Adds the point positions as a 3-component point array Coordinates (to color or c
 
 Python: `coordinates` · also found by: positions, xyz, points as array, coordinates
 
+### Curvature
+
+Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.
+
+Python: `curvature` · also found by: gaussian curvature, mean curvature, bending, principal curvature, surface analysis
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Curvature | `kind` | Gaussian / Mean | `Gaussian` |  |
+
 ### Density Map
 
 Where pairs of values of two arrays gather: a Gaussian kernel density on an image (x across, y up), with the density levels holding 50, 90 and 99 % of the samples as field data (contour the image at them).
@@ -1223,18 +1233,6 @@ Python: `yield_criteria` · also found by: von mises, tresca, equivalent stress,
 | Setting | Python | Takes | Default | |
 |---|---|---|---|---|
 | Stress tensor | `array` | array | (the active array) |  |
-
-## Data Analysis
-
-### Curvature
-
-Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.
-
-Python: `curvature` · also found by: gaussian curvature, mean curvature, bending, principal curvature, surface analysis
-
-| Setting | Python | Takes | Default | |
-|---|---|---|---|---|
-| Curvature | `kind` | Gaussian / Mean | `Gaussian` |  |
 
 ## Geometry
 

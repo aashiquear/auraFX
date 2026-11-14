@@ -6,6 +6,11 @@ choose the filter, adjust it in Properties. Every filter is also a method in Pyt
 
 ![A slice, a contour and a clip of the same file](images/filters_pipeline.png)
 
+The **Filters** menu lists the filters by group (Common, Data, Geometry, Mesh, Grains…) and,
+first, **All filters**: every filter by name in one list, for when you know the name but not
+the group. Filters that may not work on the selected object are faded and say why. **Search…**
+(Ctrl+K) finds filters, sources and actions by name or by what they do.
+
 ## Common filters (toolbar)
 
 | Filter | What it does | Main parameters |
@@ -177,7 +182,7 @@ turns it off before start. Data bigger than the GPU's buffers is sent in slabs.
 
 ## Surface operations
 
-Eight filters work on surfaces and lines (**Filters › Geometry**, **Data Analysis**):
+Eight filters work on surfaces and lines (**Filters › Geometry** and **Filters › Data**):
 
 - **Reverse Sense** turns a surface inside out: every polygon's vertex order is reversed, and by
   default the sign of its normals arrays too.
@@ -210,7 +215,7 @@ light = sphere_surface.decimate(reduction=0.5)
 
 ## Extracting parts and making tetrahedra
 
-- **Iso Volume** (**Filters › Data Analysis**) keeps the part where a point scalar lies between a
+- **Iso Volume** (**Filters › Data**) keeps the part where a point scalar lies between a
   *Lower* and an *Upper* value. It cuts through the cells where the scalar reaches those values,
   so the result's outer faces are the two value surfaces, not cell faces. Of a field that grows
   linearly along x, the part between a quarter and three quarters is exactly half the box.
@@ -242,7 +247,7 @@ tets = points.delaunay_3d(alpha=0.0)
 
 ## Tensors, derivatives and tables
 
-**Fields of vectors and tensors** (**Filters › Data Analysis**):
+**Fields of vectors and tensors** (**Filters › Data**):
 
 - **Compute Derivatives** of a point vector field (a velocity, a displacement) adds its
   gradient `<name>_gradient` (9 components, dv_i/dx_j), the strain rate `<name>_strain_rate`
@@ -289,7 +294,7 @@ spec = afx.load("signal.csv").table_fft(dt=0.001)
 
 ## Scattered points onto grids and lines
 
-**Point Interpolator** (**Filters › Data Analysis**) carries the point arrays of scattered points
+**Point Interpolator** (**Filters › Data**) carries the point arrays of scattered points
 (particles, probe measurements, a point cloud) onto other points. Each new value is a weighted mean
 of the nearest points:
 
@@ -311,7 +316,7 @@ SPH on a lattice of particles within 1 %.
 
 ![Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel](images/point_interpolator.png)
 
-**Lines to plot** (all in **Filters › Data Analysis**, shown in the Charts panel):
+**Lines to plot** (all in **Filters › Data**, shown in the Charts panel):
 
 - **Resample To Line** samples a straight line at evenly spaced points, **at the cell boundaries**
   (where the line enters and leaves each cell) or **at the cell centres** (once in the middle of
@@ -346,7 +351,7 @@ s = flow.evenly_spaced_streamlines_2d(vectors="V", separation=0.05)
 
 ## Statistics
 
-In **Filters › Data Analysis**; *variables* is a list of array names (`T, p`; `V` is a vector's
+In **Filters › Data**; *variables* is a list of array names (`T, p`; `V` is a vector's
 magnitude, `V[1]` its second component), empty for every array with one value; *data* chooses the
 point or cell arrays (table columns for tables).
 
@@ -383,7 +388,7 @@ w.plot("RTData", style="box")
 
 ## Outliers and change points
 
-In **Filters › Data Analysis**:
+In **Filters › Data**:
 
 - **Find Outliers** marks the points or cells of an array whose value stands out (a vector by its
   length): **Robust z-score** (0.6745 × the distance from the median over the median absolute

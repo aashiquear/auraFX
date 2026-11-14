@@ -119,7 +119,10 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         });
     }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // Sideways too, for long names and deep trees.
+    let panel_width = ui.available_width();
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        ui.set_max_width(panel_width);
         for r in rows {
             ui.horizontal(|ui| {
                 ui.add_space(r.depth as f32 * 14.0);
@@ -694,14 +697,14 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
         ui.label(RichText::new("Select a node in the pipeline to edit its properties.").weak());
         return;
     };
-    ui.horizontal(|ui| {
+    // (Wrapped: a long name on one line would make everything below as wide as itself, wider
+    // than the panel, and nothing would scroll sideways.)
+    ui.horizontal_wrapped(|ui| {
         ui.heading(&name);
         ui.label(RichText::new(&kind).weak());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ms > 0.0 {
-                ui.label(RichText::new(format!("{ms:.0} ms")).weak().small());
-            }
-        });
+        if ms > 0.0 {
+            ui.label(RichText::new(format!("{ms:.0} ms")).weak().small());
+        }
     });
     if let Some((host, st, full)) = &server {
         ui.horizontal_wrapped(|ui| {

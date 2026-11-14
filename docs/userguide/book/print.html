@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-38522f5f.js";
+            window.path_to_searchindex_js = "searchindex-e758388e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -390,6 +390,10 @@ the program in every package.</p>
 choose the filter, adjust it in Properties. Every filter is also a method in Python
 (<code>node.slice(...)</code>), and the assistant knows all of them.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/filters_pipeline.png" alt="A slice, a contour and a clip of the same file"><span class="img-wrapper"><img src="images/filters_pipeline.png" alt="A slice, a contour and a clip of the same file"></span></label></p>
+<p>The <strong>Filters</strong> menu lists the filters by group (Common, Data, Geometry, Mesh, Grains…) and,
+first, <strong>All filters</strong>: every filter by name in one list, for when you know the name but not
+the group. Filters that may not work on the selected object are faded and say why. <strong>Search…</strong>
+(Ctrl+K) finds filters, sources and actions by name or by what they do.</p>
 <h2 id="common-filters-toolbar"><a class="header" href="#common-filters-toolbar">Common filters (toolbar)</a></h2>
 <div class="table-wrapper">
 <table>
@@ -540,7 +544,7 @@ afx.gpu_benchmark(100)     # [{'filter': 'Contour', 'cpu_s': ..., 'gpu_s': ...},
 turns it off before start. Data bigger than the GPU’s buffers is sent in slabs.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/gpu_filters.png" alt="The Performance settings with the GPU switch, and timings of Slice and Contour on a 201^3 grid with and without the GPU, written in the 3D view"><span class="img-wrapper"><img src="images/gpu_filters.png" alt="The Performance settings with the GPU switch, and timings of Slice and Contour on a 201^3 grid with and without the GPU, written in the 3D view"></span></label></p>
 <h2 id="surface-operations"><a class="header" href="#surface-operations">Surface operations</a></h2>
-<p>Eight filters work on surfaces and lines (<strong>Filters › Geometry</strong>, <strong>Data Analysis</strong>):</p>
+<p>Eight filters work on surfaces and lines (<strong>Filters › Geometry</strong> and <strong>Filters › Data</strong>):</p>
 <ul>
 <li><strong>Reverse Sense</strong> turns a surface inside out: every polygon’s vertex order is reversed, and by
 default the sign of its normals arrays too.</li>
@@ -570,7 +574,7 @@ light = sphere_surface.decimate(reduction=0.5)
 </code></pre>
 <h2 id="extracting-parts-and-making-tetrahedra"><a class="header" href="#extracting-parts-and-making-tetrahedra">Extracting parts and making tetrahedra</a></h2>
 <ul>
-<li><strong>Iso Volume</strong> (<strong>Filters › Data Analysis</strong>) keeps the part where a point scalar lies between a
+<li><strong>Iso Volume</strong> (<strong>Filters › Data</strong>) keeps the part where a point scalar lies between a
 <em>Lower</em> and an <em>Upper</em> value. It cuts through the cells where the scalar reaches those values,
 so the result’s outer faces are the two value surfaces, not cell faces. Of a field that grows
 linearly along x, the part between a quarter and three quarters is exactly half the box.</li>
@@ -598,7 +602,7 @@ half = closed_surface.clip_closed_surface(origin=(0, 0, 0), normal=(0, 0, 1))
 tets = points.delaunay_3d(alpha=0.0)
 </code></pre>
 <h2 id="tensors-derivatives-and-tables"><a class="header" href="#tensors-derivatives-and-tables">Tensors, derivatives and tables</a></h2>
-<p><strong>Fields of vectors and tensors</strong> (<strong>Filters › Data Analysis</strong>):</p>
+<p><strong>Fields of vectors and tensors</strong> (<strong>Filters › Data</strong>):</p>
 <ul>
 <li><strong>Compute Derivatives</strong> of a point vector field (a velocity, a displacement) adds its
 gradient <code>&lt;name&gt;_gradient</code> (9 components, dv_i/dx_j), the strain rate <code>&lt;name&gt;_strain_rate</code>
@@ -641,7 +645,7 @@ pts = afx.load("probe.csv").table_to_points(x="X", y="Y", z="Z")
 spec = afx.load("signal.csv").table_fft(dt=0.001)
 </code></pre>
 <h2 id="scattered-points-onto-grids-and-lines"><a class="header" href="#scattered-points-onto-grids-and-lines">Scattered points onto grids and lines</a></h2>
-<p><strong>Point Interpolator</strong> (<strong>Filters › Data Analysis</strong>) carries the point arrays of scattered points
+<p><strong>Point Interpolator</strong> (<strong>Filters › Data</strong>) carries the point arrays of scattered points
 (particles, probe measurements, a point cloud) onto other points. Each new value is a weighted mean
 of the nearest points:</p>
 <div class="table-wrapper">
@@ -666,7 +670,7 @@ onto that data’s points, keeping its cells and arrays. <code>vtkValidPointMask
 near. A linear field sampled by 20 000 random points comes back within 2 % (Shepard, Gaussian) and
 SPH on a lattice of particles within 1 %.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/point_interpolator.png" alt="Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel"><span class="img-wrapper"><img src="images/point_interpolator.png" alt="Temperature measured at 200 scattered points, carried onto a plane with the Gaussian kernel"></span></label></p>
-<p><strong>Lines to plot</strong> (all in <strong>Filters › Data Analysis</strong>, shown in the Charts panel):</p>
+<p><strong>Lines to plot</strong> (all in <strong>Filters › Data</strong>, shown in the Charts panel):</p>
 <ul>
 <li><strong>Resample To Line</strong> samples a straight line at evenly spaced points, <strong>at the cell boundaries</strong>
 (where the line enters and leaves each cell) or <strong>at the cell centres</strong> (once in the middle of
@@ -693,7 +697,7 @@ to place; the field’s z component is not used.</p>
 <pre><code class="language-python">s = flow.evenly_spaced_streamlines_2d(vectors="V", separation=0.05)
 </code></pre>
 <h2 id="statistics"><a class="header" href="#statistics">Statistics</a></h2>
-<p>In <strong>Filters › Data Analysis</strong>; <em>variables</em> is a list of array names (<code>T, p</code>; <code>V</code> is a vector’s
+<p>In <strong>Filters › Data</strong>; <em>variables</em> is a list of array names (<code>T, p</code>; <code>V</code> is a vector’s
 magnitude, <code>V[1]</code> its second component), empty for every array with one value; <em>data</em> chooses the
 point or cell arrays (table columns for tables).</p>
 <ul>
@@ -725,7 +729,7 @@ c = afx.chart_view(w.compute_quartiles(), y=["Q1"])
 w.plot("RTData", style="box")
 </code></pre>
 <h2 id="outliers-and-change-points"><a class="header" href="#outliers-and-change-points">Outliers and change points</a></h2>
-<p>In <strong>Filters › Data Analysis</strong>:</p>
+<p>In <strong>Filters › Data</strong>:</p>
 <ul>
 <li><strong>Find Outliers</strong> marks the points or cells of an array whose value stands out (a vector by its
 length): <strong>Robust z-score</strong> (0.6745 × the distance from the median over the median absolute
@@ -1653,6 +1657,22 @@ chat with a language model that knows the app and your data. Ask in plain words:
 through the middle and color by temperature”, “what arrays does this file have?”, “plot the
 maximum stress over time”, “why does my contour look cracked?”. The assistant answers and,
 when something should happen in the app, writes Python using the <code>afx</code> API.</p>
+<h2 id="conversations"><a class="header" href="#conversations">Conversations</a></h2>
+<p>Every message, yours and the assistant’s, has a <strong>copy</strong> button beside its name; each block of
+code has <strong>Copy code</strong> and <strong>Copy to console</strong> next to <strong>Run code</strong>.</p>
+<p>The buttons at the top of the panel, after the model:</p>
+<ul>
+<li><strong>+</strong> starts a new conversation. The one on screen stays in the history.</li>
+<li>the <strong>clock</strong> lists the previous conversations, newest first, by the start of their first
+question. Click one to open it and carry on; the bin beside each deletes it.</li>
+<li>the <strong>bin</strong> deletes the conversation on screen.</li>
+</ul>
+<p>A conversation is saved when the assistant has replied (pictures sent with messages are not
+kept), as one JSON file in <code>conversations/</code> in auraFX’s data folder (on Linux
+<code>~/.local/share/aurafx/conversations</code>). Code in a conversation opened from the history is
+not run again by itself. <code>afx.conversation("file.json")</code> shows such a file in the panel, and
+<code>afx.conversation()</code> starts a new one.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/assistant_conversation.png" alt="A conversation in the Assistant panel: copy buttons beside each message, and the new, history and delete buttons at the top"><span class="img-wrapper"><img src="images/assistant_conversation.png" alt="A conversation in the Assistant panel: copy buttons beside each message, and the new, history and delete buttons at the top"></span></label></p>
 <h2 id="what-the-assistant-sees"><a class="header" href="#what-the-assistant-sees">What the assistant sees</a></h2>
 <p>A text description of your pipeline: the objects, their filters and parameters, array names
 with ranges, bounds, cell types and time steps, plus the last error. It never receives the
@@ -1720,6 +1740,12 @@ leave it out.</p>
 <p>No model is chosen at first: the model list beside the provider shows <code>&lt;no model&gt;</code> until you
 pick one, and the choice is kept for the next start. With <code>&lt;no model&gt;</code>, messages are not sent:
 pick a model first.</p>
+<p><strong>Models that reason first.</strong> Some Ollama models reason before they answer, and the reasoning
+counts against the tokens of a reply: on a long request such a model can spend the whole reply
+reasoning and never answer. auraFX therefore asks for the answer directly. <strong>Settings › AI
+assistant › Let the model reason before it answers</strong> turns reasoning on (the reply then gets
+four times <strong>Max tokens</strong>); while the model reasons, the panel shows the end of its reasoning.
+A reply that ends without an answer says so instead of waiting.</p>
 <p>Answers stream as they are produced. The suggestion buttons under the welcome text are good
 first questions for a new file.</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -3306,7 +3332,7 @@ the grid (only the origin and spacing change when there is no turn), also by a 4
 <strong>Set Origin and Spacing</strong> gives the volume a new origin and cell size; <strong>Resample Rectilinear
 To Image</strong> puts an unevenly spaced grid on an even one.</p>
 <h3 id="image-filters-on-volumes"><a class="header" href="#image-filters-on-volumes">Image filters on volumes</a></h3>
-<p>In <strong>Filters › Data Analysis</strong>, for any image data (an EBSD map’s quality arrays, an optical or
+<p>In <strong>Filters › Data</strong>, for any image data (an EBSD map’s quality arrays, an optical or
 X-ray volume): <strong>Median Image</strong> (the median of a box of cells, against speckle), <strong>Gaussian Smooth
 Image</strong> (a standard deviation in cells), <strong>Otsu Threshold</strong> (one to four thresholds that best
 split the histogram; a label array and the thresholds as field data) and <strong>Binary Morphology</strong>
@@ -5929,6 +5955,19 @@ color blindness.</p>
 <h3 id="coordinates"><a class="header" href="#coordinates">Coordinates</a></h3>
 <p>Adds the point positions as a 3-component point array Coordinates (to color or compute by position).</p>
 <p>Python: <code>coordinates</code> · also found by: positions, xyz, points as array, coordinates</p>
+<h3 id="curvature"><a class="header" href="#curvature">Curvature</a></h3>
+<p>Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.</p>
+<p>Python: <code>curvature</code> · also found by: gaussian curvature, mean curvature, bending, principal curvature, surface analysis</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Curvature</td><td><code>kind</code></td><td>Gaussian / Mean</td><td><code>Gaussian</code></td><td></td></tr>
+</tbody>
+</table>
+</div>
 <h3 id="density-map"><a class="header" href="#density-map">Density Map</a></h3>
 <p>Where pairs of values of two arrays gather: a Gaussian kernel density on an image (x across, y up), with the density levels holding 50, 90 and 99 % of the samples as field data (contour the image at them).</p>
 <p>Python: <code>density_map</code> · also found by: 2d density, joint distribution, kde, scatter density, heat map, density estimate</p>
@@ -6838,20 +6877,6 @@ color blindness.</p>
 </thead>
 <tbody>
 <tr><td>Stress tensor</td><td><code>array</code></td><td>array</td><td>(the active array)</td><td></td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="data-analysis"><a class="header" href="#data-analysis">Data Analysis</a></h2>
-<h3 id="curvature"><a class="header" href="#curvature">Curvature</a></h3>
-<p>Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.</p>
-<p>Python: <code>curvature</code> · also found by: gaussian curvature, mean curvature, bending, principal curvature, surface analysis</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
-</thead>
-<tbody>
-<tr><td>Curvature</td><td><code>kind</code></td><td>Gaussian / Mean</td><td><code>Gaussian</code></td><td></td></tr>
 </tbody>
 </table>
 </div>
@@ -9335,6 +9360,7 @@ color blindness.</p>
 <li><code>afx.clear_selection()</code></li>
 <li><code>afx.close_chart_view(view)</code>: Close chart view <code>view</code> (0, the Charts panel, is hidden instead).</li>
 <li><code>afx.colormaps()</code>: Names of the available color maps (built-in and user presets).</li>
+<li><code>afx.conversation(path=None)</code>: Show a conversation file (JSON with a title and messages, as the assistant keeps them in the conversations folder of the app’s data folder) in the Assistant panel; without a path, start a new conversation. Code in the shown conversation is not run.</li>
 <li><code>afx.define_colormap(name, points)</code>: Define (or replace) a user color map from [[t, r, g, b], …] with values in 0..1.</li>
 <li><code>afx.describe()</code></li>
 <li><code>afx.display(obj)</code>: Show something in the notebook when auraFX runs as a Jupyter kernel: a picture file (.png, .jpg, .gif, .svg), PNG bytes, or any object (as text). In the app’s console it prints a line.</li>

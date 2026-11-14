@@ -146,7 +146,9 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     let screen = ctx.content_rect();
     // A tablet or a phone: no wider than the screen, and near its top (above the keyboard).
     let touch = crate::touch::mode().is_touch();
-    let width = if touch { (screen.width() - 24.0).clamp(200.0, 560.0) } else { 560.0 };
+    let width = if touch { (screen.width() - 24.0).clamp(200.0, 560.0) } else { (screen.width() - 80.0).clamp(320.0, 760.0) };
+    // As many results as the window has room for; each takes a name and up to two lines.
+    let list_height = (screen.height() - if touch { 140.0 } else { 220.0 }).clamp(200.0, 640.0);
     let top = if touch { 56.0 } else { 80.0 };
     #[allow(deprecated)]
     egui::Area::new(egui::Id::new("palette")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - width / 2.0, screen.top() + top)).show(
@@ -191,7 +193,7 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
                     state.palette.selected = 0;
                 }
                 ui.separator();
-                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(list_height).show(ui, |ui| {
                     for (i, (_, item)) in items.iter().enumerate() {
                         let sel = i == state.palette.selected;
                         let (title, sub) = match item {
@@ -205,7 +207,16 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
                             Item::Action(l, _) => (format!("{}  {l}", crate::icons::ARROW_RIGHT), "Action".to_string()),
                         };
                         let r = ui.selectable_label(sel, RichText::new(title).strong());
-                        ui.label(RichText::new(sub).weak().small());
+                        // Two lines of the description; the whole of it on hover.
+                        let mut job = egui::text::LayoutJob::simple(
+                            sub.clone(),
+                            egui::TextStyle::Small.resolve(ui.style()),
+                            ui.visuals().weak_text_color(),
+                            ui.available_width(),
+                        );
+                        job.wrap.max_rows = 2;
+                        job.wrap.break_anywhere = false;
+                        ui.label(job).on_hover_text(sub);
                         if r.clicked() {
                             run = Some(i);
                         }

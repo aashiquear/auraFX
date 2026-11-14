@@ -2884,6 +2884,17 @@ impl eframe::App for AuraApp {
                         self.state.assistant.input = p.fill(&object);
                     }
                 }
+                // "assistant_conversation [file]": show a conversation file in the Assistant panel, or
+                // start a new conversation.
+                "assistant_conversation" => {
+                    let file = arg.trim();
+                    if file.is_empty() {
+                        self.state.assistant.new_conversation();
+                    } else {
+                        self.state.assistant.show_conversation_file(std::path::Path::new(file));
+                    }
+                    self.state.layout_actions.push(LayoutAction::Show(Pane::Assistant));
+                }
                 "vim_keys" => {
                     self.state.settings.shortcuts.vim_keys = arg.trim() != "off";
                     self.state.settings.save();

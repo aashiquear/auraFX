@@ -28,6 +28,7 @@ Every function of the `aurafx` module (`import aurafx as afx`) and every method 
 - `afx.clear_selection()`
 - `afx.close_chart_view(view)`: Close chart view `view` (0, the Charts panel, is hidden instead).
 - `afx.colormaps()`: Names of the available color maps (built-in and user presets).
+- `afx.conversation(path=None)`: Show a conversation file (JSON with a title and messages, as the assistant keeps them in the conversations folder of the app's data folder) in the Assistant panel; without a path, start a new conversation. Code in the shown conversation is not run.
 - `afx.define_colormap(name, points)`: Define (or replace) a user color map from [[t, r, g, b], ...] with values in 0..1.
 - `afx.describe()`
 - `afx.display(obj)`: Show something in the notebook when auraFX runs as a Jupyter kernel: a picture file (.png, .jpg, .gif, .svg), PNG bytes, or any object (as text). In the app's console it prints a line.

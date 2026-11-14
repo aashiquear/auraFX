@@ -1,6 +1,7 @@
 //! AI assistant panel: chat with pipeline context, runnable code blocks.
 
 use crate::app::State;
+use crate::menus::MenuExt;
 use crate::settings::Settings;
 use crate::touch::FitScreen;
 use crate::worker::PythonResult;
@@ -47,6 +48,133 @@ pub struct Assistant {
     /// The "Describe a filter" window: open, and its text.
     pub describe_open: bool,
     pub describe_text: String,
+    /// The model's reasoning before the answer that is arriving (shown while waiting, not kept).
+    thinking: String,
+    /// The file name (without .json) of the conversation on screen once it has been saved.
+    conversation: Option<String>,
+    /// The saved conversations (file name, title), newest first; read again when `None`.
+    history: Option<Vec<(String, String)>>,
+}
+
+/// Where conversations are kept: `conversations/` in the app's data folder, one JSON file each.
+pub fn conversations_dir() -> Option<std::path::PathBuf> {
+    let d = directories::ProjectDirs::from("org", "aurafx", "auraFX")?.data_dir().join("conversations");
+    let _ = std::fs::create_dir_all(&d);
+    Some(d)
+}
+
+/// A conversation's title: the start of its first question.
+pub fn conversation_title(messages: &[ChatMessage]) -> String {
+    let first = messages.iter().find(|m| m.role == Role::User && !m.content.starts_with(TOOL_PREFIX)).map(|m| m.content.as_str()).unwrap_or("Conversation");
+    let line = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() > 60 {
+        format!("{}…", line.chars().take(60).collect::<String>())
+    } else {
+        line
+    }
+}
+
+/// Write a conversation as JSON (pictures sent with messages are left out).
+pub fn write_conversation(path: &std::path::Path, messages: &[ChatMessage]) -> std::io::Result<()> {
+    let msgs: Vec<ChatMessage> = messages.iter().map(|m| ChatMessage::new(m.role, m.content.clone())).collect();
+    let v = serde_json::json!({"title": conversation_title(messages), "messages": msgs});
+    std::fs::write(path, serde_json::to_string_pretty(&v).unwrap_or_default())
+}
+
+/// Read a conversation written by [`write_conversation`]: its title and messages.
+pub fn read_conversation(path: &std::path::Path) -> Option<(String, Vec<ChatMessage>)> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let messages: Vec<ChatMessage> = serde_json::from_value(v.get("messages")?.clone()).ok()?;
+    let title = v.get("title").and_then(|t| t.as_str()).map(|t| t.to_string()).unwrap_or_else(|| conversation_title(&messages));
+    Some((title, messages))
+}
+
+impl Assistant {
+    /// Forget what is on screen (a saved conversation stays in the history).
+    pub fn new_conversation(&mut self) {
+        self.stop_agent();
+        self.messages.clear();
+        self.code_results.clear();
+        self.auto_ran = 0;
+        self.conversation = None;
+        self.error = None;
+    }
+
+    /// Keep the conversation on screen in the history (called when a reply has ended).
+    fn save_conversation(&mut self) {
+        if self.messages.is_empty() {
+            return;
+        }
+        let Some(dir) = conversations_dir() else { return };
+        let name = self.conversation.get_or_insert_with(|| {
+            let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+            format!("{ms:015}")
+        });
+        if let Err(e) = write_conversation(&dir.join(format!("{name}.json")), &self.messages) {
+            tracing::warn!("AI: the conversation could not be saved: {e}");
+        }
+        self.history = None;
+    }
+
+    /// The saved conversations (file name, title), newest first.
+    fn conversations(&mut self) -> Vec<(String, String)> {
+        if self.history.is_none() {
+            let mut out = Vec::new();
+            if let Some(dir) = conversations_dir() {
+                let mut names: Vec<String> = std::fs::read_dir(&dir)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).map(|n| n.to_string()))
+                    .collect();
+                names.sort();
+                names.reverse();
+                for n in names.into_iter().take(100) {
+                    if let Some((title, _)) = read_conversation(&dir.join(format!("{n}.json"))) {
+                        out.push((n, title));
+                    }
+                }
+            }
+            self.history = Some(out);
+        }
+        self.history.clone().unwrap_or_default()
+    }
+
+    fn open_conversation(&mut self, name: &str) {
+        let Some((_, messages)) = conversations_dir().and_then(|d| read_conversation(&d.join(format!("{name}.json")))) else {
+            self.error = Some("That conversation could not be read.".into());
+            self.history = None;
+            return;
+        };
+        self.new_conversation();
+        // (Code in an old conversation is not run again by auto-run or agent mode.)
+        self.auto_ran = messages.len();
+        self.messages = messages;
+        self.conversation = Some(name.to_string());
+    }
+
+    /// Show a conversation from any file (it joins the history only when it is continued).
+    pub fn show_conversation_file(&mut self, path: &std::path::Path) {
+        match read_conversation(path) {
+            Some((_, messages)) => {
+                self.new_conversation();
+                self.auto_ran = messages.len();
+                self.messages = messages;
+            }
+            None => self.error = Some(format!("{} is not a conversation file.", path.display())),
+        }
+    }
+
+    fn delete_conversation(&mut self, name: &str) {
+        if let Some(d) = conversations_dir() {
+            let _ = std::fs::remove_file(d.join(format!("{name}.json")));
+        }
+        self.history = None;
+        if self.conversation.as_deref() == Some(name) {
+            self.conversation = None;
+            self.new_conversation();
+        }
+    }
 }
 
 impl Assistant {
@@ -86,6 +214,9 @@ impl Assistant {
             pending_view: None,
             describe_open: false,
             describe_text: String::new(),
+            thinking: String::new(),
+            conversation: None,
+            history: None,
         };
         a.refresh_models();
         a
@@ -129,6 +260,7 @@ impl Assistant {
             for ev in rx.try_iter() {
                 match ev {
                     StreamEvent::Delta(d) => self.partial.push_str(&d),
+                    StreamEvent::Thinking(t) => self.thinking.push_str(&t),
                     StreamEvent::Done => done = true,
                     StreamEvent::Error(e) => {
                         self.error = Some(e);
@@ -139,10 +271,23 @@ impl Assistant {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
         if done {
-            if !self.partial.is_empty() {
+            let answered = !self.partial.is_empty();
+            if answered {
                 self.messages.push(ChatMessage::new(Role::Assistant, std::mem::take(&mut self.partial)));
             }
             self.stream = None;
+            self.thinking.clear();
+            if !answered || self.error.is_some() {
+                // Nothing to act on: agent mode does not wait for a reply that will not come.
+                self.agent_active = false;
+                self.agent_pending = 0;
+                self.agent_continue = false;
+                self.agent_results.clear();
+                if !answered && self.error.is_none() {
+                    self.error = Some("The model sent an empty reply. Try again, or pick another model.".into());
+                }
+            }
+            self.save_conversation();
         }
     }
 
@@ -225,10 +370,13 @@ impl Assistant {
         self.agent_pending = 0;
         self.agent_continue = false;
         self.agent_results.clear();
+        self.thinking.clear();
         if self.stream.take().is_some() && !self.partial.is_empty() {
             let text = std::mem::take(&mut self.partial);
             self.messages.push(ChatMessage::new(Role::Assistant, format!("{text}\n\n*(stopped)*")));
+            self.save_conversation();
         }
+        self.partial.clear();
     }
 
     pub fn on_python_result(&mut self, r: &PythonResult) {
@@ -312,6 +460,11 @@ impl Assistant {
             }
             ui.label("Max tokens");
             ui.add(egui::DragValue::new(&mut self.cfg.max_tokens).range(256..=64000));
+            ui.end_row();
+            ui.label("Reasoning");
+            ui.checkbox(&mut self.cfg.think, "Let the model reason before it answers").on_hover_text(
+                "Ollama models that reason: slower, and the reasoning counts against the tokens of a reply (it gets four times Max tokens). Off, the answer starts at once.",
+            );
             ui.end_row();
             ui.label("Temperature");
             ui.add(egui::Slider::new(&mut self.cfg.temperature, 0.0..=1.5));
@@ -414,6 +567,7 @@ fn cfg_eq(a: &AiConfig, o: &AiConfig) -> bool {
         && a.temperature == o.temperature
         && a.local_only == o.local_only
         && a.redact_paths == o.redact_paths
+        && a.think == o.think
 }
 
 /// The "Describe a filter" window: a sentence about what to see becomes a filter (or a short chain)
@@ -519,9 +673,35 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         if ui.button(crate::icons::GEAR).on_hover_text("AI settings").clicked() {
             state.show_settings = true;
         }
-        if ui.button(crate::icons::TRASH).on_hover_text("Clear conversation").clicked() {
-            state.assistant.messages.clear();
-            state.assistant.code_results.clear();
+        if ui.button(crate::icons::PLUS).on_hover_text("New conversation (this one stays in the history)").clicked() {
+            state.assistant.new_conversation();
+        }
+        let history = state.assistant.conversations();
+        ui.scroll_menu(crate::icons::CLOCK, |ui| {
+            ui.set_min_width(260.0);
+            if history.is_empty() {
+                ui.label(RichText::new("No saved conversations yet: each one is kept here once the assistant has replied.").weak());
+            }
+            for (name, title) in &history {
+                ui.horizontal(|ui| {
+                    if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Delete this conversation").clicked() {
+                        state.assistant.delete_conversation(name);
+                    }
+                    let current = state.assistant.conversation.as_deref() == Some(name.as_str());
+                    if ui.selectable_label(current, title).clicked() {
+                        state.assistant.open_conversation(name);
+                        ui.close();
+                    }
+                });
+            }
+        })
+        .response
+        .on_hover_text("Previous conversations");
+        if ui.button(crate::icons::TRASH).on_hover_text("Delete this conversation").clicked() {
+            match state.assistant.conversation.clone() {
+                Some(name) => state.assistant.delete_conversation(&name),
+                None => state.assistant.new_conversation(),
+            }
         }
     });
     if let Some(e) = state.assistant.error.clone() {
@@ -563,7 +743,12 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                 Role::User => ("You", crate::theme::INFO),
                 Role::Assistant => ("auraFX AI", crate::theme::ACCENT_SOFT),
             };
-            ui.label(RichText::new(name).strong().color(color));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(name).strong().color(color));
+                if crate::touch::small_button(ui, crate::icons::COPY).on_hover_text("Copy this message").clicked() {
+                    ui.ctx().copy_text(m.content.clone());
+                }
+            });
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 CommonMarkViewer::new().show(ui, &mut a.cache, &m.content);
@@ -574,6 +759,9 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.horizontal(|ui| {
                         if ui.button(format!("{} Run code {}", crate::icons::PLAY, if blocks.len() > 1 { format!("#{}", k + 1) } else { String::new() })).clicked() {
                             run_code = Some(b.clone());
+                        }
+                        if crate::touch::small_button(ui, "Copy code").clicked() {
+                            ui.ctx().copy_text(b.clone());
                         }
                         if crate::touch::small_button(ui, "Copy to console").clicked() {
                             state.console.input = b.clone();
@@ -596,7 +784,20 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 if a.partial.is_empty() {
-                    ui.spinner();
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        if !a.thinking.is_empty() {
+                            ui.label(RichText::new("Reasoning…").weak());
+                        }
+                    });
+                    if !a.thinking.is_empty() {
+                        // The end of the reasoning so far, so that it is plain the model is at work.
+                        let tail: String = {
+                            let chars: Vec<char> = a.thinking.chars().collect();
+                            chars[chars.len().saturating_sub(280)..].iter().collect()
+                        };
+                        ui.label(RichText::new(tail).weak().small());
+                    }
                 } else {
                     CommonMarkViewer::new().show(ui, &mut a.cache, &a.partial);
                 }
@@ -742,5 +943,29 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
     }
     if let Some(code) = run_code {
         state.run_python(&code, "assistant");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_conversation_is_written_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("aurafx_conv_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.json");
+        let mut first = ChatMessage::new(Role::User, "Slice   this through the middle\nand color it by temperature, then make a contour at the mean value");
+        first.images = vec!["AAAA".into()];
+        let messages = vec![first, ChatMessage::new(Role::Assistant, "```python\nafx.active().slice()\n```")];
+        write_conversation(&path, &messages).unwrap();
+        let (title, back) = read_conversation(&path).unwrap();
+        assert!(title.starts_with("Slice this through the middle and color it"), "{title}");
+        assert!(title.ends_with('…') && title.chars().count() == 61);
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[1].content, messages[1].content);
+        // Pictures are not kept.
+        assert!(back[0].images.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -69,8 +69,7 @@ pub fn applicable(def: &FilterDef, info: &DataSetInfo) -> Result<(), String> {
         return Err("needs a table".into());
     }
     if kind == "Table" && !table_only {
-        let ok = def.category == "Data Analysis"
-            || def.category == "Python"
+        let ok = def.category == "Python"
             || def.keywords.iter().any(|k| matches!(*k, "table" | "statistics" | "stats" | "histogram" | "plot" | "chart"))
             || matches!(id, "histogram" | "descriptive_statistics" | "calculator" | "find_outliers" | "find_change_points");
         if !ok {

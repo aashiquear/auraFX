@@ -3367,7 +3367,7 @@ fn build() -> Vec<FilterDef> {
         FilterDef {
             id: "curvature",
             label: "Curvature",
-            category: "Data Analysis",
+            category: "Data",
             description: "Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.",
             keywords: &["gaussian curvature", "mean curvature", "bending", "principal curvature", "surface analysis"],
             is_source: false,

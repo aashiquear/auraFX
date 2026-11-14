@@ -44,6 +44,10 @@ pub struct AiConfig {
     /// Replace the home folder with ~ and full file paths with their file names in what is sent.
     #[serde(default)]
     pub redact_paths: bool,
+    /// Let a model that reasons before it answers do so (Ollama). Off: the answer starts at once.
+    /// Reasoning counts against the tokens of a reply, and a long one can use them all.
+    #[serde(default)]
+    pub think: bool,
     /// Saved prompts (name, text); `{object}` stands for the selected object's name.
     #[serde(default = "default_prompts")]
     pub prompts: Vec<PromptTemplate>,
@@ -129,6 +133,7 @@ impl Default for AiConfig {
             temperature: 0.2,
             local_only: false,
             redact_paths: false,
+            think: false,
             prompts: default_prompts(),
             skills_off: Vec::new(),
         }
@@ -244,6 +249,8 @@ pub fn redact_paths(text: &str) -> String {
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     Delta(String),
+    /// A piece of the model's reasoning before its answer (shown while waiting, not kept).
+    Thinking(String),
     Done,
     Error(String),
 }
@@ -320,6 +327,18 @@ fn role_str(r: Role) -> &'static str {
     }
 }
 
+/// What to tell the user when a model ended its reply without a word of answer.
+pub fn no_answer_message(reasoned: usize, done_reason: Option<&str>, max_tokens: u32) -> String {
+    if reasoned > 0 {
+        format!(
+            "The model stopped before it answered: it used its reply ({max_tokens} tokens{}) on reasoning. Turn off Let the model reason in Settings > AI assistant, raise Max tokens there, or pick another model.",
+            if done_reason == Some("length") { ", the limit" } else { "" }
+        )
+    } else {
+        "The model sent an empty reply. Try again, or pick another model.".to_string()
+    }
+}
+
 /// The other scheme of an address: `https://host` for `http://host` and back.
 fn other_scheme(url: &str) -> Option<String> {
     if let Some(rest) = url.strip_prefix("https://") {
@@ -356,7 +375,11 @@ fn stream_ollama(cfg: &AiConfig, system: &str, messages: &[ChatMessage], tx: &Se
         "model": cfg.model_or_default(),
         "messages": msgs,
         "stream": true,
-        "options": {"temperature": cfg.temperature, "num_predict": cfg.max_tokens}
+        // Reasoning is switched off unless asked for: with it, some models spend every token of
+        // the reply on reasoning about a long request and never answer. When it is on, the reply
+        // gets room for both.
+        "think": cfg.think,
+        "options": {"temperature": cfg.temperature, "num_predict": if cfg.think { cfg.max_tokens.saturating_mul(4) } else { cfg.max_tokens }}
     });
     let c = client()?;
     let resp = ollama_send(&cfg.ollama_url, |base| c.post(format!("{base}/api/chat")).json(&body))?;
@@ -366,6 +389,7 @@ fn stream_ollama(cfg: &AiConfig, system: &str, messages: &[ChatMessage], tx: &Se
         return Err(anyhow!("Ollama returned {status}: {text}"));
     }
     let reader = BufReader::new(resp);
+    let (mut answered, mut reasoned) = (0usize, 0usize);
     for line in reader.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -375,12 +399,22 @@ fn stream_ollama(cfg: &AiConfig, system: &str, messages: &[ChatMessage], tx: &Se
         if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
             return Err(anyhow!("Ollama: {err}"));
         }
+        if let Some(t) = v.pointer("/message/thinking").and_then(|c| c.as_str()) {
+            reasoned += t.len();
+            if !t.is_empty() && tx.send(StreamEvent::Thinking(t.to_string())).is_err() {
+                return Ok(());
+            }
+        }
         if let Some(c) = v.pointer("/message/content").and_then(|c| c.as_str()) {
+            answered += c.len();
             if !c.is_empty() && tx.send(StreamEvent::Delta(c.to_string())).is_err() {
                 return Ok(());
             }
         }
         if v.get("done").and_then(|d| d.as_bool()) == Some(true) {
+            if answered == 0 {
+                return Err(anyhow!("{}", no_answer_message(reasoned, v.get("done_reason").and_then(|r| r.as_str()), cfg.max_tokens)));
+            }
             break;
         }
     }
@@ -568,7 +602,7 @@ API cheat sheet:\n\
 - the assistant from Python: afx.ask(text, agent=False, view=False) sends a request to the assistant panel (agent=True runs the code and iterates, view=True attaches a picture of the 3D view for models that see images), afx.assistant_status() returns busy, agent, messages, last, error, history; in the window the camera checkbox next to Send attaches the view, Filters > Describe a filter... turns a sentence into filters on the selected object, and the assistant settings have Privacy: Local only (only Ollama at a local or private address, no cloud models) and Hide file paths (folders replaced by file names in what is sent)\n\
 - open-source software in auraFX: Help > About auraFX > Third-party licences... lists every library auraFX is built from with its licence and the notices and licence texts they ask to be passed on (a Find box filters the lines); the same text is THIRD-PARTY-NOTICES.txt next to the program; the CAD B-rep kernel and CAD file formats come from the open-source SolidCraft and solidcore projects, carried in the repository under vendor/ so the CAD environment works without fetching anything\n\
 - tablets and phones (the touch interfaces): Settings > Interface > Interface chooses Automatic, Desktop, Tablet or Phone. Automatic is Desktop on a computer and, on an iPad, an iPhone or an Android device, Tablet or Phone by the screen (Phone when its shorter side is under 600 points). Tablet: controls and menus sized for a finger, a menu bar whose last menu (three dots) holds the menus that do not fit, a tool row that scrolls sideways. Phone: one menu button (three lines, top left) opens every menu as a list (tap a menu name to see its items), next to it the search and the Ask AI buttons; the 3D view with one group of tabs (Pipeline, Properties, Information, Charts, Spreadsheet, Assistant, Log) below it, or beside it when the phone is held wide. The corners button in the 3D view toolbar gives the view the whole screen and brings the panels back. In the 3D view one finger orbits, two fingers pan, pinch to zoom, twist to turn about the view axis, a double tap resets the camera, a long press opens the menu a right-click opens (also on the Pipeline tree, CAD features and the timeline); press and hold a button to read what it does or why it is disabled. Floating windows (Settings, Save Screenshot, Animation, ...) stay inside the screen, scroll, and are not dragged by a finger; tapping a text box brings up the on-screen keyboard (Settings > Interface > Keep room for the on-screen keyboard leaves the lower part of the screen free while typing). The app keeps clear of the status bar, the camera cut-out and the home indicator. Layouts by window shape: Windows > Layouts by window shape > Automatic (follows the window or the turning of the screen; always on for Tablet and Phone until a layout is chosen by name), Wide (view left, tabs right), Tall (view on top, tabs below), Tall, two tab groups; from Python afx.layout('automatic'|'wide'|'tall'|'tall2'|'compact'). The Python console and the Notebook are not in the tablet and phone builds. To try the touch interfaces on a computer: start with the environment variable AURAFX_INTERFACE=phone (or tablet), AURAFX_WINDOW=390x844 for the window size and AURAFX_SAFE_AREA=47,34,0,0 (top,bottom,left,right in points) to see the padding\n\
-- the toolbar inside a 3D view: after the mouse modes come Fit (shows everything visible; the same as a double-click in the view, the R key or afx.reset_camera()), Zoom in, Zoom out, and the hand, which makes a plain drag move the view sideways instead of turning it (Shift+drag then turns); the Properties and Information panels scroll sideways as well as up and down; the Ollama address in Settings > AI assistant is http:// for a server on your own machine (when the address has https:// for such a server, or the reverse, the other is tried)\n\
+- the toolbar inside a 3D view: after the mouse modes come Fit (shows everything visible; the same as a double-click in the view, the R key or afx.reset_camera()), Zoom in, Zoom out, and the hand, which makes a plain drag move the view sideways instead of turning it (Shift+drag then turns); the Properties and Information panels scroll sideways as well as up and down; the Ollama address in Settings > AI assistant is http:// for a server on your own machine (when the address has https:// for such a server, or the reverse, the other is tried); Settings > AI assistant > Let the model reason before it answers (off by default: a reasoning Ollama model can spend a whole reply reasoning about a long request; on, the reply gets four times Max tokens and the panel shows the reasoning while waiting); conversations: every message has a copy button, code blocks have Copy code and Copy to console, the + button at the top of the Assistant panel starts a new conversation, the clock lists previous conversations (click to open, bin to delete), the bin deletes the one on screen; they are kept as JSON files in the conversations folder of the data folder; afx.conversation('file.json') shows one, afx.conversation() starts a new one; the Filters menu starts with All filters (every filter by name) before the groups, and Search (Ctrl+K) shows as many results as the window has room for\n\
 - numpy is available as np; standard scientific Python can be used on arrays.\n\n\
 Available filters/sources (id: description):\n{filter_catalog}\n\n\
 Current pipeline state:\n{pipeline_description}"
@@ -624,6 +658,12 @@ mod privacy_tests {
             let t = redact_paths(&format!("{h}/data/a.vtk"));
             assert_eq!(t, "a.vtk");
         }
+    }
+
+    #[test]
+    fn an_empty_reply_says_why() {
+        assert!(no_answer_message(17000, Some("length"), 4096).contains("on reasoning"));
+        assert!(no_answer_message(0, Some("stop"), 4096).contains("empty reply"));
     }
 
     #[test]

@@ -79,6 +79,27 @@ pub fn suggestion_buttons(ui: &mut Ui, info: &aurafx_data::DataSetInfo, has_time
 pub fn filter_menu_for(ui: &mut Ui, info: Option<&aurafx_data::DataSetInfo>, keep: impl Fn(&FilterDef) -> bool) -> Option<&'static str> {
     let defs = aurafx_filters::registry();
     let mut picked = None;
+    // Every filter in one list by name, for when the group is not known.
+    let mut all: Vec<&Arc<FilterDef>> = defs.iter().filter(|f| !f.is_source && keep(f)).collect();
+    all.sort_by_key(|f| f.label.to_lowercase());
+    if !all.is_empty() {
+        ui.scroll_menu(format!("All filters ({})", all.len()), |ui| {
+            for f in all {
+                let why_not = info.and_then(|i| aurafx_filters::suggest::applicable(f, i).err());
+                let r = match &why_not {
+                    Some(w) => ui
+                        .button(egui::RichText::new(f.label).weak())
+                        .on_hover_text(format!("{} · may not work on this data: {w}.\n\n{}", f.category, f.description)),
+                    None => ui.button(f.label).on_hover_text(format!("{} · {}", f.category, f.description)),
+                };
+                if r.clicked() {
+                    ui.close();
+                    picked = Some(f.id);
+                }
+            }
+        });
+        ui.separator();
+    }
     for cat in categories(&defs, false) {
         let items: Vec<&Arc<FilterDef>> = defs.iter().filter(|f| !f.is_source && f.category == cat && keep(f)).collect();
         if items.is_empty() {

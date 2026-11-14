@@ -320,6 +320,35 @@ fn role_str(r: Role) -> &'static str {
     }
 }
 
+/// The other scheme of an address: `https://host` for `http://host` and back.
+fn other_scheme(url: &str) -> Option<String> {
+    if let Some(rest) = url.strip_prefix("https://") {
+        Some(format!("http://{rest}"))
+    } else {
+        url.strip_prefix("http://").map(|rest| format!("https://{rest}"))
+    }
+}
+
+/// Send a request to the Ollama server at `url`. An Ollama server on a machine of one's own
+/// speaks plain http, one behind a proxy https: when the address has the wrong one of the two
+/// (the connection then fails with an error about the content type or the TLS version), the
+/// other is tried, and the error says which to put in Settings when that does not work either.
+fn ollama_send(url: &str, request: impl Fn(&str) -> reqwest::blocking::RequestBuilder) -> Result<reqwest::blocking::Response> {
+    let base = url.trim().trim_end_matches('/');
+    let first = match request(base).send() {
+        Ok(r) => return Ok(r),
+        Err(e) => e,
+    };
+    if !first.is_timeout() {
+        if let Some(other) = other_scheme(base) {
+            if let Ok(r) = request(&other).send() {
+                return Ok(r);
+            }
+        }
+    }
+    Err(anyhow!(first).context(format!("connecting to Ollama at {base} (is it running, and is the address in Settings right, http:// or https://?)")))
+}
+
 fn stream_ollama(cfg: &AiConfig, system: &str, messages: &[ChatMessage], tx: &Sender<StreamEvent>) -> Result<()> {
     let mut msgs = vec![serde_json::json!({"role": "system", "content": system})];
     msgs.extend(messages.iter().map(ollama_msg));
@@ -329,7 +358,8 @@ fn stream_ollama(cfg: &AiConfig, system: &str, messages: &[ChatMessage], tx: &Se
         "stream": true,
         "options": {"temperature": cfg.temperature, "num_predict": cfg.max_tokens}
     });
-    let resp = client()?.post(format!("{}/api/chat", cfg.ollama_url.trim_end_matches('/'))).json(&body).send().context("connecting to Ollama")?;
+    let c = client()?;
+    let resp = ollama_send(&cfg.ollama_url, |base| c.post(format!("{base}/api/chat")).json(&body))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().unwrap_or_default();
@@ -456,12 +486,7 @@ pub fn list_models(cfg: &AiConfig) -> Result<Vec<String>> {
     let c = client()?;
     match cfg.provider {
         ProviderKind::Ollama => {
-            let v: serde_json::Value = c
-                .get(format!("{}/api/tags", cfg.ollama_url.trim_end_matches('/')))
-                .timeout(Duration::from_secs(5))
-                .send()
-                .context("connecting to Ollama")?
-                .json()?;
+            let v: serde_json::Value = ollama_send(&cfg.ollama_url, |base| c.get(format!("{base}/api/tags")).timeout(Duration::from_secs(5)))?.json()?;
             Ok(v.get("models")
                 .and_then(|m| m.as_array())
                 .map(|a| a.iter().filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())).collect())
@@ -543,6 +568,7 @@ API cheat sheet:\n\
 - the assistant from Python: afx.ask(text, agent=False, view=False) sends a request to the assistant panel (agent=True runs the code and iterates, view=True attaches a picture of the 3D view for models that see images), afx.assistant_status() returns busy, agent, messages, last, error, history; in the window the camera checkbox next to Send attaches the view, Filters > Describe a filter... turns a sentence into filters on the selected object, and the assistant settings have Privacy: Local only (only Ollama at a local or private address, no cloud models) and Hide file paths (folders replaced by file names in what is sent)\n\
 - open-source software in auraFX: Help > About auraFX > Third-party licences... lists every library auraFX is built from with its licence and the notices and licence texts they ask to be passed on (a Find box filters the lines); the same text is THIRD-PARTY-NOTICES.txt next to the program; the CAD B-rep kernel and CAD file formats come from the open-source SolidCraft and solidcore projects, carried in the repository under vendor/ so the CAD environment works without fetching anything\n\
 - tablets and phones (the touch interfaces): Settings > Interface > Interface chooses Automatic, Desktop, Tablet or Phone. Automatic is Desktop on a computer and, on an iPad, an iPhone or an Android device, Tablet or Phone by the screen (Phone when its shorter side is under 600 points). Tablet: controls and menus sized for a finger, a menu bar whose last menu (three dots) holds the menus that do not fit, a tool row that scrolls sideways. Phone: one menu button (three lines, top left) opens every menu as a list (tap a menu name to see its items), next to it the search and the Ask AI buttons; the 3D view with one group of tabs (Pipeline, Properties, Information, Charts, Spreadsheet, Assistant, Log) below it, or beside it when the phone is held wide. The corners button in the 3D view toolbar gives the view the whole screen and brings the panels back. In the 3D view one finger orbits, two fingers pan, pinch to zoom, twist to turn about the view axis, a double tap resets the camera, a long press opens the menu a right-click opens (also on the Pipeline tree, CAD features and the timeline); press and hold a button to read what it does or why it is disabled. Floating windows (Settings, Save Screenshot, Animation, ...) stay inside the screen, scroll, and are not dragged by a finger; tapping a text box brings up the on-screen keyboard (Settings > Interface > Keep room for the on-screen keyboard leaves the lower part of the screen free while typing). The app keeps clear of the status bar, the camera cut-out and the home indicator. Layouts by window shape: Windows > Layouts by window shape > Automatic (follows the window or the turning of the screen; always on for Tablet and Phone until a layout is chosen by name), Wide (view left, tabs right), Tall (view on top, tabs below), Tall, two tab groups; from Python afx.layout('automatic'|'wide'|'tall'|'tall2'|'compact'). The Python console and the Notebook are not in the tablet and phone builds. To try the touch interfaces on a computer: start with the environment variable AURAFX_INTERFACE=phone (or tablet), AURAFX_WINDOW=390x844 for the window size and AURAFX_SAFE_AREA=47,34,0,0 (top,bottom,left,right in points) to see the padding\n\
+- the toolbar inside a 3D view: after the mouse modes come Fit (shows everything visible; the same as a double-click in the view, the R key or afx.reset_camera()), Zoom in, Zoom out, and the hand, which makes a plain drag move the view sideways instead of turning it (Shift+drag then turns); the Properties and Information panels scroll sideways as well as up and down; the Ollama address in Settings > AI assistant is http:// for a server on your own machine (when the address has https:// for such a server, or the reverse, the other is tried)\n\
 - numpy is available as np; standard scientific Python can be used on arrays.\n\n\
 Available filters/sources (id: description):\n{filter_catalog}\n\n\
 Current pipeline state:\n{pipeline_description}"
@@ -598,6 +624,13 @@ mod privacy_tests {
             let t = redact_paths(&format!("{h}/data/a.vtk"));
             assert_eq!(t, "a.vtk");
         }
+    }
+
+    #[test]
+    fn the_other_scheme_of_an_address() {
+        assert_eq!(other_scheme("https://localhost:11434").as_deref(), Some("http://localhost:11434"));
+        assert_eq!(other_scheme("http://10.0.0.45:11434").as_deref(), Some("https://10.0.0.45:11434"));
+        assert_eq!(other_scheme("localhost:11434"), None);
     }
 
     #[test]

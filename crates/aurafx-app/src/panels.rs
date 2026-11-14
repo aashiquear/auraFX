@@ -789,7 +789,11 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
             });
         }
     }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // Sideways too: a long name or a wide row can be reached in a narrow panel.
+    let panel_width = ui.available_width();
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        // (Laid out to the panel's width, not to the endless width of a scrolling area.)
+        ui.set_max_width(panel_width);
         // Arrays available to parameter widgets: from the input for filters, own output for sources.
         let src_info = if def.as_ref().map(|d| d.is_source).unwrap_or(true) { info.as_ref() } else { input_info.as_ref() };
         let mut arrays: Vec<(Association, String, usize)> = Vec::new();
@@ -1283,7 +1287,11 @@ pub fn information_ui(state: &mut State, ui: &mut egui::Ui) {
     let info = state.session.lock().active_node().and_then(|n| n.info.clone());
     match info {
         Some(i) => {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| info_body(ui, &i));
+            let panel_width = ui.available_width();
+            egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_max_width(panel_width);
+                info_body(ui, &i)
+            });
         }
         None => {
             ui.label(RichText::new("No dataset selected.").weak());

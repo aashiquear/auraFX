@@ -47,6 +47,8 @@ pub struct Viewport {
     screenshot_wait: u8,
     camera_initialized: bool,
     pub mode: InteractMode,
+    /// Dragging moves the view sideways instead of turning it (the hand button of the toolbar).
+    pub drag_pans: bool,
     drag_start: Option<Pos2>,
     pub pick: Option<PickResult>,
     selection_mesh: Option<(u64, Arc<MeshData>)>,
@@ -162,6 +164,7 @@ impl Viewport {
             screenshot_wait: 0,
             camera_initialized: false,
             mode: InteractMode::Navigate,
+            drag_pans: false,
             drag_start: None,
             pick: None,
             selection_mesh: None,
@@ -658,6 +661,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         state.viewport.widget_drag = None;
     }
     let widget_dragging = state.viewport.widget_drag.is_some();
+    let drag_pans = state.viewport.drag_pans && state.viewport.mode == InteractMode::Navigate;
     let cam = &mut state.viewport.camera;
     // Two fingers on a touch screen (never a mouse): they pan, pinch to zoom (below) and turn the
     // view about its axis, and the first finger does not orbit meanwhile.
@@ -668,6 +672,13 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         cam.pan((t.translation_delta.x / size.y) as f64, (t.translation_delta.y / size.y) as f64);
         if t.rotation_delta.abs() > 1e-4 {
             cam.roll(-t.rotation_delta as f64);
+        }
+    } else if drag_pans && response.dragged_by(egui::PointerButton::Primary) && !mods.command {
+        // The hand: a plain drag moves the view (Shift turns it instead).
+        if mods.shift {
+            cam.rotate((drag.x / size.x) as f64 * 1.5, (drag.y / size.y) as f64 * 1.5);
+        } else {
+            cam.pan((drag.x / size.y) as f64, (drag.y / size.y) as f64);
         }
     } else if !selecting && response.dragged_by(egui::PointerButton::Primary) && !mods.shift && !mods.command {
         cam.rotate((drag.x / size.x) as f64 * 1.5, (drag.y / size.y) as f64 * 1.5);
@@ -1128,6 +1139,28 @@ fn viewport_toolbar_items(state: &mut State, ui: &mut egui::Ui, sel: &Option<aur
         if ui.selectable_label(t, icons::STACK).on_hover_text("Select through: include cells hidden behind the visible surface").clicked() {
             state.viewport.select_through = !t;
         }
+    }
+    ui.separator();
+    // The view itself: fit, closer, farther, and dragging to move instead of to turn.
+    if crate::touch::small_button(ui, icons::FRAME_CORNERS).on_hover_text("Fit: show everything visible in this view (double-click the view, or R)").clicked() {
+        let b = state.session.lock().visible_bounds();
+        state.viewport.camera.reset_to_bounds(&b);
+        state.viewport.mark_camera_initialized();
+    }
+    if crate::touch::small_button(ui, icons::MAGNIFYING_GLASS_PLUS).on_hover_text("Zoom in (scroll, or drag with the right button)").clicked() {
+        state.viewport.camera.zoom(1.25);
+    }
+    if crate::touch::small_button(ui, icons::MAGNIFYING_GLASS_MINUS).on_hover_text("Zoom out").clicked() {
+        state.viewport.camera.zoom(0.8);
+    }
+    let pans = state.viewport.drag_pans;
+    if ui
+        .selectable_label(pans, icons::HAND)
+        .on_hover_text("Pan: dragging moves the view instead of turning it (Shift+drag turns; without this, Shift+drag or the middle button moves)")
+        .clicked()
+    {
+        state.viewport.drag_pans = !pans;
+        state.viewport.mode = InteractMode::Navigate;
     }
     ui.separator();
     let vid = state.viewport.id;

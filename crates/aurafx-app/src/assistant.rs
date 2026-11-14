@@ -468,8 +468,16 @@ pub fn describe_window(state: &mut State, ctx: &egui::Context) {
 }
 
 pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
-    // Header: provider + model quick switch.
-    crate::touch::row(ui, "assistant top", |ui| {
+    // Header: provider + model quick switch. (On a desktop the row wraps in a narrow panel: wider
+    // than the panel, it would push the settings button and everything below past the edge.)
+    let top_row = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
+        if crate::touch::mode().is_touch() {
+            crate::touch::row(ui, "assistant top", |ui| add(ui));
+        } else {
+            ui.horizontal_wrapped(|ui| add(ui));
+        }
+    };
+    top_row(ui, &mut |ui| {
         let a = &mut state.assistant;
         let before = a.cfg.provider;
         egui::ComboBox::from_id_salt("asst_provider").selected_text(a.cfg.provider.label()).width(140.0).show_ui(ui, |ui| {
@@ -521,8 +529,14 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
     }
     ui.separator();
     // (The text box and the row of buttons below it; both are taller in the touch interfaces.)
-    let input_h = if crate::touch::mode().is_touch() { 160.0 } else { 100.0 };
-    let h = (ui.available_height() - input_h).max(60.0);
+    // Their height is the one measured in the last frame, so that a message of several lines or
+    // a row of buttons that wraps takes its room from the conversation above and stays in view.
+    let input_id = ui.id().with("assistant input height");
+    let room = ui.available_height();
+    let input_h: f32 = ui.data(|d| d.get_temp(input_id)).unwrap_or(if crate::touch::mode().is_touch() { 160.0 } else { 100.0 });
+    let h = (room - input_h).max(60.0);
+    // The text box grows to this height, then scrolls.
+    let box_max = (room * 0.4).clamp(48.0, 240.0);
     let mut run_code: Option<String> = None;
     let mut send_text: Option<String> = None;
     egui::ScrollArea::vertical().id_salt("chat").auto_shrink([false, false]).max_height(h).stick_to_bottom(true).show(ui, |ui| {
@@ -589,19 +603,35 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             });
         }
     });
+    let input_top = ui.cursor().top();
     ui.separator();
-    let resp = ui.add(
-        egui::TextEdit::multiline(&mut state.assistant.input)
-            .desired_rows(2)
-            .desired_width(f32::INFINITY)
-            .hint_text("Ask the assistant… (Enter to send, Shift+Enter for newline)"),
-    );
+    let resp = egui::ScrollArea::vertical()
+        .id_salt("assistant input")
+        .max_height(box_max)
+        .stick_to_bottom(true)
+        .show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::multiline(&mut state.assistant.input)
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("Ask the assistant… (Enter to send, Shift+Enter for newline)"),
+            )
+        })
+        .inner;
     if state.assistant.focus_input {
         resp.request_focus();
         state.assistant.focus_input = false;
     }
     let enter = resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-    crate::touch::row(ui, "assistant send", |ui| {
+    // (On a desktop the row wraps in a narrow panel rather than being cut off.)
+    let send_row = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
+        if crate::touch::mode().is_touch() {
+            crate::touch::row(ui, "assistant send", |ui| add(ui));
+        } else {
+            ui.horizontal_wrapped(|ui| add(ui));
+        }
+    };
+    send_row(ui, &mut |ui| {
         // Saved prompts: one click puts it in the box (the selected object filled in).
         let object = state.session.lock().active_node().map(|n| n.name.clone()).unwrap_or_else(|| "the data".into());
         let prompts = state.assistant.cfg.prompts.clone();
@@ -648,6 +678,11 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         }
     });
+    let used = ui.cursor().top() - input_top + ui.spacing().item_spacing.y;
+    if (used - input_h).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(input_id, used));
+        ui.ctx().request_repaint();
+    }
     if let Some(t) = send_text {
         let desc = state.session.lock().describe();
         if state.settings.ai_agent_mode {

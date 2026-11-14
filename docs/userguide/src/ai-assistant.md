@@ -81,7 +81,7 @@ Choose the provider and model in the panel's drop-downs or in **Settings**:
 
 | Provider | Setup |
 |---|---|
-| **Ollama** (local or cloud models) | the server URL from `OLLAMA_HOST` or Settings; the model list comes from the server |
+| **Ollama** (local or cloud models) | the server URL from `OLLAMA_HOST` or Settings; the model list comes from the server. An Ollama server on your own machine speaks `http://`; when the address says `https://` for such a server (or the reverse), auraFX tries the other one |
 | **Anthropic** | set `ANTHROPIC_API_KEY` or paste a key in Settings |
 | **OpenAI-compatible** (OpenAI, OpenRouter, Groq, vLLM, LM Studio…) | the base URL and key in Settings |
 

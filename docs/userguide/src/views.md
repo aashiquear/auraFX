@@ -16,6 +16,11 @@ The small toolbar inside the view switches the mouse mode: navigate (**Esc**), p
 ruler (**M**), select cells (**S**) and select points (**D**); see
 [Selection, picking and widgets](selection-widgets.md).
 
+The next four buttons act on the view itself: **Fit** shows everything visible (as a
+double-click in the view or **R** does), **Zoom in** and **Zoom out** step closer and farther,
+and the **hand** makes a plain drag move the view sideways instead of turning it (Shift+drag
+then turns; press the hand again to go back).
+
 ```python
 afx.view("iso"); afx.view("+x"); afx.view([1, 0.5, 0.3])   # a direction from the data to the camera
 afx.reset_camera()

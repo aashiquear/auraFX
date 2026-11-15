@@ -61,7 +61,7 @@ fn reference() -> String {
             cat = f.category;
             out += &format!("## {cat}\n\n");
         }
-        out += &format!("### {}\n\n{}\n\nPython: `{}`", f.label, f.description.replace('\n', " "), f.id);
+        out += &format!("### {}\n\n{}\n\nPython: `{}`", f.label, no_tags(&f.description.replace('\n', " ")), f.id);
         if !f.keywords.is_empty() {
             out += &format!(" · also found by: {}", f.keywords.join(", "));
         }

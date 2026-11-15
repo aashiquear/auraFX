@@ -633,7 +633,7 @@ Python: `ghost_cells` · also found by: ghost cells, halo, overlap, partition bo
 
 ### Gradient
 
-Spatial gradient of a point scalar (adds <name>_gradient).
+Spatial gradient of a point scalar (adds \<name>_gradient).
 
 Python: `gradient` · also found by: derivative, slope, grad, flux
 

@@ -276,3 +276,22 @@ fn ids_are_made_unique_on_load() {
         assert!(!ids.contains(&0), "{title}: a feature without an id");
     }
 }
+
+/// Undo of the pipeline while a preview of the working copy is on the node: the environment
+/// closes and the node shows the part its document describes, not the preview.
+#[test]
+fn pipeline_undo_during_an_edit_puts_the_part_back() {
+    let mut s = Session::new();
+    let m = s.add_source("cad_model").unwrap();
+    s.update_blocking();
+    assert_eq!(faces(&s, m), 6);
+    s.cad_enter(m).unwrap();
+    s.cad_env_edit("add", &json!({"kind": "hole", "name": "Bore", "diameter": 6, "depth": 3, "at": [0, 0, 8]})).unwrap();
+    s.cad_env_evaluate(64).unwrap();
+    assert_eq!(faces(&s, m), 8, "the preview is on the node");
+    assert!(s.undo().is_some());
+    assert_eq!(s.cad_editing(), None);
+    s.update_blocking();
+    assert_eq!(s.cad_document(m).unwrap().features.len(), 1);
+    assert_eq!(faces(&s, m), 6, "the node shows what its document says");
+}

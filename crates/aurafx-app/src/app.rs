@@ -753,12 +753,10 @@ impl State {
         }
     }
 
-    /// A number that changes when the pipeline does (its objects, filters, values and display).
+    /// A number that changes when anything a state file holds does (objects, filters, values,
+    /// display, charts, annotations, animation), apart from the camera and the selection.
     fn pipeline_signature(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.session.lock().describe().hash(&mut h);
-        h.finish()
+        self.session.lock().state_signature()
     }
 
     /// Whether there is work that the last save (or load) does not hold.

@@ -83,7 +83,17 @@ impl Session {
     pub fn apply_snapshot(&mut self, snap: &Snapshot) -> Result<()> {
         // Undo, redo or opening a state replaces the nodes: an open CAD edit ends here (its
         // working copy belongs to a pipeline that is being replaced).
-        if self.cad_edit.take().is_some() {
+        // The node being edited may show a preview of the working copy: put back what it showed
+        // before the edit, and compute it again below if that is not what its values give.
+        let edited = self.cad_edit.take().map(|e| {
+            if let Some(n) = self.nodes.get_mut(&e.node) {
+                n.output = e.original_output;
+                n.info = e.original_info;
+                n.error = e.original_error;
+            }
+            e.node
+        });
+        if edited.is_some() {
             self.log(LogLevel::Warn, "CAD environment closed: the pipeline was replaced");
         }
         self.cad_hold = None;
@@ -103,7 +113,7 @@ impl Session {
                     }
                 }
             };
-            if !reuse || node.params != ns.params || node.input != ns.input || node.extra_inputs != ns.extra_inputs {
+            if !reuse || edited == Some(ns.id) || node.params != ns.params || node.input != ns.input || node.extra_inputs != ns.extra_inputs {
                 changed.push(ns.id);
             }
             node.name = ns.name.clone();
@@ -215,6 +225,27 @@ impl Session {
             tracing::warn!("saving while the CAD environment has changes that are not applied: the file holds the part as last applied");
         }
         let base = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let doc = self.state_document(&base, camera);
+        std::fs::write(path, serde_json::to_string_pretty(&doc)?).with_context(|| format!("writing {}", path.display()))?;
+        Ok(())
+    }
+
+    /// A number that changes when anything a state file holds changes, except the camera, the
+    /// selected object and the time step (looking around is not work to be saved).
+    pub fn state_signature(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut doc = self.state_document(Path::new(""), None);
+        if let Some(m) = doc.as_object_mut() {
+            m.remove("active");
+            m.remove("time_index");
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        doc.to_string().hash(&mut h);
+        h.finish()
+    }
+
+    /// What a state file saved next to `base` holds.
+    fn state_document(&self, base: &Path, camera: Option<CameraState>) -> serde_json::Value {
         let nodes: Vec<serde_json::Value> = self
             .nodes
             .values()
@@ -226,7 +257,7 @@ impl Session {
                     NodeKind::Filter { def } => ("filter", def.id.to_string()),
                 };
                 let rel = match &n.kind {
-                    NodeKind::Reader { path, .. } => pathdiff(path, &base),
+                    NodeKind::Reader { path, .. } => pathdiff(path, base),
                     _ => None,
                 };
                 let params: serde_json::Map<String, serde_json::Value> =
@@ -249,7 +280,7 @@ impl Session {
                 })
             })
             .collect();
-        let doc = serde_json::json!({
+        serde_json::json!({
             "format": "aurafx-state",
             "version": 1,
             "app_version": env!("CARGO_PKG_VERSION"),
@@ -262,9 +293,7 @@ impl Session {
             "annotations": self.annotations,
             "animation": self.animation,
             "show_time_label": self.show_time_label,
-        });
-        std::fs::write(path, serde_json::to_string_pretty(&doc)?).with_context(|| format!("writing {}", path.display()))?;
-        Ok(())
+        })
     }
 
     /// Load a state file, replacing the pipeline. Returns the saved camera, if any.

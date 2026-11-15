@@ -159,17 +159,16 @@ fn best_rigid(a: &[[f64; 3]], b: &[[f64; 3]]) -> ([[f64; 3]; 3], [f64; 3]) {
         [szx - sxz, sxy + syx, -sxx + syy - szz, syz + szy],
         [sxy - syx, szx + sxz, syz + szy, -sxx - syy + szz],
     ];
-    // The eigenvector of the largest eigenvalue, by power iteration on N + c I.
-    let shift = nmat.iter().flatten().map(|x| x.abs()).sum::<f64>() + 1.0;
-    let mut q = [1.0, 0.0, 0.0, 0.0];
-    for _ in 0..500 {
-        let mut nq = [0.0; 4];
-        for i in 0..4 {
-            nq[i] = (0..4).map(|j| nmat[i][j] * q[j]).sum::<f64>() + shift * q[i];
-        }
-        let l = nq.iter().map(|x| x * x).sum::<f64>().sqrt();
-        q = nq.map(|x| x / l);
-    }
+    // The eigenvector of the largest eigenvalue. The matrix is brought to unit size first, so the
+    // answer does not depend on the units of the coordinates.
+    let size = nmat.iter().flatten().fold(0.0f64, |m, x| m.max(x.abs()));
+    let q = if size > 0.0 && size.is_finite() {
+        let unit: Vec<Vec<f64>> = nmat.iter().map(|row| row.iter().map(|x| x / size).collect()).collect();
+        let (_, vecs) = crate::stats::symmetric_eigen(&unit);
+        [vecs[0][0], vecs[0][1], vecs[0][2], vecs[0][3]]
+    } else {
+        [1.0, 0.0, 0.0, 0.0]
+    };
     let (w, x, y, z) = (q[0], q[1], q[2], q[3]);
     let r = [
         [w * w + x * x - y * y - z * z, 2.0 * (x * y - w * z), 2.0 * (x * z + w * y)],
@@ -183,6 +182,21 @@ fn best_rigid(a: &[[f64; 3]], b: &[[f64; 3]]) -> ([[f64; 3]; 3], [f64; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_best_rigid_motion_does_not_depend_on_the_units() {
+        // The same cloud at sizes from a micrometre to a kilometre: 10 degrees about z every time.
+        let mut rng = crate::stats::Rng::new(5);
+        let pts: Vec<[f64; 3]> = (0..200).map(|_| [rng.next_f64() * 3.0, rng.next_f64() * 2.0, rng.next_f64()]).collect();
+        let (s, c) = 10f64.to_radians().sin_cos();
+        for scale in [1e-9, 1e-6, 1.0, 1e3] {
+            let a: Vec<[f64; 3]> = pts.iter().map(|p| p.map(|x| x * scale)).collect();
+            let b: Vec<[f64; 3]> = a.iter().map(|p| [c * p[0] - s * p[1] + 0.1 * scale, s * p[0] + c * p[1], p[2]]).collect();
+            let (r, t) = best_rigid(&a, &b);
+            assert!((r[0][0] - c).abs() < 1e-9 && (r[1][0] - s).abs() < 1e-9, "scale {scale}: {r:?}");
+            assert!((t[0] - 0.1 * scale).abs() < 1e-9 * scale, "scale {scale}: {t:?}");
+        }
+    }
 
     #[test]
     fn icp_recovers_a_rigid_motion() {

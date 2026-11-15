@@ -551,3 +551,23 @@ fn a_new_child_hides_all_its_parents() {
     let _h = s.add_filter("histogram", b).unwrap();
     assert!(s.nodes[&b].visible, "a chart result keeps its parent shown");
 }
+
+/// The number that tells saved from unsaved work follows everything a state file holds.
+#[test]
+fn the_state_signature_follows_display_and_charts_but_not_the_selection() {
+    let mut s = Session::new();
+    let a = s.add_source("sphere").unwrap();
+    let b = s.add_source("sphere").unwrap();
+    s.update_blocking();
+    let saved = s.state_signature();
+    s.active = Some(a);
+    assert_eq!(s.state_signature(), saved, "selecting an object is not work");
+    s.set_display(b, |d| d.opacity = 0.3);
+    let with_opacity = s.state_signature();
+    assert_ne!(with_opacity, saved, "opacity is saved, so it counts");
+    s.show_time_label = !s.show_time_label;
+    assert_ne!(s.state_signature(), with_opacity);
+    s.show_time_label = !s.show_time_label;
+    s.set_display(b, |d| d.opacity = 1.0);
+    assert_eq!(s.state_signature(), saved, "back to what was saved");
+}

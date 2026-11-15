@@ -111,7 +111,7 @@ footer .notice { background: var(--bg2); border: 1px solid var(--line); border-l
       pipeline-aware AI agent, it streamlines simulation workflows alongside the 3D view, from raw data manipulation directly into local
       or remote HPC simulation suites over SSH and Slurm.</p>
     <div class="btns">
-      <a class="btn primary" href="https://github.com/aashiquear/auraFX/releases/latest">Download v0.1.0</a>
+      <a class="btn primary" href="https://github.com/aashiquear/auraFX/releases/latest">Download v0.9.0</a>
       <a class="btn" href="docs/userguide/book/index.html">Read the user guide</a>
       <a class="btn" href="https://github.com/aashiquear/auraFX">Source on GitHub</a>
     </div>
@@ -310,11 +310,11 @@ afx.run_case(poly, "pinnacle", "~/runs/plate", host="cluster",
       Desktop packages bundle their own Python 3.12 with NumPy; nothing else is needed besides a GPU driver (Vulkan on Linux and Windows, Metal on macOS).</p>
     <table>
       <tr><th>Platform</th><th>Package</th><th>How</th></tr>
-      <tr><td>Linux x86_64, aarch64</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-x86_64.AppImage"><code>.AppImage</code></a>, <a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-linux-x86_64.tar.gz"><code>.tar.gz</code></a></td><td><code>curl -fsSL https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.sh | sh</code>, or run the AppImage</td></tr>
-      <tr><td>macOS 11+ (Apple silicon, Intel)</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-macos-arm64.dmg"><code>.dmg</code></a></td><td>the same <code>install.sh</code> line, or drag the app to Applications</td></tr>
-      <tr><td>Windows 10/11 x64</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-windows-x64-setup.exe">installer</a>, <a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-windows-x64.zip">portable <code>.zip</code></a></td><td><code>irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1 | iex</code></td></tr>
-      <tr><td>Android 8+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-android.apk"><code>.apk</code></a> (viewer build)</td><td>download and open the APK</td></tr>
-      <tr><td>iOS / iPadOS 15+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.1.0-ios-unsigned.ipa">unsigned <code>.ipa</code></a> (viewer build)</td><td>sign and install with Xcode, AltStore or Sideloadly</td></tr>
+      <tr><td>Linux x86_64, aarch64</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.9.0-x86_64.AppImage"><code>.AppImage</code></a>, <a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.9.0-linux-x86_64.tar.gz"><code>.tar.gz</code></a></td><td><code>curl -fsSL https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.sh | sh</code>, or run the AppImage</td></tr>
+      <tr><td>macOS 11+ (Apple silicon, Intel)</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.9.0-macos-arm64.dmg"><code>.dmg</code></a></td><td>the same <code>install.sh</code> line, or drag the app to Applications</td></tr>
+      <tr><td>Windows 10/11 x64</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.9.0-windows-x64-setup.exe">installer</a>, <a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.9.0-windows-x64.zip">portable <code>.zip</code></a></td><td><code>irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1 | iex</code></td></tr>
+      <tr><td>Android 8+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.9.0-android.apk"><code>.apk</code></a> (viewer build)</td><td>download and open the APK</td></tr>
+      <tr><td>iOS / iPadOS 15+</td><td><a href="https://github.com/aashiquear/auraFX/releases/latest/download/auraFX-0.9.0-ios-unsigned.ipa">unsigned <code>.ipa</code></a> (viewer build)</td><td>sign and install with Xcode, AltStore or Sideloadly</td></tr>
       <tr><td>Remote data server</td><td><code>aurafx-server</code> (in every desktop package)</td><td><strong>File › Open on Server… › Install server</strong> copies it to a host over SSH; see <a href="docs/userguide/book/client-server.html">Data on another machine</a></td></tr>
       <tr><td>From source</td><td>Rust 1.95+, Python 3.10+ headers</td><td><code>cargo build --release</code> then <code>target/release/aurafx</code></td></tr>
     </table>

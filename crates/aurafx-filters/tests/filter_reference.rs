@@ -94,6 +94,7 @@ fn the_filter_reference_is_up_to_date() {
         std::fs::write(&path, &want).unwrap();
         return;
     }
-    let have = std::fs::read_to_string(&path).unwrap_or_default();
+    // A checkout may have turned the line ends into CR LF.
+    let have = std::fs::read_to_string(&path).unwrap_or_default().replace("\r\n", "\n");
     assert!(have == want, "docs/userguide/src/filter-reference.md is out of date: AFX_WRITE_REFERENCE=1 cargo test -p aurafx-filters --test filter_reference");
 }

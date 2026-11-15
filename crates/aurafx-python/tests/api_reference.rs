@@ -18,6 +18,8 @@ fn python_api_reference_is_current() {
         std::fs::write(&path, &text).unwrap();
         return;
     }
-    let on_disk = std::fs::read_to_string(&path).unwrap_or_default();
+    // A checkout may have turned the line ends into CR LF; so may printing on Windows.
+    let on_disk = std::fs::read_to_string(&path).unwrap_or_default().replace("\r\n", "\n");
+    let text = text.replace("\r\n", "\n");
     assert!(on_disk == text, "docs/userguide/src/python-api.md is out of date: run AFX_WRITE_REFERENCE=1 cargo test -p aurafx-python --test api_reference");
 }

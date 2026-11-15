@@ -50,13 +50,15 @@ print(m.cad.parameters()["width"])
     assert!(out.error.unwrap().contains("takes 3 values"));
 
     // Templates, files, undo and the trace.
+    let saved = std::env::temp_dir().join(format!("afx_cad_py_test_{}.afxcad", std::process::id()));
+    run(&rt, &format!("_saved = {:?}", saved.display().to_string()));
     let o = run(
         &rt,
         r#"
 t = afx.cad_model(template="flange")
 print(len(t.cad.features()) >= 3)
-t.cad.save("/tmp/afx_cad_py_test.afxcad")
-u = afx.cad_model("/tmp/afx_cad_py_test.afxcad")
+t.cad.save(_saved)
+u = afx.cad_model(_saved)
 print(len(u.cad.features()) == len(t.cad.features()))
 n = len(u.cad.features())
 u.cad.sphere(radius=3, name="Ball", at=(0, 0, 50))
@@ -219,5 +221,5 @@ print(len(a.cad.components()), a.cad.components()[2]["visible"])
     assert_eq!(l[7], "3 False", "{o}");
     let trace = session.lock().trace.join("\n");
     assert!(trace.contains(".cad.edit('add'"), "{trace}");
-    std::fs::remove_file("/tmp/afx_cad_py_test.afxcad").ok();
+    std::fs::remove_file(saved).ok();
 }

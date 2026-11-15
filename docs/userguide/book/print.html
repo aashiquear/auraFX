@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
+            window.path_to_searchindex_js = "searchindex-bf1694fc.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -186,12 +186,12 @@ measure them with the usual filters, and adds three things next to the 3D view:<
 <ul>
 <li>a <strong>Python console</strong> with a one-line-per-idea API (<code>afx.load("run.e").slice().color_by("T")</code>),</li>
 <li>an <strong>AI assistant</strong> that sees your pipeline and writes runnable code for you,</li>
-<li>a <strong>simulation runner</strong> that launches solvers locally, over SSH or through Slurm and opens
-the results when they finish.</li>
+<li>a <strong>simulation runner</strong> that launches solvers locally, over SSH or through Slurm, PBS or LSF
+and opens the results when they finish.</li>
 </ul>
 <p>It also builds what solvers need: a <strong>parametric CAD modeler</strong>, a <strong>geometry and mesh
 generator</strong> and a <strong>grain workbench</strong> for microstructures live in the same window, and Jupyter
-notebooks can drive all of it.</p>
+notebooks can drive all of it. On a tablet or a phone the same program shows a touch interface.</p>
 <p>This guide walks through every feature. Each chapter says where a feature is in the window,
 how to call it from Python, and what its limits are.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/main_window.png" alt="The main window"><span class="img-wrapper"><img src="images/main_window.png" alt="The main window"></span></label></p>
@@ -202,11 +202,11 @@ how to call it from Python, and what its limits are.</p>
 <tr><th>Part</th><th>What it covers</th></tr>
 </thead>
 <tbody>
-<tr><td>Basics</td><td>opening files, the pipeline, filters, coloring, views, selection, time and animation</td></tr>
+<tr><td>Basics</td><td>opening files, the pipeline, filters, coloring, views, tablets and phones, selection, time and animation</td></tr>
 <tr><td>Rendering</td><td>lighting, shadows, ambient occlusion, ray tracing, materials, volumes, point clouds</td></tr>
 <tr><td>Scripting</td><td>the Python API and notebooks, the AI assistant, writing plugins in Python or Rust, tutorials</td></tr>
 <tr><td>Data</td><td>every file format read and written, exporting pictures and scenes, running simulations, working on remote machines and with files larger than memory, grains and crystals, geometry and meshing, CAD modeling</td></tr>
-<tr><td>Reference</td><td>settings and keyboard shortcuts, every filter with its settings, benchmarks</td></tr>
+<tr><td>Reference</td><td>settings and keyboard shortcuts, every filter with its settings, every Python call, benchmarks</td></tr>
 </tbody>
 </table>
 </div>
@@ -3941,16 +3941,16 @@ optional dislocation-density array (from GND Density). The result is in
 <tr><td>IN718, CoNi GammaPrint-700</td><td>FCC</td><td>{111}&lt;110&gt;</td><td>647.6 MPa, 400 MPa</td></tr>
 <tr><td>Nickel, Copper, Aluminium</td><td>FCC</td><td>{111}&lt;110&gt;</td><td></td></tr>
 <tr><td>Iron (BCC)</td><td>BCC</td><td>{110}&lt;111&gt;, {112}&lt;111&gt;</td><td></td></tr>
-<tr><td>Titanium (HCP)</td><td>HCP, c/a 1.587</td><td>basal 1, prismatic 0.7, pyramidal <a> 1, pyramidal &lt;c+a&gt; 3</a></td><td></td></tr>
-<tr><td>Magnesium (HCP)</td><td>HCP, c/a 1.624</td><td>basal 1, prismatic 10, pyramidal <a> 10, pyramidal &lt;c+a&gt; 15</a></td><td></td></tr>
+<tr><td>Titanium (HCP)</td><td>HCP, c/a 1.587</td><td>basal 1, prismatic 0.7, pyramidal &lt;a&gt; 1, pyramidal &lt;c+a&gt; 3</td><td></td></tr>
+<tr><td>Magnesium (HCP)</td><td>HCP, c/a 1.624</td><td>basal 1, prismatic 10, pyramidal &lt;a&gt; 10, pyramidal &lt;c+a&gt; 15</td><td></td></tr>
 </tbody>
 </table>
 </div>
 <p><strong>Custom</strong> takes the lattice, the elastic constants (C11 C12 C44, or C11 C12 C13 C33 C44 for
 hexagonal crystals), the shear modulus, the Burgers vector, c/a and the slip families
 (written like <code>Basal &lt;a&gt;=1, Prismatic &lt;a&gt;=0.7</code>). The families available are {111}&lt;110&gt; for
-FCC; {110}, {112} and {123}&lt;111&gt; for BCC; basal, prismatic and pyramidal <a>, and pyramidal
-&lt;c+a&gt;, for HCP.</a></p>
+FCC; {110}, {112} and {123}&lt;111&gt; for BCC; basal, prismatic and pyramidal &lt;a&gt;, and pyramidal
+&lt;c+a&gt;, for HCP.</p>
 <pre><code class="language-python">m = volume.crystal_mechanics(material="IN718", direction=(0, 0, 1))
 print(m.array("YieldEstimateMPa", "field"))
 </code></pre>
@@ -4262,8 +4262,7 @@ ends. It has one block, <code>block_1</code>, and side sets and node sets <code>
 </code></pre>
 <h2 id="inclusion-mesh"><a class="header" href="#inclusion-mesh">Inclusion Mesh</a></h2>
 <p><strong>Sources › Inclusion Mesh</strong> makes a box of matrix with randomly placed inclusions, meshed with
-conforming hexahedra. This is the method of hexaform, a structured mesher written by the
-author of auraFX:</p>
+conforming hexahedra. It works in four steps:</p>
 <ul>
 <li><strong>Background grid.</strong> A grid of cubic cells covers the box. <strong>Cells along the shortest side</strong>
 sets the cell size.</li>
@@ -5202,6 +5201,7 @@ m.cad.save("bracket2.igs")                        # IGES, exact (the exact kerne
 r = m.cad.save("lofted.step")                     # {"exact": False, "note": "faceted: ..."} when
                                                   # only the Implicit kernel builds the part
 </code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_import.png" alt="A STEP file opened as a CAD Model: the file’s solid is the base feature, a second hole was cut into it, and the faces are colored by their numbers"><span class="img-wrapper"><img src="images/cad_import.png" alt="A STEP file opened as a CAD Model: the file’s solid is the base feature, a second hole was cut into it, and the faces are colored by their numbers"></span></label></p>
 <p>A part that only the Implicit kernel builds is written as STEP or STL from its tessellation: a
 valid solid of triangles whose header says <em>faceted B-rep</em> and why. IGES is written only for a
 part the exact kernel builds (its faces are true surfaces); for any other part the message says to
@@ -7579,7 +7579,7 @@ color blindness.</p>
 <tr><td>Custom: shear modulus (GPa)</td><td><code>shear_modulus</code></td><td>number 0 to ∞</td><td>80</td><td><em>advanced</em></td></tr>
 <tr><td>Custom: Burgers vector (m)</td><td><code>burgers</code></td><td>number 0 to ∞</td><td>0.00000000025</td><td><em>advanced</em></td></tr>
 <tr><td>Custom: c/a</td><td><code>c_over_a</code></td><td>number 0.1 to 10</td><td>1.633</td><td><em>advanced</em></td></tr>
-<tr><td>Custom: slip families</td><td><code>families</code></td><td>text</td><td>(empty)</td><td><em>advanced</em> Like ‘Basal <a>=1, Prismatic <a>=0.7, Pyramidal &lt;c+a&gt;=3’ (relative resolved shear stresses). Empty: the lattice’s first family.</a></a></td></tr>
+<tr><td>Custom: slip families</td><td><code>families</code></td><td>text</td><td>(empty)</td><td><em>advanced</em> Like ‘Basal &lt;a&gt;=1, Prismatic &lt;a&gt;=0.7, Pyramidal &lt;c+a&gt;=3’ (relative resolved shear stresses). Empty: the lattice’s first family.</td></tr>
 <tr><td>Custom: base yield strength (MPa)</td><td><code>sigma_base</code></td><td>number 0 to ∞</td><td>0</td><td><em>advanced</em></td></tr>
 <tr><td>Orientations</td><td><code>orientations</code></td><td>array</td><td>(the active array)</td><td>Euler angles, quaternions or orientation matrices. Empty: EulerAngles, Quats or OrientationMatrix.</td></tr>
 <tr><td>Crystal structure</td><td><code>structure</code></td><td>From the phases / Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1</td><td><code>From the phases</code></td><td></td></tr>
@@ -9526,7 +9526,7 @@ color blindness.</p>
 <li><code>afx.source(_fn=None, *, label=None, category='Plugins', description=None, params=None, keywords=(), id=None)</code>: Register a source: a function of keyword parameters returning an afx.Data.</li>
 <li><code>afx.split_view(direction='right')</code>: Add a 3D view next to the active one: “right” (side by side) or “down” (above/below). The new view becomes active and starts with the same camera and visible objects. Returns its number once it exists (None without the app).</li>
 <li><code>afx.submit(command, host=None, workdir=None, gpu=None, outputs=None, auto_load=False, name=None, env=None, slurm=None, wait=False)</code>: Run a shell command as a job (locally, on an SSH host, or via Slurm). gpu: None, “any”, “nvidia”, “amd”, or e.g. “nvidia:0,1”. Returns the job id.</li>
-<li><code>afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)</code>: Parameter sweep: one job per value; “{var}” in the command is replaced and each run gets its own folder <workdir>/<var>_<value>. Returns the job ids.</value></var></workdir></li>
+<li><code>afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)</code>: Parameter sweep: one job per value; “{var}” in the command is replaced and each run gets its own folder &lt;workdir&gt;/&lt;var&gt;_&lt;value&gt;. Returns the job ids.</li>
 <li><code>afx.time(index=None)</code></li>
 <li><code>afx.time_label(on=True)</code>: Show (or hide) the current time in the 3D views.</li>
 <li><code>afx.times()</code></li>
@@ -9553,7 +9553,7 @@ color blindness.</p>
 <ul>
 <li><code>CellData</code> (attribute)</li>
 <li><code>FieldData</code> (attribute)</li>
-<li><code>PointData</code> (attribute): ParaView-style names (<code>output.PointData.append(array, "name")</code>).</li>
+<li><code>PointData</code> (attribute): The same arrays under capitalized names (<code>output.PointData.append(array, "name")</code>).</li>
 <li><code>blocks()</code>: The pieces of a multi-block dataset (copies), or [self] for other data.</li>
 <li><code>bounds</code> (attribute): (xmin, xmax, ymin, ymax, zmin, zmax)</li>
 <li><code>cell_data</code> (attribute)</li>
@@ -9697,7 +9697,7 @@ color blindness.</p>
 <li><code>split(plane='XY', offset=0, keep_positive=True, feature=None)</code></li>
 <li><code>state()</code></li>
 <li><code>suppress(feature, suppressed=True)</code></li>
-<li><code>sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))</code>: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as ‘<name> profile’ and ‘<name> path’). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.</name></name></li>
+<li><code>sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))</code>: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as ‘NAME profile’ and ‘NAME path’, NAME being this feature’s name). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.</li>
 <li><code>template(name)</code>: Start from a template: enclosure, flange, knob, threaded rod, vase or bracket.</li>
 <li><code>thread(major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op='add', at=(0, 0, 0))</code></li>
 <li><code>torus(major=10, minor=2, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>

@@ -1,3 +1,4 @@
+import re
 # Builds the text of docs/userguide/src/python-api.md in `_reference` (run by api_reference.rs).
 import aurafx as afx, inspect
 
@@ -11,7 +12,11 @@ def sig(o, name):
 
 def doc(o):
     d = inspect.getdoc(o) or ""
-    return " ".join(line.strip() for line in d.strip().splitlines()).replace("|", "\\|")
+    d = " ".join(line.strip() for line in d.strip().splitlines()).replace("|", "\\|")
+    # A word in angle brackets outside a code span would be taken for an HTML tag and vanish.
+    parts = d.split("`")
+    parts[::2] = [re.sub(r"<(?=[A-Za-z/])", r"\\<", t) for t in parts[::2]]
+    return "`".join(parts)
 
 def entry(prefix, name, o):
     d = doc(o)

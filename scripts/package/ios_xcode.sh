@@ -19,9 +19,9 @@ export IPHONEOS_DEPLOYMENT_TARGET=15.0
 
 # The library, and the system libraries and frameworks it needs at link time (rustc lists them).
 LOG="$WORK/build.log"
-cargo rustc --release -p aurafx-ios --lib --crate-type staticlib --target aarch64-apple-ios \
+cargo rustc --color never --release -p aurafx-ios --lib --crate-type staticlib --target aarch64-apple-ios \
   --manifest-path "$ROOT/Cargo.toml" -- --print native-static-libs 2>&1 | tee "$LOG"
-NATIVE="$(grep 'native-static-libs:' "$LOG" | tail -1 | sed 's/.*native-static-libs: *//')"
+NATIVE="$(grep 'native-static-libs:' "$LOG" | tail -1 | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/.*native-static-libs: *//')"
 [ -n "$NATIVE" ] || { echo "rustc did not list the native libraries" >&2; exit 1; }
 cp "$ROOT/target/aarch64-apple-ios/release/libaurafx_ios.a" "$PROJ/lib/libaurafx_ios.a"
 strip -S "$PROJ/lib/libaurafx_ios.a" 2>/dev/null || true

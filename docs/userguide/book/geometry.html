@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
+            window.path_to_searchindex_js = "searchindex-bf1694fc.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -386,8 +386,7 @@ ends. It has one block, <code>block_1</code>, and side sets and node sets <code>
 </code></pre>
 <h2 id="inclusion-mesh"><a class="header" href="#inclusion-mesh">Inclusion Mesh</a></h2>
 <p><strong>Sources › Inclusion Mesh</strong> makes a box of matrix with randomly placed inclusions, meshed with
-conforming hexahedra. This is the method of hexaform, a structured mesher written by the
-author of auraFX:</p>
+conforming hexahedra. It works in four steps:</p>
 <ul>
 <li><strong>Background grid.</strong> A grid of cubic cells covers the box. <strong>Cells along the shortest side</strong>
 sets the cell size.</li>

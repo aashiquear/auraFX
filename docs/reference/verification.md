@@ -440,7 +440,7 @@ the closed forms at a resolution of 96. An STL file written from a drawn sphere 
 back encloses the same volume within 0.5 %. The Signed Distance Field of that file is within
 0.01 of the exact distance to the sphere.
 
-## Volumes, point clouds, scenes and solver results (iteration 83)
+## Volumes, point clouds, scenes and solver results
 
 Files from `scripts/gen_volumes.py`, `gen_particles_h5.py`, `gen_nek5000.py`, `gen_d3plot.py` and
 `gen_scenes.py` (see `testdata/README.md`), read with ParaView 6.1.1 (`pvpython`, under
@@ -465,10 +465,10 @@ Files from `scripts/gen_volumes.py`, `gen_particles_h5.py`, `gen_nek5000.py`, `g
 
 The openPMD files were written by the openPMD API itself and read back with the values they were
 built with. LAZ is checked by compressing points with the `laz` crate and reading them back.
-Files written by the new Fluent and Nastran writers are read back with the same volume, blocks and
+Files written by the Fluent and Nastran writers are read back with the same volume, blocks and
 side sets (Fluent faces are matched to their cells by position).
 
-## Microstructure clean-up, image filters and meshing (iteration 83)
+## Microstructure clean-up, image filters and meshing
 
 | Check | Reference | Result |
 |---|---|---|
@@ -485,13 +485,13 @@ side sets (Fluent faces are matched to their cells by position).
 | Tetrahedra in a Region on half of a 4³ box | volume 1 | volume exact (1e-12), every tetrahedron and pyramid positive, side sets kept |
 | Swept-curve and sheet webcuts of bricks | volumes of the pieces | within 0.02 of 0.25 + 3.75 and 2 + 2 |
 
-## NIfTI (iteration 85)
+## NIfTI
 
 | File | Reference | Result |
 |---|---|---|
 | `head.nii.gz`, `vectors.nii`, `pair.hdr` | `vtkNIFTIImageReader` in ParaView 6.1.1 | same dimensions (in the file's index order), voxel sizes and raw values (0 to 345, 0 to 125 with 3 components, 1 to 12). The reference keeps the raw values and puts the grid at the origin, giving the slope (2, -5) and the sform/qform apart; auraFX applies the scaling and places the grid by the sform or qform |
 
-## Surface writers (iteration 85)
+## Surface writers
 
 | File | Reference | Result |
 |---|---|---|

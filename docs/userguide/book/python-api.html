@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
+            window.path_to_searchindex_js = "searchindex-bf1694fc.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -265,7 +265,7 @@
 <li><code>afx.source(_fn=None, *, label=None, category='Plugins', description=None, params=None, keywords=(), id=None)</code>: Register a source: a function of keyword parameters returning an afx.Data.</li>
 <li><code>afx.split_view(direction='right')</code>: Add a 3D view next to the active one: “right” (side by side) or “down” (above/below). The new view becomes active and starts with the same camera and visible objects. Returns its number once it exists (None without the app).</li>
 <li><code>afx.submit(command, host=None, workdir=None, gpu=None, outputs=None, auto_load=False, name=None, env=None, slurm=None, wait=False)</code>: Run a shell command as a job (locally, on an SSH host, or via Slurm). gpu: None, “any”, “nvidia”, “amd”, or e.g. “nvidia:0,1”. Returns the job id.</li>
-<li><code>afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)</code>: Parameter sweep: one job per value; “{var}” in the command is replaced and each run gets its own folder <workdir>/<var>_<value>. Returns the job ids.</value></var></workdir></li>
+<li><code>afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)</code>: Parameter sweep: one job per value; “{var}” in the command is replaced and each run gets its own folder &lt;workdir&gt;/&lt;var&gt;_&lt;value&gt;. Returns the job ids.</li>
 <li><code>afx.time(index=None)</code></li>
 <li><code>afx.time_label(on=True)</code>: Show (or hide) the current time in the 3D views.</li>
 <li><code>afx.times()</code></li>
@@ -292,7 +292,7 @@
 <ul>
 <li><code>CellData</code> (attribute)</li>
 <li><code>FieldData</code> (attribute)</li>
-<li><code>PointData</code> (attribute): ParaView-style names (<code>output.PointData.append(array, "name")</code>).</li>
+<li><code>PointData</code> (attribute): The same arrays under capitalized names (<code>output.PointData.append(array, "name")</code>).</li>
 <li><code>blocks()</code>: The pieces of a multi-block dataset (copies), or [self] for other data.</li>
 <li><code>bounds</code> (attribute): (xmin, xmax, ymin, ymax, zmin, zmax)</li>
 <li><code>cell_data</code> (attribute)</li>
@@ -436,7 +436,7 @@
 <li><code>split(plane='XY', offset=0, keep_positive=True, feature=None)</code></li>
 <li><code>state()</code></li>
 <li><code>suppress(feature, suppressed=True)</code></li>
-<li><code>sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))</code>: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as ‘<name> profile’ and ‘<name> path’). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.</name></name></li>
+<li><code>sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))</code>: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as ‘NAME profile’ and ‘NAME path’, NAME being this feature’s name). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.</li>
 <li><code>template(name)</code>: Start from a template: enclosure, flange, knob, threaded rod, vase or bracket.</li>
 <li><code>thread(major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op='add', at=(0, 0, 0))</code></li>
 <li><code>torus(major=10, minor=2, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>

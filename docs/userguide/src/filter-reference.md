@@ -1743,7 +1743,7 @@ Python: `crystal_mechanics` · also found by: schmid factor, taylor factor, youn
 | Custom: shear modulus (GPa) | `shear_modulus` | number 0 to ∞ | 80 | *advanced* |
 | Custom: Burgers vector (m) | `burgers` | number 0 to ∞ | 0.00000000025 | *advanced* |
 | Custom: c/a | `c_over_a` | number 0.1 to 10 | 1.633 | *advanced* |
-| Custom: slip families | `families` | text | (empty) | *advanced* Like 'Basal <a>=1, Prismatic <a>=0.7, Pyramidal <c+a>=3' (relative resolved shear stresses). Empty: the lattice's first family. |
+| Custom: slip families | `families` | text | (empty) | *advanced* Like 'Basal \<a>=1, Prismatic \<a>=0.7, Pyramidal \<c+a>=3' (relative resolved shear stresses). Empty: the lattice's first family. |
 | Custom: base yield strength (MPa) | `sigma_base` | number 0 to ∞ | 0 | *advanced* |
 | Orientations | `orientations` | array | (the active array) | Euler angles, quaternions or orientation matrices. Empty: EulerAngles, Quats or OrientationMatrix. |
 | Crystal structure | `structure` | From the phases / Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `From the phases` |  |

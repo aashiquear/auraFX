@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
+            window.path_to_searchindex_js = "searchindex-bf1694fc.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -637,6 +637,7 @@ m.cad.save("bracket2.igs")                        # IGES, exact (the exact kerne
 r = m.cad.save("lofted.step")                     # {"exact": False, "note": "faceted: ..."} when
                                                   # only the Implicit kernel builds the part
 </code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_import.png" alt="A STEP file opened as a CAD Model: the file’s solid is the base feature, a second hole was cut into it, and the faces are colored by their numbers"><span class="img-wrapper"><img src="images/cad_import.png" alt="A STEP file opened as a CAD Model: the file’s solid is the base feature, a second hole was cut into it, and the faces are colored by their numbers"></span></label></p>
 <p>A part that only the Implicit kernel builds is written as STEP or STL from its tessellation: a
 valid solid of triangles whose header says <em>faceted B-rep</em> and why. IGES is written only for a
 part the exact kernel builds (its faces are true surfaces); for any other part the message says to

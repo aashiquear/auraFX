@@ -532,6 +532,8 @@ r = m.cad.save("lofted.step")                     # {"exact": False, "note": "fa
                                                   # only the Implicit kernel builds the part
 ```
 
+![A STEP file opened as a CAD Model: the file's solid is the base feature, a second hole was cut into it, and the faces are colored by their numbers](images/cad_import.png)
+
 A part that only the Implicit kernel builds is written as STEP or STL from its tessellation: a
 valid solid of triangles whose header says *faceted B-rep* and why. IGES is written only for a
 part the exact kernel builds (its faces are true surfaces); for any other part the message says to

@@ -2730,7 +2730,7 @@ class _CadApi:
         return s.spec() if hasattr(s, "spec") else s
     def sweep(self, profile, path, twist=0, name=None, op="add", at=(0, 0, 0)):
         """Sweep the closed outline of one sketch along the open path of another. profile and path
-        are names of kept sketches (sketch_add) or sketches (kept as '<name> profile' and '<name> path').
+        are names of kept sketches (sketch_add) or sketches (kept as 'NAME profile' and 'NAME path', NAME being this feature's name).
         Draw the profile on a plane the path leaves at right angles, where the path starts.
         twist: degrees turned over the whole path. op: add or cut."""
         a = {"profile": self._sk(profile), "path": self._sk(path), "twist": twist, "op": op, "at": list(at)}

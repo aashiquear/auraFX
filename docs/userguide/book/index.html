@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
+            window.path_to_searchindex_js = "searchindex-bf1694fc.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -185,12 +185,12 @@ measure them with the usual filters, and adds three things next to the 3D view:<
 <ul>
 <li>a <strong>Python console</strong> with a one-line-per-idea API (<code>afx.load("run.e").slice().color_by("T")</code>),</li>
 <li>an <strong>AI assistant</strong> that sees your pipeline and writes runnable code for you,</li>
-<li>a <strong>simulation runner</strong> that launches solvers locally, over SSH or through Slurm and opens
-the results when they finish.</li>
+<li>a <strong>simulation runner</strong> that launches solvers locally, over SSH or through Slurm, PBS or LSF
+and opens the results when they finish.</li>
 </ul>
 <p>It also builds what solvers need: a <strong>parametric CAD modeler</strong>, a <strong>geometry and mesh
 generator</strong> and a <strong>grain workbench</strong> for microstructures live in the same window, and Jupyter
-notebooks can drive all of it.</p>
+notebooks can drive all of it. On a tablet or a phone the same program shows a touch interface.</p>
 <p>This guide walks through every feature. Each chapter says where a feature is in the window,
 how to call it from Python, and what its limits are.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/main_window.png" alt="The main window"><span class="img-wrapper"><img src="images/main_window.png" alt="The main window"></span></label></p>
@@ -201,11 +201,11 @@ how to call it from Python, and what its limits are.</p>
 <tr><th>Part</th><th>What it covers</th></tr>
 </thead>
 <tbody>
-<tr><td>Basics</td><td>opening files, the pipeline, filters, coloring, views, selection, time and animation</td></tr>
+<tr><td>Basics</td><td>opening files, the pipeline, filters, coloring, views, tablets and phones, selection, time and animation</td></tr>
 <tr><td>Rendering</td><td>lighting, shadows, ambient occlusion, ray tracing, materials, volumes, point clouds</td></tr>
 <tr><td>Scripting</td><td>the Python API and notebooks, the AI assistant, writing plugins in Python or Rust, tutorials</td></tr>
 <tr><td>Data</td><td>every file format read and written, exporting pictures and scenes, running simulations, working on remote machines and with files larger than memory, grains and crystals, geometry and meshing, CAD modeling</td></tr>
-<tr><td>Reference</td><td>settings and keyboard shortcuts, every filter with its settings, benchmarks</td></tr>
+<tr><td>Reference</td><td>settings and keyboard shortcuts, every filter with its settings, every Python call, benchmarks</td></tr>
 </tbody>
 </table>
 </div>

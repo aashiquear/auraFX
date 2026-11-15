@@ -225,8 +225,7 @@ b = afx.box_mesh(size=(2, 1, 1), cells=(40, 20, 20), grading=(3, 1, 1), cluster=
 ## Inclusion Mesh
 
 **Sources › Inclusion Mesh** makes a box of matrix with randomly placed inclusions, meshed with
-conforming hexahedra. This is the method of hexaform, a structured mesher written by the
-author of auraFX:
+conforming hexahedra. It works in four steps:
 
 - **Background grid.** A grid of cubic cells covers the box. **Cells along the shortest side**
   sets the cell size.

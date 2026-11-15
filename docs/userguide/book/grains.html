@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
+            window.path_to_searchindex_js = "searchindex-bf1694fc.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -1069,16 +1069,16 @@ optional dislocation-density array (from GND Density). The result is in
 <tr><td>IN718, CoNi GammaPrint-700</td><td>FCC</td><td>{111}&lt;110&gt;</td><td>647.6 MPa, 400 MPa</td></tr>
 <tr><td>Nickel, Copper, Aluminium</td><td>FCC</td><td>{111}&lt;110&gt;</td><td></td></tr>
 <tr><td>Iron (BCC)</td><td>BCC</td><td>{110}&lt;111&gt;, {112}&lt;111&gt;</td><td></td></tr>
-<tr><td>Titanium (HCP)</td><td>HCP, c/a 1.587</td><td>basal 1, prismatic 0.7, pyramidal <a> 1, pyramidal &lt;c+a&gt; 3</a></td><td></td></tr>
-<tr><td>Magnesium (HCP)</td><td>HCP, c/a 1.624</td><td>basal 1, prismatic 10, pyramidal <a> 10, pyramidal &lt;c+a&gt; 15</a></td><td></td></tr>
+<tr><td>Titanium (HCP)</td><td>HCP, c/a 1.587</td><td>basal 1, prismatic 0.7, pyramidal &lt;a&gt; 1, pyramidal &lt;c+a&gt; 3</td><td></td></tr>
+<tr><td>Magnesium (HCP)</td><td>HCP, c/a 1.624</td><td>basal 1, prismatic 10, pyramidal &lt;a&gt; 10, pyramidal &lt;c+a&gt; 15</td><td></td></tr>
 </tbody>
 </table>
 </div>
 <p><strong>Custom</strong> takes the lattice, the elastic constants (C11 C12 C44, or C11 C12 C13 C33 C44 for
 hexagonal crystals), the shear modulus, the Burgers vector, c/a and the slip families
 (written like <code>Basal &lt;a&gt;=1, Prismatic &lt;a&gt;=0.7</code>). The families available are {111}&lt;110&gt; for
-FCC; {110}, {112} and {123}&lt;111&gt; for BCC; basal, prismatic and pyramidal <a>, and pyramidal
-&lt;c+a&gt;, for HCP.</a></p>
+FCC; {110}, {112} and {123}&lt;111&gt; for BCC; basal, prismatic and pyramidal &lt;a&gt;, and pyramidal
+&lt;c+a&gt;, for HCP.</p>
 <pre><code class="language-python">m = volume.crystal_mechanics(material="IN718", direction=(0, 0, 1))
 print(m.array("YieldEstimateMPa", "field"))
 </code></pre>

@@ -1026,13 +1026,13 @@ optional dislocation-density array (from GND Density). The result is in
 | IN718, CoNi GammaPrint-700 | FCC | {111}<110> | 647.6 MPa, 400 MPa |
 | Nickel, Copper, Aluminium | FCC | {111}<110> | |
 | Iron (BCC) | BCC | {110}<111>, {112}<111> | |
-| Titanium (HCP) | HCP, c/a 1.587 | basal 1, prismatic 0.7, pyramidal <a> 1, pyramidal <c+a> 3 | |
-| Magnesium (HCP) | HCP, c/a 1.624 | basal 1, prismatic 10, pyramidal <a> 10, pyramidal <c+a> 15 | |
+| Titanium (HCP) | HCP, c/a 1.587 | basal 1, prismatic 0.7, pyramidal \<a> 1, pyramidal <c+a> 3 | |
+| Magnesium (HCP) | HCP, c/a 1.624 | basal 1, prismatic 10, pyramidal \<a> 10, pyramidal <c+a> 15 | |
 
 **Custom** takes the lattice, the elastic constants (C11 C12 C44, or C11 C12 C13 C33 C44 for
 hexagonal crystals), the shear modulus, the Burgers vector, c/a and the slip families
 (written like `Basal <a>=1, Prismatic <a>=0.7`). The families available are {111}<110> for
-FCC; {110}, {112} and {123}<111> for BCC; basal, prismatic and pyramidal <a>, and pyramidal
+FCC; {110}, {112} and {123}<111> for BCC; basal, prismatic and pyramidal \<a>, and pyramidal
 <c+a>, for HCP.
 
 ```python

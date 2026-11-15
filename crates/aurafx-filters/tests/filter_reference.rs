@@ -77,10 +77,32 @@ fn reference() -> String {
                     p.key,
                     kind(&p.kind).replace('|', "\\|"),
                     value(&p.default),
-                    note.replace('|', "\\|").replace('\n', " ")
+                    no_tags(&note.replace('|', "\\|").replace('\n', " "))
                 );
             }
             out += "\n";
+        }
+    }
+    out
+}
+
+/// A word in angle brackets outside a code span would be taken for an HTML tag and vanish.
+fn no_tags(text: &str) -> String {
+    let mut out = String::new();
+    for (k, part) in text.split('`').enumerate() {
+        if k > 0 {
+            out.push('`');
+        }
+        if k % 2 == 1 {
+            out += part;
+            continue;
+        }
+        let mut chars = part.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '<' && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/') {
+                out.push('\\');
+            }
+            out.push(c);
         }
     }
     out

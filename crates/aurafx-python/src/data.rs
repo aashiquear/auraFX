@@ -158,7 +158,7 @@ impl PyData {
     fn field_data(slf: Py<Self>) -> ArrayMap {
         ArrayMap { owner: slf, which: Which::Field }
     }
-    /// ParaView-style names (`output.PointData.append(array, "name")`).
+    /// The same arrays under capitalized names (`output.PointData.append(array, "name")`).
     #[getter(PointData)]
     fn point_data_pv(slf: Py<Self>) -> ArrayMap {
         ArrayMap { owner: slf, which: Which::Points }

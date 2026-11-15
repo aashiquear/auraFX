@@ -3,7 +3,8 @@
 ```
                  ┌───────────────────────────── aurafx-app (egui) ─────────────────────────────┐
                  │ menus · toolbar · command palette · pipeline · properties · 3D view ·       │
-                 │ charts · spreadsheet · Python console · AI assistant · simulations · log    │
+                 │ charts · spreadsheet · Python console · notebook · AI assistant ·           │
+                 │ simulations · log · CAD environment · touch interfaces                      │
                  └──────┬───────────────┬────────────────┬──────────────────┬─────────────────┘
                         │               │                │                  │
               ┌─────────▼───────┐ ┌─────▼──────┐ ┌───────▼───────┐ ┌────────▼────────┐
@@ -15,8 +16,8 @@
                   │         │                            │
        ┌──────────▼───┐ ┌───▼────────────┐       ┌───────▼────────┐
        │ aurafx-io    │ │ aurafx-filters │       │ aurafx-jobs    │
-       │ readers      │ │ registry +     │       │ local/SSH/Slurm│
-       │              │ │ algorithms     │       │ GPUs, templates│
+       │ readers,     │ │ registry +     │       │ local/SSH,     │
+       │ writers      │ │ algorithms     │       │ schedulers,GPUs│
        └──────┬───────┘ └───┬────────────┘       └────────────────┘
               └──────┬──────┘
                ┌─────▼──────┐
@@ -80,7 +81,7 @@ cross the boundary as NumPy arrays.
 ## Server (`aurafx-server`)
 
 The app can run a `Session` on another machine: `aurafx-server --stdio` over SSH speaks a
-versioned postcard protocol (`aurafx_pipeline::remote`, protocol 11). Reader and filter nodes
+versioned postcard protocol (`aurafx_pipeline::remote`, `PROTOCOL`). Reader and filter nodes
 marked remote execute there; the client receives surfaces, pictures drawn by the server's
 GPU (`aurafx_render::server`), or the data itself when it is small. `--workers N` splits the
 data into pieces over processes or hosts and merges the results (`cluster.rs`, `pieces.rs`).
@@ -88,7 +89,7 @@ data into pieces over processes or hosts and merges the results (`cluster.rs`, `
 ## Jobs (`aurafx-jobs`)
 
 A `JobSpec` describes what to run, where (`Host`: local or SSH target), with which GPUs
-(`CUDA_VISIBLE_DEVICES` / `HIP_VISIBLE_DEVICES`) and scheduler (direct or Slurm). SSH goes
+(`CUDA_VISIBLE_DEVICES` / `HIP_VISIBLE_DEVICES`) and scheduler (direct, Slurm, PBS or LSF). SSH goes
 through the system `ssh`/`scp` so user configuration just works. Logs stream into a ring
 buffer; finished jobs can fetch result files into `~/.cache/aurafx` and ask the app to open
 them.
@@ -104,8 +105,9 @@ sources register in `aurafx-filters` like every other one (`crystal.rs`, `featur
 `mesh_gen.rs`, `geometry_model.rs`). Two pieces live in `aurafx-pipeline` because they need
 the session: `pipeline_json.rs` writes the chain of steps that made a node as JSON (recorded in
 `.dream3d` files by `aurafx-io/dream3d_writer.rs`) and rebuilds pipelines from such files,
-mapping other programs' numbered steps to auraFX filters; `cases.rs` writes solver cases
-(MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity) from a node's data,
+mapping numbered-step pipeline files to auraFX filters; `cases.rs` and `cases_micro.rs` write
+solver cases (MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, JAX-FEM
+polycrystal, DAMASK, an FFT texture file, LAMMPS atoms of a polycrystal) from a node's data,
 which the job templates in `aurafx-jobs/templates.rs` stage into the working directory,
 uploading them to remote hosts. See `docs/design/grains-and-meshing.md`.
 
@@ -116,10 +118,10 @@ parameters with unit-aware expressions, configurations) that is plain serde data
 kernels that evaluate it: an implicit kernel on `aurafx-mesh` and a B-rep kernel with the
 STEP/IGES/3MF/`.sc` formats through the SolidCraft crates carried in `vendor/` (path
 dependencies, always built; its UI is not pulled in). The app's `cad/` module is the
-environment: a mode of the one window with its own ribbon, Model tree and Feature panel,
+environment: a mode of the one window with its own ribbon, model tree and feature panel,
 while other views are stale; applying runs the downstream check in
 `aurafx-pipeline/src/cad_check.rs` (reference collection, geometry diff, default fixers, an
-assistant prompt) before the pipeline re-runs. Design and stages: `docs/design/cad-environment.md`.
+assistant prompt) before the pipeline re-runs. Design: `docs/design/cad-environment.md`.
 
 ## Scale: servers, pieces and the GPU
 
@@ -144,3 +146,11 @@ Python plugins register filters, sources, readers and panels from the embedded i
 (`aurafx-filters/src/rust_plugins.rs`). The app is also a Jupyter kernel
 (`aurafx-app/src/jupyter.rs`, the messaging protocol over ZeroMQ) and has a Notebook panel that
 reads and writes `.ipynb` files.
+
+## Touch interfaces and mobile builds
+
+The same app draws three interfaces, Desktop, Tablet and Phone (`aurafx-app/src/touch.rs`): the
+menus are one function each, shown by the desktop menu bar, the tablet's bar or the phone's
+menu list; floating windows stay inside the screen's safe area; layouts follow the window's
+shape. `aurafx-android` and `aurafx-ios` are the viewer builds (no embedded Python); the
+system's safe-area insets reach the app before every frame.

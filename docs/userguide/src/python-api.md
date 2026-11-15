@@ -89,7 +89,7 @@ Every function of the `aurafx` module (`import aurafx as afx`) and every method 
 - `afx.source(_fn=None, *, label=None, category='Plugins', description=None, params=None, keywords=(), id=None)`: Register a source: a function of keyword parameters returning an afx.Data.
 - `afx.split_view(direction='right')`: Add a 3D view next to the active one: "right" (side by side) or "down" (above/below). The new view becomes active and starts with the same camera and visible objects. Returns its number once it exists (None without the app).
 - `afx.submit(command, host=None, workdir=None, gpu=None, outputs=None, auto_load=False, name=None, env=None, slurm=None, wait=False)`: Run a shell command as a job (locally, on an SSH host, or via Slurm). gpu: None, "any", "nvidia", "amd", or e.g. "nvidia:0,1". Returns the job id.
-- `afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)`: Parameter sweep: one job per value; "{var}" in the command is replaced and each run gets its own folder <workdir>/<var>_<value>. Returns the job ids.
+- `afx.sweep(command, var, values, host=None, workdir=None, gpu=None, outputs=None, auto_load=False)`: Parameter sweep: one job per value; "{var}" in the command is replaced and each run gets its own folder \<workdir>/\<var>_\<value>. Returns the job ids.
 - `afx.time(index=None)`
 - `afx.time_label(on=True)`: Show (or hide) the current time in the 3D views.
 - `afx.times()`
@@ -127,7 +127,7 @@ A dataset: `points`, `point_data`, `cell_data`, `field_data` (NumPy), `n_points`
 
 - `CellData` (attribute)
 - `FieldData` (attribute)
-- `PointData` (attribute): ParaView-style names (`output.PointData.append(array, "name")`).
+- `PointData` (attribute): The same arrays under capitalized names (`output.PointData.append(array, "name")`).
 - `blocks()`: The pieces of a multi-block dataset (copies), or [self] for other data.
 - `bounds` (attribute): (xmin, xmax, ymin, ymax, zmin, zmax)
 - `cell_data` (attribute)
@@ -276,7 +276,7 @@ The parametric document of a CAD Model node. Numbers can be expressions of the d
 - `split(plane='XY', offset=0, keep_positive=True, feature=None)`
 - `state()`
 - `suppress(feature, suppressed=True)`
-- `sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))`: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as '<name> profile' and '<name> path'). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.
+- `sweep(profile, path, twist=0, name=None, op='add', at=(0, 0, 0))`: Sweep the closed outline of one sketch along the open path of another. profile and path are names of kept sketches (sketch_add) or sketches (kept as 'NAME profile' and 'NAME path', NAME being this feature's name). Draw the profile on a plane the path leaves at right angles, where the path starts. twist: degrees turned over the whole path. op: add or cut.
 - `template(name)`: Start from a template: enclosure, flange, knob, threaded rod, vase or bracket.
 - `thread(major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op='add', at=(0, 0, 0))`
 - `torus(major=10, minor=2, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)`

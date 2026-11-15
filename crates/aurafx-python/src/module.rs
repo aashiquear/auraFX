@@ -1498,6 +1498,15 @@ fn conversation(path: Option<String>) {
     app_command(format!("assistant_conversation {}", path.unwrap_or_default()));
 }
 
+/// Start a new workspace (File > New): every object is removed and the state file forgotten;
+/// settings and the window layout stay. Nothing is asked unless `ask=True`, which asks in the
+/// window when the current work is not saved.
+#[pyfunction]
+#[pyo3(signature = (ask=false))]
+fn new(ask: bool) {
+    app_command(if ask { "new_workspace ask".into() } else { "new_workspace".to_string() });
+}
+
 /// Put a saved prompt (by name) in the assistant's box, the selected object filled in.
 #[pyfunction]
 fn assistant_prompt(name: String) {
@@ -1555,7 +1564,7 @@ fn show_panel(name: String) {
 }
 
 /// Open the Simulations panel on a template: "lammps", "moose", "moose_polycrystal",
-/// "spparks", "pinnacle", "openfoam", "python", "shell" (or its label).
+/// "spparks", "pinnacle", "jaxfem", "openfoam", "python", "shell" (or its label).
 #[pyfunction]
 fn simulation_template(name: String) {
     app_command(format!("sim_template {name}"));
@@ -2525,6 +2534,16 @@ class _CadSketch:
     def path(self, points):
         """Lines joined end to end and left open: the path of a sweep."""
         self.items.append({"path": [list(p) for p in points]}); return self
+    def project(self, face=None, edge=None):
+        """Take edges of the part as it is into the sketch, laid flat on the sketch plane: every edge
+        around a face (face="Plate z+"), the edge between two faces (edge=("Plate z+", "Bore side")),
+        or all of them (neither). A straight edge becomes a line, a round one seen face on a circle
+        or an arc, any other a fixed outline through its points; edges seen end on are left out.
+        They are a copy: they stay where they are when the part changes later."""
+        d = {}
+        if face is not None: d["face"] = face
+        if edge is not None: d["edge"] = list(edge)
+        self.items.append({"project": d}); return self
     # drawing one by one: each call returns the thing drawn, for the constraints
     def point(self, x, y, fixed=False):
         """A point; fixed=True pins it where it is."""
@@ -2965,9 +2984,28 @@ class _CadApi:
     def sketch_on_face(self):
         """Open the face picker to start a sketch on a flat face of the part (in the window)."""
         _cad_app_command("cad_pick sketch")
-    def plane_form(self):
-        """Open the New reference plane form in the window."""
+    def plane_form(self, **values):
+        """Open the New reference plane form in the window; the 3D view shows the plane it would make,
+        filled. values fill the form in: method="plane"|"face"|"points", start="XY" (or a reference
+        plane), face="Plate z+", offset=20, angle=30, about="x"|"y", name="Tilted", points=[three points]."""
         _cad_app_command("cad_plane_form")
+        if values: _cad_app_command("cad_ui plane_form " + _json.dumps(values))
+    def preview_plane(self, plane="XY"):
+        """Show a plane filled in the 3D view of the window, as pointing at its button does: XY, XZ,
+        YZ or a reference plane's name; None takes it away."""
+        _cad_app_command("cad_ui plane_preview " + _json.dumps(plane))
+    def sketch_show_part(self, on=True):
+        """Show (or hide) the part underneath the open sketch's grid: the Sketch tab's Show part toggle."""
+        _cad_app_command("cad_ui sketch_part " + _json.dumps(bool(on)))
+    def sketch_tool(self, tool="select"):
+        """Choose the tool of the open sketch canvas: select, line, rectangle, circle, arc, spline,
+        point, or project (From the part: a click on an edge of the part takes it into the sketch)."""
+        _cad_app_command("cad_ui sketch_tool " + _json.dumps(tool))
+    def sketch_take_edge(self, x, y):
+        """Take the edge of the part nearest to (x, y) on the sketch plane into the open sketch, as a
+        click with the From the part tool does: a line, a circle, an arc or an outline. In the window
+        only; a sketch's project() does it without the window."""
+        _cad_app_command("cad_ui sketch_take " + _json.dumps([x, y]))
     def sketch_cursor(self, x, y, line_from=None):
         """For pictures: where the sketch canvas takes the cursor to be (sketch units) when the mouse is
         elsewhere, optionally drawing a line from point line_from, so snaps and guides show."""
@@ -3151,8 +3189,10 @@ fn batch_scheduler(sl: &std::collections::HashMap<String, String>, tasks: u32) -
 
 /// Write a simulation case from a node's data into `folder`: solver "moose" (a grain mesh:
 /// mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt,
-/// polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts) or "pinnacle"
-/// (a grain mesh: mesh.e, orientations_points.csv, case.i). Options: material, axis ('x', 'y',
+/// polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts), "pinnacle"
+/// (a grain mesh: mesh.e, orientations_points.csv, case.i) or "jaxfem" (a grain mesh of linear
+/// hexahedra or tetrahedra: nodes.txt, elements.txt, element_grains.txt, grain_axes.txt and
+/// run_jaxfem.py, a script for the JAX-FEM library). Options: material, axis ('x', 'y',
 /// 'z'), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature,
 /// dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.
 #[pyfunction]
@@ -3421,6 +3461,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gpu_benchmark, m)?)?;
     m.add_function(wrap_pyfunction!(assistant_prompt, m)?)?;
     m.add_function(wrap_pyfunction!(conversation, m)?)?;
+    m.add_function(wrap_pyfunction!(new, m)?)?;
     m.add_function(wrap_pyfunction!(annotate, m)?)?;
     m.add_function(wrap_pyfunction!(key_camera, m)?)?;
     m.add_function(wrap_pyfunction!(import_colormaps, m)?)?;

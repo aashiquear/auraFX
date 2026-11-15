@@ -24,6 +24,8 @@ pub enum Tool {
     Arc,
     Spline,
     Point,
+    /// Take an edge of the part into the sketch.
+    Project,
 }
 
 /// A sketch being edited.
@@ -62,6 +64,8 @@ pub struct SketchEdit {
     undo: Vec<Sketch>,
     redo: Vec<Sketch>,
     recorded: Option<Sketch>,
+    /// The part as the canvas shows it underneath the sketch, and its edges that can be taken.
+    pub(super) under: Option<super::sketch_under::Under>,
 }
 
 impl SketchEdit {
@@ -145,6 +149,7 @@ impl SketchEdit {
             undo: Vec::new(),
             redo: Vec::new(),
             recorded: None,
+            under: None,
         }
     }
 }
@@ -537,6 +542,12 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
     let dark = ui.visuals().dark_mode;
     painter.rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
     let mut changed = false;
+    // The part underneath, and its edges while the tool that takes them is chosen.
+    let show_part = state.cad.show_part;
+    let taking = state.cad.sketch.as_ref().is_some_and(|e| e.tool == Tool::Project);
+    if show_part || taking {
+        super::sketch_under::refresh(state, taking);
+    }
     {
         let Some(e) = state.cad.sketch.as_mut() else { return };
         if !ui.input(|i| i.pointer.any_down()) {
@@ -544,8 +555,9 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
         }
         if !e.fitted {
             e.fitted = true;
-            let mut lo = DVec2::splat(-40.0);
-            let mut hi = DVec2::splat(40.0);
+            // Room to draw in about the origin, or the part underneath when there is one.
+            let part = e.under.as_ref().filter(|_| show_part).map(|u| (u.lo - 10.0, u.hi + 10.0));
+            let (mut lo, mut hi) = part.unwrap_or((DVec2::splat(-40.0), DVec2::splat(40.0)));
             for p in &e.sketch.points {
                 lo = lo.min(p.pos() - 10.0);
                 hi = hi.max(p.pos() + 10.0);
@@ -571,6 +583,16 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
     let (center, scale) = (e.center, e.scale);
     let to_s = |p: DVec2| Pos2::new(rect.center().x + ((p.x - center.x) as f32) * scale, rect.center().y - ((p.y - center.y) as f32) * scale);
     let to_w = |s: Pos2| DVec2::new(center.x + ((s.x - rect.center().x) / scale) as f64, center.y - ((s.y - rect.center().y) as f32 / scale) as f64);
+    // The part underneath, dimmed: the grid and the sketch are drawn over it.
+    if let Some(u) = e.under.as_ref().filter(|_| show_part) {
+        u.draw(&painter, &to_s, ui.visuals().extreme_bg_color, dark);
+    }
+    // The edges that can be taken, under the sketch (the tool marks the one under the cursor).
+    if e.tool == Tool::Project {
+        for c in e.under.as_ref().map(|u| u.candidates()).unwrap_or(&[]) {
+            painter.add(egui::Shape::line(c.flat.iter().map(|p| to_s(*p)).collect(), Stroke::new(1.6, crate::theme::INFO)));
+        }
+    }
     // Grid and axes.
     let step = if scale > 4.0 {
         5.0
@@ -688,7 +710,14 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
     painter.text(
         rect.left_bottom() + egui::vec2(10.0, -8.0),
         egui::Align2::LEFT_BOTTOM,
-        format!("Sketch on {} · click draws or selects · right or middle drag pans · wheel zooms · Esc ends a chain · Del deletes", e.sketch.plane_label()),
+        if e.tool == Tool::Project {
+            format!(
+                "Sketch on {} · click an edge of the part to take it into the sketch: a straight edge as a line, a round one as a circle or an arc · Esc ends",
+                e.sketch.plane_label()
+            )
+        } else {
+            format!("Sketch on {} · click draws or selects · right or middle drag pans · wheel zooms · Esc ends a chain · Del deletes", e.sketch.plane_label())
+        },
         egui::FontId::proportional(11.0),
         ui.visuals().weak_text_color(),
     );
@@ -725,6 +754,34 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
         best.map(|(i, _)| i)
     };
     let tool = e.tool;
+    // The edges of the part that can be taken, and the one under the cursor.
+    let mut take_edge: Option<usize> = None;
+    if tool == Tool::Project {
+        let cands = e.under.as_ref().map(|u| u.candidates()).unwrap_or(&[]);
+        let line = |c: &super::sketch_under::Candidate, st: Stroke| {
+            painter.add(egui::Shape::line(c.flat.iter().map(|p| to_s(*p)).collect(), st));
+        };
+        take_edge = hover.filter(|_| hover_dim.is_none()).and_then(|h| super::sketch_under::nearest(cands, to_w(h), 9.0 / scale as f64));
+        if let (Some(i), Some(h)) = (take_edge, hover) {
+            line(&cands[i], Stroke::new(3.2, crate::theme::ACCENT));
+            let what = match &cands[i].fitted {
+                aurafx_cad::project::Fitted::Circle { radius, .. } => format!("circle  r {}", num_text(*radius)),
+                aurafx_cad::project::Fitted::Arc { center, start, .. } => format!("arc  r {}", num_text(start.distance(*center))),
+                aurafx_cad::project::Fitted::Line { a, b } => format!("line  {}", num_text(a.distance(*b))),
+                other => other.word().to_string(),
+            };
+            painter.text(h + egui::vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, what, egui::FontId::monospace(12.0), crate::theme::ACCENT);
+        }
+        if cands.is_empty() {
+            painter.text(
+                rect.center_top() + egui::vec2(0.0, 30.0),
+                egui::Align2::CENTER_TOP,
+                "The part has no edge to take on this plane yet: build something first, or draw with the other tools.",
+                egui::FontId::proportional(13.0),
+                ui.visuals().weak_text_color(),
+            );
+        }
+    }
     let shift = ui.input(|i| i.modifiers.shift);
     let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
     let del = ui.input(|i| i.key_pressed(egui::Key::Delete)) && !ui.ctx().egui_wants_keyboard_input();
@@ -911,6 +968,17 @@ pub fn canvas_ui(state: &mut State, ui: &mut egui::Ui) {
                 changed = true;
             }
         }
+        Some(Tool::Project) => {
+            if let (true, Some(i)) = (resp.clicked(), take_edge) {
+                state.status = match super::sketch_under::take(e, i) {
+                    Some(what) => {
+                        changed = true;
+                        format!("Sketch: took {what} from the part")
+                    }
+                    None => "Sketch: that edge is in the sketch already".to_string(),
+                };
+            }
+        }
         Some(Tool::Line) => {
             if resp.secondary_clicked() {
                 e.chain = None;
@@ -1048,6 +1116,11 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
         (Tool::Arc, "Arc", "Click the center, the start, then the end (counter-clockwise)  (A)"),
         (Tool::Spline, "Spline", "Click control points; double-click or Enter finishes"),
         (Tool::Point, "Point", "Place a point  (P)"),
+        (
+            Tool::Project,
+            "From the part",
+            "Take an edge of the part into the sketch: click it. A straight edge becomes a line, a round one a circle (a whole one) or an arc (a part of one), any other an outline through its points",
+        ),
     ] {
         if ui.selectable_label(e.tool == t, crate::icons::with(l)).on_hover_text(tip).clicked() {
             e.tool = t;
@@ -1056,6 +1129,9 @@ pub fn tools_ui(state: &mut State, ui: &mut egui::Ui) {
         }
     }
     ui.separator();
+    ui.toggle_value(&mut state.cad.show_part, crate::icons::with("Show part")).on_hover_text(
+        "Show the part underneath the sketch grid, dimmed, to see where you draw (on unless you turn it off; it stays as you leave it until the app closes)",
+    );
     ui.toggle_value(&mut e.snaps.on, crate::icons::with("Snap"))
         .on_hover_text("Snap to points, centres, midpoints, quadrants, intersections, curves, guide lines and the grid (choose which in the properties; hold Ctrl to place freely)");
     ui.separator();

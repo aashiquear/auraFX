@@ -2280,7 +2280,7 @@ Python: `orientation_colors` · also found by: ipf, inverse pole figure, ebsd, o
 
 ### Orientation Gradient
 
-Give every grain an orientation that changes smoothly inside it, as in additively manufactured material: a steady turn along a direction, a smooth random spread and, optionally, sub-grain cells with low-angle boundaries.
+Give every grain an orientation that changes smoothly inside it, as in additively manufactured material: a steady turn along a direction (the build direction), a steady turn across the grain (in plane), a smooth random spread and, optionally, sub-grain cells with low-angle boundaries.
 
 Python: `orientation_gradient` · also found by: intragranular misorientation, lattice rotation, orientation spread, srod, grod, kam, sub-grain, cells, low-angle boundaries, additive manufacturing, synthetic, gradient
 
@@ -2288,7 +2288,8 @@ Python: `orientation_gradient` · also found by: intragranular misorientation, l
 |---|---|---|---|---|
 | Gradient (degrees per unit length) | `rate` | number 0 to 90 | 0.05 | How fast each grain turns along the direction. Measured additively manufactured nickel alloys turn by about 0.02 to 0.1 degrees per micrometre. 0: no steady turn. |
 | Direction | `direction` | x, y, z | (0, 0, 1) | The turn grows along this direction (the build direction, z by default). |
-| Spread between grains (log sigma) | `rate_spread` | number 0 to 3 | 0.5 | Each grain gets its own rate, lognormal about the gradient. 0: every grain alike. |
+| In-plane gradient (degrees per unit length) | `in_plane_rate` | number 0 to 90 | 0 | How fast each grain turns across itself, perpendicular to the direction: along a direction of its own in that plane, about an axis of its own (or the fixed axis), from its centroid. A turn by height alone leaves the orientation uniform within a layer; measured additively manufactured grains are not. 0: no turn across the grain. |
+| Spread between grains (log sigma) | `rate_spread` | number 0 to 3 | 0.5 | Each grain gets its own rates, lognormal about the two gradients. 0: every grain alike. |
 | Rotation axis | `axis` | Random / Perpendicular to the direction / Fixed | `Random` | The axis each grain turns about: its own random one, a random one perpendicular to the direction, or the fixed axis below for all grains. |
 | Unturned at | `reference` | Centroid / Lowest point | `Centroid` | Where a grain keeps the orientation it had: its centroid, or its lowest point along the direction (a grain that grew from the layer below). |
 | Smooth spread (degrees) | `amplitude` | number 0 to 45 | 0.5 | Root-mean-square angle of a smooth random turn added inside each grain. 0: none. |
@@ -2806,6 +2807,7 @@ Python: `columnar_grains` · also found by: additive manufacturing, am, columnar
 | Crystal structure | `structure` | Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `Cubic m-3m` |  |
 | Realism | `realism` | number 0 to 1 | 0 | 0: the plain columns. Towards 1 the build looks more like a real one: columns whose <100> lies near Z outgrow their neighbours, so grains widen and thin out with height; some columns stop at each layer and new grains start there; the columns lean one way and the other in alternate layers; fine grains appear at the layer boundaries; the boundaries are wavy and relaxed. The settings below override what Realism chooses. |
 | Orientation gradient (degrees per unit length) | `gradient` | number 0 to 90 | 0 | Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain. |
+| In-plane orientation gradient (degrees per unit length) | `in_plane_gradient` | number 0 to 90 | 0 | Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain. |
 | Layer thickness | `layer` | number 0 to ∞ | 40 | *advanced* Height of a build layer, for the layer effects of Realism (0: no layers). |
 | Competitive growth | `competitive` | number 0 to 1 | NaN | *advanced* How strongly columns with <100> near Z outgrow the others (1: an overgrown column is never replaced). Empty: Realism. |
 | Columns continuing through a layer (fraction) | `epitaxial` | number 0 to 1 | NaN | *advanced* The others end at the layer boundary and a new grain starts in their place. Empty: 1 - 0.3 x Realism. |
@@ -2994,6 +2996,7 @@ Python: `pack_grains` · also found by: pack primary phases, synthetic microstru
 | Match the goal sizes and shapes | `calibrate` | on/off | on | Space-filling grains measure more irregular than the shapes drawn: repack with corrected goals until the measured statistics match (slower). |
 | Placement moves per grain | `moves` | whole number 0 to 100000 | 20 | *advanced* |
 | Orientation gradient (degrees per unit length) | `gradient` | number 0 to 90 | 0 | Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain. |
+| In-plane orientation gradient (degrees per unit length) | `in_plane_gradient` | number 0 to 90 | 0 | Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain. |
 | Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Plane
@@ -3120,6 +3123,7 @@ Python: `voronoi_grains` · also found by: voronoi, laguerre, tessellation, synt
 | Crystal structure | `structure` | Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `Cubic m-3m` |  |
 | Realism | `realism` | number 0 to 1 | 0 | 0: the plain tessellation. Towards 1 the grains look more as if they had grown: sizes spread (when Size spread is 0), the smallest grains removed, boundaries a little wavy and relaxed so that junctions open to equal angles. The settings below override what Realism chooses; Grain Realism is the same as a filter. |
 | Orientation gradient (degrees per unit length) | `gradient` | number 0 to 90 | 0 | Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain. |
+| In-plane orientation gradient (degrees per unit length) | `in_plane_gradient` | number 0 to 90 | 0 | Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain. |
 | Relaxation sweeps | `relax` | whole number -1 to 100 | -1 | *advanced* -1: 5 x Realism. |
 | Boundary roughness (fraction of the grain size) | `roughness` | number 0 to 0.5 | NaN | *advanced* Empty: 0.06 x Realism. |
 | Remove smallest grains (fraction) | `coarsen` | number 0 to 0.95 | NaN | *advanced* Empty: 0.1 x Realism. |

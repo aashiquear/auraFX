@@ -10,11 +10,13 @@ mod feature_manager;
 mod guide;
 mod pick;
 mod planes;
+mod preview;
 mod property_manager;
 mod ribbon;
 mod sketch;
 mod sketch_dims;
 mod sketch_snap;
+mod sketch_under;
 mod timeline;
 
 use crate::app::{LayoutAction, Pane, State};
@@ -26,8 +28,14 @@ use serde_json::{json, Value};
 
 pub use conflicts::hold_banner;
 pub use feature_manager::feature_manager_ui;
-pub use pick::{click as pick_click, draw_overlay as pick_overlay, open as open_picker, picking, PickKind};
-pub use planes::draw_overlay as planes_overlay;
+pub use pick::{click as pick_click, draw_overlay as pick_overlay, hover as pick_hover, open as open_picker, picking, PickKind};
+
+/// The planes over a 3D view: the reference planes of the part as dashed squares, and, filled,
+/// the plane being chosen or made.
+pub fn planes_overlay(painter: &egui::Painter, cam: &aurafx_render::Camera, rect: egui::Rect, state: &State) {
+    planes::draw_overlay(painter, cam, rect, state);
+    preview::draw_overlay(painter, cam, rect, state);
+}
 pub use sketch::{begin_on_frame as sketch_on_frame, Tool as SketchTool};
 
 /// Open the New reference plane form.
@@ -44,6 +52,121 @@ pub use sketch::{
     sketching,
 };
 pub use timeline::timeline_ui;
+
+/// What a script asks of the CAD window beyond the document's operations (`cad_ui <what> <json>`):
+/// - `plane_form {"method": "plane"|"face"|"points", "start": "XY", "face": "Plate z+", "offset": 20,
+///   "angle": 30, "about": "x", "name": "Tilted", "points": [[..], [..], [..]]}` opens the New
+///   reference plane form filled in so;
+/// - `plane_preview "XZ"` shows a principal or a reference plane filled in the 3D view (as the
+///   pointer on its button does) until `plane_preview null`;
+/// - `sketch_part true|false` shows or hides the part underneath the sketch;
+/// - `sketch_tool "project"` chooses a sketch tool (select, line, rectangle, circle, arc, spline, point, project);
+/// - `sketch_take [x, y]` takes the edge of the part nearest to that point of the sketch plane.
+pub fn ui_command(state: &mut State, arg: &str) {
+    if !editing(state) {
+        return;
+    }
+    let (what, rest) = arg.trim().split_once(' ').unwrap_or((arg.trim(), "null"));
+    let v: Value = serde_json::from_str(rest).unwrap_or(Value::Null);
+    match what {
+        "plane_form" => {
+            let mut f = state.cad.plane_form.take().unwrap_or_default();
+            let text = |k: &str| v.get(k).map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string()));
+            match v.get("method").and_then(|m| m.as_str()) {
+                Some("face") => f.method = 1,
+                Some("points") => f.method = 2,
+                Some(_) => f.method = 0,
+                None => {}
+            }
+            if let Some(t) = text("start") {
+                f.from = match t.to_uppercase().as_str() {
+                    "XY" | "TOP" => "XY".into(),
+                    "XZ" | "FRONT" => "XZ".into(),
+                    "YZ" | "RIGHT" => "YZ".into(),
+                    _ => t,
+                };
+            }
+            if let Some(name) = v.get("face").and_then(|x| x.as_str()) {
+                let flat: Vec<String> = state
+                    .session
+                    .lock()
+                    .cad_edit
+                    .as_ref()
+                    .and_then(|e| e.summary.as_ref())
+                    .map(|s| s.faces.iter().filter(|f| f.kind == "plane").map(|f| f.name.clone()).collect())
+                    .unwrap_or_default();
+                match flat.iter().position(|n| n == name) {
+                    Some(i) => (f.method, f.face) = (1, i),
+                    None => state.toast(format!("The part has no flat face '{name}'"), true),
+                }
+            }
+            for (k, slot) in [("offset", &mut f.offset), ("angle", &mut f.angle), ("name", &mut f.name)] {
+                if let Some(t) = text(k) {
+                    *slot = t;
+                }
+            }
+            if let Some(a) = v.get("about").and_then(|a| a.as_str()) {
+                f.about_x = !a.eq_ignore_ascii_case("y");
+            }
+            if let Some(pts) = v.get("points").and_then(|p| p.as_array()) {
+                f.method = 2;
+                for (k, p) in pts.iter().take(3).enumerate() {
+                    for (c, x) in p.as_array().into_iter().flatten().take(3).enumerate() {
+                        f.points[k][c] = x.to_string();
+                    }
+                }
+            }
+            state.cad.plane_form = Some(f);
+        }
+        "plane_preview" => {
+            state.cad.plane_demo = v.as_str().and_then(|name| {
+                let named = state.session.lock().cad_edit.as_ref().and_then(|e| e.active().planes.iter().find(|p| p.name.eq_ignore_ascii_case(name)).cloned());
+                match (named, name.to_uppercase().as_str()) {
+                    (Some(p), _) => Some(preview::over_part(state, p.frame, p.name, false)),
+                    (None, "XY" | "TOP") => Some(preview::principal(state, aurafx_cad::SketchPlane::XY, 0.0, "Top (XY)")),
+                    (None, "XZ" | "FRONT") => Some(preview::principal(state, aurafx_cad::SketchPlane::XZ, 0.0, "Front (XZ)")),
+                    (None, "YZ" | "RIGHT") => Some(preview::principal(state, aurafx_cad::SketchPlane::YZ, 0.0, "Right (YZ)")),
+                    _ => None,
+                }
+            });
+        }
+        "sketch_part" => state.cad.show_part = v.as_bool().unwrap_or(true),
+        "sketch_tool" => {
+            let tool = match v.as_str().unwrap_or("").to_lowercase().as_str() {
+                "select" => Some(SketchTool::Select),
+                "line" => Some(SketchTool::Line),
+                "rectangle" | "rect" => Some(SketchTool::Rect),
+                "circle" => Some(SketchTool::Circle),
+                "arc" => Some(SketchTool::Arc),
+                "spline" => Some(SketchTool::Spline),
+                "point" => Some(SketchTool::Point),
+                "project" | "from the part" => Some(SketchTool::Project),
+                _ => None,
+            };
+            if let (Some(e), Some(t)) = (state.cad.sketch.as_mut(), tool) {
+                e.select_tool(t);
+            }
+        }
+        "sketch_take" => {
+            let at = v.as_array().filter(|a| a.len() == 2).map(|a| glam::DVec2::new(a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0)));
+            if let (Some(at), true) = (at, state.cad.sketch.is_some()) {
+                sketch_under::refresh(state, true);
+                let took = state.cad.sketch.as_mut().and_then(|e| {
+                    let i = sketch_under::nearest(e.under.as_ref()?.candidates(), at, f64::INFINITY)?;
+                    sketch_under::take(e, i)
+                });
+                match took {
+                    Some(what) => {
+                        state.status = format!("Sketch: took {what} from the part");
+                        sketch::solve(state);
+                    }
+                    None => state.toast("No edge of the part to take there (or it is in the sketch already)".to_string(), true),
+                }
+            }
+        }
+        other => state.toast(format!("Unknown CAD window command '{other}'"), true),
+    }
+}
 
 /// The ribbon's tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -127,6 +250,16 @@ pub struct CadUi {
     pub measure: (String, String, Option<String>),
     /// The face the 3D view's right-click menu was opened on.
     pub menu_face: Option<aurafx_pipeline::CadFace>,
+    /// The plane a button or a row under the pointer would take, and the frame it asked in: the
+    /// 3D views show it filled.
+    pub plane_hover: Option<(u64, preview::PlanePreview)>,
+    /// A plane shown the same way until it is taken away (for scripted pictures).
+    pub plane_demo: Option<preview::PlanePreview>,
+    /// Whether the sketch canvas shows the part underneath its grid (the Sketch tab's toggle;
+    /// kept for the session).
+    pub show_part: bool,
+    /// The triangles of the part as last shown, kept until the part is built again.
+    surface: parking_lot::Mutex<Option<(std::sync::Arc<aurafx_data::DataSet>, std::sync::Arc<aurafx_cad::project::SurfaceTriangles>)>>,
 }
 
 impl Default for CadUi {
@@ -157,6 +290,10 @@ impl Default for CadUi {
             last_hint: String::new(),
             measure: Default::default(),
             menu_face: None,
+            plane_hover: None,
+            plane_demo: None,
+            show_part: true,
+            surface: Default::default(),
         }
     }
 }

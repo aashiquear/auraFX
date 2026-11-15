@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e758388e.js";
+            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -303,10 +303,15 @@ settings are in Properties afterwards.</li>
 source</strong> turns the window back on. Sources added from Python (<code>afx.sphere(radius=2)</code>) never ask.</p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Columnar Mesh, and the button to change them first"><span class="img-wrapper"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Columnar Mesh, and the button to change them first"></span></label></p>
 <h2 id="saving-your-work"><a class="header" href="#saving-your-work">Saving your work</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/file_new.png" alt="File › New asking about work that is not saved"><span class="img-wrapper"><img src="images/file_new.png" alt="File › New asking about work that is not saved"></span></label></p>
 <ul>
 <li><strong>File › Save State</strong> (Ctrl+S) writes an <code>.afx</code> file holding the pipeline, every parameter,
 the display settings, the camera and any keyframes. <strong>File › Open</strong> reopens it, including
 objects that live on a remote server.</li>
+<li><strong>File › New</strong> clears the workspace for a new piece of work: every object, the charts and
+the name of the state file (settings and the window layout stay). When the current work
+is not saved it asks first: <strong>Save…</strong> saves the state and then clears, <strong>Do not save</strong>
+clears at once, <strong>Cancel</strong> goes back. <code>afx.new()</code> does it from a script without asking.</li>
 <li>On the next start, <strong>Restore last session</strong> in the empty view (or in the File menu) brings
 back the last state. The state is also saved every half minute while you work, so little is
 lost if the computer or the program stops.</li>

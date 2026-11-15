@@ -89,6 +89,15 @@ pub struct Pick {
     pub mate: (usize, bool),
     /// The items in the order they were chosen (a mate keeps the last two).
     pub order: Vec<usize>,
+    /// The plane of each item that is a flat face, as large as the face: shown filled in the 3D
+    /// view when the face is under the pointer (light) or chosen (strong).
+    pub planes: Vec<Option<super::preview::PlanePreview>>,
+    /// The item under the pointer in the 3D view, and where the pointer was when it was found.
+    hover: Option<usize>,
+    hover_pos: Option<egui::Pos2>,
+    hover_frame: u64,
+    /// The row of the list under the pointer, and the frame it was seen in.
+    list_hover: Option<(u64, usize)>,
 }
 
 /// The kinds of mate two picked faces can make.
@@ -112,6 +121,7 @@ pub fn open(state: &mut State, kind: PickKind) {
     let bottom = state.session.lock().cad_edit.as_ref().and_then(|e| e.summary.as_ref()).map(|s| s.bounds.0[2]).unwrap_or(0.0);
     let mut dirs: Vec<[f64; 3]> = Vec::new();
     let mut lines: Vec<Vec<[f64; 3]>> = Vec::new();
+    let mut planes: Vec<Option<super::preview::PlanePreview>> = Vec::new();
     let items: Result<Vec<(String, [f64; 3], String)>, String> = match kind {
         PickKind::Fillet | PickKind::Chamfer => aurafx_cad::kernel::brep::list_edges(&doc)
             .map(|v| {
@@ -133,12 +143,20 @@ pub fn open(state: &mut State, kind: PickKind) {
                     let flat_only = kind.flat_only();
                     // Flat by its triangles: the side of an extruded line is flat too.
                     let shape = |name: &str| aurafx_cad::face_geometry(&ev, name);
+                    let surface = aurafx_cad::project::surface_triangles(&ev.surface);
                     ev.faces()
                         .filter(|(_, f)| !flat_only || f.kind == aurafx_cad::FaceKind::Plane || shape(&f.name).is_some_and(|g| g.flat))
                         .filter_map(|(_, f)| {
                             ev.face_pick(&f.name).map(|p| {
                                 let g = shape(&f.name);
-                                dirs.push(g.filter(|g| g.flat).map(|g| g.dir).unwrap_or(f.direction));
+                                let dir = g.filter(|g| g.flat).map(|g| g.dir).unwrap_or(f.direction);
+                                dirs.push(dir);
+                                // A flat face shows as its plane, as large as the face.
+                                let flat = f.kind == aurafx_cad::FaceKind::Plane || g.is_some_and(|g| g.flat);
+                                planes.push(flat.then(|| aurafx_cad::PlaneFrame::new(p, dir, None)).flatten().and_then(|frame| {
+                                    let (lo, hi) = super::preview::extent_of_face(surface.as_ref()?, &f.name, &frame)?;
+                                    Some(super::preview::PlanePreview { frame, lo, hi, strong: false, label: f.name.clone() })
+                                }));
                                 let what = match (kind, g) {
                                     (PickKind::Mate, Some(g)) if g.flat => "flat, ",
                                     (PickKind::Mate, Some(g)) if g.round => "round, ",
@@ -163,6 +181,7 @@ pub fn open(state: &mut State, kind: PickKind) {
             };
             dirs.resize(n, [0.0, 0.0, 1.0]);
             lines.resize(n, Vec::new());
+            planes.resize(n, None);
             state.cad.pick = Some(Pick {
                 kind,
                 items,
@@ -174,6 +193,11 @@ pub fn open(state: &mut State, kind: PickKind) {
                 bottom,
                 mate: (0, false),
                 order: Vec::new(),
+                planes,
+                hover: None,
+                hover_pos: None,
+                hover_frame: 0,
+                list_hover: None,
             });
         }
         Ok(_) => state.toast("Nothing to pick".to_string(), true),
@@ -195,7 +219,11 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
         PickKind::Mate => "Mate: choose one face on each of two parts, then the kind",
     };
     ui.label(RichText::new(title).strong());
-    ui.label(RichText::new("Click the part in the 3D view to choose (click again to un-choose), or tick the list.").weak().small());
+    ui.label(
+        RichText::new("Click the part in the 3D view to choose (click again to un-choose), or tick the list. A flat face under the pointer shows as its plane, filled; the chosen one stays filled.")
+            .weak()
+            .small(),
+    );
     match p.kind {
         PickKind::MirrorFace | PickKind::SketchFace | PickKind::RepairFace(_) => {}
         PickKind::Mate => {
@@ -264,9 +292,10 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
         }
     }
     let single = p.kind.single();
+    let frame_nr = ui.ctx().cumulative_frame_nr();
     egui::ScrollArea::vertical().max_height(ui.available_height() - 60.0).show(ui, |ui| {
         for i in 0..p.items.len() {
-            ui.horizontal(|ui| {
+            let row = ui.horizontal(|ui| {
                 let label = p.items[i].0.clone();
                 if single {
                     if ui.radio(p.chosen[i], &label).clicked() {
@@ -286,6 +315,11 @@ pub fn ui(state: &mut State, ui: &mut egui::Ui) {
                 }
                 ui.label(RichText::new(&p.items[i].2).weak().small());
             });
+            // The row under the pointer shows in the 3D view (a flat face as its plane).
+            if row.response.contains_pointer() {
+                p.list_hover = Some((frame_nr, i));
+                ui.ctx().request_repaint();
+            }
         }
     });
     let n = p.chosen.iter().filter(|c| **c).count();
@@ -429,6 +463,60 @@ pub fn picking(state: &State) -> bool {
     state.cad.pick.is_some()
 }
 
+/// The item of the picker at a point of the part's surface on the face `face`: that face, or, for
+/// an edge picker, the edge of that face nearest to the point.
+fn item_at(p: &Pick, face: &str, world: [f64; 3]) -> Option<usize> {
+    if p.kind.faces() {
+        return p.items.iter().position(|(l, _, _)| l == face);
+    }
+    // Of the edges that border the face (their label lists the faces on either side), the one
+    // the point is nearest to.
+    let mut best: Option<(f64, usize)> = None;
+    for (i, (label, mid, _)) in p.items.iter().enumerate() {
+        if !label.split(" × ").any(|f| f == face) {
+            continue;
+        }
+        let line = &p.lines[i];
+        let d = if line.len() >= 2 {
+            line.windows(2).map(|w| dist2_segment(world, w[0], w[1])).fold(f64::INFINITY, f64::min)
+        } else {
+            (0..3).map(|k| (world[k] - mid[k]).powi(2)).sum()
+        };
+        if best.is_none_or(|(b, _)| d < b) {
+            best = Some((d, i));
+        }
+    }
+    best.map(|(_, i)| i)
+}
+
+/// While a picker is open: find what is under the pointer in a 3D view (looked up again only
+/// when the pointer moved), so the overlay can show it before it is clicked.
+pub fn hover(state: &mut State, ctx: &egui::Context, rect: egui::Rect, pos: Option<egui::Pos2>) {
+    // A view the pointer is not over says nothing: another view may have it.
+    let (Some(p), Some(pos)) = (state.cad.pick.as_mut(), pos) else { return };
+    p.hover_frame = ctx.cumulative_frame_nr();
+    if p.hover_pos == Some(pos) {
+        return;
+    }
+    let p = &*p;
+    let found = (|| -> Option<usize> {
+        let (node, ds) = {
+            let s = state.session.lock();
+            let node = s.cad_editing()?;
+            (node, s.nodes.get(&node)?.output.clone()?)
+        };
+        let ray = crate::pick::screen_ray(&state.viewport.camera, rect, pos);
+        let meshes: Vec<_> = state.viewport.meshes_for_pick().into_iter().filter(|(id, _)| *id == node).collect();
+        let hit = crate::pick::raycast(&ray, &meshes, 0.0)?;
+        let face = face_at(&ds, hit.world.to_array())?;
+        item_at(p, &face, hit.world.to_array())
+    })();
+    if let Some(p) = state.cad.pick.as_mut() {
+        p.hover = found;
+        p.hover_pos = Some(pos);
+    }
+}
+
 /// A click in the 3D view on the CAD part at `world`: tick the face under it, or, for an edge
 /// picker, the edge of that face nearest to the click. Clicking a ticked item unticks it.
 pub fn click(state: &mut State, node: aurafx_pipeline::NodeId, world: [f64; 3]) {
@@ -438,28 +526,7 @@ pub fn click(state: &mut State, node: aurafx_pipeline::NodeId, world: [f64; 3]) 
         return;
     };
     let Some(p) = state.cad.pick.as_mut() else { return };
-    let hit = if p.kind.faces() {
-        p.items.iter().position(|(l, _, _)| *l == face)
-    } else {
-        // Of the edges that border the clicked face (their label lists the faces on either side),
-        // the one the click is nearest to.
-        let mut best: Option<(f64, usize)> = None;
-        for (i, (label, mid, _)) in p.items.iter().enumerate() {
-            if !label.split(" × ").any(|f| f == face) {
-                continue;
-            }
-            let line = &p.lines[i];
-            let d = if line.len() >= 2 {
-                line.windows(2).map(|w| dist2_segment(world, w[0], w[1])).fold(f64::INFINITY, f64::min)
-            } else {
-                (0..3).map(|k| (world[k] - mid[k]).powi(2)).sum()
-            };
-            if best.is_none_or(|(b, _)| d < b) {
-                best = Some((d, i));
-            }
-        }
-        best.map(|(_, i)| i)
-    };
+    let hit = item_at(p, &face, world);
     match hit {
         Some(i) if p.kind.single() => {
             p.chosen.iter_mut().for_each(|c| *c = false);
@@ -500,21 +567,40 @@ pub fn choose(state: &mut State, label: &str) {
     }
 }
 
-/// Draw the chosen edges and faces over the 3D view.
+/// Draw the chosen edges and faces over the 3D view, and the one under the pointer (in the view
+/// or on its row of the list) more lightly. A flat face shows as its plane: a filled,
+/// see-through rectangle as large as the face.
 pub fn draw_overlay(painter: &egui::Painter, cam: &aurafx_render::Camera, rect: egui::Rect, state: &State) {
     let Some(p) = state.cad.pick.as_ref() else { return };
-    let col = egui::Color32::from_rgb(255, 140, 0);
-    for (i, on) in p.chosen.iter().enumerate() {
-        if !*on {
-            continue;
-        }
-        if p.lines[i].len() >= 2 {
+    let col = crate::theme::ACCENT;
+    let now = painter.ctx().cumulative_frame_nr();
+    let listed = p.list_hover.filter(|(f, _)| now.saturating_sub(*f) <= 1).map(|(_, i)| i);
+    let draw = |i: usize, strong: bool| {
+        if let Some(plane) = p.planes.get(i).and_then(|x| x.as_ref()) {
+            super::preview::draw_plane(painter, cam, rect, &super::preview::PlanePreview { strong, ..plane.clone() });
+        } else if p.lines[i].len() >= 2 {
             let pts: Vec<egui::Pos2> = crate::pick::project_many(cam, rect, &p.lines[i]).into_iter().flatten().collect();
             for w in pts.windows(2) {
-                painter.line_segment([w[0], w[1]], egui::Stroke::new(4.0, col));
+                painter.line_segment([w[0], w[1]], egui::Stroke::new(if strong { 4.0 } else { 2.5 }, if strong { col } else { col.gamma_multiply(0.6) }));
             }
         } else if let Some(sp) = crate::pick::project(cam, rect, glam::DVec3::from_array(p.items[i].1)) {
-            painter.circle(sp, 8.0, col.gamma_multiply(0.6), egui::Stroke::new(2.0, col));
+            painter.circle(
+                sp,
+                if strong { 8.0 } else { 6.0 },
+                col.gamma_multiply(if strong { 0.6 } else { 0.3 }),
+                egui::Stroke::new(if strong { 2.0 } else { 1.5 }, col),
+            );
+        }
+    };
+    let in_view = p.hover.filter(|_| now.saturating_sub(p.hover_frame) <= 1);
+    for i in [in_view, listed].into_iter().flatten() {
+        if i < p.chosen.len() && !p.chosen[i] {
+            draw(i, false);
+        }
+    }
+    for (i, on) in p.chosen.iter().enumerate() {
+        if *on {
+            draw(i, true);
         }
     }
 }

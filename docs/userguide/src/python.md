@@ -5,7 +5,8 @@
 auraFX embeds Python with NumPy. The **Python** panel is a console: type a line and press
 **Ctrl+Enter** (or **Run**), use Tab to complete, Up/Down for history, **Run script…** to run a
 file, **Clear** to empty the log, **Help** for the cheat sheet. **Trace** turns what you did
-with the mouse into the equivalent code, which you can paste into a script. Everything the
+with the mouse into the equivalent code, which you can paste into a script. Copy and paste
+work with other programs in both directions (Ctrl+C, Ctrl+V), here and in every text box. Everything the
 UI does is reachable from the `afx` module, and `aurafx --script file.py` runs a script at
 startup (the app stays open afterwards).
 

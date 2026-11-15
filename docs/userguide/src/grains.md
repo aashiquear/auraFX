@@ -673,6 +673,12 @@ themselves do not change.
   material). **Spread correlation length** is the distance over which it changes; left at
   0 it is half of each grain's diameter. A short length gives a mottled reference
   misorientation map and a larger kernel average misorientation.
+- **In-plane gradient** turns every grain across itself, perpendicular to the direction: by
+  that many degrees per unit length along a direction of the grain's own in that plane,
+  about an axis of its own, from its centroid. The gradient along the direction (the build
+  direction) alone leaves each layer of a grain at one orientation; measured additively
+  manufactured grains also vary within a layer, and this setting gives that. The two add
+  up, and **Spread between grains** applies to both. 0 is off.
 - **Sub-grain cell size** above 0 divides every grain into cells of about that size, each
   turned a little differently. **Misorientation between cells** is the mean angle across a
   cell boundary (1 degree by default). Solidification cells in additively manufactured
@@ -703,16 +709,21 @@ long grain cannot turn into the orientation of its neighbour.
 
 With every part at 0 the filter returns its input unchanged. The sources Voronoi Grains,
 Columnar Grains and Pack Grains have an **Orientation gradient** setting that applies the
-filter as it comes, with that gradient along z.
+filter as it comes, with that gradient along z, and an **In-plane orientation gradient**
+setting for the turn across each grain.
 
 ```python
 g = afx.columnar_grains()
 t = g.orientation_gradient(rate=0.05, amplitude=0.8, reference="Lowest point")
 cells = g.orientation_gradient(rate=0.02, cell_size=15, cell_angle=1, cap=4)
 print(t.srod(layer=40).array("SRODRate", "field"))     # about 2 degrees per layer
+both = g.orientation_gradient(rate=0.03, in_plane_rate=0.05)      # along the build direction and across
+v = afx.voronoi_grains(gradient=0.03, in_plane_gradient=0.05)     # the same from a source
 ```
 
 ![Columnar grains with an orientation gradient along the build direction and sub-grain cells, colored by each cell's misorientation from its grain's average orientation](images/grains_orientation_gradient.png)
+
+![Voronoi grains seen from above with an in-plane gradient alone: every grain turns across itself along its own direction, colored by each cell's misorientation from its grain's average orientation](images/grains_in_plane_gradient.png)
 
 ### Grain Realism
 

@@ -115,6 +115,10 @@ pub struct State {
     pub show_licences: bool,
     pub licence_find: String,
     pub show_shortcuts: bool,
+    /// File > New is asking whether to save first.
+    pub new_prompt: bool,
+    /// What the pipeline looked like when it was last saved, loaded or started anew.
+    pub saved_signature: u64,
     /// An action waiting for its new key (Settings › Keyboard).
     pub recording_shortcut: Option<String>,
     pub rename_target: Option<(NodeId, String)>,
@@ -580,6 +584,8 @@ impl AuraApp {
             show_licences: false,
             licence_find: String::new(),
             show_shortcuts: false,
+            new_prompt: false,
+            saved_signature: 0,
             recording_shortcut: None,
             rename_target: None,
             playing: false,
@@ -747,11 +753,97 @@ impl State {
         }
     }
 
+    /// A number that changes when the pipeline does (its objects, filters, values and display).
+    fn pipeline_signature(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.session.lock().describe().hash(&mut h);
+        h.finish()
+    }
+
+    /// Whether there is work that the last save (or load) does not hold.
+    pub fn unsaved_work(&self) -> bool {
+        !self.session.lock().nodes.is_empty() && self.pipeline_signature() != self.saved_signature
+    }
+
+    /// File > New: an empty workspace, after asking about work that is not saved.
+    pub fn new_workspace(&mut self) {
+        if self.unsaved_work() {
+            self.new_prompt = true;
+        } else {
+            self.clear_workspace();
+        }
+    }
+
+    /// Remove every object, forget the state file and start again (settings and layout stay).
+    pub fn clear_workspace(&mut self) {
+        self.new_prompt = false;
+        if crate::cad::editing(self) {
+            self.toast("Finish or discard the part being edited first (Apply or Discard in the CAD environment).", true);
+            return;
+        }
+        {
+            let mut ss = self.session.lock();
+            let ids: Vec<_> = ss.nodes.keys().copied().collect();
+            for id in ids {
+                ss.remove_node(id);
+            }
+            ss.chart = Default::default();
+            ss.revision += 1;
+        }
+        self.pipeline_selection.clear();
+        self.state_path = None;
+        self.playing = false;
+        self.saved_signature = self.pipeline_signature();
+        self.status = "New workspace: open a file or add a source.".into();
+    }
+
+    fn new_prompt_ui(&mut self, ctx: &egui::Context) {
+        if !self.new_prompt {
+            return;
+        }
+        let mut open = true;
+        let mut choice = 0;
+        egui::Window::new("New").open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO).show_fit(
+            ctx,
+            |ui| {
+                ui.label("The current work is not saved.");
+                ui.label(RichText::new("New clears the pipeline, the views' objects and the charts. Save the state first to come back to it later.").weak());
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Save…").on_hover_text("Save the state to an .afx file, then start anew").clicked() {
+                        choice = 1;
+                    }
+                    if ui.button("Do not save").on_hover_text("Start anew; the current work is lost").clicked() {
+                        choice = 2;
+                    }
+                    if ui.button("Cancel").on_hover_text("Keep working on this").clicked() {
+                        choice = 3;
+                    }
+                });
+            },
+        );
+        match choice {
+            1 => {
+                self.save_state_dialog(false);
+                // (Not saved after all, when the file window was closed: the question stays.)
+                if !self.unsaved_work() {
+                    self.clear_workspace();
+                }
+            }
+            2 => self.clear_workspace(),
+            3 => self.new_prompt = false,
+            _ if !open => self.new_prompt = false,
+            _ => {}
+        }
+    }
+
     pub fn save_state_to(&mut self, path: PathBuf) {
         let cam = self.camera_state();
         let r = self.session.lock().save_state(&path, Some(cam));
         match r {
             Ok(()) => {
+                self.saved_signature = self.pipeline_signature();
                 self.state_path = Some(path.clone());
                 self.settings.push_recent(path.clone());
                 self.settings.save();
@@ -777,6 +869,7 @@ impl State {
         let r = self.session.lock().load_state(&path);
         match r {
             Ok(_) => {
+                self.saved_signature = self.pipeline_signature();
                 self.state_path = Some(path.clone());
                 self.settings.push_recent(path.clone());
                 self.settings.save();
@@ -1151,6 +1244,10 @@ impl State {
 
     /// The items of the File menu.
     fn menu_file(&mut self, ui: &mut egui::Ui) {
+        if ui.button("New").on_hover_text("Clear the workspace for a new piece of work (asks first when the current one is not saved)").clicked() {
+            ui.close();
+            self.new_workspace();
+        }
         if ui.button("Open…    Ctrl+O").clicked() {
             ui.close();
             self.open_file_dialog();
@@ -2194,6 +2291,7 @@ impl State {
             });
             self.show_licences = open;
         }
+        self.new_prompt_ui(ctx);
         if self.show_shortcuts {
             let mut open = true;
             egui::Window::new("Keyboard shortcuts").open(&mut open).collapsible(false).show_fit(ctx, |ui| {
@@ -2866,6 +2964,14 @@ impl eframe::App for AuraApp {
                         }
                     }
                 }
+                // "new_workspace [ask]": File > New; without "ask" nothing is asked.
+                "new_workspace" => {
+                    if arg.trim() == "ask" {
+                        self.state.new_workspace();
+                    } else {
+                        self.state.clear_workspace();
+                    }
+                }
                 // "shortcut <action> <keys, comma separated>": bind keys to an action (empty: none).
                 "shortcut" => {
                     let (a, k) = arg.split_once(' ').unwrap_or((arg, ""));
@@ -2904,6 +3010,9 @@ impl eframe::App for AuraApp {
                         crate::cad::open_plane_form(&mut self.state);
                     }
                 }
+                // "cad_ui <what> <json>": the plane form filled in, a plane shown in the view, the part
+                // under the sketch, the sketch tool, an edge of the part taken into the sketch.
+                "cad_ui" => crate::cad::ui_command(&mut self.state, arg),
                 // "cad_sketch_edit <feature>": open the sketch canvas on a feature's sketch.
                 "cad_sketch_edit" => {
                     let id = self.state.session.lock().cad_edit.as_ref().and_then(|e| e.active().features.iter().find(|f| f.name == arg.trim()).map(|f| f.id));

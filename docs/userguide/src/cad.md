@@ -247,6 +247,31 @@ ribbon's **Sketch** tab:
 To change an existing feature's sketch, right-click it in the model tree and choose **Edit
 sketch…**, or press **Edit sketch…** in its properties.
 
+### Seeing the plane you choose
+
+A plane that is being chosen shows in the 3D view as a **filled, see-through rectangle in the
+highlight color** (the orange of the selected menu item), with a few lines across it and an
+arrow along its normal, as large as the part, or as large as the face when it is a face's
+plane. It is drawn lightly while it is only pointed at, and strongly once it is chosen:
+
+- Point at **Top (XY)**, **Front (XZ)**, **Right (YZ)**, **Top of the part** or a reference
+  plane's button on the Sketch tab: the plane shows before you click. The same goes for
+  **Mirror YZ**, **Mirror XZ** and **Split** on the Modify tab, and for a row of *Reference
+  planes* in the feature panel.
+- While a face list is open (**A face…**, **Mirror about a face…**, **Pattern on a face…**,
+  *Pick another face…*, the faces of **Shell**, **Draft** and **Add mate…**), the flat face under
+  the pointer in the 3D view shows as its plane, and so does the row under the pointer in the
+  list. The chosen face stays filled until you press **Apply** or **Cancel**. A round face shows
+  as a ring at a point of it, an edge as a thick line.
+- The 3D view's right-click menu on a flat face shows that face's plane while the menu is open.
+
+![Choosing the face to sketch on: the top of the plate is chosen and shows as a filled plane as large as the face, with its normal; the Front plane shows lightly, as it does while the pointer is on its button](images/cad_plane_choice.png)
+
+The rectangle is drawn over the part, not cut by it: where the plane passes inside the part
+the part shows through the tint. From Python, `e.preview_plane("XZ")` shows a principal or a
+reference plane this way in the window (`e.preview_plane(None)` takes it away), and
+`e.sketch_on_face()` with `e.pick_choose("Base top")` opens the face list and chooses a face.
+
 ### Reference planes
 
 **Plane…** opens a form in the feature panel that makes a named plane, kept with the part:
@@ -257,7 +282,14 @@ sketch…**, or press **Edit sketch…** in its properties.
 - **Through 3 points**: the normal follows the right-hand rule from point 1 to 2 to 3, and the
   sketch's x axis runs from point 1 to point 2.
 
-The planes show as dashed squares with their names in the 3D view, and are listed under
+**While the form is open the 3D view shows the plane it would make**, filled in the highlight
+color and named, and follows the values as you type them: change the offset or the angle and
+the plane moves before anything is made. When the new plane is moved or turned away from the
+plane or the face it starts from, that one shows too, more lightly, so the offset and the
+turn can be read off the picture. Three points on one line make no plane, and nothing shows.
+**Make plane** keeps it; **Cancel** leaves the part as it was.
+
+The planes of the part show as dashed squares with their names in the 3D view, and are listed under
 *Reference planes* in the feature panel (no feature selected) with **Sketch** and **×**
 (remove; sketches already drawn on a plane keep their place). A sketch on a plane 20 above the
 top plane, turned 30° about its x axis, extrudes along the turned normal in both kernels.
@@ -268,7 +300,10 @@ m.cad.plane(name="P", points=[(0, 0, 0), (10, 0, 0), (0, 10, 5)])
 m.cad.extrude(m.cad.sketch(plane="Tilted").rectangle(20, 10), depth=5)
 ```
 
-![A block on a reference plane turned 30°, drawn as a dashed square named Tilted, with the New reference plane form](images/cad_planes.png)
+`e.plane_form(start="YZ", offset=12, angle=20, about="y", name="Side cut")` opens the form in
+the window filled in (also `method="face"` with `face="Plate z+"`, or `points=[...]`).
+
+![The New reference plane form filled in for a plane 12 mm from the Right plane, turned 20°: the 3D view shows the plane it would make, filled and named, and the Right plane it starts from more lightly; the plane Tilted made earlier is a dashed square](images/cad_planes.png)
 
 The canvas takes the place of the 3D view while a sketch is open:
 
@@ -285,6 +320,22 @@ The canvas takes the place of the 3D view while a sketch is open:
   shape, and the point lands on that line. Each kind is switched on or off under *Snap* in the
   Feature panel, with the grid step; hold `Ctrl` to place a point freely. A point placed on a
   midpoint, a curve or an intersection is constrained there (midpoint, on line, on circle).
+- **Show part** (the ribbon's toggle, on when you start) shows **the part underneath the sketch
+  grid**: its faces as seen looking straight down on the sketch plane, dimmed, with their
+  borders as thin lines, and the grid and the sketch drawn over them, so you see where on the
+  part you are drawing. Nearer faces hide the ones behind them, as in the 3D view. Turn the
+  toggle off for a plain canvas; it stays as you left it for the next sketches, until the app
+  closes. The first view of a sketch is framed to hold the part.
+- **From the part** takes an edge of the part into the sketch. Choose the tool: every edge that
+  can be taken is drawn in blue; the one under the cursor turns orange and says what it would
+  become. **Click it**: a straight edge becomes a **line**, a round edge seen face on a
+  **circle** (a whole one) or an **arc** (a part of one), any other curve (a round edge seen at
+  a slant, a spline) a fixed **outline** through its points. The edge is laid flat on the
+  sketch plane, so edges above or below the plane can be taken as well as the edges of the
+  face you draw on; an edge seen end on is not offered. What is taken has fixed points (a
+  circle also gets its radius as a dimension), so the sketch stays fully defined, and edges
+  that meet share their corners, so four edges of a face make one closed outline. `Esc`
+  goes back to *Select*.
 - **Select** shapes and points by clicking (Shift adds); drag a point to move it. Right or
   middle mouse drag pans, the wheel zooms, `Esc` ends a chain, `Del` deletes.
 - **Constrain** the selection with the ribbon: horizontal, vertical, parallel, perpendicular,
@@ -314,6 +365,24 @@ edited the sketch of an existing feature. The sketch then becomes a feature with
 From Python, `e.sketch_new(plane="XY", items=[...])` and `e.sketch_edit("Bracket")` open the
 canvas in the window, and `e.sketch(...)` with `e.extrude(...)` builds the same features
 without it.
+
+![A sketch on the top of a plate with the part showing underneath the grid: the rim of the bore and the front edge of the plate were taken from the part as a circle and a line, and the foot of the boss under the cursor is marked "circle r 7"](images/cad_sketch_under.png)
+
+Taking edges from the part in Python needs no window: a sketch's `project()` adds them when
+the sketch is used.
+
+```python
+s = m.cad.sketch(plane="XY", offset=8).project(face="Plate z+")        # every edge around a face
+rim = m.cad.sketch(plane="XY", offset=8).project(edge=("Plate z+", "Bore side"))   # between two faces
+m.cad.extrude(s, depth=3, name="Raised top")
+
+e.sketch_show_part(False)          # in the window: the Show part toggle
+e.sketch_tool("project")           # the From the part tool
+e.sketch_take_edge(20, 2)          # take the edge nearest to (20, 2) on the sketch plane
+```
+
+`project()` with neither argument takes every edge of the part. The edges are those of the
+part as it is when the sketch is used.
 
 ### Sketches that stay on their face
 
@@ -681,6 +750,7 @@ dimension. The calls:
 | `m.cad.hole(diameter, depth, kind=...)` | a hole cut downward from `at`: `simple`, `drilled`, `counterbore`, `countersink`, `tapped` |
 | `m.cad.thread(major_diameter, pitch, length)` | a helical thread |
 | `s = m.cad.sketch(plane="XY")`, then `.rectangle(w, h, center=...)`, `.circle(r)`, `.polygon(points)`, `.regular(sides, r)` | a sketch with its dimensions |
+| `s.project(face="Plate z+")`, `s.project(edge=("Plate z+", "Bore side"))` | [edges of the part](#sketching) laid on the sketch plane as lines, circles, arcs and outlines |
 | `m.cad.extrude(s, depth, end="blind")` | extrude a sketch (`"midplane"`, `"through_all"`; `draft`, `top={"fillet": 1}`) |
 | `m.cad.revolve(s, angle=360)` | revolve a sketch about its vertical axis (x is the radius) |
 | `s = m.cad.sketch(face="Plate z+")`; `s.line`, `s.horizontal`, `s.distance`, `s.solve()` … | a sketch on a face; [lines with constraints and dimensions](#sketches-with-constraints-from-python) |
@@ -718,6 +788,17 @@ Face names carry through: an extracted set or a boundary layer can name `Bore si
   combination of features, but edges are not exact lines: the faces it reports are labelled
   regions of the surface. The B-rep kernel is exact but refuses a few things (a feature-level
   mirror of a shape that is not symmetric, a twisted sweep): *Auto* then falls back and says so.
+- Geometry taken from the part (**From the part**, `project()`) is a copy: it does not move when
+  the part changes later. A round edge becomes a circle or an arc only when the sketch plane is
+  parallel to it (within a ten-thousandth of its size); seen at a slant it is an outline of
+  straight pieces that the solver does not move. Edges are those between the named faces: the
+  exact ones when the B-rep kernel builds the part, else the borders between the faces of the
+  surface, which follow its triangles. Hidden edges can be taken too: of two edges that land
+  on the same place, the one nearer to the eye is taken.
+- The part underneath a sketch is drawn from the part's surface as last built, flat-shaded and
+  without the section where the sketch plane cuts the part: what is above the sketch plane
+  shows as well as what is below. The plane previews in the 3D view are drawn over the part and
+  are not hidden by it.
 - A sketch follows its face by the face's name: renaming the feature that made the face, or
   removing it, leaves the sketch without a face until you pick another. The face must be one
   the features *before* the sketch's feature make, and flat.

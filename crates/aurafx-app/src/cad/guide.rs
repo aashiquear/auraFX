@@ -562,6 +562,12 @@ pub fn face_menu(state: &mut State, ui: &mut egui::Ui, face: Option<&aurafx_pipe
     ui.label(RichText::new(format!("{} face, {} mm²", f.kind, super::num_text(f.area))).weak().small());
     ui.separator();
     let flat = f.kind.eq_ignore_ascii_case("plane") || f.kind.eq_ignore_ascii_case("planar") || f.kind.eq_ignore_ascii_case("flat");
+    // The flat face the menu is about shows as its plane in the view while the menu is open.
+    if flat {
+        if let Some(p) = super::preview::of_face(state, &f.name, f.centroid, f.direction, false) {
+            super::preview::hover(state, ui.ctx(), p);
+        }
+    }
     let b = |ui: &mut egui::Ui, on: bool, label: &str, tip: &str| {
         ui.add_enabled(on, egui::Button::new(crate::icons::with(label)))
             .on_hover_text(tip)

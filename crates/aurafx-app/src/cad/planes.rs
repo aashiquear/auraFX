@@ -49,7 +49,7 @@ pub fn form_ui(state: &mut State, ui: &mut egui::Ui) {
     };
     let Some(f) = state.cad.plane_form.as_mut() else { return };
     ui.label(RichText::new("New reference plane").strong());
-    ui.label(RichText::new("A plane to sketch on, kept with the part. Planes show as dashed squares in the 3D view.").weak().small());
+    ui.label(RichText::new("A plane to sketch on, kept with the part. The 3D view shows the plane these values make, filled, before you make it; planes of the part show as dashed squares.").weak().small());
     ui.horizontal(|ui| {
         for (i, l) in ["From a plane", "From a face", "Through 3 points"].iter().enumerate() {
             ui.selectable_value(&mut f.method, i, *l);
@@ -130,11 +130,19 @@ pub fn form_ui(state: &mut State, ui: &mut egui::Ui) {
     if !make {
         return;
     }
+    let Some(a) = form_args(f, &faces) else { return };
+    state.cad.plane_form = None;
+    op(state, "plane", a);
+}
+
+/// The arguments of the `plane` operation the form would run as it is filled in now (`None`:
+/// it starts from a face and the part has no flat face).
+fn form_args(f: &PlaneForm, faces: &[aurafx_pipeline::CadFace]) -> Option<serde_json::Value> {
     let mut a = match f.method {
         0 => json!({"from": f.from, "offset": num(&f.offset), "angle": num(&f.angle), "about": if f.about_x { "x" } else { "y" }}),
         1 => {
-            let fc = &faces[f.face];
-            let Some(base) = PlaneFrame::new(fc.centroid, fc.direction, None) else { return };
+            let fc = faces.get(f.face.min(faces.len().checked_sub(1)?))?;
+            let base = PlaneFrame::new(fc.centroid, fc.direction, None)?;
             let moved = base.offset(num(&f.offset));
             let r = base.basis();
             let axis = if f.about_x { r.x_axis } else { r.y_axis };
@@ -153,8 +161,48 @@ pub fn form_ui(state: &mut State, ui: &mut egui::Ui) {
     if !f.name.trim().is_empty() {
         a["name"] = json!(f.name.trim());
     }
-    state.cad.plane_form = None;
-    op(state, "plane", a);
+    Some(a)
+}
+
+/// The flat faces of the part as last built (what the form's From a face lists).
+fn flat_faces(e: &aurafx_pipeline::cad_edit::CadEdit) -> Vec<aurafx_pipeline::CadFace> {
+    e.summary.as_ref().map(|s| s.faces.iter().filter(|f| f.kind == "plane").cloned().collect()).unwrap_or_default()
+}
+
+/// What the 3D view shows while the form is open: the plane the form would make as it is filled
+/// in now (strong), and the plane or the face it starts from when the new one is moved or
+/// turned away from it (light). Nothing when the form is closed or its numbers make no plane
+/// (three points on one line).
+pub fn form_previews(state: &State) -> Vec<super::preview::PlanePreview> {
+    let Some(f) = state.cad.plane_form.as_ref() else { return Vec::new() };
+    let (made, base) = {
+        let s = state.session.lock();
+        let Some(e) = s.cad_edit.as_ref() else { return Vec::new() };
+        let faces = flat_faces(e);
+        let made = form_args(f, &faces).and_then(|a| aurafx_cad::edit::ref_plane_of(e.active(), &a).ok());
+        let moved = num(&f.offset) != 0.0 || num(&f.angle) != 0.0;
+        let base = match f.method {
+            0 if moved => aurafx_cad::edit::ref_plane_of(e.active(), &json!({"from": f.from})).ok().map(|p| (p.frame, f.from.clone(), None)),
+            1 if moved => faces
+                .get(f.face.min(faces.len().saturating_sub(1)))
+                .and_then(|fc| PlaneFrame::new(fc.centroid, fc.direction, None).map(|fr| (fr, fc.name.clone(), Some(fc.clone())))),
+            _ => None,
+        };
+        (made, base)
+    };
+    let mut out = Vec::new();
+    if let Some((frame, label, face)) = base {
+        out.push(match face {
+            Some(fc) => super::preview::of_face(state, &fc.name, fc.centroid, fc.direction, false)
+                .unwrap_or_else(|| super::preview::over_part(state, frame, label, false)),
+            None => super::preview::over_part(state, frame, label, false),
+        });
+    }
+    if let Some(p) = made {
+        let label = if f.name.trim().is_empty() { "New plane".to_string() } else { f.name.trim().to_string() };
+        out.push(super::preview::over_part(state, p.frame, label, true));
+    }
+    out
 }
 
 /// The reference planes in the feature panel's part page: sketch on one, or remove it.
@@ -164,8 +212,9 @@ pub fn list_ui(state: &mut State, ui: &mut egui::Ui) {
     egui::CollapsingHeader::new(RichText::new(format!("Reference planes ({})", planes.len()))).id_salt("pm planes").default_open(true).show(ui, |ui| {
         let mut sketch_on = None;
         let mut remove = None;
+        let mut hovered = None;
         for p in &planes {
-            ui.horizontal(|ui| {
+            let row = ui.horizontal(|ui| {
                 ui.label(RichText::new(&p.name).strong());
                 ui.label(RichText::new(&p.how).weak().small());
                 if crate::touch::small_button(ui, "Sketch").on_hover_text("Start a sketch on this plane").clicked() {
@@ -175,6 +224,14 @@ pub fn list_ui(state: &mut State, ui: &mut egui::Ui) {
                     remove = Some(p.name.clone());
                 }
             });
+            // The plane under the pointer shows filled in the 3D view.
+            if row.response.contains_pointer() {
+                hovered = Some(p.clone());
+            }
+        }
+        if let Some(p) = hovered {
+            let pv = super::preview::over_part(state, p.frame, p.name, false);
+            super::preview::hover(state, ui.ctx(), pv);
         }
         if ui.button("New plane…").clicked() {
             state.cad.plane_form = Some(PlaneForm::default());

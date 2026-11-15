@@ -78,7 +78,8 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
         ("Ask the AI assistant", "chat help", |s| s.assistant.focus_input = true),
         ("Python quick reference", "help api cheat sheet", |s| s.console.show_help = true),
         ("Keyboard shortcuts", "help keys", |s| s.show_shortcuts = true),
-        ("Clear pipeline", "remove all reset new", |s| {
+        ("New workspace", "file new clear start over empty", |s| s.new_workspace()),
+        ("Clear pipeline", "remove all reset", |s| {
             let mut ss = s.session.lock();
             let ids: Vec<_> = ss.nodes.keys().copied().collect();
             for id in ids {

@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e758388e.js";
+            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -237,6 +237,7 @@
 <li><code>afx.make_points(xyz)</code>: A point cloud (one vertex per point): <code>afx.make_points(xyz)</code>.</li>
 <li><code>afx.make_polydata(points, polys=None, lines=None, verts=None)</code>: A surface: <code>afx.make_polydata(points, polys=[[0,1,2], ...], lines=[[...]], verts=[[...]])</code>.</li>
 <li><code>afx.match_views()</code>: Copy the active view’s camera to every other view once.</li>
+<li><code>afx.new(ask=False)</code>: Start a new workspace (File &gt; New): every object is removed and the state file forgotten; settings and the window layout stay. Nothing is asked unless <code>ask=True</code>, which asks in the window when the current work is not saved.</li>
 <li><code>afx.nodes()</code></li>
 <li><code>afx.over_time(node, array, stat='max', plot=True)</code>: Statistic of an array over every time step, plotted in the Charts panel. stat: “max”, “min”, “mean”, “sum” or “value” (for global/field variables). Returns (times, values).</li>
 <li><code>afx.panel(title)</code>: Add a panel to the window (Windows &gt; Plugin panels). The function gets a <code>ui</code> and is run when the panel opens and whenever a button is pressed or a value changes: ui.label(text), ui.button(text) -&gt; True on the run its press causes, ui.slider(name, value, lo, hi), ui.number(name, value), ui.checkbox(name, value), ui.text(name, value), ui.choice(name, options, value) give the current value, ui.image(path), ui.separator().</li>
@@ -258,8 +259,8 @@
 <li><code>afx.set_shortcut(action=None, keys='', vim=None)</code>: Bind keys to an action of the window: <code>afx.set_shortcut("screenshot", "Ctrl+P")</code>, several keys with commas, “” for none; <code>vim=True</code> turns on the vim-style view keys (h j k l, + -, 0).</li>
 <li><code>afx.set_theme(mode)</code>: UI theme: “dark”, “light” or “system”.</li>
 <li><code>afx.show_panel(name)</code>: Bring a panel to the front: “3D View”, “Python”, “Assistant”, “Simulations”, “Spreadsheet”, “Log”, …</li>
-<li><code>afx.simulation_case(node, solver, folder, **kwargs)</code>: Write a simulation case from a node’s data into <code>folder</code>: solver “moose” (a grain mesh: mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt, polycrystal.i), “spparks” (a volume with FeatureIds: grains.spparks, in.potts) or “pinnacle” (a grain mesh: mesh.e, orientations_points.csv, case.i). Options: material, axis (‘x’, ‘y’, ‘z’), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature, dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.</li>
-<li><code>afx.simulation_template(name)</code>: Open the Simulations panel on a template: “lammps”, “moose”, “moose_polycrystal”, “spparks”, “pinnacle”, “openfoam”, “python”, “shell” (or its label).</li>
+<li><code>afx.simulation_case(node, solver, folder, **kwargs)</code>: Write a simulation case from a node’s data into <code>folder</code>: solver “moose” (a grain mesh: mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt, polycrystal.i), “spparks” (a volume with FeatureIds: grains.spparks, in.potts), “pinnacle” (a grain mesh: mesh.e, orientations_points.csv, case.i) or “jaxfem” (a grain mesh of linear hexahedra or tetrahedra: nodes.txt, elements.txt, element_grains.txt, grain_axes.txt and run_jaxfem.py, a script for the JAX-FEM library). Options: material, axis (‘x’, ‘y’, ‘z’), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature, dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.</li>
+<li><code>afx.simulation_template(name)</code>: Open the Simulations panel on a template: “lammps”, “moose”, “moose_polycrystal”, “spparks”, “pinnacle”, “jaxfem”, “openfoam”, “python”, “shell” (or its label).</li>
 <li><code>afx.snapshot(width=None, height=None, views=None)</code>: A picture of the active 3D view (views=“all”: every view as laid out) shown in the notebook.</li>
 <li><code>afx.source(_fn=None, *, label=None, category='Plugins', description=None, params=None, keywords=(), id=None)</code>: Register a source: a function of keyword parameters returning an afx.Data.</li>
 <li><code>afx.split_view(direction='right')</code>: Add a 3D view next to the active one: “right” (side by side) or “down” (above/below). The new view becomes active and starts with the same camera and visible objects. Returns its number once it exists (None without the app).</li>
@@ -397,7 +398,8 @@
 <li><code>pick_face_for(feature)</code>: Open the list of flat faces a feature’s sketch can be put on (the model tree’s ‘Pick another face…’). In the window only; sketch_face() does it without the window.</li>
 <li><code>placements(resolution=48)</code>: Where the mates put every component: name, at, rotate (degrees).</li>
 <li><code>plane(name=None, from_plane='XY', offset=0, angle=0, about='x', points=None, origin=None, normal=None, x_axis=None)</code>: A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference plane moved by offset and turned by angle about its x or y axis; or through three points; or by origin and normal. Sketch on it with sketch(plane=name).</li>
-<li><code>plane_form()</code>: Open the New reference plane form in the window.</li>
+<li><code>plane_form(**values)</code>: Open the New reference plane form in the window; the 3D view shows the plane it would make, filled. values fill the form in: method=“plane”|“face”|“points”, start=“XY” (or a reference plane), face=“Plate z+”, offset=20, angle=30, about=“x”|“y”, name=“Tilted”, points=[three points].</li>
+<li><code>preview_plane(plane='XY')</code>: Show a plane filled in the 3D view of the window, as pointing at its button does: XY, XZ, YZ or a reference plane’s name; None takes it away.</li>
 <li><code>redo()</code></li>
 <li><code>remove(feature)</code></li>
 <li><code>remove_parameter(name)</code></li>
@@ -426,6 +428,9 @@
 <li><code>sketch_remove(name)</code></li>
 <li><code>sketch_rename(name, to)</code></li>
 <li><code>sketch_set(name, sketch)</code>: Replace a kept sketch; the sweeps and lofts that use it follow.</li>
+<li><code>sketch_show_part(on=True)</code>: Show (or hide) the part underneath the open sketch’s grid: the Sketch tab’s Show part toggle.</li>
+<li><code>sketch_take_edge(x, y)</code>: Take the edge of the part nearest to (x, y) on the sketch plane into the open sketch, as a click with the From the part tool does: a line, a circle, an arc or an outline. In the window only; a sketch’s project() does it without the window.</li>
+<li><code>sketch_tool(tool='select')</code>: Choose the tool of the open sketch canvas: select, line, rectangle, circle, arc, spline, point, or project (From the part: a click on an edge of the part takes it into the sketch).</li>
 <li><code>sketches()</code>: The sketches kept with the part: name, plane, closed outlines, open paths.</li>
 <li><code>sphere(radius=5, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)</code></li>
 <li><code>split(plane='XY', offset=0, keep_positive=True, feature=None)</code></li>
@@ -464,6 +469,7 @@
 <li><code>point(x, y, fixed=False)</code>: A point; fixed=True pins it where it is.</li>
 <li><code>point_on(point, entity)</code>: A point on a line (anywhere along it) or on a circle or arc.</li>
 <li><code>polygon(points)</code></li>
+<li><code>project(face=None, edge=None)</code>: Take edges of the part as it is into the sketch, laid flat on the sketch plane: every edge around a face (face=“Plate z+”), the edge between two faces (edge=(“Plate z+”, “Bore side”)), or all of them (neither). A straight edge becomes a line, a round one seen face on a circle or an arc, any other a fixed outline through its points; edges seen end on are left out. They are a copy: they stay where they are when the part changes later.</li>
 <li><code>radius(circle, value)</code></li>
 <li><code>rectangle(w, h, corner=None, center=None)</code></li>
 <li><code>regular(sides, r, center=(0, 0))</code></li>

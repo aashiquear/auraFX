@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e758388e.js";
+            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -759,6 +759,12 @@ root-mean-square angle in degrees (0.5 by default; 0.5 to 2 is typical of as-bui
 material). <strong>Spread correlation length</strong> is the distance over which it changes; left at
 0 it is half of each grain’s diameter. A short length gives a mottled reference
 misorientation map and a larger kernel average misorientation.</li>
+<li><strong>In-plane gradient</strong> turns every grain across itself, perpendicular to the direction: by
+that many degrees per unit length along a direction of the grain’s own in that plane,
+about an axis of its own, from its centroid. The gradient along the direction (the build
+direction) alone leaves each layer of a grain at one orientation; measured additively
+manufactured grains also vary within a layer, and this setting gives that. The two add
+up, and <strong>Spread between grains</strong> applies to both. 0 is off.</li>
 <li><strong>Sub-grain cell size</strong> above 0 divides every grain into cells of about that size, each
 turned a little differently. <strong>Misorientation between cells</strong> is the mean angle across a
 cell boundary (1 degree by default). Solidification cells in additively manufactured
@@ -789,13 +795,17 @@ starting orientation: two cells of one grain then differ by at most twice the ca
 long grain cannot turn into the orientation of its neighbour.</p>
 <p>With every part at 0 the filter returns its input unchanged. The sources Voronoi Grains,
 Columnar Grains and Pack Grains have an <strong>Orientation gradient</strong> setting that applies the
-filter as it comes, with that gradient along z.</p>
+filter as it comes, with that gradient along z, and an <strong>In-plane orientation gradient</strong>
+setting for the turn across each grain.</p>
 <pre><code class="language-python">g = afx.columnar_grains()
 t = g.orientation_gradient(rate=0.05, amplitude=0.8, reference="Lowest point")
 cells = g.orientation_gradient(rate=0.02, cell_size=15, cell_angle=1, cap=4)
 print(t.srod(layer=40).array("SRODRate", "field"))     # about 2 degrees per layer
+both = g.orientation_gradient(rate=0.03, in_plane_rate=0.05)      # along the build direction and across
+v = afx.voronoi_grains(gradient=0.03, in_plane_gradient=0.05)     # the same from a source
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/grains_orientation_gradient.png" alt="Columnar grains with an orientation gradient along the build direction and sub-grain cells, colored by each cell’s misorientation from its grain’s average orientation"><span class="img-wrapper"><img src="images/grains_orientation_gradient.png" alt="Columnar grains with an orientation gradient along the build direction and sub-grain cells, colored by each cell’s misorientation from its grain’s average orientation"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/grains_in_plane_gradient.png" alt="Voronoi grains seen from above with an in-plane gradient alone: every grain turns across itself along its own direction, colored by each cell’s misorientation from its grain’s average orientation"><span class="img-wrapper"><img src="images/grains_in_plane_gradient.png" alt="Voronoi grains seen from above with an in-plane gradient alone: every grain turns across itself along its own direction, colored by each cell’s misorientation from its grain’s average orientation"></span></label></p>
 <h3 id="grain-realism"><a class="header" href="#grain-realism">Grain Realism</a></h3>
 <p>A tessellation has flat faces that meet at whatever angles the seeds give. Grown grains
 have curved faces that meet three at a time at about 120 degrees, sizes that spread more

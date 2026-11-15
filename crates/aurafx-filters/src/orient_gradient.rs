@@ -5,6 +5,9 @@
 //!
 //! - a steady turn about one axis per grain, in proportion to the distance along a direction
 //!   from the grain's reference point (its centroid or its lowest point);
+//! - a steady turn across the grain: in proportion to the distance from the grain's centroid
+//!   along a direction of the grain's own in the plane perpendicular to the first (in a part
+//!   built in layers: the gradient within a layer, which a turn by height alone leaves at zero);
 //! - a smooth random turn (a few random waves per grain, with a correlation length);
 //! - sub-grain cells (a jittered lattice of cell centres, each cell of each grain turned by
 //!   its own small rotation);
@@ -38,6 +41,8 @@ pub struct GradientParams {
     pub direction: [f64; 3],
     /// Log-standard deviation of the grains' rates about `rate`.
     pub rate_spread: f64,
+    /// Degrees per unit length across the grain, perpendicular to `direction`.
+    pub in_plane_rate: f64,
     pub axis: String,
     pub fixed_axis: [f64; 3],
     pub reference: String,
@@ -63,6 +68,7 @@ impl GradientParams {
             rate,
             direction: [0.0, 0.0, 1.0],
             rate_spread: 0.5,
+            in_plane_rate: 0.0,
             axis: AXIS_RANDOM.into(),
             fixed_axis: [1.0, 0.0, 0.0],
             reference: REF_CENTROID.into(),
@@ -76,7 +82,7 @@ impl GradientParams {
         }
     }
     fn is_off(&self) -> bool {
-        self.rate == 0.0 && self.amplitude <= 0.0 && (self.cell_size <= 0.0 || self.cell_angle <= 0.0)
+        self.rate == 0.0 && self.in_plane_rate == 0.0 && self.amplitude <= 0.0 && (self.cell_size <= 0.0 || self.cell_angle <= 0.0)
     }
 }
 
@@ -120,6 +126,9 @@ struct Grain {
     /// Radians per unit length.
     rate: f64,
     axis: [f64; 3],
+    /// The turn across the grain: radians per unit length, the direction it grows along (in the
+    /// plane perpendicular to the first direction) and its axis.
+    across: Option<(f64, [f64; 3], [f64; 3])>,
     /// (wave vector, phase, rotation-vector amplitude in radians) of each wave.
     waves: [([f64; 3], f64, [f64; 3]); MODES],
     /// Standard deviation of each component of a cell's rotation vector, radians.
@@ -196,6 +205,23 @@ pub fn orientation_gradient(ds: &DataSet, orientations: &str, ids_name: &str, p:
                 }
                 _ => any,
             };
+            // The turn across the grain: its own rate, direction in the plane and axis. (Drawn
+            // from a generator of its own, so that switching it on leaves the rest as it was.)
+            let across = (p.in_plane_rate != 0.0)
+                .then(|| {
+                    let mut r = Rng::new(mix(p.seed ^ mix(f as u64) ^ 0x1A7E_4A1D));
+                    let spread = if p.rate_spread > 0.0 { (p.rate_spread * r.std_normal().clamp(-3.0, 3.0)).exp() } else { 1.0 };
+                    let any = random_unit(&mut r);
+                    // In the plane, and inside the volume when it is a section.
+                    let d = dot(any, dir);
+                    let mut t: [f64; 3] = std::array::from_fn(|k| if axes.contains(&k) { any[k] - d * dir[k] } else { 0.0 });
+                    let d = dot(t, dir);
+                    t = std::array::from_fn(|k| t[k] - d * dir[k]);
+                    let t = unit(t)?;
+                    let axis = fixed.unwrap_or_else(|| random_unit(&mut r));
+                    Some((p.in_plane_rate.to_radians() * spread * scale, t, axis))
+                })
+                .flatten();
             let length = if p.correlation_length > 0.0 { p.correlation_length } else { 0.5 * diameter[f] };
             let amp = p.amplitude.max(0.0).to_radians() * scale * (2.0 / MODES as f64).sqrt();
             let waves = std::array::from_fn(|_| {
@@ -209,6 +235,7 @@ pub fn orientation_gradient(ds: &DataSet, orientations: &str, ids_name: &str, p:
                 s_ref: if p.reference == REF_LOWEST { low[f] } else { dot(centroid, dir) },
                 rate: p.rate.to_radians() * spread * scale,
                 axis,
+                across,
                 waves,
                 // Two cells differ by a vector with components N(0, 2 sd^2): mean length 2.257 sd.
                 cell_sd: if p.cell_size > 0.0 { p.cell_angle.max(0.0).to_radians() * scale / 2.2568 } else { 0.0 },
@@ -224,6 +251,10 @@ pub fn orientation_gradient(ds: &DataSet, orientations: &str, ids_name: &str, p:
             let Some(g) = (ids[c] > 0).then(|| grains[ids[c] as usize].as_ref()).flatten() else { return q };
             let x = v.center(c);
             let mut rot = cx::axis_angle_to_quat(g.axis, g.rate * (dot(x, dir) - g.s_ref));
+            if let Some((rate, t, axis)) = g.across {
+                let rel: [f64; 3] = std::array::from_fn(|k| x[k] - g.centroid[k]);
+                rot = cx::mul(rot, cx::axis_angle_to_quat(axis, rate * dot(rel, t)));
+            }
             if p.amplitude > 0.0 {
                 let rel: [f64; 3] = std::array::from_fn(|k| x[k] - g.centroid[k]);
                 let mut w = [0.0; 3];

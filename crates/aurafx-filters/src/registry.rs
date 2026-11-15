@@ -208,8 +208,11 @@ fn arr_param(key: &str, label: &str) -> ParamSpec {
 /// model at that rate.
 fn with_gradient(ds: DataSet, p: &Params) -> anyhow::Result<DataSet> {
     let rate = p.f64("gradient", 0.0);
-    if rate > 0.0 {
-        crate::orient_gradient::orientation_gradient(&ds, "", "FeatureIds", &crate::orient_gradient::GradientParams::model(rate, p.i64("seed", 1) as u64))
+    let across = p.f64("in_plane_gradient", 0.0);
+    if rate > 0.0 || across > 0.0 {
+        let model =
+            crate::orient_gradient::GradientParams { in_plane_rate: across, ..crate::orient_gradient::GradientParams::model(rate, p.i64("seed", 1) as u64) };
+        crate::orient_gradient::orientation_gradient(&ds, "", "FeatureIds", &model)
     } else {
         Ok(ds)
     }
@@ -4965,7 +4968,7 @@ fn build() -> Vec<FilterDef> {
             id: "orientation_gradient",
             label: "Orientation Gradient",
             category: "Grains",
-            description: "Give every grain an orientation that changes smoothly inside it, as in additively manufactured material: a steady turn along a direction, a smooth random spread and, optionally, sub-grain cells with low-angle boundaries.",
+            description: "Give every grain an orientation that changes smoothly inside it, as in additively manufactured material: a steady turn along a direction (the build direction), a steady turn across the grain (in plane), a smooth random spread and, optionally, sub-grain cells with low-angle boundaries.",
             keywords: &["intragranular misorientation", "lattice rotation", "orientation spread", "srod", "grod", "kam", "sub-grain", "cells", "low-angle boundaries", "additive manufacturing", "synthetic", "gradient"],
             is_source: false,
             ext: None,
@@ -4974,7 +4977,8 @@ fn build() -> Vec<FilterDef> {
             params: vec![
                 f("rate", "Gradient (degrees per unit length)", 0.05, 0.0, 90.0).help("How fast each grain turns along the direction. Measured additively manufactured nickel alloys turn by about 0.02 to 0.1 degrees per micrometre. 0: no steady turn."),
                 v3("direction", "Direction", [0.0, 0.0, 1.0]).help("The turn grows along this direction (the build direction, z by default)."),
-                f("rate_spread", "Spread between grains (log sigma)", 0.5, 0.0, 3.0).help("Each grain gets its own rate, lognormal about the gradient. 0: every grain alike."),
+                f("in_plane_rate", "In-plane gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("How fast each grain turns across itself, perpendicular to the direction: along a direction of its own in that plane, about an axis of its own (or the fixed axis), from its centroid. A turn by height alone leaves the orientation uniform within a layer; measured additively manufactured grains are not. 0: no turn across the grain."),
+                f("rate_spread", "Spread between grains (log sigma)", 0.5, 0.0, 3.0).help("Each grain gets its own rates, lognormal about the two gradients. 0: every grain alike."),
                 choice("axis", "Rotation axis", &[crate::orient_gradient::AXIS_RANDOM, crate::orient_gradient::AXIS_PERPENDICULAR, crate::orient_gradient::AXIS_FIXED], crate::orient_gradient::AXIS_RANDOM)
                     .help("The axis each grain turns about: its own random one, a random one perpendicular to the direction, or the fixed axis below for all grains."),
                 choice("reference", "Unturned at", &[crate::orient_gradient::REF_CENTROID, crate::orient_gradient::REF_LOWEST], crate::orient_gradient::REF_CENTROID)
@@ -4996,6 +5000,7 @@ fn build() -> Vec<FilterDef> {
                     rate: p.f64("rate", 0.05),
                     direction: p.vec3("direction", [0.0, 0.0, 1.0]),
                     rate_spread: p.f64("rate_spread", 0.5),
+                    in_plane_rate: p.f64("in_plane_rate", 0.0),
                     axis: p.str("axis"),
                     fixed_axis: p.vec3("fixed_axis", [1.0, 0.0, 0.0]),
                     reference: p.str("reference"),
@@ -5382,6 +5387,7 @@ fn build() -> Vec<FilterDef> {
                 b("calibrate", "Match the goal sizes and shapes", true).help("Space-filling grains measure more irregular than the shapes drawn: repack with corrected goals until the measured statistics match (slower)."),
                 i("moves", "Placement moves per grain", 20, 0, 100_000).advanced(),
                 f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                f("in_plane_gradient", "In-plane orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain."),
                 i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
             ],
             apply: |_, p| {
@@ -5439,6 +5445,7 @@ fn build() -> Vec<FilterDef> {
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
                 f("realism", "Realism", 0.0, 0.0, 1.0).help("0: the plain tessellation. Towards 1 the grains look more as if they had grown: sizes spread (when Size spread is 0), the smallest grains removed, boundaries a little wavy and relaxed so that junctions open to equal angles. The settings below override what Realism chooses; Grain Realism is the same as a filter."),
                 f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                f("in_plane_gradient", "In-plane orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain."),
                 i("relax", "Relaxation sweeps", -1, -1, 100).help("-1: 5 x Realism.").advanced(),
                 f("roughness", "Boundary roughness (fraction of the grain size)", f64::NAN, 0.0, 0.5).help("Empty: 0.06 x Realism.").advanced(),
                 f("coarsen", "Remove smallest grains (fraction)", f64::NAN, 0.0, 0.95).help("Empty: 0.1 x Realism.").advanced(),
@@ -5500,6 +5507,7 @@ fn build() -> Vec<FilterDef> {
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
                 f("realism", "Realism", 0.0, 0.0, 1.0).help("0: the plain columns. Towards 1 the build looks more like a real one: columns whose <100> lies near Z outgrow their neighbours, so grains widen and thin out with height; some columns stop at each layer and new grains start there; the columns lean one way and the other in alternate layers; fine grains appear at the layer boundaries; the boundaries are wavy and relaxed. The settings below override what Realism chooses."),
                 f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                f("in_plane_gradient", "In-plane orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain."),
                 f("layer", "Layer thickness", 40.0, 0.0, f64::INFINITY).help("Height of a build layer, for the layer effects of Realism (0: no layers).").advanced(),
                 f("competitive", "Competitive growth", f64::NAN, 0.0, 1.0).help("How strongly columns with <100> near Z outgrow the others (1: an overgrown column is never replaced). Empty: Realism.").advanced(),
                 f("epitaxial", "Columns continuing through a layer (fraction)", f64::NAN, 0.0, 1.0).help("The others end at the layer boundary and a new grain starts in their place. Empty: 1 - 0.3 x Realism.").advanced(),

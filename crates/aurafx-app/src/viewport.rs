@@ -1026,6 +1026,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             );
         }
     }
+    crate::cad::pick_hover(state, ui.ctx(), rect, response.hover_pos());
     crate::cad::pick_overlay(&painter, &state.viewport.camera, rect, state);
     crate::cad::planes_overlay(&painter, &state.viewport.camera, rect, state);
     // Ruler.

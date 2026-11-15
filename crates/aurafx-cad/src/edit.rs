@@ -472,7 +472,16 @@ pub fn sketch_from_spec_on(doc: &Document, spec: &Value) -> Result<(Sketch, bool
                     s.add_line(w[0], w[1]);
                 }
             }
-            k => return bad(format!("unknown sketch item '{k}': rectangle, circle, polygon, regular or path")),
+            "project" => {
+                // {"project": {"face": "Plate z+"}} or {"project": {"edge": ["Plate z+", "Bore side"]}}:
+                // edges of the part as it is, laid on the sketch plane (lines, circles, arcs, outlines).
+                let edges = crate::project::part_edges(doc)?;
+                let chosen = crate::project::choose_edges(&edges, a)?;
+                if s.add_part_edges(&chosen).is_empty() {
+                    return bad("those edges are seen end on from the sketch plane: nothing to take from them");
+                }
+            }
+            k => return bad(format!("unknown sketch item '{k}': rectangle, circle, polygon, regular, path or project")),
         }
     }
     raw_constraints(doc, spec, &mut s)?;

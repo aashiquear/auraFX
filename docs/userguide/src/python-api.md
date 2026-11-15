@@ -61,6 +61,7 @@ Every function of the `aurafx` module (`import aurafx as afx`) and every method 
 - `afx.make_points(xyz)`: A point cloud (one vertex per point): `afx.make_points(xyz)`.
 - `afx.make_polydata(points, polys=None, lines=None, verts=None)`: A surface: `afx.make_polydata(points, polys=[[0,1,2], ...], lines=[[...]], verts=[[...]])`.
 - `afx.match_views()`: Copy the active view's camera to every other view once.
+- `afx.new(ask=False)`: Start a new workspace (File > New): every object is removed and the state file forgotten; settings and the window layout stay. Nothing is asked unless `ask=True`, which asks in the window when the current work is not saved.
 - `afx.nodes()`
 - `afx.over_time(node, array, stat='max', plot=True)`: Statistic of an array over every time step, plotted in the Charts panel. stat: "max", "min", "mean", "sum" or "value" (for global/field variables). Returns (times, values).
 - `afx.panel(title)`: Add a panel to the window (Windows > Plugin panels). The function gets a `ui` and is run when the panel opens and whenever a button is pressed or a value changes: ui.label(text), ui.button(text) -> True on the run its press causes, ui.slider(name, value, lo, hi), ui.number(name, value), ui.checkbox(name, value), ui.text(name, value), ui.choice(name, options, value) give the current value, ui.image(path), ui.separator().
@@ -82,8 +83,8 @@ Every function of the `aurafx` module (`import aurafx as afx`) and every method 
 - `afx.set_shortcut(action=None, keys='', vim=None)`: Bind keys to an action of the window: `afx.set_shortcut("screenshot", "Ctrl+P")`, several keys with commas, "" for none; `vim=True` turns on the vim-style view keys (h j k l, + -, 0).
 - `afx.set_theme(mode)`: UI theme: "dark", "light" or "system".
 - `afx.show_panel(name)`: Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
-- `afx.simulation_case(node, solver, folder, **kwargs)`: Write a simulation case from a node's data into `folder`: solver "moose" (a grain mesh: mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt, polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts) or "pinnacle" (a grain mesh: mesh.e, orientations_points.csv, case.i). Options: material, axis ('x', 'y', 'z'), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature, dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.
-- `afx.simulation_template(name)`: Open the Simulations panel on a template: "lammps", "moose", "moose_polycrystal", "spparks", "pinnacle", "openfoam", "python", "shell" (or its label).
+- `afx.simulation_case(node, solver, folder, **kwargs)`: Write a simulation case from a node's data into `folder`: solver "moose" (a grain mesh: mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt, polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts), "pinnacle" (a grain mesh: mesh.e, orientations_points.csv, case.i) or "jaxfem" (a grain mesh of linear hexahedra or tetrahedra: nodes.txt, elements.txt, element_grains.txt, grain_axes.txt and run_jaxfem.py, a script for the JAX-FEM library). Options: material, axis ('x', 'y', 'z'), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature, dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.
+- `afx.simulation_template(name)`: Open the Simulations panel on a template: "lammps", "moose", "moose_polycrystal", "spparks", "pinnacle", "jaxfem", "openfoam", "python", "shell" (or its label).
 - `afx.snapshot(width=None, height=None, views=None)`: A picture of the active 3D view (views="all": every view as laid out) shown in the notebook.
 - `afx.source(_fn=None, *, label=None, category='Plugins', description=None, params=None, keywords=(), id=None)`: Register a source: a function of keyword parameters returning an afx.Data.
 - `afx.split_view(direction='right')`: Add a 3D view next to the active one: "right" (side by side) or "down" (above/below). The new view becomes active and starts with the same camera and visible objects. Returns its number once it exists (None without the app).
@@ -237,7 +238,8 @@ The parametric document of a CAD Model node. Numbers can be expressions of the d
 - `pick_face_for(feature)`: Open the list of flat faces a feature's sketch can be put on (the model tree's 'Pick another face…'). In the window only; sketch_face() does it without the window.
 - `placements(resolution=48)`: Where the mates put every component: name, at, rotate (degrees).
 - `plane(name=None, from_plane='XY', offset=0, angle=0, about='x', points=None, origin=None, normal=None, x_axis=None)`: A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference plane moved by offset and turned by angle about its x or y axis; or through three points; or by origin and normal. Sketch on it with sketch(plane=name).
-- `plane_form()`: Open the New reference plane form in the window.
+- `plane_form(**values)`: Open the New reference plane form in the window; the 3D view shows the plane it would make, filled. values fill the form in: method="plane"\|"face"\|"points", start="XY" (or a reference plane), face="Plate z+", offset=20, angle=30, about="x"\|"y", name="Tilted", points=[three points].
+- `preview_plane(plane='XY')`: Show a plane filled in the 3D view of the window, as pointing at its button does: XY, XZ, YZ or a reference plane's name; None takes it away.
 - `redo()`
 - `remove(feature)`
 - `remove_parameter(name)`
@@ -266,6 +268,9 @@ The parametric document of a CAD Model node. Numbers can be expressions of the d
 - `sketch_remove(name)`
 - `sketch_rename(name, to)`
 - `sketch_set(name, sketch)`: Replace a kept sketch; the sweeps and lofts that use it follow.
+- `sketch_show_part(on=True)`: Show (or hide) the part underneath the open sketch's grid: the Sketch tab's Show part toggle.
+- `sketch_take_edge(x, y)`: Take the edge of the part nearest to (x, y) on the sketch plane into the open sketch, as a click with the From the part tool does: a line, a circle, an arc or an outline. In the window only; a sketch's project() does it without the window.
+- `sketch_tool(tool='select')`: Choose the tool of the open sketch canvas: select, line, rectangle, circle, arc, spline, point, or project (From the part: a click on an edge of the part takes it into the sketch).
 - `sketches()`: The sketches kept with the part: name, plane, closed outlines, open paths.
 - `sphere(radius=5, name=None, op='add', at=(0, 0, 0), rotate=(0, 0, 0), blend=0)`
 - `split(plane='XY', offset=0, keep_positive=True, feature=None)`
@@ -305,6 +310,7 @@ A sketch: ready shapes (rectangle, circle, polygon, regular, path), or lines, ci
 - `point(x, y, fixed=False)`: A point; fixed=True pins it where it is.
 - `point_on(point, entity)`: A point on a line (anywhere along it) or on a circle or arc.
 - `polygon(points)`
+- `project(face=None, edge=None)`: Take edges of the part as it is into the sketch, laid flat on the sketch plane: every edge around a face (face="Plate z+"), the edge between two faces (edge=("Plate z+", "Bore side")), or all of them (neither). A straight edge becomes a line, a round one seen face on a circle or an arc, any other a fixed outline through its points; edges seen end on are left out. They are a copy: they stay where they are when the part changes later.
 - `radius(circle, value)`
 - `rectangle(w, h, corner=None, center=None)`
 - `regular(sides, r, center=(0, 0))`

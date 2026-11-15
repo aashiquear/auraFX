@@ -140,9 +140,15 @@ source** turns the window back on. Sources added from Python (`afx.sphere(radius
 
 ## Saving your work
 
+![File › New asking about work that is not saved](images/file_new.png)
+
 - **File › Save State** (Ctrl+S) writes an `.afx` file holding the pipeline, every parameter,
   the display settings, the camera and any keyframes. **File › Open** reopens it, including
   objects that live on a remote server.
+- **File › New** clears the workspace for a new piece of work: every object, the charts and
+  the name of the state file (settings and the window layout stay). When the current work
+  is not saved it asks first: **Save…** saves the state and then clears, **Do not save**
+  clears at once, **Cancel** goes back. `afx.new()` does it from a script without asking.
 - On the next start, **Restore last session** in the empty view (or in the File menu) brings
   back the last state. The state is also saved every half minute while you work, so little is
   lost if the computer or the program stops.

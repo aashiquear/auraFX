@@ -30,6 +30,7 @@ pub mod mates;
 pub mod mesh;
 mod params;
 pub mod path;
+pub mod project;
 pub mod sketch;
 pub mod swept;
 pub mod templates;

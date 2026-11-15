@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e758388e.js";
+            window.path_to_searchindex_js = "searchindex-9e7f1b83.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f1c4f5ea.js"></script>
@@ -188,7 +188,7 @@
 <tr><th>Field</th><th>Meaning</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Template</strong></td><td>LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, DAMASK, FFT texture file, LAMMPS polycrystal, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below)</td></tr>
+<tr><td><strong>Template</strong></td><td>LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, JAX-FEM polycrystal, DAMASK, FFT texture file, LAMMPS polycrystal, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below)</td></tr>
 <tr><td><strong>Run on</strong></td><td>this computer, or a remote machine from the SSH list; <strong>through a scheduler</strong> submits the job to the machine’s batch system instead: <strong>Slurm</strong> (<code>sbatch</code>), <strong>PBS</strong> (<code>qsub</code>; PBS Professional, OpenPBS, Torque) or <strong>LSF</strong> (<code>bsub</code>). The partition or queue, the time limit, the nodes and extra directive lines appear; auraFX follows the job’s state and log and collects its exit code</td></tr>
 <tr><td><strong>Name</strong>, <strong>Working directory</strong></td><td>where the run lives; a remote directory when running over SSH</td></tr>
 <tr><td><strong>Program</strong>, <strong>Input</strong>, <strong>MPI processes</strong></td><td>the command line is assembled from these and shown below, editable</td></tr>
@@ -203,7 +203,7 @@
 and buttons to cancel, open the results or the folder, and resubmit. Files a running solver
 writes can be opened while it runs; auraFX reloads them as they change (live reload).</p>
 <h2 id="simulation-cases-from-the-pipeline"><a class="header" href="#simulation-cases-from-the-pipeline">Simulation cases from the pipeline</a></h2>
-<p>Six templates write their input files from the data selected in the pipeline, then run the
+<p>Seven templates write their input files from the data selected in the pipeline, then run the
 solver:</p>
 <div class="table-wrapper">
 <table>
@@ -214,6 +214,7 @@ solver:</p>
 <tr><td><strong>MOOSE polycrystal</strong></td><td>a grain mesh (from <a href="geometry.html#grains-on-meshes">Assign Grains</a>, or Overlay Mesh of a microstructure)</td><td><code>mesh.e</code> (one block per grain, block id = grain id), <code>grain_euler.txt</code> (each block’s Euler angles, read with <code>PropertyReadFile</code>), <code>grains.tex</code> (the same orientations for <code>EulerAngleFileReader</code>), <code>slip_systems.txt</code>, <code>polycrystal.i</code></td></tr>
 <tr><td><strong>SPPARKS grain growth</strong></td><td>a microstructure volume with <code>FeatureIds</code></td><td><code>grains.spparks</code> (the site file), <code>in.potts</code> (a Potts-model run that reads it)</td></tr>
 <tr><td><strong>PINNACLE crystal plasticity</strong></td><td>a grain mesh</td><td><code>mesh.e</code>, <code>orientations_points.csv</code> (each element’s centre with its grain and Euler angles), <code>case.i</code></td></tr>
+<tr><td><strong>JAX-FEM polycrystal</strong></td><td>a grain mesh of linear hexahedra or tetrahedra</td><td><code>nodes.txt</code>, <code>elements.txt</code>, <code>element_grains.txt</code>, <code>grain_axes.txt</code> (the three cubic axes of every grain in the sample frame), <code>run_jaxfem.py</code> (see below)</td></tr>
 <tr><td><strong>DAMASK crystal plasticity (grid)</strong></td><td>a microstructure volume with <code>FeatureIds</code> and orientations</td><td><code>grid.vti</code> (cell array <code>material</code> = grain id − 1), <code>material.yaml</code> (the phase from the material table, then one material per grain with its mean orientation as a quaternion), <code>load.yaml</code> (a strain rate along the axis, the other normal stresses free)</td></tr>
 <tr><td><strong>FFT texture file</strong></td><td>a microstructure volume</td><td><code>micro.txt</code>: one line per voxel, x fastest: φ1 Φ φ2 (Bunge, degrees), x y z (voxel indices from 1), grain id, phase id; <code>micro_README.txt</code> with the grid size</td></tr>
 <tr><td><strong>LAMMPS polycrystal</strong></td><td>a microstructure volume</td><td><code>atoms.data</code> (every grain filled with the material’s FCC or BCC lattice turned to the grain’s orientation; of two atoms closer than half the nearest-neighbour distance across a boundary one is removed; periodic box), <code>atom_grains.txt</code> and <code>atoms.dump</code> (each atom’s grain), <code>in.lammps</code> (relax, then heat and hold)</td></tr>
@@ -246,12 +247,25 @@ when the run ends, named after the run:</p>
 <li>MOOSE: <code>polycrystal_out.e</code>, with one block per grain.</li>
 <li>SPPARKS: <code>dump.potts</code>, each snapshot a volume with <code>FeatureIds</code>.</li>
 <li>PINNACLE: <code>solver/fields.pvd</code>, the field snapshots as a time series.</li>
+<li>JAX-FEM: <code>results/u.pvd</code>, the displacement at every load step as a time series.</li>
 <li>DAMASK: <code>grid_load.hdf5</code> (DAMASK’s result file; post-process it with DAMASK’s tools).</li>
 <li>LAMMPS: <code>dump.lammpstrj</code>, the atoms over time.</li>
 </ul>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/simulation_case.png" alt="The Simulations panel set to write a PINNACLE case from a grain mesh"><span class="img-wrapper"><img src="images/simulation_case.png" alt="The Simulations panel set to write a PINNACLE case from a grain mesh"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/damask_case.png" alt="The Simulations panel on the DAMASK template with a Voronoi microstructure of 40 grains selected"><span class="img-wrapper"><img src="images/damask_case.png" alt="The Simulations panel on the DAMASK template with a Voronoi microstructure of 40 grains selected"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/lammps_polycrystal.png" alt="A LAMMPS polycrystal of six aluminium grains filled from a Voronoi microstructure, the atoms colored by grain"><span class="img-wrapper"><img src="images/lammps_polycrystal.png" alt="A LAMMPS polycrystal of six aluminium grains filled from a Voronoi microstructure, the atoms colored by grain"></span></label></p>
+<p><strong>JAX-FEM polycrystal.</strong> <a href="https://github.com/deepmodeling/jax-fem">JAX-FEM</a> is a finite
+element library in Python that runs on a GPU when JAX has one; it is a separate program that
+you install yourself (<code>pip install jax-fem</code>). The template writes, from a grain mesh of linear
+hexahedra or tetrahedra, the nodes, the elements and each element’s grain as text files, the
+crystal axes of every grain (<code>grain_axes.txt</code>) and <code>run_jaxfem.py</code>. The script pulls the mesh
+along the chosen axis to the chosen strain in equal steps, each grain linear elastic with the
+material’s cubic stiffness turned to its orientation, and writes one <code>.vtu</code> per step. It is
+short and meant to be edited: its <code>stress</code> function is the place for another material law.</p>
+<pre><code class="language-python">poly = afx.box_mesh(size=(4, 2, 1), cells=(24, 12, 6)).assign_grains(grains=20)
+afx.run_case(poly, "jaxfem", "~/runs/jaxfem", material="Copper", strain=0.01, steps=5)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/jaxfem_case.png" alt="The Simulations panel on the JAX-FEM template with a grain mesh selected"><span class="img-wrapper"><img src="images/jaxfem_case.png" alt="The Simulations panel on the JAX-FEM template with a grain mesh selected"></span></label></p>
 <p>The input files are a starting point. Edit them for the material’s hardening and slip
 parameters, the boundary conditions and the solver settings before production runs.</p>
 <pre><code class="language-python">poly = afx.plate_mesh().assign_grains(grains=30, blocks=True)

@@ -17,7 +17,9 @@ path = "src/main.rs"
 winresource = "0.1"
 
 [features]
-default = ["python", "native-dialogs", "linux-desktop", "persistence", "accessibility"]
+default = ["python", "native-dialogs", "linux-desktop", "persistence", "accessibility", "clipboard"]
+# The system clipboard (copy and paste between auraFX and other programs). Desktop only.
+clipboard = ["eframe/clipboard"]
 # Screen readers (AccessKit). Desktop only: the Android activity auraFX uses cannot carry it.
 accessibility = ["eframe/accesskit"]
 # Remember window layout between runs.

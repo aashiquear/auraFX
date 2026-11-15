@@ -1103,7 +1103,7 @@ The installers include a portable CPython (python-build-standalone, Python Softw
 License) and NumPy (BSD-3-Clause). Their licence files are inside the python folder next to the
 program (LICENSE.txt in the Python library folder, LICENSE.txt in numpy's dist-info folder).
 
-3. Rust crates built into auraFX (631)
+3. Rust crates built into auraFX (637)
 --------------------------------------
 
 name version  SPDX licence  [where it comes from]
@@ -1177,7 +1177,9 @@ cadmpeg-core 0.6.7  Apache-2.0  [crates.io]
 cadmpeg-ir 0.6.7  Apache-2.0  [crates.io]
 cadmpeg-registry 0.6.7  Apache-2.0  [crates.io]
 calloop 0.13.0  MIT  [crates.io]
+calloop 0.14.5  MIT  [crates.io]
 calloop-wayland-source 0.3.0  MIT  [crates.io]
+calloop-wayland-source 0.4.1  MIT  [crates.io]
 cc 1.11.0  MIT OR Apache-2.0  [crates.io]
 cfg-if 1.0.5  MIT OR Apache-2.0  [crates.io]
 cfg_aliases 0.2.2  MIT  [crates.io]
@@ -1561,6 +1563,8 @@ slab 0.4.12  MIT  [crates.io]
 slotmap 1.1.1  Zlib  [crates.io]
 smallvec 1.16.4  MIT OR Apache-2.0  [crates.io]
 smithay-client-toolkit 0.19.2  MIT  [crates.io]
+smithay-client-toolkit 0.20.0  MIT  [crates.io]
+smithay-clipboard 0.7.3  MIT  [crates.io]
 smol_str 0.2.2  MIT OR Apache-2.0  [crates.io]
 socket2 0.6.5  MIT OR Apache-2.0  [crates.io]
 solidcore 1.0.1  Apache-2.0  [vendor/solidcore]
@@ -1657,6 +1661,8 @@ wayland-client 0.31.15  MIT  [crates.io]
 wayland-csd-frame 0.3.0  MIT  [crates.io]
 wayland-cursor 0.31.14  MIT  [crates.io]
 wayland-protocols 0.32.13  MIT  [crates.io]
+wayland-protocols-experimental 20250721.0.1  MIT  [crates.io]
+wayland-protocols-misc 0.3.12  MIT  [crates.io]
 wayland-protocols-plasma 0.3.12  MIT  [crates.io]
 wayland-protocols-wlr 0.3.12  MIT  [crates.io]
 wayland-scanner 0.31.11  MIT  [crates.io]
@@ -7703,7 +7709,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-calloop 0.13.0, smithay-client-toolkit 0.19.2
+calloop 0.13.0, calloop 0.14.5, smithay-client-toolkit 0.19.2, smithay-client-toolkit 0.20.0
 ---- LICENSE.txt
 Copyright (c) 2018 Victor Berger
 
@@ -7726,7 +7732,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-calloop-wayland-source 0.3.0, wayland-csd-frame 0.3.0
+calloop-wayland-source 0.3.0, calloop-wayland-source 0.4.1, wayland-csd-frame 0.3.0
 ---- LICENSE.txt
 Copyright (c) 2023 Kirill Chibisov
 
@@ -38839,6 +38845,29 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
+smithay-clipboard 0.7.3
+---- LICENSE
+Copyright (c) 2018 Lucas Timmins & Victor Berger
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+==============================================================================
 solidcore 1.0.1
 ---- LICENSE
 Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -45113,7 +45142,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-wayland-backend 0.3.17, wayland-client 0.31.15, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-scanner 0.31.11, wayland-sys 0.31.11
+wayland-backend 0.3.17, wayland-client 0.31.15, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-experimental 20250721.0.1, wayland-protocols-misc 0.3.12, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-scanner 0.31.11, wayland-sys 0.31.11
 ---- LICENSE.txt
 Copyright (c) 2015 Elinor Berger
 

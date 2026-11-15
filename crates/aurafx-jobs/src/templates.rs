@@ -74,6 +74,17 @@ pub const TEMPLATES: &[Template] = &[
         case: Some("pinnacle"),
     },
     Template {
+        id: "jaxfem",
+        label: "JAX-FEM polycrystal",
+        description: "Tension of a grain mesh with the JAX-FEM finite element library (Python, runs on a GPU when JAX has one): writes the nodes, elements, each grain's crystal axes and a script that pulls the mesh with every grain's cubic elastic stiffness; the displacement snapshots open as a time series. The script is a starting point for other material laws.",
+        command: "{exe} {input}",
+        gpu_command: "{exe} {input}",
+        default_exe: "python",
+        default_input: "run_jaxfem.py",
+        outputs: "results/u.pvd",
+        case: Some("jaxfem"),
+    },
+    Template {
         id: "damask",
         label: "DAMASK crystal plasticity (grid)",
         description: "Spectral crystal plasticity of a microstructure volume: writes grid.vti (one material per grain), material.yaml with the grains' orientations and load.yaml (tension along an axis) from the selected data.",

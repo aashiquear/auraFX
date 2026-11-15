@@ -41,6 +41,13 @@ fn button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
     ui.button(crate::icons::with(label)).on_hover_text(tip).clicked()
 }
 
+/// A button that takes a plane: while the pointer is on it the 3D view shows that plane, filled.
+fn plane_button(state: &mut State, ui: &mut egui::Ui, label: &str, tip: &str, plane: impl FnOnce(&State) -> super::preview::PlanePreview) -> bool {
+    let r = ui.button(crate::icons::with(label)).on_hover_text(tip);
+    super::preview::hover_if(state, &r, |s| Some(plane(s)));
+    r.clicked()
+}
+
 pub fn ribbon_ui(state: &mut State, ui: &mut egui::Ui) {
     if !editing(state) {
         return;
@@ -292,11 +299,15 @@ fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool
         (aurafx_cad::SketchPlane::XZ, "Front (XZ)", "Draw on the front plane (x across, z up)"),
         (aurafx_cad::SketchPlane::YZ, "Right (YZ)", "Draw on the side plane (y across, z up)"),
     ] {
-        if button(ui, label, tip) {
+        if plane_button(state, ui, label, tip, |s| super::preview::principal(s, plane, 0.0, label)) {
             super::sketch_new(state, plane, 0.0, false);
         }
     }
-    if has_part && button(ui, "Top of the part", "Draw on the plane of the top of the part, to add a boss or cut a pocket") {
+    if has_part
+        && plane_button(state, ui, "Top of the part", "Draw on the plane of the top of the part, to add a boss or cut a pocket", |s| {
+            super::preview::principal(s, aurafx_cad::SketchPlane::XY, at[2], "Top of the part")
+        })
+    {
         super::sketch_new(state, aurafx_cad::SketchPlane::XY, at[2], false);
     }
     if has_part && button(ui, "A face…", "Choose any flat face of the part (click it in the 3D view) and draw on it") {
@@ -304,7 +315,9 @@ fn sketch_tab(state: &mut State, ui: &mut egui::Ui, at: [f64; 3], has_part: bool
     }
     let planes = state.session.lock().cad_edit.as_ref().map(|e| e.active().planes.clone()).unwrap_or_default();
     for p in planes {
-        if button(ui, &p.name, &format!("Draw on the reference plane {} ({})", p.name, p.how)) {
+        if plane_button(state, ui, &p.name, &format!("Draw on the reference plane {} ({})", p.name, p.how), |s| {
+            super::preview::over_part(s, p.frame, p.name.clone(), false)
+        }) {
             super::sketch::begin_on_frame(state, p.frame, Some(p.name.clone()), false);
         }
     }
@@ -400,13 +413,16 @@ fn modify_tab(state: &mut State, ui: &mut egui::Ui) {
         add(state, json!({"kind": "CircularPatternAngle", "count": 6, "total_deg": 360, "axis": "Z"}));
     }
     ui.separator();
-    if button(ui, "Mirror YZ", "Keep the part and add its reflection across the YZ plane") {
+    let yz = |s: &State| super::preview::principal(s, aurafx_cad::SketchPlane::YZ, 0.0, "Right (YZ)");
+    if plane_button(state, ui, "Mirror YZ", "Keep the part and add its reflection across the YZ plane", yz) {
         add(state, json!({"kind": "Mirror", "plane": "YZ"}));
     }
-    if button(ui, "Mirror XZ", "Keep the part and add its reflection across the XZ plane") {
+    if plane_button(state, ui, "Mirror XZ", "Keep the part and add its reflection across the XZ plane", |s| {
+        super::preview::principal(s, aurafx_cad::SketchPlane::XZ, 0.0, "Front (XZ)")
+    }) {
         add(state, json!({"kind": "Mirror", "plane": "XZ"}));
     }
-    if button(ui, "Split", "Keep one side of the YZ plane") {
+    if plane_button(state, ui, "Split", "Keep one side of the YZ plane", yz) {
         add(state, json!({"kind": "Split", "plane": "YZ", "offset": 0, "keep_positive": true}));
     }
     if button(ui, "Scale", "Scale about the origin") {

@@ -9,7 +9,7 @@ The **Simulations** panel (right side; **Simulate › Run a simulation…**, or
 
 | Field | Meaning |
 |---|---|
-| **Template** | LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, DAMASK, FFT texture file, LAMMPS polycrystal, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below) |
+| **Template** | LAMMPS, MOOSE app, MOOSE polycrystal, SPPARKS grain growth, PINNACLE crystal plasticity, JAX-FEM polycrystal, DAMASK, FFT texture file, LAMMPS polycrystal, OpenFOAM, Python pipeline or Custom command; fills in the program, input and result-file patterns (the polycrystal and grain growth templates also write their input files, see below) |
 | **Run on** | this computer, or a remote machine from the SSH list; **through a scheduler** submits the job to the machine's batch system instead: **Slurm** (`sbatch`), **PBS** (`qsub`; PBS Professional, OpenPBS, Torque) or **LSF** (`bsub`). The partition or queue, the time limit, the nodes and extra directive lines appear; auraFX follows the job's state and log and collects its exit code |
 | **Name**, **Working directory** | where the run lives; a remote directory when running over SSH |
 | **Program**, **Input**, **MPI processes** | the command line is assembled from these and shown below, editable |
@@ -24,7 +24,7 @@ writes can be opened while it runs; auraFX reloads them as they change (live rel
 
 ## Simulation cases from the pipeline
 
-Six templates write their input files from the data selected in the pipeline, then run the
+Seven templates write their input files from the data selected in the pipeline, then run the
 solver:
 
 | Template | Selected data | Files written into the working directory |
@@ -32,6 +32,7 @@ solver:
 | **MOOSE polycrystal** | a grain mesh (from [Assign Grains](geometry.md#grains-on-meshes), or Overlay Mesh of a microstructure) | `mesh.e` (one block per grain, block id = grain id), `grain_euler.txt` (each block's Euler angles, read with `PropertyReadFile`), `grains.tex` (the same orientations for `EulerAngleFileReader`), `slip_systems.txt`, `polycrystal.i` |
 | **SPPARKS grain growth** | a microstructure volume with `FeatureIds` | `grains.spparks` (the site file), `in.potts` (a Potts-model run that reads it) |
 | **PINNACLE crystal plasticity** | a grain mesh | `mesh.e`, `orientations_points.csv` (each element's centre with its grain and Euler angles), `case.i` |
+| **JAX-FEM polycrystal** | a grain mesh of linear hexahedra or tetrahedra | `nodes.txt`, `elements.txt`, `element_grains.txt`, `grain_axes.txt` (the three cubic axes of every grain in the sample frame), `run_jaxfem.py` (see below) |
 | **DAMASK crystal plasticity (grid)** | a microstructure volume with `FeatureIds` and orientations | `grid.vti` (cell array `material` = grain id − 1), `material.yaml` (the phase from the material table, then one material per grain with its mean orientation as a quaternion), `load.yaml` (a strain rate along the axis, the other normal stresses free) |
 | **FFT texture file** | a microstructure volume | `micro.txt`: one line per voxel, x fastest: φ1 Φ φ2 (Bunge, degrees), x y z (voxel indices from 1), grain id, phase id; `micro_README.txt` with the grid size |
 | **LAMMPS polycrystal** | a microstructure volume | `atoms.data` (every grain filled with the material's FCC or BCC lattice turned to the grain's orientation; of two atoms closer than half the nearest-neighbour distance across a boundary one is removed; periodic box), `atom_grains.txt` and `atoms.dump` (each atom's grain), `in.lammps` (relax, then heat and hold) |
@@ -61,6 +62,7 @@ when the run ends, named after the run:
 - MOOSE: `polycrystal_out.e`, with one block per grain.
 - SPPARKS: `dump.potts`, each snapshot a volume with `FeatureIds`.
 - PINNACLE: `solver/fields.pvd`, the field snapshots as a time series.
+- JAX-FEM: `results/u.pvd`, the displacement at every load step as a time series.
 - DAMASK: `grid_load.hdf5` (DAMASK's result file; post-process it with DAMASK's tools).
 - LAMMPS: `dump.lammpstrj`, the atoms over time.
 
@@ -69,6 +71,22 @@ when the run ends, named after the run:
 ![The Simulations panel on the DAMASK template with a Voronoi microstructure of 40 grains selected](images/damask_case.png)
 
 ![A LAMMPS polycrystal of six aluminium grains filled from a Voronoi microstructure, the atoms colored by grain](images/lammps_polycrystal.png)
+
+**JAX-FEM polycrystal.** [JAX-FEM](https://github.com/deepmodeling/jax-fem) is a finite
+element library in Python that runs on a GPU when JAX has one; it is a separate program that
+you install yourself (`pip install jax-fem`). The template writes, from a grain mesh of linear
+hexahedra or tetrahedra, the nodes, the elements and each element's grain as text files, the
+crystal axes of every grain (`grain_axes.txt`) and `run_jaxfem.py`. The script pulls the mesh
+along the chosen axis to the chosen strain in equal steps, each grain linear elastic with the
+material's cubic stiffness turned to its orientation, and writes one `.vtu` per step. It is
+short and meant to be edited: its `stress` function is the place for another material law.
+
+```python
+poly = afx.box_mesh(size=(4, 2, 1), cells=(24, 12, 6)).assign_grains(grains=20)
+afx.run_case(poly, "jaxfem", "~/runs/jaxfem", material="Copper", strain=0.01, steps=5)
+```
+
+![The Simulations panel on the JAX-FEM template with a grain mesh selected](images/jaxfem_case.png)
 
 The input files are a starting point. Edit them for the material's hardening and slip
 parameters, the boundary conditions and the solver settings before production runs.

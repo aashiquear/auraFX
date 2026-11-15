@@ -175,6 +175,66 @@ fn gradient_off_seed_and_cap() {
     assert_eq!(count(&capped), count(&v));
 }
 
+/// The in-plane gradient turns a grain across itself and not with height: cells one above the
+/// other keep one orientation, and the misorientation across a layer of the grain is the rate
+/// times the distance along one direction in the plane.
+#[test]
+fn in_plane_gradient_turns_across_the_grain_only() {
+    let n = [36usize, 36, 12];
+    let v = run("voronoi_grains", None, &[("cells", json!(n)), ("grains", 6.into()), ("seed", 5.into())]);
+    let rate = 0.2;
+    let g =
+        run("orientation_gradient", Some(&v), &[("rate", 0.0.into()), ("amplitude", 0.0.into()), ("in_plane_rate", rate.into()), ("rate_spread", 0.0.into())]);
+    assert_eq!(cells(&g), n);
+    let (ids, q0, q) = (ids_of(&g), quats(&v), quats(&g));
+    let at = |i: usize, j: usize, k: usize| i + n[0] * (j + n[1] * k);
+    // Nothing changes with height inside a grain.
+    let mut columns = 0;
+    for j in 0..n[1] {
+        for i in 0..n[0] {
+            for k in 1..n[2] {
+                if ids[at(i, j, k)] == ids[at(i, j, 0)] {
+                    assert!(angle(q[at(i, j, k)], q[at(i, j, 0)]) < 1e-3);
+                    columns += 1;
+                }
+            }
+        }
+    }
+    assert!(columns > 1000);
+    // In a layer the turn from the start is linear in the position: for the largest grain,
+    // the angle between two cells is the rate times their separation along one direction, so
+    // over all pairs of a row and of a column the largest angle per cell of separation is at
+    // most the rate, and the two directions together give exactly the rate.
+    let mut size = std::collections::HashMap::new();
+    for f in &ids {
+        *size.entry(*f).or_insert(0usize) += 1;
+    }
+    let big = *size.iter().max_by_key(|(_, c)| **c).unwrap().0;
+    let slope = |di: usize, dj: usize| {
+        let mut out: Vec<f64> = Vec::new();
+        for j in 0..n[1] - dj * 6 {
+            for i in 0..n[0] - di * 6 {
+                let (a, b) = (at(i, j, 4), at(i + di * 6, j + dj * 6, 4));
+                if ids[a] == big && ids[b] == big {
+                    out.push(angle(q[a], q[b]) / 6.0);
+                }
+            }
+        }
+        assert!(out.len() > 20, "the largest grain is too small for the test");
+        median(out)
+    };
+    let (sx, sy) = (slope(1, 0), slope(0, 1));
+    let total = (sx * sx + sy * sy).sqrt();
+    eprintln!("in-plane gradient {rate}: {sx:.4} along x, {sy:.4} along y, {total:.4} together");
+    assert!((total - rate).abs() < 0.02 * rate, "{total}");
+    // The centroid keeps the orientation the grain had; the edge has turned.
+    let turned = (0..ids.len()).filter(|c| ids[*c] == big).map(|c| angle(q[c], q0[c])).fold(0.0, f64::max);
+    assert!(turned > 1.0, "{turned}");
+    // The sources take it too.
+    let s = run("voronoi_grains", None, &[("cells", json!(n)), ("grains", 6.into()), ("seed", 5.into()), ("in_plane_gradient", rate.into())]);
+    assert_ne!(s.cell_data().unwrap().get("EulerAngles"), v.cell_data().unwrap().get("EulerAngles"));
+}
+
 // ------------------------------------------------------------------ grain realism
 
 /// Boundary length of a 2-D label map by the four-direction Crofton estimate, in cells.

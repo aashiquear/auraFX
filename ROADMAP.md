@@ -346,6 +346,7 @@ them and they were not built, or only in Python), done in iteration 90 (see Stat
 - [x] A component's own features edited in the window: double-click, a breadcrumb back, the component shown alone (iteration 90).
 - [x] Mates (coincident, concentric, distance, angle, fixed) solved into placements, and motion by a mate's value (a slider, `mate_set`, a keyed dimension) (iteration 90).
 - [x] Constraints and dimensions in sketches built from Python without raw sketch JSON (iteration 90).
+- [x] Planes seen while they are chosen or made (a filled rectangle in the highlight color, as large as the part or the face: under the pointer on the plane buttons and the face lists, strong for the chosen face, live in the New reference plane form); the part shown underneath the sketch grid (the Sketch tab's *Show part* toggle); the sketch tool *From the part* and `sketch.project(face=, edge=)`, which take edges of the part as lines, circles, arcs and outlines (`aurafx-cad/src/project.rs`; user guide: CAD modeling, Sketching).
 
 ## 14. Gaps against the reference programs (P11)
 
@@ -1008,6 +1009,21 @@ finds things, the documentation and the project page) and its fixes:
   autosave every half minute.
 - The project page gained a CAD and meshing section and the features of iterations 85 to 89;
   its clips are all made in the light theme with their posters by the script.
+
+Done in iteration 92 (2026-11-17): **plane previews and sketching over the part in the CAD
+environment** (a plane or flat face being chosen, and the plane a New reference plane form
+would make, show as a filled rectangle in the accent color; the sketch canvas shows the part
+underneath, with a Show part switch; From the part takes an edge of the part into the sketch
+as a line, circle, arc or polyline; `sketch.project`); **an in-plane orientation gradient**
+(Orientation Gradient's in-plane rate turns every grain across itself, beside the gradient
+along the build direction; `in_plane_gradient` on the grain sources); **File › New** (asks
+about work that is not saved; `afx.new()`); **the system clipboard** in desktop builds (paste
+from other programs into the Python console and every text box); **a JAX-FEM polycrystal
+template** (`afx.simulation_case(mesh, "jaxfem", ...)`: text mesh, crystal axes and a script
+for the JAX-FEM library; the script has not been run against an installed JAX-FEM here);
+the assistant (reasoning off by default for Ollama so long requests are answered, copy
+buttons, saved conversations), All filters menu, a larger search window, view buttons (fit,
+zoom, pan) in the 3D view and sideways scrolling in the panels.
 
 Done in iteration 91 (2026-11-12): **a touch interface for tablets and phones**; the desktop
 interface is drawn by the code it was (five whole-window guide pictures retaken and compared).

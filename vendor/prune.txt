@@ -1,0 +1,29 @@
+# Upstream directories that are not carried in vendor/ (nothing in auraFX's build uses them).
+# scripts/cad/upstream-pull.sh leaves them out of every upstream patch, so they never enter the
+# repository. One path per line, relative to the repository root. Directories only: no upstream
+# file is edited to prune it.
+vendor/solidcraft/apps
+vendor/solidcraft/docs
+vendor/solidcraft/packaging
+vendor/solidcraft/scripts
+vendor/solidcraft/skills
+vendor/solidcraft/tests
+vendor/solidcraft/tools
+vendor/solidcraft/examples
+vendor/solidcraft/crates/gpu
+vendor/solidcraft/crates/mcp
+vendor/solidcraft/crates/dynamics
+vendor/solidcraft/crates/space-mouse
+vendor/solidcraft/crates/threedx-client
+vendor/solidcraft/crates/ui-egui
+vendor/solidcraft/assets/locales
+vendor/solidcore/fixtures
+vendor/solidcore/reports
+vendor/solidcore/harness
+vendor/solidcore/site
+vendor/solidcore/docs
+vendor/solidcore/plan
+vendor/solidcore/scripts
+vendor/solidcore/crates/goldens
+vendor/solidcore/crates/solidcore/tests/kernel_cases
+vendor/solidcore/assets

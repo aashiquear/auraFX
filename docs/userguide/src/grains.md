@@ -13,7 +13,7 @@ Open a map with **File › Open** or `afx.load("scan.ang")`.
 
 | Format | Extension | Notes |
 |---|---|---|
-| TSL/EDAX | `.ang` | square grids; hexagonal grids are not read yet |
+| TSL/EDAX | `.ang` | square grids, and hexagonal grids (resampled, see below) |
 | Oxford | `.ctf` | angles in degrees in the file, converted to radians |
 | EBSD stacks | `.h5ebsd` | serial sections from TSL or Oxford (HKL) maps, read as one volume |
 | EDAX OIM HDF5 | `.h5` | square-grid scans; choose the scan with the **Scan** reader option |
@@ -33,6 +33,14 @@ A map becomes image data with one cell per measured point, the cells centered on
 - **Field data:** one entry per phase, entry 0 standing for "not indexed".
   `CrystalStructures` holds the crystal class of each phase (see the numbers below),
   `MaterialName` its name and `LatticeConstants` a, b, c, α, β, γ.
+
+**Hexagonal grids.** A `.ang` scan on a hexagonal grid (rows of `NCOLS_ODD` and `NCOLS_EVEN`
+points, every other row shifted by half a step) is read on a square grid whose cells are the
+scan's x step: each square cell takes every value of the scan point nearest to it. The field
+array `ResampledFromHexGrid` says so and gives both grids, so the map's filters (segmentation,
+IPF colors, pole figures) work on it as on any square map.
+
+![A hexagonal-grid scan of seven nickel grains read on a square grid, colored by IPF along z](images/ebsd_hex_grid.png)
 
 A single-phase `.ang` scan writes phase 0 for every point. auraFX counts those points as
 phase 1, unless their confidence index is negative.
@@ -314,6 +322,54 @@ feature) are added, and per-feature arrays from an earlier segmentation are remo
   outside may become outside. The remaining features are renumbered from 1 in their old
   order, and per-feature field arrays keep their rows.
 
+Before or instead of segmenting, noisy maps can be cleaned cell by cell (every cell array moves
+with the cell it comes from):
+
+- **Replace Element Attributes with Neighbor** (neighbour confidence correlation): each cell
+  whose confidence (an array such as `Confidence Index`) is below a minimum takes the values of
+  its most confident neighbour, again and again if asked.
+- **Neighbor Orientation Correlation**: each low-confidence cell takes the values of the
+  neighbour that most other neighbours agree with in orientation (within a misorientation
+  tolerance), when enough of them agree, from 6 agreeing neighbours down to 6 minus the
+  *cleanup level*.
+- **Bad Data Neighbor Orientation Check**: a cell outside the mask (bad) with enough good
+  neighbours of nearly its own orientation becomes good.
+- **Erode Dilate Bad Data**: the features grow into the bad cells (erode) or the bad cells into
+  the features (dilate), a number of times, along chosen axes.
+- **Erode Dilate Coordination Number**: a cell with at least this many face neighbours in one
+  other feature joins that feature: smooths jagged boundaries.
+- **Identify Sample**: the largest connected region of good cells is the sample; other good
+  cells become bad, and with *fill holes* bad pockets inside the sample become good.
+  **Isolate Largest Feature** keeps only the largest feature.
+
+A 20 × 20 map of four grains with one cell in 17 spoilt (wrong orientation, low confidence)
+comes back to its four grains exactly with Replace Element Attributes with Neighbor, Neighbor
+Orientation Correlation, or one pass of Erode Dilate Bad Data.
+
+![A noisy map (left) and the same map after Neighbor Orientation Correlation (right), colored by IPF color](images/ebsd_cleanup.png)
+
+To put a sample the right way round: **Rotate Sample Reference Frame** turns the grid and its
+data (not the crystal orientations; use Rotate Orientations for those) by an angle about an
+axis, exactly for multiples of 90°; **Apply Transformation to Geometry** scales, turns and moves
+the grid (only the origin and spacing change when there is no turn), also by a 4 × 4 matrix;
+**Set Origin and Spacing** gives the volume a new origin and cell size; **Resample Rectilinear
+To Image** puts an unevenly spaced grid on an even one.
+
+### Image filters on volumes
+
+In **Filters › Data**, for any image data (an EBSD map's quality arrays, an optical or
+X-ray volume): **Median Image** (the median of a box of cells, against speckle), **Gaussian Smooth
+Image** (a standard deviation in cells), **Otsu Threshold** (one to four thresholds that best
+split the histogram; a label array and the thresholds as field data) and **Binary Morphology**
+(erode, dilate, open or close the non-zero cells with a ball of cells). The results agree with
+scipy.ndimage (median, Gaussian, binary erosion and dilation) on a test volume.
+
+```python
+m = volume.median_image(array="ImageData", radius=(1, 1, 1))
+o = m.otsu_threshold(array="Median", thresholds=1)
+clean = o.binary_morphology(array="Otsu", operation="Open", radius=1)
+```
+
 ### Per-feature results
 
 | Filter | Field arrays (per feature) | Cell arrays |
@@ -340,6 +396,24 @@ feature) are added, and per-feature arrays from an earlier segmentation are remo
   orientations differ by 60° about a ⟨111⟩ axis, within the **Axis** and **Angle**
   tolerances. Chains of twins share one parent. Parents are numbered in the order of their
   first feature.
+
+More measures of features and their boundaries:
+
+| Filter | Gives |
+|---|---|
+| **Find Neighborhoods** | `Neighborhoods`: how many feature centres lie within some multiple of the mean equivalent diameter |
+| **Find Largest Cross Sections** | `LargestCrossSections`: the largest area of a feature in one slice normal to x, y or z |
+| **Find Feature Clustering** | a table of the radial distribution function of feature centres (of one phase), for the Charts panel |
+| **Find Surface Area to Volume** | `SurfaceAreas`, `SurfaceAreaVolumeRatio` and `Sphericity` per feature |
+| **Find Boundary Strengths** | a table per pair of neighbouring grains: m′ (|cos ψ cos κ| of the slip systems with the highest Schmid factors for a load direction), F1 (the largest m′), F1spt (m′ weighted by both Schmid factors) and F7 (the best slip-direction alignment): slip transmission across the boundary |
+| **Find Twin Boundary Schmid Factors** | for every Σ3 twin boundary of cubic grains, the Schmid factors of the three slip directions in the twin plane, in each grain |
+| **Find C-Axis Locations** | `CAxisLocation` of hexagonal cells (unit vectors) |
+| **Find Feature Reference C-Axis Misorientations** | the angle of each cell's c axis from its grain's mean c axis |
+| **Identify Micro-Texture Regions** | `MTRIds`: neighbouring hexagonal grains whose c axes line up (within a tolerance) joined into regions |
+| **Generate Precipitate Statistics** | a table for one phase: count, volume fraction, number density, lognormal size fit, mean nearest-neighbour distance |
+| **Copy Feature Array to Cells** | a per-feature array (equivalent diameter…) on every cell of the feature, to color by |
+
+![Micro-texture regions of a hexagonal map: grains whose c axes line up share a color](images/micro_texture_regions.png)
 
 ### Boundaries, colors and the table
 
@@ -390,6 +464,17 @@ pf = ebsd.pole_figure(families="100, 110, 111", projection="Stereographic", sigm
 ```
 
 ![The {100}, {110} and {111} pole figures of a window of a measured nickel-superalloy volume](images/pole_figures.png)
+
+To keep the pole figures as pictures, one per phase and family, call
+`save_pole_figures` (Python only): each phase's figures share one scale, from 0 (dark blue) to the
+largest MRD of that phase (red), with sample X to the right and Y up, white outside the disk.
+
+```python
+files = ebsd.save_pole_figures("pole_figures", families="100, 110, 111", size=256)
+# [('pole_figures/phase1_100.png', 3.1), ...]: the file and its largest MRD
+```
+
+![The {100} and {111} pole figure files of both phases of a two-phase map, opened again side by side](images/pole_figure_files.png)
 
 ### Inverse Pole Figure
 
@@ -506,9 +591,14 @@ gives every cell to its nearest seed.
 - **Orientations** are random, or a fibre with `<100>` or `<111>` along Z, scattered by
   **Fibre spread** and random about Z.
 - The seed positions are kept as the field array `Seeds`.
+- **Realism** (0 to 1) makes the grains look grown instead of tessellated, and
+  **Orientation gradient** lets every grain's orientation change inside it; see
+  [Grain Realism](#grain-realism) and [Orientation Gradient](#orientation-gradient) below.
+  Both are 0 by default, which gives the plain tessellation with one orientation per grain.
 
 ```python
 v = afx.voronoi_grains(cells=[64, 64, 64], grains=300, size_sigma=0.4, periodic=True)
+grown = afx.voronoi_grains(cells=[64, 64, 64], grains=300, realism=0.8)
 ```
 
 ![Laguerre grains colored by the inverse pole figure key](images/voronoi_grains.png)
@@ -529,9 +619,14 @@ v = afx.voronoi_grains(cells=[64, 64, 64], grains=300, size_sigma=0.4, periodic=
   additively built cubic metals.
 - **Per-grain field arrays:** `GrainBase`, `GrainTop`, `GrainTilt` and `Originating`
   (1 for grains that start inside the build rather than on the base plate).
+- **Realism** (0 to 1) adds what a layered build does to its grains (competitive growth,
+  layers, fine grains at the layer boundaries, curved boundaries), and **Orientation
+  gradient** lets every grain turn as it grows; see [Grain Realism](#grain-realism) and
+  [Orientation Gradient](#orientation-gradient) below. Both are 0 by default.
 
 ```python
 g = afx.columnar_grains(size=(300, 300, 450), voxel=5, width=50, height=150)
+build = afx.columnar_grains(realism=0.8, layer=40, gradient=0.03)
 ```
 
 ![Columnar grains of an additive build colored by the inverse pole figure key for X](images/columnar_grains.png)
@@ -552,6 +647,162 @@ swapped with.
 noisy = v.orientation_noise(sigma=2)
 mixed = v.jumble_orientations()
 ```
+
+### Orientation Gradient
+
+A synthetic grain has one orientation. A grain of additively manufactured material does
+not: its lattice turns slowly as the grain grows from layer to layer, it carries a smooth
+spread of a degree or so, and it is divided into sub-grain cells by low-angle boundaries.
+**Filters › Grains › Orientation Gradient** gives the grains of a volume with `FeatureIds`
+and orientations such an inside. It rewrites the orientation of every cell; the grains
+themselves do not change.
+
+- **Gradient** is the steady turn, in degrees per unit of length along **Direction** (z, the
+  build direction, by default). Every grain turns about one axis of its own. Measured
+  nickel-alloy builds turn by about 0.02 to 0.1 degrees per micrometre; with the volume's
+  lengths in micrometres, 0.05 gives 2 degrees per 40 micrometre layer.
+- **Spread between grains** gives each grain its own rate, lognormal about the gradient
+  (0.5 by default: most grains between half and twice the gradient). 0 makes all alike.
+- **Rotation axis** is random for each grain, random but perpendicular to the direction, or
+  one **Fixed axis** for all grains.
+- **Unturned at** says where a grain keeps the orientation it had: its *centroid* (the
+  grain's average orientation then stays about the same), or its *lowest point* along the
+  direction, as for a grain that grew out of the layer below.
+- **Smooth spread** adds a turn that wanders smoothly inside each grain, with this
+  root-mean-square angle in degrees (0.5 by default; 0.5 to 2 is typical of as-built
+  material). **Spread correlation length** is the distance over which it changes; left at
+  0 it is half of each grain's diameter. A short length gives a mottled reference
+  misorientation map and a larger kernel average misorientation.
+- **In-plane gradient** turns every grain across itself, perpendicular to the direction: by
+  that many degrees per unit length along a direction of the grain's own in that plane,
+  about an axis of its own, from its centroid. The gradient along the direction (the build
+  direction) alone leaves each layer of a grain at one orientation; measured additively
+  manufactured grains also vary within a layer, and this setting gives that. The two add
+  up, and **Spread between grains** applies to both. 0 is off.
+- **Sub-grain cell size** above 0 divides every grain into cells of about that size, each
+  turned a little differently. **Misorientation between cells** is the mean angle across a
+  cell boundary (1 degree by default). Solidification cells in additively manufactured
+  metals are about a micrometre across, so they only show in volumes with finer cells.
+- **Grows with grain size** (advanced) multiplies the gradient, the spread and the cell
+  misorientation by (grain diameter / median diameter) to that power, so that large grains
+  hold more misorientation than small ones. 0.5 to 1 is a reasonable range; 0 is off.
+- **Largest turn** (advanced) is a cap in degrees: no cell turns further than this from the
+  orientation its grain started with. The turn levels off smoothly towards the cap, so
+  near it the gradient is less than asked for.
+
+What the filters that measure see:
+- [SROD](#srod) recovers the gradient: its rate is the gradient times the layer thickness,
+  a little less for grains whose top layer is not full.
+- **Kernel Average Misorientation** along the direction is two thirds of the gradient times
+  the cell size, for the default kernel of one cell each way.
+- **Reference Misorientations** grows with the distance from the grain's centroid along the
+  direction, and its root mean square for the smooth spread alone is the spread asked for.
+
+**Segment Features** compares neighbouring cells, so a grain stays one grain as long as
+the step from one cell to the next stays under the tolerance. The gradient and the smooth
+spread change by a small fraction of a degree per cell. Cell boundaries are the steps that
+count. **Misorientation between cells** is their mean, and about one cell boundary in a
+thousand is 2.5 times steeper, so keep it under 0.4 of the tolerance (under 2 degrees for
+the usual 5) if no cell is to be cut out of its grain. The cap limits something else, the turn from the grain's
+starting orientation: two cells of one grain then differ by at most twice the cap, and a
+long grain cannot turn into the orientation of its neighbour.
+
+With every part at 0 the filter returns its input unchanged. The sources Voronoi Grains,
+Columnar Grains and Pack Grains have an **Orientation gradient** setting that applies the
+filter as it comes, with that gradient along z, and an **In-plane orientation gradient**
+setting for the turn across each grain.
+
+```python
+g = afx.columnar_grains()
+t = g.orientation_gradient(rate=0.05, amplitude=0.8, reference="Lowest point")
+cells = g.orientation_gradient(rate=0.02, cell_size=15, cell_angle=1, cap=4)
+print(t.srod(layer=40).array("SRODRate", "field"))     # about 2 degrees per layer
+both = g.orientation_gradient(rate=0.03, in_plane_rate=0.05)      # along the build direction and across
+v = afx.voronoi_grains(gradient=0.03, in_plane_gradient=0.05)     # the same from a source
+```
+
+![Columnar grains with an orientation gradient along the build direction and sub-grain cells, colored by each cell's misorientation from its grain's average orientation](images/grains_orientation_gradient.png)
+
+![Voronoi grains seen from above with an in-plane gradient alone: every grain turns across itself along its own direction, colored by each cell's misorientation from its grain's average orientation](images/grains_in_plane_gradient.png)
+
+### Grain Realism
+
+A tessellation has flat faces that meet at whatever angles the seeds give. Grown grains
+have curved faces that meet three at a time at about 120 degrees, sizes that spread more
+widely, and boundaries that wander. Simulating the growth gives this but takes minutes to
+hours. **Filters › Grains › Grain Realism** moves a labelled volume (one with `FeatureIds`)
+most of the way there in a second or so, in three steps:
+
+- **Boundary roughness** pushes the boundaries out of place by a smooth random field, by
+  about this distance in the volume's length unit. **Roughness wavelength** is the distance
+  over which the push changes (left at 0: four times the roughness). A tenth of the grain
+  size, with a wavelength of half the grain size, makes boundaries gently wavy.
+- **Remove smallest grains** gives this share of the grains, smallest first, to their
+  neighbours, as growth consumes its small grains.
+- **Relaxation sweeps** then relax the boundaries. In each sweep a cell takes the grain
+  that holds the largest share of the cells around it, counted with weights that fall off
+  over **Relaxation width** cells. This moves every boundary towards its centre of
+  curvature: corners round off, junctions open towards equal angles, bumps flatten and the
+  smallest grains shrink. Three to five sweeps settle the junctions, and more changes
+  little, because a boundary stops once a sweep would move it by less than half a cell.
+  The width decides what is rounded: 1.5 cells rounds corners and cell-size steps, an
+  eighth of the grain size in cells (2 to 3 for grains 16 to 24 cells across) rounds whole
+  grains.
+- **Periodic** treats opposite faces of the volume as neighbours, for periodic volumes.
+
+Every cell array follows the cells, so a cell that changes grain takes the orientation of
+its new grain. Grains that vanish are dropped, the others are numbered from 1 in their old
+order, and the per-feature field arrays keep their rows. Cells without a feature (id 0)
+stay as they are.
+
+On a flat Voronoi map of 45 grains 24 cells across, four sweeps of width 3 bring the
+spread of the junction angles about 120 degrees from 27 down to 18 degrees and shorten the
+boundaries by 5 %; a phase-field growth run long enough to settle the junctions of such a
+map reaches about 14 degrees and 7 %.
+
+```python
+v = afx.voronoi_grains(cells=[64, 64, 64], grains=100)
+r = v.realistic_grains(relax=4, width=2, coarsen=0.1, roughness=1.0, roughness_length=6)
+```
+
+**Realism on Voronoi Grains.** The source's **Realism** setting (0 to 1) does the same
+while the grains are made, scaled to the grain size: seed radii spread with a log-sigma of
+0.3 × realism (when **Size spread** is 0), which widens the size distribution from a
+log-sigma of about 0.14 towards 0.3; roughness of 0.06 × realism grain sizes; the smallest
+0.1 × realism of the grains removed; and 5 × realism sweeps an eighth of the grain size
+wide. The advanced settings **Relaxation sweeps**, **Boundary roughness** and **Remove
+smallest grains** override these one by one. With realism 0 and those left alone the
+source gives exactly the plain tessellation.
+
+**Realism on Columnar Grains.** Here **Realism** adds what a layered build does:
+
+- **Competitive growth** (set to realism): columns with a `<100>` direction close to Z
+  widen with height and their neighbours narrow, and a column that is overgrown is not
+  replaced. Fewer and wider grains are left towards the top, and those are the
+  well-aligned ones. In the default box, nine grain widths tall, about half as many grains
+  are left at the top as at the bottom with 0.5, and a quarter with 1.
+- **Layer thickness** (40 by default; set it to the build's layer height in the box's
+  length unit) places the layer boundaries.
+- **Columns continuing through a layer** (1 − 0.3 × realism): the others stop at the layer
+  boundary and a new grain starts in their place. Values of 0.6 to 0.9 are typical.
+- **Lean with the scan** (10 × realism degrees): the columns lean along X, one way in even
+  layers and back in odd ones, as under a scan that reverses from layer to layer.
+- **Fine grains at layer boundaries** (0.15 × realism): small equiaxed grains with random
+  orientations, 0.4 grain widths across, sit just above each layer boundary; 1 would
+  cover it with them.
+- **Boundary roughness** (0.05 × realism grain widths) and **Relaxation sweeps**
+  (4 × realism) as in the filter, periodic across X and Y.
+
+Each of these is an advanced setting that can be set on its own with realism at 0, and
+overrides realism when set.
+
+```python
+build = afx.columnar_grains(realism=0.8, layer=40)
+only_competition = afx.columnar_grains(competitive=1, height=2000)
+layered = afx.columnar_grains(layer=50, epitaxial=0.6, scan_tilt=12, equiaxed=0.2)
+```
+
+![Columnar grains as plain columns (left) and with realism 0.8 (right): competitive growth, layers, fine grains at the layer boundaries and relaxed boundaries](images/grains_realism.png)
 
 ### Generate Ensemble Statistics
 
@@ -603,6 +854,16 @@ g = afx.pack_grains(cells=[80, 80, 80], esd_mu=2.48, esd_sigma=0.15, ba=[12, 4],
 
 ![Grains packed from goal statistics, elongated along x, with precipitates on their boundaries](images/pack_grains.png)
 
+**View › Goal Statistics** edits the goals with live plots: the lognormal size distribution
+(mu, sigma and where it is cut), the beta distributions of b/a and c/a, the shape, whether the
+grain axes follow x, y and z, the orientations (random or a fibre with its spread), the volume,
+the matrix fraction and the seed. With a Pack Grains source selected the panel edits it and draws
+the packed volume's measured sizes and aspect ratios as bars under the goal curves, with the
+goal and packed means; with none selected, **Pack** adds one. `afx.show_panel("goal statistics")`
+opens it from Python.
+
+![The Goal Statistics panel: goal curves (lines) over the packed volume's sizes and aspect ratios (bars)](images/goal_statistics.png)
+
 ### Pack Like
 
 **Pack Like** makes a statistical copy of a segmented microstructure in a box of any size:
@@ -625,6 +886,17 @@ the **Volume fraction**:
   boundaries**. No two particles touch.
 - **Output.** Each particle is a feature with a random orientation, in the next phase
   number, whose crystal structure is added to `CrystalStructures`.
+
+### Insert Transformation Phases and Adjust Volume
+
+**Insert Transformation Phases** puts plates into a fraction of the grains of a parent phase: a
+plate of a thickness in cells through the grain, on one of its {111} planes, becomes a new
+feature of a new phase, turned from its parent by an angle about the plane normal (60°: an
+annealing twin). `TransformationParentIds` gives each plate's parent. **Adjust Volume** moves
+cells on feature boundaries between neighbours so that each feature's size comes closer to a
+target (a per-feature array of cell counts or equivalent diameters).
+
+![Twin plates inserted into Voronoi grains: the plates are the new phase (red)](images/transformation_phases.png)
 
 ### Match Crystallography
 
@@ -688,6 +960,15 @@ s.feature_surfaces().save("grains.stl")
 
 ![Smoothed grain boundaries colored by the inverse pole figure key of each boundary plane](images/grain_boundary_mesh.png)
 
+### Triangle angles and boundary curvature
+
+**Find Triangle Angles** gives each triangle of a surface mesh its smallest and largest interior
+angle and the largest dihedral angle with its neighbours on the same boundary. **Find Feature
+Face Curvature** measures the mean and Gaussian curvature of every boundary (one pair of
+`FaceLabels`) on its own. A grain surface mesh is also written as text files with
+`mesh.save("grains.triangles")`: `grains.nodes` (node id, type, x, y, z) and `grains.triangles`
+(triangle id, its nodes, the two features on either side).
+
 ### Face Orientation Colors
 
 **Face Orientation Colors** colours each triangle three ways:
@@ -745,13 +1026,13 @@ optional dislocation-density array (from GND Density). The result is in
 | IN718, CoNi GammaPrint-700 | FCC | {111}<110> | 647.6 MPa, 400 MPa |
 | Nickel, Copper, Aluminium | FCC | {111}<110> | |
 | Iron (BCC) | BCC | {110}<111>, {112}<111> | |
-| Titanium (HCP) | HCP, c/a 1.587 | basal 1, prismatic 0.7, pyramidal <a> 1, pyramidal <c+a> 3 | |
-| Magnesium (HCP) | HCP, c/a 1.624 | basal 1, prismatic 10, pyramidal <a> 10, pyramidal <c+a> 15 | |
+| Titanium (HCP) | HCP, c/a 1.587 | basal 1, prismatic 0.7, pyramidal \<a> 1, pyramidal <c+a> 3 | |
+| Magnesium (HCP) | HCP, c/a 1.624 | basal 1, prismatic 10, pyramidal \<a> 10, pyramidal <c+a> 15 | |
 
 **Custom** takes the lattice, the elastic constants (C11 C12 C44, or C11 C12 C13 C33 C44 for
 hexagonal crystals), the shear modulus, the Burgers vector, c/a and the slip families
 (written like `Basal <a>=1, Prismatic <a>=0.7`). The families available are {111}<110> for
-FCC; {110}, {112} and {123}<111> for BCC; basal, prismatic and pyramidal <a>, and pyramidal
+FCC; {110}, {112} and {123}<111> for BCC; basal, prismatic and pyramidal \<a>, and pyramidal
 <c+a>, for HCP.
 
 ```python
@@ -805,14 +1086,18 @@ cell (`GND`, 1/m²):
 
 The field data gives the mean, median and 90th percentile.
 
+On a 2-D map the curvature across the map cannot be measured, so the Nye tensor method sums the
+five components of the tensor a map gives (a lower bound of the density). A map whose lattice
+turns steadily about its normal gives back that rate over b within 2 %.
+
 ```python
 g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
 ```
 
 ## Limits
 
-- Hexagonal-grid `.ang` and EDAX files, Oxford `.h5oina` files, and `.dream3d` neighbor lists
-  are not read yet.
+- Hexagonal-grid EDAX `.h5` files, Oxford `.h5oina` files, and `.dream3d` neighbor lists are not
+  read yet (hexagonal `.ang` files are, resampled on a square grid).
 - Cubochoric vectors are not among the representations.
 - Neighbor lists (each feature's neighbours and shared areas) are not kept as arrays; Feature
   Boundaries holds the same information face by face.
@@ -823,6 +1108,21 @@ g = volume.gnd_density(method="Nye tensor", burgers=2.54e-10, kernel=3)
 - The texture filters assume no sample symmetry and count every point equally.
 - Voronoi and Laguerre grains are tessellations of random seeds, and columnar grains are
   power diagrams slice by slice; use Pack Grains to match given size and shape statistics.
+- Grain Realism imitates what growth does to the shapes; it is not a growth simulation.
+  Every boundary is treated alike (no dependence on misorientation), relaxation does not
+  move boundaries that are nearly flat, and a thin neck of a grain can be cut in two, which
+  leaves one feature id on two pieces (Segment Features separates them). A sweep smooths
+  the surroundings of every grain in turn, holding up to about 200 MB of them at a time; a
+  128-cube volume of 500 grains takes a few seconds.
+- Competitive growth, layers, lean and fine grains in Columnar Grains are geometric rules
+  with a strength, not a solidification model: the melt pool's shape, the scan pattern
+  beyond a lean along X, and remelting are not represented. Pack Grains has no Realism
+  setting; apply the Grain Realism filter to its output.
+- Orientation Gradient works on voxel volumes and flat maps with cell orientations. The
+  steady turn is a straight ramp per grain; the smooth spread is a sum of six random waves
+  per grain, so it is not a measured spectrum; sub-grain cells are the same pattern of cell
+  centres in every grain, each grain turning its cells independently. The orientations are
+  written as 64-bit numbers.
 - Pack Grains matches the mean size and mean aspect ratios. The spread of sizes and the
   neighbour counts follow from the packing rather than from a goal. Grains cut by the box
   faces of a periodic volume are measured as pieces.

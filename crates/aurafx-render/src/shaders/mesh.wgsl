@@ -195,6 +195,30 @@ fn oit(c: vec3<f32>, a: f32, z: f32) -> OitOut {
 
 @vertex
 fn vs_mesh(in: VertexIn) -> VertexOut {
+    return mesh_vertex(in.pos, in.scalar, in.normal);
+}
+
+// 3D Glyphs: the unit shape (along +x) turned to the instance's direction, sized and moved to
+// its point; a = [position, value], b = [direction, size].
+@vertex
+fn vs_glyph(in: VertexIn, @location(3) a: vec4<f32>, @location(4) b: vec4<f32>) -> VertexOut {
+    var x = vec3<f32>(1.0, 0.0, 0.0);
+    if (length(b.xyz) > 1e-12) {
+        x = normalize(b.xyz);
+    }
+    var helper = vec3<f32>(0.0, 0.0, 1.0);
+    if (abs(x.z) > 0.9) {
+        helper = vec3<f32>(0.0, 1.0, 0.0);
+    }
+    let y = normalize(cross(helper, x));
+    let z = cross(x, y);
+    let p = a.xyz + (x * in.pos.x + y * in.pos.y + z * in.pos.z) * b.w;
+    let n = normalize(x * in.normal.x + y * in.normal.y + z * in.normal.z);
+    return mesh_vertex(p, a.w, n);
+}
+
+fn mesh_vertex(pos: vec3<f32>, scalar: f32, normal: vec3<f32>) -> VertexOut {
+    let in = VertexIn(pos, scalar, normal);
     var out: VertexOut;
     out.clip = node.view_proj * vec4<f32>(in.pos, 1.0);
     out.world = in.pos;

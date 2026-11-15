@@ -2,6 +2,7 @@
 
 use crate::display::{ColorBy, DisplayProps};
 use anyhow::{anyhow, Result};
+use aurafx_cad::CadFile;
 use aurafx_data::{DataSet, DataSetInfo, TimeSeries};
 use aurafx_filters::{FilterDef, Params};
 use aurafx_io::Loaded;
@@ -223,7 +224,7 @@ pub struct RemoteStatus {
 
 impl Node {
     /// A reader whose options changed must read its current step again.
-    fn forget_reader_step(&mut self) {
+    pub(crate) fn forget_reader_step(&mut self) {
         if matches!(self.kind, NodeKind::Reader { .. }) {
             self.output_time_index = None;
         }
@@ -283,7 +284,7 @@ impl Node {
 }
 
 /// A line series for the chart panel (from Python or "plot over time").
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChartSeries {
     pub name: String,
     pub x: Vec<f64>,
@@ -401,9 +402,32 @@ impl WorkItem {
     }
 }
 
+/// The assistant panel's state, published by the app every frame so that scripts (and the
+/// checks in `scripts/cad/assistant_check.py`) can wait for an answer and read it.
+#[derive(Debug, Clone, Default)]
+pub struct AssistantStatus {
+    /// An answer is still arriving.
+    pub busy: bool,
+    /// Agent mode is running code and iterating.
+    pub agent: bool,
+    /// How many messages the conversation has.
+    pub messages: usize,
+    /// The last message of the assistant.
+    pub last: String,
+    pub error: Option<String>,
+    /// The last messages of the conversation as (role, text), each cut to 2000 characters.
+    pub history: Vec<(String, String)>,
+    /// The app's frame counter when this was published (it stops moving when the window stops drawing).
+    pub frame: u64,
+}
+
 #[derive(Default)]
 pub struct Session {
     pub nodes: IndexMap<NodeId, Node>,
+    /// The CAD environment's edit in progress (the pipeline is paused while it is open).
+    pub cad_edit: Option<crate::cad_edit::CadEdit>,
+    /// After an Apply that postponed the re-run: the CAD node whose descendants wait.
+    pub cad_hold: Option<NodeId>,
     pub(crate) next_id: NodeId,
     pub active: Option<NodeId>,
     /// Union of all time values across readers, sorted.
@@ -429,6 +453,8 @@ pub struct Session {
     pub next_screenshot_id: u64,
     /// Series plotted from scripts / time analysis.
     pub chart: Chart,
+    /// Chart views (0 is the Charts panel; see `charts`).
+    pub chart_views: Vec<crate::charts::ChartView>,
     /// UI commands from scripts/AI the app executes: "theme light", "layout analyze", "hide Log", "show Charts".
     pub app_commands: Vec<String>,
     /// The app's open 3D views and the active one, published every frame (empty without an app).
@@ -436,6 +462,11 @@ pub struct Session {
     pub active_view: u32,
     /// Counts the app's frames (published with `view_ids`).
     pub app_frame: u64,
+    /// The assistant panel's state, published with `view_ids`.
+    pub assistant: AssistantStatus,
+    /// Wakes the window so that it draws a frame (the app sets it): a script's commands to the window
+    /// (app_commands) are carried out in a frame, and an idle window draws none by itself.
+    pub wake_ui: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     pub(crate) undo_stack: Vec<(String, crate::state::Snapshot)>,
     pub(crate) redo_stack: Vec<(String, crate::state::Snapshot)>,
     pub(crate) last_checkpoint: Option<(String, f64)>,
@@ -457,6 +488,17 @@ pub struct Session {
     pub animation_request: Option<(PathBuf, f32, Option<usize>)>,
     /// Frames rendered by a script to encode (GIF/MP4); the result goes to `screenshot_results`.
     pub encode_request: Option<EncodeRequest>,
+    /// A picture of several views as laid out (`afx.screenshot(path, views="all")`); the result
+    /// goes to `screenshot_results`.
+    pub layout_request: Option<LayoutRequest>,
+    /// The views an animation requested by a script records ("all", "charts", ...; None: the 3D view).
+    pub animation_views: Option<String>,
+    /// A picture of the first frame to write beside the next animation (`save_animation(poster=...)`).
+    pub animation_poster: Option<PathBuf>,
+    /// The frame size and background of the next animation of the active 3D view asked for by a script.
+    pub animation_picture: Option<(Option<(u32, u32)>, Option<PictureBackground>)>,
+    /// A script asked for the video encoder to be downloaded; the result goes to `screenshot_results`.
+    pub ffmpeg_install_request: Option<u64>,
     /// Connections to aurafx-server processes, by host name.
     pub remote_clients: std::collections::HashMap<String, Arc<crate::remote::RemoteClient>>,
     /// Outputs of server nodes larger than this come back as their surface (0 = default).
@@ -478,6 +520,20 @@ pub struct EncodeRequest {
     pub id: u64,
 }
 
+/// A picture of the open views as laid out in the window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutRequest {
+    pub path: PathBuf,
+    /// "all", "charts", "3d", "chart", "chart N" or "view N".
+    pub views: String,
+    pub transparent: bool,
+    /// Keep the chart views' controls in the picture.
+    pub controls: bool,
+    pub id: u64,
+    /// The color between the views (None: the window's).
+    pub background: Option<[f32; 3]>,
+}
+
 /// A picture of the 3D view to save.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScreenshotRequest {
@@ -490,6 +546,33 @@ pub struct ScreenshotRequest {
     pub id: u64,
     /// Include the scalar bar, labels, annotations and orientation axes.
     pub overlays: bool,
+    /// A background for this picture only (None: as on the screen).
+    pub background: Option<PictureBackground>,
+    /// No message in the window when it is saved (frames of an animation).
+    pub quiet: bool,
+}
+
+impl ScreenshotRequest {
+    /// The view as it is on the screen, with its annotations.
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, size: None, transparent: false, id: 0, overlays: true, background: None, quiet: false }
+    }
+}
+
+/// The background of a picture or an animation: one color, or a gradient from the bottom to the top.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PictureBackground {
+    pub bottom: [f32; 3],
+    pub top: [f32; 3],
+}
+
+impl PictureBackground {
+    pub fn solid(c: [f32; 3]) -> Self {
+        Self { bottom: c, top: c }
+    }
+    pub fn is_gradient(&self) -> bool {
+        self.bottom != self.top
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -560,6 +643,11 @@ impl Session {
 
     pub fn open_file(&mut self, path: impl AsRef<Path>) -> Result<NodeId> {
         let path = path.as_ref().to_path_buf();
+        // A CAD file (STEP, IGES, 3MF, a SolidCraft design, an .afxcad document) opens as a CAD
+        // Model: its geometry with named faces, ready to edit.
+        if Self::opens_as_cad(&path) {
+            return self.open_cad_file(&path);
+        }
         self.checkpoint(format!("Open {}", path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
         let loaded = aurafx_io::read_file_piece(&path, self.piece).map_err(|e| {
             self.log(LogLevel::Error, format!("Failed to open {}: {e:#}", path.display()));
@@ -646,6 +734,22 @@ impl Session {
         Ok(id)
     }
 
+    /// Hide these nodes and every node above them (inputs of inputs, extra inputs too).
+    pub fn hide_ancestors(&mut self, from: &[NodeId]) {
+        let mut todo: Vec<NodeId> = from.to_vec();
+        let mut seen = std::collections::HashSet::new();
+        while let Some(n) = todo.pop() {
+            if !seen.insert(n) {
+                continue;
+            }
+            if let Some(node) = self.nodes.get_mut(&n) {
+                node.visible = false;
+                todo.extend(node.input);
+                todo.extend(node.extra_inputs.iter().copied());
+            }
+        }
+    }
+
     pub fn add_filter(&mut self, filter_id: &str, input: NodeId) -> Result<NodeId> {
         let def = aurafx_filters::find(filter_id).ok_or_else(|| anyhow!("unknown filter {filter_id}"))?;
         if def.is_source {
@@ -684,37 +788,25 @@ impl Session {
             remote: None,
             fetch_full: false,
         };
-        // ParaView-style: hide the input when adding a filter that replaces its look.
-        if matches!(
-            def.id,
-            "slice"
-                | "clip"
-                | "contour"
-                | "threshold"
-                | "extract_surface"
-                | "tessellate"
-                | "warp_by_vector"
-                | "warp_by_scalar"
-                | "transform"
-                | "calculator"
-                | "cell_data_to_point_data"
-                | "point_data_to_cell_data"
-                | "merge_blocks"
-                | "temporal_interpolator"
-                | "temporal_shift_scale"
-                | "temporal_array_operator"
-                | "temporal_statistics"
-        ) {
-            if let Some(n) = self.nodes.get_mut(&input) {
-                n.visible = false;
-            }
+        // A new child takes over the view: every node above it is hidden (the user turns one back on with
+        // its eye). Filters whose result is a table or a chart draw nothing, so their parents stay shown.
+        if !shows_no_geometry(def.id) {
+            self.hide_ancestors(&[input]);
         }
         self.nodes.insert(id, node);
         self.active = Some(id);
         // Show table-like results where they can be read.
         match def.id {
-            "histogram" | "plot_over_line" => self.app_commands.push("show Charts".into()),
-            "descriptive_statistics" | "integrate_variables" | "probe_location" => self.app_commands.push("show Spreadsheet".into()),
+            "histogram" | "plot_over_line" | "resample_to_line" | "plot_on_sorted_lines" | "plot_on_intersection_curves" | "kernel_smoothing" => {
+                self.app_commands.push("show Charts".into())
+            }
+            "descriptive_statistics"
+            | "integrate_variables"
+            | "probe_location"
+            | "multicorrelative_statistics"
+            | "contingency_statistics"
+            | "compute_quartiles"
+            | "minkowski_functionals" => self.app_commands.push("show Spreadsheet".into()),
             _ => {}
         }
         self.trace.push(format!("{} = {}.{}()", self.py_var(id), self.py_var(input), def.id));
@@ -811,13 +903,9 @@ impl Session {
                 self.remove_node(id);
                 return Err(e);
             }
-            // Appending replaces the look of its inputs, as in ParaView.
-            if matches!(filter_id, "append_datasets" | "append_geometry" | "append_attributes") {
-                for i in inputs {
-                    if let Some(n) = self.nodes.get_mut(i) {
-                        n.visible = false;
-                    }
-                }
+            // The new child takes over the view from all the nodes above it.
+            if !shows_no_geometry(filter_id) {
+                self.hide_ancestors(inputs);
             }
             let names: Vec<String> = inputs.iter().map(|e| self.py_var(*e)).collect();
             self.trace.truncate(trace_len);
@@ -827,6 +915,11 @@ impl Session {
     }
 
     pub fn remove_node(&mut self, id: NodeId) {
+        // Deleting the part being edited closes the CAD environment first (or the pipeline
+        // would stay paused for a node that is gone).
+        if self.cad_edit.as_ref().is_some_and(|e| e.node == id) {
+            let _ = self.cad_discard();
+        }
         if let Some(n) = self.nodes.get(&id) {
             let label = format!("Delete {}", n.name);
             self.checkpoint(label);
@@ -926,6 +1019,109 @@ impl Session {
             n.forget_reader_step();
             self.mark_dirty(id);
         }
+    }
+
+    // ------------------------------------------------------------------ CAD models
+
+    /// Files that open as a CAD Model node (meshes such as STL and OBJ keep their readers).
+    pub fn opens_as_cad(path: &Path) -> bool {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| matches!(e.to_lowercase().as_str(), "afxcad" | "step" | "stp" | "igs" | "iges" | "3mf" | "sc"))
+    }
+
+    /// Open a CAD file as a CAD Model node (the document is the file's solid as a base feature, or
+    /// the `.afxcad` document itself).
+    pub fn open_cad_file(&mut self, path: &Path) -> Result<NodeId> {
+        let doc = aurafx_cad::io::import_file(path).map_err(|e| {
+            self.log(LogLevel::Error, format!("Failed to open {}: {e}", path.display()));
+            anyhow!("{e}")
+        })?;
+        let id = self.add_source("cad_model")?;
+        self.cad_set_document(id, &doc);
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "CAD Model".into());
+        self.rename(id, stem);
+        Ok(id)
+    }
+
+    /// Whether the node is a CAD Model source.
+    pub fn is_cad_model(&self, id: NodeId) -> bool {
+        self.nodes.get(&id).is_some_and(|n| matches!(&n.kind, NodeKind::Source { def } if def.id == "cad_model"))
+    }
+
+    /// The document of a CAD Model node (without the node's parameter overrides).
+    pub fn cad_document(&self, id: NodeId) -> Result<aurafx_cad::Document> {
+        if !self.is_cad_model(id) {
+            anyhow::bail!("the node is not a CAD Model (afx.cad_model() makes one)");
+        }
+        if let Some(e) = self.cad_edit.as_ref().filter(|e| e.node == id) {
+            return Ok(e.document.clone());
+        }
+        let n = &self.nodes[&id];
+        aurafx_filters::cad::parse_document(&n.params.str("document"))
+    }
+
+    /// The document with the node's overrides and configuration applied: what the node draws.
+    pub fn cad_effective_document(&self, id: NodeId) -> Result<aurafx_cad::Document> {
+        let doc = self.cad_document(id)?;
+        let n = &self.nodes[&id];
+        aurafx_filters::cad::effective_document(&CadFile::new(doc).to_json(), &n.params.str("parameters"), &n.params.str("configuration"))
+    }
+
+    /// The overrides the node applies to the document's parameters: name and expression.
+    pub fn cad_overrides(&self, id: NodeId) -> Vec<(String, String)> {
+        self.nodes.get(&id).map(|n| aurafx_filters::cad::parse_overrides(&n.params.str("parameters")).unwrap_or_default()).unwrap_or_default()
+    }
+
+    /// Replace the document of a CAD Model node (one undo step).
+    pub fn cad_set_document(&mut self, id: NodeId, doc: &aurafx_cad::Document) {
+        let text = aurafx_cad::CadFile::new(doc.clone()).to_json();
+        self.set_param(id, "document", aurafx_filters::ParamValue::Str(text));
+    }
+
+    /// Edit the document of a CAD Model node by one named operation (see `aurafx_cad::edit`):
+    /// one undo step, recorded in the Python trace as `node.cad.edit("op", {...})`.
+    pub fn cad_edit(&mut self, id: NodeId, op: &str, args: &serde_json::Value) -> Result<serde_json::Value> {
+        // Inside the environment an edit goes to the working copy.
+        if self.cad_editing() == Some(id) {
+            return self.cad_env_edit(op, args);
+        }
+        let mut doc = self.cad_document(id)?;
+        let out = aurafx_cad::edit::apply_op(&mut doc, op, args).map_err(|e| anyhow::anyhow!("{e}"))?;
+        // The edit is shown at once when it cannot be drawn (an error says what to change).
+        let text = aurafx_cad::CadFile::new(doc).to_json();
+        let var = self.py_var(id);
+        if let Some(n) = self.nodes.get(&id) {
+            if n.params.str("document") != text {
+                self.checkpoint(format!("CAD: {op}"));
+            }
+        }
+        if let Some(n) = self.nodes.get_mut(&id) {
+            n.params.set("document", aurafx_filters::ParamValue::Str(text));
+            n.forget_reader_step();
+        }
+        self.mark_dirty(id);
+        self.trace.push(format!("{var}.cad.edit({}, {})", py_str(op), json_to_py(args)));
+        Ok(out)
+    }
+
+    /// Set a parameter of the CAD document from the node (the Properties panel, `node.set(width=50)`):
+    /// the document itself is not changed, the node carries the override.
+    pub fn cad_set_parameter(&mut self, id: NodeId, name: &str, value: &serde_json::Value) -> Result<()> {
+        let doc = self.cad_document(id)?;
+        if !doc.parameters.iter().any(|p| p.name == name) {
+            let names: Vec<_> = doc.parameters.iter().map(|p| p.name.as_str()).collect();
+            anyhow::bail!("the CAD document has no parameter '{name}' (its parameters are: {})", names.join(", "));
+        }
+        let mut map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&self.nodes[&id].params.str("parameters")).ok().and_then(|v: serde_json::Value| v.as_object().cloned()).unwrap_or_default();
+        if value.is_null() {
+            map.remove(name);
+        } else {
+            map.insert(name.to_string(), serde_json::Value::String(value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())));
+        }
+        self.set_param(id, "parameters", aurafx_filters::ParamValue::Str(serde_json::Value::Object(map).to_string()));
+        Ok(())
     }
 
     pub fn set_visible(&mut self, id: NodeId, visible: bool) {
@@ -1281,10 +1477,18 @@ impl Session {
 
     /// Pick the next node that can be executed (its input is clean) and mark it running.
     pub fn take_work(&mut self) -> Option<WorkItem> {
+        // Nothing runs while the CAD environment is open (the environment builds its own part).
+        if self.cad_edit.is_some() {
+            return None;
+        }
+        let held: Vec<NodeId> = match self.cad_hold {
+            Some(h) => self.downstream(h).into_iter().filter(|n| *n != h).collect(),
+            None => Vec::new(),
+        };
         let order: Vec<NodeId> = self.nodes.keys().copied().collect();
         for id in order {
             let n = &self.nodes[&id];
-            if !n.dirty || n.running {
+            if !n.dirty || n.running || held.contains(&id) {
                 continue;
             }
             if let Some(inp) = n.input {
@@ -1666,10 +1870,11 @@ impl Session {
     /// Whether a file name is of a format that holds every time step (Exodus, VTKHDF).
     pub fn holds_all_times(path: &std::path::Path) -> bool {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf" | "case" | "encas" | "xmf" | "xdmf" | "xdmf3" | "cgns")
+        matches!(ext.as_str(), "exo" | "e" | "ex2" | "g" | "vtkhdf" | "hdf" | "case" | "encas" | "xmf" | "xdmf" | "xdmf3" | "cgns" | "pvd")
     }
 
-    /// Write node `id` at every time step to one file (Exodus, VTKHDF, EnSight, Xdmf or CGNS, by extension).
+    /// Write node `id` at every time step to one file (Exodus, VTKHDF, EnSight, Xdmf, CGNS, or a `.pvd`
+    /// collection with a file per step, by extension).
     pub fn save_all_times(&mut self, id: NodeId, path: &std::path::Path) -> Result<usize> {
         let saved = self.time_index;
         let n = self.times.len().max(1);
@@ -1700,6 +1905,8 @@ impl Session {
             aurafx_io::xdmf_writer::write_xdmf_steps(&refs, path)?;
         } else if ext == "cgns" {
             aurafx_io::cgns_writer::write_cgns_steps(&refs, path)?;
+        } else if ext == "pvd" {
+            aurafx_io::collections::write_pvd_steps(&refs, path)?;
         } else {
             aurafx_io::exodus_writer::write_exodus_steps(&refs, path)?;
         }
@@ -1959,6 +2166,18 @@ pub fn option_specs(options: Vec<aurafx_io::ReaderOption>) -> Vec<aurafx_filters
 }
 
 /// A Python string literal for `s` (triple-quoted when it spans lines).
+/// A JSON value written as a Python literal.
+pub fn json_to_py(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "None".into(),
+        serde_json::Value::Bool(b) => if *b { "True" } else { "False" }.into(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => py_str(s),
+        serde_json::Value::Array(a) => format!("[{}]", a.iter().map(json_to_py).collect::<Vec<_>>().join(", ")),
+        serde_json::Value::Object(o) => format!("{{{}}}", o.iter().map(|(k, v)| format!("{}: {}", py_str(k), json_to_py(v))).collect::<Vec<_>>().join(", ")),
+    }
+}
+
 pub fn py_str(s: &str) -> String {
     if s.contains('\n') && !s.contains("\"\"\"") && !s.contains('\\') && !s.ends_with('"') {
         format!("\"\"\"{s}\"\"\"")
@@ -1976,4 +2195,33 @@ pub fn py_str(s: &str) -> String {
         out.push('\'');
         out
     }
+}
+
+/// Filters whose result is read as a table or a chart, not drawn in the 3D view: adding one leaves
+/// its parents shown.
+pub fn shows_no_geometry(filter_id: &str) -> bool {
+    matches!(
+        filter_id,
+        "histogram"
+            | "plot_over_line"
+            | "descriptive_statistics"
+            | "integrate_variables"
+            | "probe_location"
+            | "ensemble_statistics"
+            | "temporal_statistics_table"
+            | "resample_to_line"
+            | "plot_on_sorted_lines"
+            | "plot_on_intersection_curves"
+            | "multicorrelative_statistics"
+            | "contingency_statistics"
+            | "compute_quartiles"
+            | "annotate_time_filter"
+            | "annotate_global_data"
+            | "annotate_attribute_data"
+            | "annotate_selection"
+            | "environment_annotation"
+            | "python_annotation"
+            | "minkowski_functionals"
+            | "kernel_smoothing"
+    )
 }

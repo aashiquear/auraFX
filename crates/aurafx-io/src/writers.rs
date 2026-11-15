@@ -13,21 +13,48 @@ pub fn writable_formats(ds: &DataSet) -> Vec<(&'static str, &'static str)> {
             ("vtu", "VTK unstructured grid"),
             ("inp", "Abaqus input (blocks, node sets, surfaces)"),
             ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"),
+            ("cas", "Fluent mesh (cell zones per block, boundary zones per side set)"),
+            ("bdf", "Nastran bulk data (properties per block)"),
             ("tex", "Grain orientations (phi1 Phi phi2 per grain, degrees)"),
         ],
         DataSet::UnstructuredGrid(_) => vec![
             ("vtu", "VTK unstructured grid"),
+            ("pvtu", "Parallel VTK (4 pieces in a folder)"),
             ("inp", "Abaqus input (blocks, node sets, surfaces)"),
             ("msh", "Gmsh 4.1 (blocks and side sets as physical groups)"),
+            ("cas", "Fluent mesh (cell zones per block, boundary zones per side set)"),
+            ("bdf", "Nastran bulk data (properties per block)"),
         ],
-        DataSet::PolyData(_) => vec![("vtp", "VTK polygonal data"), ("stl", "STL surface"), ("ply", "PLY surface")],
+        DataSet::PolyData(_) => {
+            vec![
+                ("vtp", "VTK polygonal data"),
+                ("pvtp", "Parallel VTK (4 pieces in a folder)"),
+                ("stl", "STL surface"),
+                ("ply", "PLY surface"),
+                ("obj", "Wavefront OBJ"),
+                ("glb", "glTF 2.0 binary (positions, normals, colors)"),
+                ("geo", "Houdini text geometry (point attributes)"),
+            ]
+        }
         DataSet::ImageData(i) if i.cell_data.get("FeatureIds").is_some() || i.cell_data.get("grain_id").is_some() => {
             vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)"), ("spparks", "SPPARKS site file (feature ids)")]
         }
-        DataSet::ImageData(_) => vec![("vti", "VTK image data"), ("dream3d", "DREAM.3D file (with the pipeline)")],
+        DataSet::ImageData(_) => vec![
+            ("vti", "VTK image data"),
+            ("dream3d", "DREAM.3D file (with the pipeline)"),
+            ("mha", "MetaImage (one file)"),
+            ("mhd", "MetaImage (header and .raw)"),
+            ("tif", "TIFF stack (one page per slice)"),
+            ("png", "PNG stack (one picture per slice)"),
+            ("pvti", "Parallel VTK image (4 pieces in a folder)"),
+        ],
         DataSet::RectilinearGrid(_) => vec![("vtr", "VTK rectilinear grid")],
         DataSet::StructuredGrid(_) => vec![("vts", "VTK structured grid")],
-        DataSet::MultiBlock(_) => vec![("vtm", "VTK multiblock (folder of pieces)"), ("stl", "STL, one file per block (name_block.stl)")],
+        DataSet::MultiBlock(_) => vec![
+            ("vtm", "VTK multiblock (folder of pieces)"),
+            ("pvtu", "Parallel VTK, one piece per block (blocks of one kind)"),
+            ("stl", "STL, one file per block (name_block.stl)"),
+        ],
         DataSet::Table(_) => vec![],
         DataSet::HyperTreeGrid(_) => vec![("htg", "VTK hyper tree grid"), ("vtu", "VTK unstructured grid (the leaves)")],
         DataSet::CellGrid(_) => vec![("dg", "VTK cell grid"), ("vtu", "VTK unstructured grid (values at the corners)")],
@@ -83,11 +110,45 @@ pub fn write_file(ds: &DataSet, path: &Path) -> Result<()> {
         "case" | "encas" => crate::ensight_writer::write_ensight(ds, path),
         "cgns" => crate::cgns_writer::write_cgns(ds, path),
         "inp" => crate::mesh_writers::write_abaqus(ds, path),
+        "msh" if path.to_string_lossy().to_ascii_lowercase().ends_with(".fluent.msh") => crate::solver_meshes::write_fluent(ds, path),
         "msh" => crate::mesh_writers::write_gmsh(ds, path),
+        "cas" => crate::solver_meshes::write_fluent(ds, path),
+        "bdf" | "nas" => crate::solver_meshes::write_nastran(ds, path),
         "xmf" | "xdmf" | "xdmf3" => crate::xdmf_writer::write_xdmf(ds, path),
+        "mha" | "mhd" => crate::volumes::write_metaimage(ds, path, false),
+        "pvtu" | "pvtp" | "pvti" | "pvts" | "pvtr" => crate::collections::write_parallel(ds, path, 4).map(|_| ()),
+        "pvd" => crate::collections::write_pvd_steps(&[(0.0, ds)], path),
+        "nodes" | "triangles" => write_nodes_triangles(ds, path),
+        "obj" => crate::surface_writers::write_obj(ds, path),
+        "glb" => crate::surface_writers::write_glb(ds, path),
+        "geo" => crate::surface_writers::write_geo(ds, path),
+        "png" | "tif" | "tiff" if matches!(ds, DataSet::ImageData(_)) => crate::collections::write_image_stack(ds, path).map(|_| ()),
         e => bail!("don't know how to write .{e} files"),
     };
     r.with_context(|| format!("writing {}", path.display()))
+}
+
+/// A triangle surface as two text files beside each other, `name.nodes` (count, then node id,
+/// node type, x, y, z) and `name.triangles` (count, then triangle id, its three node ids and the
+/// two feature labels on either side, from `NodeType` and `FaceLabels` when present).
+fn write_nodes_triangles(ds: &DataSet, path: &Path) -> Result<()> {
+    let DataSet::PolyData(pd) = ds else { bail!("nodes and triangles files hold a triangle surface") };
+    let mut nodes = format!("{}\n", pd.points.len());
+    let ty = pd.point_data.get("NodeType");
+    for i in 0..pd.points.len() {
+        let p = pd.points.get(i);
+        nodes += &format!("{} {} {:.9e} {:.9e} {:.9e}\n", i, ty.map(|a| a.get(i, 0) as i64).unwrap_or(2), p[0], p[1], p[2]);
+    }
+    let labels = pd.cell_data.get("FaceLabels");
+    let tris: Vec<(usize, &[u32])> = pd.polys.iter().enumerate().filter(|(_, (t, _))| *t == CellType::Triangle).map(|(k, (_, c))| (k, c)).collect();
+    let mut t = format!("{}\n", tris.len());
+    for (n, (k, c)) in tris.iter().enumerate() {
+        let (a, b) = labels.map(|l| (l.get(*k, 0) as i64, l.get(*k, 1) as i64)).unwrap_or((0, 0));
+        t += &format!("{} {} {} {} {} {}\n", n, c[0], c[1], c[2], a, b);
+    }
+    std::fs::write(path.with_extension("nodes"), nodes)?;
+    std::fs::write(path.with_extension("triangles"), t)?;
+    Ok(())
 }
 
 // ------------------------------------------------------------------ VTK XML
@@ -123,6 +184,11 @@ fn le_bytes(d: &ArrayData) -> Vec<u8> {
     }
 }
 
+/// The VTK XML type name of an array's values.
+pub(crate) fn xml_type_name(d: &ArrayData) -> &'static str {
+    type_name(d)
+}
+
 fn type_name(d: &ArrayData) -> &'static str {
     match d.scalar_type() {
         ScalarType::F16 => "Float32",
@@ -135,9 +201,16 @@ fn esc(s: &str) -> String {
 }
 
 fn data_array(out: &mut String, app: &mut Appended, name: &str, ncomp: usize, d: &ArrayData) {
+    data_array_units(out, app, name, ncomp, d, None)
+}
+
+/// A `DataArray` element; `units` ("K", "m/s") are kept in a `Units` attribute, which our
+/// reader gives back to the array.
+fn data_array_units(out: &mut String, app: &mut Appended, name: &str, ncomp: usize, d: &ArrayData, units: Option<&str>) {
     let off = app.add(&le_bytes(d));
+    let units = units.map(|u| format!(" Units=\"{}\"", esc(u))).unwrap_or_default();
     out.push_str(&format!(
-        "        <DataArray type=\"{}\" Name=\"{}\" NumberOfComponents=\"{}\" format=\"appended\" offset=\"{}\"/>\n",
+        "        <DataArray type=\"{}\" Name=\"{}\" NumberOfComponents=\"{}\"{units} format=\"appended\" offset=\"{}\"/>\n",
         type_name(d),
         esc(name),
         ncomp,
@@ -167,7 +240,7 @@ fn attributes(out: &mut String, app: &mut Appended, tag: &str, a: &Attributes) {
     }
     out.push_str(&format!("      <{tag}{act}>\n"));
     for arr in a.iter() {
-        data_array(out, app, &arr.name, arr.ncomp, &arr.data);
+        data_array_units(out, app, &arr.name, arr.ncomp, &arr.data, arr.units.as_deref());
     }
     out.push_str(&format!("      </{tag}>\n"));
 }

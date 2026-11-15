@@ -6,10 +6,13 @@ license.workspace = true
 description = "Geometry and data filters for auraFX"
 
 [dependencies]
+aurafx-plugin = { path = "../aurafx-plugin" }
+libloading = "0.8"
 aurafx-data.workspace = true
 aurafx-io.workspace = true
 aurafx-crystal.workspace = true
 aurafx-mesh.workspace = true
+aurafx-cad.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 indexmap.workspace = true

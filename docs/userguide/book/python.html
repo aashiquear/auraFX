@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d8ec7292.js";
+            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1384fa24.js"></script>
+        <script src="toc-8b305462.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +182,8 @@
 <p>auraFX embeds Python with NumPy. The <strong>Python</strong> panel is a console: type a line and press
 <strong>Ctrl+Enter</strong> (or <strong>Run</strong>), use Tab to complete, Up/Down for history, <strong>Run script…</strong> to run a
 file, <strong>Clear</strong> to empty the log, <strong>Help</strong> for the cheat sheet. <strong>Trace</strong> turns what you did
-with the mouse into the equivalent code, which you can paste into a script. Everything the
+with the mouse into the equivalent code, which you can paste into a script. Copy and paste
+work with other programs in both directions (Ctrl+C, Ctrl+V), here and in every text box. Everything the
 UI does is reachable from the <code>afx</code> module, and <code>aurafx --script file.py</code> runs a script at
 startup (the app stays open afterwards).</p>
 <p>Packages installed into the embedded interpreter with <code>pip</code> (SciPy, pandas, PyTorch…) are
@@ -249,6 +250,29 @@ afx.sweep("lmp -var T {T} -in in.melt", T=[300, 600, 900], host="cluster")
 afx.jobs(); afx.job(id); afx.cancel(id); afx.gpus("rocm-server"); afx.hosts()
 afx.servers(); afx.load_remote("cluster", "/scratch/run.e")
 </code></pre>
+<h2 id="notebooks"><a class="header" href="#notebooks">Notebooks</a></h2>
+<p>auraFX runs Jupyter notebooks two ways:</p>
+<ul>
+<li><strong>The Notebook panel</strong> (Windows › Notebook): Markdown and Python cells run in the same Python
+as the console (Shift+Enter runs a cell and moves on, <strong>Run all</strong>), with their printed output,
+values, errors and pictures below them. <strong>Open…</strong> and <strong>Save</strong> read and write <code>.ipynb</code> files,
+so a notebook moves between this panel and Jupyter.</li>
+<li><strong>As a Jupyter kernel</strong>: <code>aurafx --install-jupyter-kernel</code> once, then choose
+<strong>auraFX (Python)</strong> as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
+that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through <code>afx</code>,
+and their output, values, errors and pictures come back to the notebook. Tab completes names;
+shutting the kernel down closes the window. A running cell cannot be interrupted yet (the
+request is answered with an error saying so); shutting down works while a cell runs.</li>
+</ul>
+<p>In either, <code>afx.snapshot()</code> shows a picture of the 3D view in the notebook (<code>views="all"</code>: every
+view as laid out) and <code>afx.display(x)</code> shows a picture file, PNG bytes or any object as text.</p>
+<pre><code class="language-python">w = afx.wavelet()
+w.slice(normal=[0, 0, 1]).set(color_by="RTData")
+afx.snapshot(width=640, height=400)
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"><span class="img-wrapper"><img src="images/notebook_panel.png" alt="The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()"></span></label></p>
+<p>Every function and method, with its arguments and the text <code>help()</code> shows, is in the
+<a href="python-api.html">Python API reference</a>, generated from the module itself.</p>
 <p>The <strong>Help › Python API cheat sheet</strong> window lists the same calls inside the app, and every
 function has a docstring (<code>help(afx.lighting)</code>).</p>
 

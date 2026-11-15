@@ -12,7 +12,8 @@ pub struct Palette {
 }
 
 enum Item {
-    Filter(std::sync::Arc<aurafx_filters::FilterDef>),
+    /// A filter or source, with a note: why it is suggested, or why it may not work.
+    Filter(std::sync::Arc<aurafx_filters::FilterDef>, Option<String>),
     Action(&'static str, fn(&mut State)),
 }
 
@@ -26,10 +27,11 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
                 .add_filter("Wavefront OBJ", &["obj"])
                 .add_filter("X3D", &["x3d"])
                 .add_filter("VRML 2.0", &["wrl"])
+                .add_filter("Web page you can turn (HTML)", &["html"])
                 .set_file_name("scene.glb")
                 .save_file()
             {
-                s.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest { path, size: None, transparent: false, id: 0, overlays: true });
+                s.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest::new(path));
             }
         }),
         ("Reset camera", "fit view zoom", |s| s.session.lock().camera_request = Some(CameraRequest::ResetToBounds)),
@@ -72,10 +74,12 @@ fn actions() -> Vec<(&'static str, &'static str, fn(&mut State))> {
         ("Light theme", "appearance bright white", |s| s.session.lock().app_commands.push("theme light".into())),
         ("Dark theme", "appearance night black", |s| s.session.lock().app_commands.push("theme dark".into())),
         ("Settings", "preferences ai python theme", |s| s.show_settings = true),
+        ("Describe a filter…", "ai natural language words assistant make filter", |s| s.assistant.describe_open = true),
         ("Ask the AI assistant", "chat help", |s| s.assistant.focus_input = true),
         ("Python quick reference", "help api cheat sheet", |s| s.console.show_help = true),
         ("Keyboard shortcuts", "help keys", |s| s.show_shortcuts = true),
-        ("Clear pipeline", "remove all reset new", |s| {
+        ("New workspace", "file new clear start over empty", |s| s.new_workspace()),
+        ("Clear pipeline", "remove all reset", |s| {
             let mut ss = s.session.lock();
             let ids: Vec<_> = ss.nodes.keys().copied().collect();
             for id in ids {
@@ -89,10 +93,35 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     if !state.palette.open {
         return;
     }
+    // While a part is being edited the search is over the CAD commands.
+    if crate::cad::editing(state) {
+        state.palette.open = false;
+        state.cad.search = Some(crate::cad::CommandSearch::default());
+        return;
+    }
     let q = state.palette.query.clone();
     let mut items: Vec<(u32, Item)> = Vec::new();
+    // What fits the selected object comes first; what is unlikely to work on it sinks and says why.
+    let ctx_info = crate::menus::node_context(state, None);
+    let suggested: Vec<aurafx_filters::suggest::Suggestion> = ctx_info.as_ref().map(|(i, t)| aurafx_filters::suggest::suggestions(i, *t)).unwrap_or_default();
     for f in aurafx_filters::search(&q) {
-        items.push((f.search_score(&q), Item::Filter(f)));
+        let mut score = f.search_score(&q);
+        let mut note = None;
+        if let Some((info, _)) = &ctx_info {
+            if let Some(k) = suggested.iter().position(|s| s.def.id == f.id) {
+                score += if q.is_empty() { 1000 - k as u32 } else { 40 };
+                note = Some(format!("Suggested: {}", suggested[k].reason));
+            } else if let Err(why) = aurafx_filters::suggest::applicable(&f, info) {
+                score = score / 2;
+                note = Some(format!("May not work on the selected object: {why}"));
+            }
+        } else if !f.is_source {
+            score = score / 2;
+            note = Some("Needs an object: open a file or add a source first".to_string());
+        } else if q.is_empty() {
+            score += 10;
+        }
+        items.push((score.max(1), Item::Filter(f, note)));
     }
     let ql = q.to_lowercase();
     for (label, keys, f) in actions() {
@@ -116,14 +145,30 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     let mut close = false;
     let mut run: Option<usize> = None;
     let screen = ctx.content_rect();
+    // A tablet or a phone: no wider than the screen, and near its top (above the keyboard).
+    let touch = crate::touch::mode().is_touch();
+    let width = if touch { (screen.width() - 24.0).clamp(200.0, 560.0) } else { (screen.width() - 80.0).clamp(320.0, 760.0) };
+    // As many results as the window has room for; each takes a name and up to two lines.
+    let list_height = (screen.height() - if touch { 140.0 } else { 220.0 }).clamp(200.0, 640.0);
+    let top = if touch { 56.0 } else { 80.0 };
     #[allow(deprecated)]
-    egui::Area::new(egui::Id::new("palette")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - 280.0, screen.top() + 80.0)).show(
+    egui::Area::new(egui::Id::new("palette")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - width / 2.0, screen.top() + top)).show(
         ctx,
         |ui| {
             egui::Frame::window(ui.style()).show(ui, |ui| {
-                ui.set_width(560.0);
-                let resp =
-                    ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY));
+                ui.set_width(width);
+                let resp = if touch {
+                    // No Esc key on a touch screen: a button closes the search.
+                    ui.horizontal(|ui| {
+                        if ui.button(crate::icons::X).on_hover_text("Close the search").clicked() {
+                            close = true;
+                        }
+                        ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY))
+                    })
+                    .inner
+                } else {
+                    ui.add(egui::TextEdit::singleline(&mut state.palette.query).hint_text("Type a filter, source or action…").desired_width(f32::INFINITY))
+                };
                 resp.request_focus();
                 let (esc, enter, up, down) = ui.input_mut(|i| {
                     (
@@ -149,18 +194,30 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
                     state.palette.selected = 0;
                 }
                 ui.separator();
-                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(list_height).show(ui, |ui| {
                     for (i, (_, item)) in items.iter().enumerate() {
                         let sel = i == state.palette.selected;
                         let (title, sub) = match item {
-                            Item::Filter(f) => (
+                            Item::Filter(f, note) => (
                                 format!("{}  {}", if f.is_source { crate::icons::PLUS } else { crate::icons::FUNNEL }, f.label),
-                                format!("{} · {}", f.category, f.description),
+                                match note {
+                                    Some(n) => format!("{n} · {}", f.description),
+                                    None => format!("{} · {}", f.category, f.description),
+                                },
                             ),
                             Item::Action(l, _) => (format!("{}  {l}", crate::icons::ARROW_RIGHT), "Action".to_string()),
                         };
                         let r = ui.selectable_label(sel, RichText::new(title).strong());
-                        ui.label(RichText::new(sub).weak().small());
+                        // Two lines of the description; the whole of it on hover.
+                        let mut job = egui::text::LayoutJob::simple(
+                            sub.clone(),
+                            egui::TextStyle::Small.resolve(ui.style()),
+                            ui.visuals().weak_text_color(),
+                            ui.available_width(),
+                        );
+                        job.wrap.max_rows = 2;
+                        job.wrap.break_anywhere = false;
+                        ui.label(job).on_hover_text(sub);
                         if r.clicked() {
                             run = Some(i);
                         }
@@ -177,9 +234,13 @@ pub fn palette_ui(state: &mut State, ctx: &egui::Context) {
     );
     if let Some(i) = run {
         match &items[i].1 {
-            Item::Filter(f) => {
+            Item::Filter(f, _) => {
                 let id = f.id;
-                state.add_filter(id);
+                if f.is_source {
+                    crate::source_dialog::insert_source(state, id);
+                } else {
+                    state.add_filter(id);
+                }
             }
             Item::Action(_, f) => f(state),
         }

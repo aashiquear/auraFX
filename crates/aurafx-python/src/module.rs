@@ -199,6 +199,22 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                 let v = val.as_str().map(str::to_string);
                 s.set_display(id, |d| d.lic_vectors = v);
             }
+            "glyph_shape" if !is_param => {
+                let g = val
+                    .as_str()
+                    .and_then(aurafx_pipeline::GlyphShape::parse)
+                    .ok_or_else(|| PyValueError::new_err("glyph_shape: 'arrow', 'cone', 'sphere' or 'cube'"))?;
+                s.set_display(id, |d| d.glyph_shape = g);
+            }
+            "glyph_orient" | "glyph_scale_by" if !is_param => {
+                let v = val.as_str().unwrap_or("").to_string();
+                let k = key.clone();
+                s.set_display(id, |d| if k == "glyph_orient" { d.glyph_orient = v } else { d.glyph_scale_by = v });
+            }
+            "glyph_scale" if !is_param => {
+                let v = val.as_f64().unwrap_or(0.0).max(0.0) as f32;
+                s.set_display(id, |d| d.glyph_scale = v);
+            }
             "lic_strength" => {
                 let v = val.as_f64().unwrap_or(0.8).clamp(0.0, 1.0) as f32;
                 s.set_display(id, |d| d.lic_strength = v);
@@ -234,7 +250,12 @@ fn apply_kwargs(id: NodeId, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> 
                         }));
                     }
                 }
-                s.set_param_json(id, &key, &val)
+                // The parameters of a CAD document are the node's parameters: node.set(width=50).
+                if s.is_cad_model(id) && s.nodes.get(&id).is_some_and(|n| n.params.get(&key).is_none()) {
+                    s.cad_set_parameter(id, &key, &val).map_err(|e| PyValueError::new_err(format!("{e:#}")))?;
+                } else {
+                    s.set_param_json(id, &key, &val)
+                }
             }
         }
     }
@@ -395,6 +416,31 @@ impl PyNode {
         self.clone()
     }
 
+    /// Plot this object's arrays in a new chart view: `line.plot("T", "p", x="arc_length")`.
+    /// Returns the view's number (afx.chart_view changes it later).
+    #[pyo3(signature = (*y, x=None, style=None, data=None, log_x=None, log_y=None, title=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn plot(
+        &self,
+        py: Python<'_>,
+        y: Vec<String>,
+        x: Option<String>,
+        style: Option<String>,
+        data: Option<String>,
+        log_x: Option<bool>,
+        log_y: Option<bool>,
+        title: Option<String>,
+    ) -> PyResult<u32> {
+        let mut s = session().lock();
+        if !s.nodes.contains_key(&self.id) {
+            return Err(PyKeyError::new_err("node no longer exists"));
+        }
+        let id = s.new_chart_view(Some(self.id));
+        let ys = if y.is_empty() { None } else { Some(pyo3::types::PyList::new(py, &y)?.into_any()) };
+        set_chart(s.chart_view(id).unwrap(), ys, x, style, data, log_x, log_y, title)?;
+        Ok(id)
+    }
+
     fn hide(&self) -> PyNode {
         session().lock().set_visible(self.id, false);
         self.clone()
@@ -429,11 +475,29 @@ impl PyNode {
         let mut s = session().lock();
         let display = param.strip_prefix("display.").unwrap_or(param);
         let is_display = aurafx_pipeline::animation::DISPLAY_TRACKS.contains(&display) && s.nodes.get(&self.id).is_some_and(|n| n.params.get(param).is_none());
-        let track = if is_display { format!("display.{display}") } else { param.to_string() };
+        // A dimension of a CAD Model's document (a mate's distance may follow one): its own kind of track.
+        let cad_value = (!is_display && s.is_cad_model(self.id) && s.nodes.get(&self.id).is_some_and(|n| n.params.get(param).is_none()))
+            .then(|| s.cad_effective_document(self.id).ok().and_then(|d| d.parameter_values().ok()).and_then(|v| v.get(param).copied()))
+            .flatten();
+        let track = if is_display {
+            format!("display.{display}")
+        } else if cad_value.is_some() {
+            format!("{}{param}", aurafx_pipeline::animation::CAD_TRACK)
+        } else {
+            param.to_string()
+        };
         let current = s
             .nodes
             .get(&self.id)
-            .and_then(|n| if is_display { aurafx_pipeline::animation::display_value(&n.display, display) } else { n.params.get(param).cloned() })
+            .and_then(|n| {
+                if is_display {
+                    aurafx_pipeline::animation::display_value(&n.display, display)
+                } else if let Some(x) = cad_value {
+                    Some(aurafx_filters::params::ParamValue::Float(x))
+                } else {
+                    n.params.get(param).cloned()
+                }
+            })
             .ok_or_else(|| PyKeyError::new_err(format!("no parameter '{param}'")))?;
         let v = match value {
             None => current,
@@ -480,6 +544,22 @@ impl PyNode {
         m.call_method1("loads", (json,))
     }
 
+    /// Open the CAD environment on this node (a CAD Model): `m.edit_cad()`.
+    fn edit_cad(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let m = py.import("aurafx")?;
+        m.getattr("_edit_cad")?.call1((self.clone(),)).map(|o| o.unbind())
+    }
+
+    /// The CAD document of a CAD Model node: `node.cad.parameter("width", 40)`, `node.cad.box(...)`.
+    #[getter]
+    fn cad(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if !session().lock().is_cad_model(self.id) {
+            return Err(pyo3::exceptions::PyAttributeError::new_err("only a CAD Model node has .cad: afx.cad_model() makes one"));
+        }
+        let m = py.import("aurafx")?;
+        Ok(m.getattr("_CadApi")?.call1((self.clone(),))?.unbind())
+    }
+
     #[getter]
     fn params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let s = session().lock();
@@ -521,26 +601,71 @@ impl PyNode {
     }
 
     /// Write this node's data: .vtu .vtp .vti .vtr .vts .vtm .vtk .vtkhdf .exo .case (EnSight Gold)
-    /// .xmf (Xdmf + .h5) .cgns .csv .stl .ply .dream3d (with the pipeline) .spparks .tex (format from the extension). all_times=True writes every
-    /// time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one mesh), or as an EnSight or
-    /// Xdmf series.
-    #[pyo3(signature = (path, all_times=false))]
-    fn save(&self, path: String, all_times: bool) -> PyResult<()> {
+    /// .xmf (Xdmf + .h5) .cgns .csv .stl .ply .dream3d (with the pipeline) .spparks .tex .inp
+    /// (Abaqus) .msh (Gmsh) .cas (Fluent) .bdf (Nastran) .mha/.mhd (MetaImage) .png/.tif (image
+    /// stacks) .pvtu/.pvtp/.pvti (parallel pieces; pieces=4) .pvd (format from the extension).
+    /// all_times=True writes every time step: into one Exodus, VTKHDF or CGNS file (CGNS keeps one
+    /// mesh), or as an EnSight, Xdmf or .pvd series.
+    #[pyo3(signature = (path, all_times=false, pieces=4))]
+    fn save(&self, path: String, all_times: bool, pieces: usize) -> PyResult<()> {
         let p = std::path::Path::new(&path);
         if all_times {
             if !aurafx_pipeline::Session::holds_all_times(p) {
                 return Err(PyValueError::new_err(
-                    "all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case), Xdmf (.xmf) or CGNS (.cgns) file name",
+                    "all_times=True needs an Exodus (.exo), VTKHDF (.vtkhdf), EnSight (.case), Xdmf (.xmf), CGNS (.cgns) or .pvd file name",
                 ));
             }
             return session().lock().save_all_times(self.id, p).map(|_| ()).map_err(err);
         }
         let ds = self.output()?;
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if matches!(ext.as_str(), "pvtu" | "pvtp" | "pvti" | "pvts" | "pvtr") {
+            return aurafx_io::collections::write_parallel(&ds, p, pieces.max(1)).map(|_| ()).map_err(err);
+        }
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dream3d")) {
             // Records the pipeline that made the data.
             return session().lock().save_data(self.id, p).map_err(err);
         }
         aurafx_io::writers::write_file(&ds, p).map_err(err)
+    }
+
+    /// Pole figures of every phase as PNG pictures in a folder (phase1_100.png, ...): sample x
+    /// to the right, y up, each phase's MRD from 0 (dark blue) to its largest value (red).
+    /// Returns the files written with their largest MRD.
+    #[pyo3(signature = (folder, families="100, 110, 111", projection="Stereographic", sigma=7.5, size=256, phase=0, structure="", mask=""))]
+    #[allow(clippy::too_many_arguments)]
+    fn save_pole_figures(
+        &self,
+        folder: String,
+        families: &str,
+        projection: &str,
+        sigma: f64,
+        size: usize,
+        phase: i64,
+        structure: &str,
+        mask: &str,
+    ) -> PyResult<Vec<(String, f64)>> {
+        let ds = self.output()?;
+        let st = if structure.is_empty() { aurafx_filters::crystal::FROM_PHASES } else { structure };
+        let sel = aurafx_filters::crystal_texture::Selection {
+            orientations: None,
+            structure: st,
+            phases: None,
+            phase,
+            mask: Some(mask).filter(|m| !m.is_empty()),
+            max: 200_000,
+            seed: 1,
+        };
+        let imgs = aurafx_filters::crystal_texture::pole_figure_images(&ds, &sel, families, projection, sigma, 2.0, size).map_err(err)?;
+        let dir = std::path::Path::new(&folder);
+        std::fs::create_dir_all(dir).map_err(err)?;
+        let mut out = Vec::new();
+        for (ph, fam, im, hi) in imgs {
+            let path = dir.join(format!("phase{ph}_{fam}.png"));
+            aurafx_io::collections::write_image_stack(&aurafx_data::DataSet::ImageData(im), &path).map_err(err)?;
+            out.push((path.display().to_string(), hi));
+        }
+        Ok(out)
     }
 
     /// The pipeline that makes this node, as JSON text (the form .dream3d files record).
@@ -683,10 +808,22 @@ fn plugins<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
 
 /// Open a file. With `host=` (a host from the Simulations panel, an ssh alias or user@machine,
 /// or "local") or an `ssh://host/path` URL, the file is read on that machine by aurafx-server
-/// and filters added below it run there too.
+/// and filters added below it run there too. `stream=N` reads a file larger than memory in N
+/// pieces one after another (on this computer unless `host=` says otherwise).
 #[pyfunction]
-#[pyo3(signature = (path, host=None, processes=None, **kwargs))]
-fn load(path: String, host: Option<String>, processes: Option<u32>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<PyNode> {
+#[pyo3(signature = (path, host=None, processes=None, launcher=None, stream=None, **kwargs))]
+fn load(
+    path: String,
+    host: Option<String>,
+    processes: Option<u32>,
+    launcher: Option<String>,
+    stream: Option<u32>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<PyNode> {
+    let (host, processes, launcher) = match stream.filter(|&n| n > 1) {
+        Some(n) => (Some(host.unwrap_or_else(|| "local".into())), Some(n), Some("stream".to_string())),
+        None => (host, processes, launcher),
+    };
     let (host, path) = match (host, path.strip_prefix("ssh://")) {
         (Some(h), _) => (Some(h), path),
         (None, Some(rest)) => {
@@ -699,6 +836,9 @@ fn load(path: String, host: Option<String>, processes: Option<u32>, kwargs: Opti
     let id = match host {
         Some(h) => {
             let mut host = aurafx_jobs::resolve_host(Some(&h));
+            if let Some(l) = &launcher {
+                host.launcher = l.clone();
+            }
             if let Some(n) = processes {
                 host.server_processes = n;
             }
@@ -874,12 +1014,133 @@ fn view(direction: Bound<'_, PyAny>, up: Option<[f64; 3]>) -> PyResult<()> {
     Ok(())
 }
 
+/// A color given as a name (white, black, gray), '#rrggbb', or three numbers (0 to 1, or 0 to 255).
+fn parse_rgb(v: &Bound<'_, PyAny>) -> PyResult<[f32; 3]> {
+    if let Ok(s) = v.extract::<String>() {
+        let t = s.trim().to_ascii_lowercase();
+        return match t.as_str() {
+            "white" | "blank" => Ok([1.0; 3]),
+            "black" => Ok([0.0; 3]),
+            "gray" | "grey" => Ok([0.5; 3]),
+            _ => {
+                let h = t.trim_start_matches('#');
+                let byte = |i: usize| h.get(i..i + 2).and_then(|x| u8::from_str_radix(x, 16).ok());
+                match (h.len() == 6, byte(0), byte(2), byte(4)) {
+                    (true, Some(r), Some(g), Some(b)) => Ok([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]),
+                    _ => Err(PyValueError::new_err(format!("{s:?} is not a color: use white, black, gray, '#rrggbb' or (r, g, b)"))),
+                }
+            }
+        };
+    }
+    let c: [f32; 3] = v.extract().map_err(|_| PyValueError::new_err("a color is a name, '#rrggbb' or three numbers (r, g, b)"))?;
+    let k = if c.iter().any(|x| *x > 1.0) { 255.0 } else { 1.0 };
+    Ok([(c[0] / k).clamp(0.0, 1.0), (c[1] / k).clamp(0.0, 1.0), (c[2] / k).clamp(0.0, 1.0)])
+}
+
+/// The `background=` of a picture or an animation: None or 'screen' (as on the screen),
+/// 'transparent', a color, or two colors [bottom, top] for a gradient. Returns (transparent, background).
+fn parse_background(v: Option<&Bound<'_, PyAny>>) -> PyResult<(bool, Option<aurafx_pipeline::session::PictureBackground>)> {
+    use aurafx_pipeline::session::PictureBackground;
+    let Some(v) = v else { return Ok((false, None)) };
+    if let Ok(s) = v.extract::<String>() {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "screen" | "" => return Ok((false, None)),
+            "transparent" => return Ok((true, None)),
+            _ => {}
+        }
+    }
+    if !v.is_instance_of::<pyo3::types::PyString>() {
+        if let Ok(n) = v.len() {
+            if n == 2 {
+                let (a, b) = (v.get_item(0)?, v.get_item(1)?);
+                return Ok((false, Some(PictureBackground { bottom: parse_rgb(&a)?, top: parse_rgb(&b)? })));
+            }
+        }
+    }
+    Ok((false, Some(PictureBackground::solid(parse_rgb(v)?))))
+}
+
+/// Save a picture of the active 3D view: `afx.screenshot("fig.png", width=1920)`.
+/// `width` and `height` set the pixels (one of them keeps the view's shape, both set the
+/// shape too: `width=1920, height=1080`). `background` is "screen" (the default),
+/// "transparent", a color ("white", "black", "#1a2b3c", (r, g, b)) or two colors
+/// `[bottom, top]` for a gradient.
+/// With `views`, a picture of several views as they are laid out in the window: "all" (every
+/// visible 3D view and chart view), "charts", "3d", "chart" (the Charts panel), "chart N"
+/// (the chart titled Chart N) or "view N"; `controls=True` keeps the charts' boxes and buttons.
 #[pyfunction]
-#[pyo3(signature = (path, width=None, height=None, transparent=false, annotations=true))]
-fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u32>, transparent: bool, annotations: bool) -> PyResult<()> {
-    let id = request_screenshot(path, width, height, transparent, annotations);
+#[pyo3(signature = (path, width=None, height=None, transparent=false, annotations=true, views=None, controls=false, background=None))]
+#[allow(clippy::too_many_arguments)]
+fn screenshot(
+    py: Python<'_>,
+    path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    transparent: bool,
+    annotations: bool,
+    views: Option<String>,
+    controls: bool,
+    background: Option<Bound<'_, PyAny>>,
+) -> PyResult<()> {
+    let (clear, background) = parse_background(background.as_ref())?;
+    screenshot_with(py, path, width, height, transparent || clear, annotations, views, controls, background)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn screenshot_with(
+    py: Python<'_>,
+    path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    transparent: bool,
+    annotations: bool,
+    views: Option<String>,
+    controls: bool,
+    background: Option<aurafx_pipeline::session::PictureBackground>,
+) -> PyResult<()> {
+    if let Some(views) = views {
+        if width.is_some() || height.is_some() {
+            return Err(PyValueError::new_err("a picture of several views has the window's pixels: leave out width and height"));
+        }
+        let id = {
+            let mut s = session().lock();
+            s.next_screenshot_id += 1;
+            let id = s.next_screenshot_id;
+            s.layout_request = Some(aurafx_pipeline::session::LayoutRequest {
+                path: std::path::PathBuf::from(path),
+                views,
+                transparent,
+                controls,
+                id,
+                background: background.map(|b| b.bottom),
+            });
+            s.revision += 1;
+            id
+        };
+        if let Some(w) = session().lock().wake_ui.clone() {
+            w();
+        }
+        return wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")));
+    }
+    let id = request_screenshot(path, width, height, transparent, annotations, background);
     // Wait until the app has saved it (a ray-traced picture may take a while).
     wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("screenshot: {e}")))
+}
+
+/// Make MP4 and WebM export work on a machine without ffmpeg: downloads a ready-made copy of
+/// the encoder (about 30 MB) into auraFX's own data folder. Does nothing when ffmpeg is already
+/// on the PATH or was downloaded before. The Animation window has the same as a button.
+#[pyfunction]
+fn install_ffmpeg(py: Python<'_>) -> PyResult<()> {
+    let id = {
+        let mut s = session().lock();
+        s.next_screenshot_id += 1;
+        let id = s.next_screenshot_id;
+        s.ffmpeg_install_request = Some(id);
+        s.revision += 1;
+        id
+    };
+    wait_result(py, id).map_err(|e| PyRuntimeError::new_err(format!("install_ffmpeg: {e}")))
 }
 
 /// Export the visible objects as a 3D scene: `afx.export_scene("scene.glb")` (glTF binary, for
@@ -887,13 +1148,20 @@ fn screenshot(py: Python<'_>, path: String, width: Option<u32>, height: Option<u
 #[pyfunction]
 fn export_scene(py: Python<'_>, path: String) -> PyResult<()> {
     let ext = std::path::Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl") {
-        return Err(PyValueError::new_err("export_scene writes .glb, .obj, .x3d or .wrl files (afx.screenshot('fig.svg') for a vector picture)"));
+    if !matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl" | "html") {
+        return Err(PyValueError::new_err("export_scene writes .glb, .obj, .x3d, .wrl or .html files (afx.screenshot('fig.svg') for a vector picture)"));
     }
-    screenshot(py, path, None, None, false, true)
+    screenshot_with(py, path, None, None, false, true, None, false, None)
 }
 
-fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, transparent: bool, overlays: bool) -> u64 {
+fn request_screenshot(
+    path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    transparent: bool,
+    overlays: bool,
+    background: Option<aurafx_pipeline::session::PictureBackground>,
+) -> u64 {
     let mut s = session().lock();
     // One of width/height keeps the view's aspect ratio (the UI fills in the other).
     let size = match (width, height) {
@@ -904,14 +1172,21 @@ fn request_screenshot(path: String, width: Option<u32>, height: Option<u32>, tra
     };
     s.next_screenshot_id += 1;
     let id = s.next_screenshot_id;
-    s.screenshot_request = Some(aurafx_pipeline::session::ScreenshotRequest { path: std::path::PathBuf::from(path), size, transparent, id, overlays });
+    s.screenshot_request = Some(aurafx_pipeline::session::ScreenshotRequest {
+        size,
+        transparent,
+        id,
+        overlays,
+        background,
+        ..aurafx_pipeline::session::ScreenshotRequest::new(std::path::PathBuf::from(path))
+    });
     s.revision += 1;
     id
 }
 
 /// Add a line to the Charts panel: afx.plot(x, y, label="T max").
 #[pyfunction]
-#[pyo3(signature = (x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=false))]
+#[pyo3(signature = (x, y=None, label=None, title=None, xlabel=None, ylabel=None, clear=false, view=0))]
 #[allow(clippy::too_many_arguments)]
 fn plot(
     x: Bound<'_, PyAny>,
@@ -921,6 +1196,7 @@ fn plot(
     xlabel: Option<String>,
     ylabel: Option<String>,
     clear: bool,
+    view: u32,
 ) -> PyResult<()> {
     let to_vec = |v: &Bound<'_, PyAny>| -> PyResult<Vec<f64>> {
         if let Ok(l) = v.extract::<Vec<f64>>() {
@@ -940,6 +1216,22 @@ fn plot(
         return Err(PyValueError::new_err(format!("x has {} values but y has {}", xs.len(), ys.len())));
     }
     let mut s = session().lock();
+    if view != 0 {
+        // A line in chart view `view` (afx.chart_view opens one).
+        let v = s.chart_view(view).ok_or_else(|| PyValueError::new_err(format!("there is no chart view {view} (afx.chart_views() lists them)")))?;
+        if clear {
+            v.series.clear();
+        }
+        if let Some(t) = title {
+            v.title = t;
+        }
+        let n = v.series.len() + 1;
+        let name = label.unwrap_or_else(|| format!("series {n}"));
+        v.series.retain(|sr| sr.name != name);
+        v.series.push(aurafx_pipeline::ChartSeries { name, x: xs, y: ys });
+        s.touch();
+        return Ok(());
+    }
     if clear {
         s.chart.series.clear();
     }
@@ -955,6 +1247,123 @@ fn plot(
     let n = s.chart.series.len() + 1;
     s.add_series(label.unwrap_or_else(|| format!("series {n}")), xs, ys);
     Ok(())
+}
+
+/// Apply keyword settings to chart view `v`.
+#[allow(clippy::too_many_arguments)]
+fn set_chart(
+    v: &mut aurafx_pipeline::charts::ChartView,
+    y: Option<Bound<'_, PyAny>>,
+    x: Option<String>,
+    style: Option<String>,
+    data: Option<String>,
+    log_x: Option<bool>,
+    log_y: Option<bool>,
+    title: Option<String>,
+) -> PyResult<()> {
+    use aurafx_pipeline::charts::{ChartData, ChartStyle};
+    if let Some(y) = y {
+        v.y = if let Ok(one) = y.extract::<String>() { vec![one] } else { y.extract::<Vec<String>>()? };
+    }
+    if let Some(x) = x {
+        v.x = if x.is_empty() || x == "index" { "(index)".into() } else { x };
+    }
+    if let Some(st) = style {
+        v.style = ChartStyle::parse(&st).ok_or_else(|| PyValueError::new_err("style must be 'lines', 'points', 'markers' or 'bars'"))?;
+    }
+    if let Some(d) = data {
+        v.data = ChartData::parse(&d).ok_or_else(|| PyValueError::new_err("data must be 'auto', 'points' or 'cells'"))?;
+    }
+    if let Some(b) = log_x {
+        v.log_x = b;
+    }
+    if let Some(b) = log_y {
+        v.log_y = b;
+    }
+    if let Some(t) = title {
+        v.title = t;
+    }
+    // Choose defaults for what was not given, for the object shown now.
+    v.defaults_for = Some(u64::MAX);
+    Ok(())
+}
+
+/// Open a chart view, or change one: `afx.chart_view(line, y=["T", "p"], x="arc_length")`.
+/// `node` is the object it plots (None: whichever object is selected); `y` one array name or a
+/// list; `x` an array name or "index"; `style` "lines", "points", "markers" or "bars"; `data`
+/// "auto", "points" or "cells". With `view=n` the existing view n is changed (0 = the Charts
+/// panel). Returns the view's number.
+#[pyfunction]
+#[pyo3(signature = (node=None, y=None, x=None, style=None, data=None, log_x=None, log_y=None, title=None, view=None))]
+#[allow(clippy::too_many_arguments)]
+fn chart_view(
+    node: Option<PyRef<PyNode>>,
+    y: Option<Bound<'_, PyAny>>,
+    x: Option<String>,
+    style: Option<String>,
+    data: Option<String>,
+    log_x: Option<bool>,
+    log_y: Option<bool>,
+    title: Option<String>,
+    view: Option<u32>,
+) -> PyResult<u32> {
+    let mut s = session().lock();
+    let node = node.map(|n| n.id);
+    if let Some(n) = node {
+        if !s.nodes.contains_key(&n) {
+            return Err(PyKeyError::new_err("node no longer exists"));
+        }
+    }
+    let id = match view {
+        Some(id) => {
+            if s.chart_view(id).is_none() {
+                return Err(PyValueError::new_err(format!("there is no chart view {id} (afx.chart_views() lists them)")));
+            }
+            if node.is_some() {
+                s.chart_view(id).unwrap().node = node;
+            }
+            if id == 0 {
+                s.app_commands.push("chart_open 0".into());
+            }
+            id
+        }
+        None => s.new_chart_view(node),
+    };
+    set_chart(s.chart_view(id).unwrap(), y, x, style, data, log_x, log_y, title)?;
+    s.touch();
+    Ok(id)
+}
+
+/// The chart views: a list of dicts (view, node, x, y, style, data, log_x, log_y, title).
+#[pyfunction]
+fn chart_views(py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+    let mut s = session().lock();
+    let _ = s.chart_view(0);
+    let mut out = Vec::new();
+    for v in &s.chart_views {
+        let d = PyDict::new(py);
+        d.set_item("view", v.id)?;
+        d.set_item("node", v.node)?;
+        d.set_item("x", &v.x)?;
+        d.set_item("y", v.y.clone())?;
+        d.set_item("style", format!("{:?}", v.style).to_lowercase())?;
+        d.set_item("data", format!("{:?}", v.data).to_lowercase())?;
+        d.set_item("log_x", v.log_x)?;
+        d.set_item("log_y", v.log_y)?;
+        d.set_item("title", &v.title)?;
+        out.push(d.unbind());
+    }
+    Ok(out)
+}
+
+/// Close chart view `view` (0, the Charts panel, is hidden instead).
+#[pyfunction]
+fn close_chart_view(view: u32) -> PyResult<()> {
+    if session().lock().close_chart_view(view) {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!("there is no chart view {view}")))
+    }
 }
 
 #[pyfunction]
@@ -987,9 +1396,16 @@ fn over_time(py: Python<'_>, node: PyRef<PyNode>, array: String, stat: &str, plo
 }
 
 fn app_command(cmd: String) {
-    let mut s = session().lock();
-    s.app_commands.push(cmd);
-    s.revision += 1;
+    let wake = {
+        let mut s = session().lock();
+        s.app_commands.push(cmd);
+        s.revision += 1;
+        s.wake_ui.clone()
+    };
+    // An idle window draws no frames: wake it so that it carries the command out.
+    if let Some(w) = wake {
+        w();
+    }
 }
 
 /// Mean/min/max/stddev of every array over all time steps, as a new node.
@@ -1073,6 +1489,74 @@ fn lighting(py: Python<'_>, options: Option<&Bound<'_, PyDict>>) -> PyResult<Py<
     Ok(py.None())
 }
 
+/// Show a conversation file (JSON with a title and messages, as the assistant keeps them in the
+/// conversations folder of the app's data folder) in the Assistant panel; without a path, start a
+/// new conversation. Code in the shown conversation is not run.
+#[pyfunction]
+#[pyo3(signature = (path=None))]
+fn conversation(path: Option<String>) {
+    app_command(format!("assistant_conversation {}", path.unwrap_or_default()));
+}
+
+/// Start a new workspace (File > New): every object is removed and the state file forgotten;
+/// settings and the window layout stay. Nothing is asked unless `ask=True`, which asks in the
+/// window when the current work is not saved.
+#[pyfunction]
+#[pyo3(signature = (ask=false))]
+fn new(ask: bool) {
+    app_command(if ask { "new_workspace ask".into() } else { "new_workspace".to_string() });
+}
+
+/// Put a saved prompt (by name) in the assistant's box, the selected object filled in.
+#[pyfunction]
+fn assistant_prompt(name: String) {
+    app_command(format!("assistant_prompt {name}"));
+}
+
+/// Use the GPU for filters (Contour and Slice on big grids; the results are the same):
+/// `afx.gpu_filters(False)` turns it off; returns {"device": name or None, "on": bool}.
+#[pyfunction]
+#[pyo3(signature = (on=None))]
+fn gpu_filters(py: Python<'_>, on: Option<bool>) -> PyResult<Bound<'_, PyDict>> {
+    if let Some(b) = on {
+        aurafx_filters::gpu::set_enabled(b);
+    }
+    let d = PyDict::new(py);
+    d.set_item("device", aurafx_filters::gpu::device_name())?;
+    d.set_item("on", aurafx_filters::gpu::enabled())?;
+    Ok(d)
+}
+
+/// Time Contour and Slice with and without the GPU on a wavelet of
+/// (2 half + 1)^3 points: a list of {"filter", "cpu_s", "gpu_s"} (empty without a GPU).
+#[pyfunction]
+#[pyo3(signature = (half=100))]
+fn gpu_benchmark(py: Python<'_>, half: i64) -> PyResult<Bound<'_, PyList>> {
+    let r = py.detach(|| aurafx_filters::gpu::benchmark(half));
+    let l = PyList::empty(py);
+    for (n, c, g) in r {
+        let d = PyDict::new(py);
+        d.set_item("filter", n)?;
+        d.set_item("cpu_s", c)?;
+        d.set_item("gpu_s", g)?;
+        l.append(d)?;
+    }
+    Ok(l)
+}
+
+/// Bind keys to an action of the window: `afx.set_shortcut("screenshot", "Ctrl+P")`, several keys
+/// with commas, "" for none; `vim=True` turns on the vim-style view keys (h j k l, + -, 0).
+#[pyfunction]
+#[pyo3(signature = (action=None, keys="", vim=None))]
+fn set_shortcut(action: Option<String>, keys: &str, vim: Option<bool>) {
+    if let Some(a) = action {
+        app_command(format!("shortcut {a} {keys}"));
+    }
+    if let Some(v) = vim {
+        app_command(format!("vim_keys {}", if v { "on" } else { "off" }));
+    }
+}
+
 /// Bring a panel to the front: "3D View", "Python", "Assistant", "Simulations", "Spreadsheet", "Log", ...
 #[pyfunction]
 fn show_panel(name: String) {
@@ -1080,17 +1564,35 @@ fn show_panel(name: String) {
 }
 
 /// Open the Simulations panel on a template: "lammps", "moose", "moose_polycrystal",
-/// "spparks", "pinnacle", "openfoam", "python", "shell" (or its label).
+/// "spparks", "pinnacle", "jaxfem", "openfoam", "python", "shell" (or its label).
 #[pyfunction]
 fn simulation_template(name: String) {
     app_command(format!("sim_template {name}"));
 }
 
-/// Send a request to the AI assistant panel. With agent=True it runs its code and iterates.
+/// Send a request to the AI assistant panel. With agent=True it runs its code and iterates; with
+/// view=True a picture of the 3D view goes with it (for models that see images).
 #[pyfunction]
-#[pyo3(signature = (text, agent=false))]
-fn ask(text: String, agent: bool) {
-    app_command(format!("ask{} {text}", if agent { "-agent" } else { "" }));
+#[pyo3(signature = (text, agent=false, view=false))]
+fn ask(text: String, agent: bool, view: bool) {
+    app_command(format!("ask{}{} {text}", if agent { "-agent" } else { "" }, if view { "-view" } else { "" }));
+}
+
+/// The assistant panel's state: busy (an answer is arriving), agent (agent mode is iterating), the
+/// number of messages, the last answer, the last error and the last messages as (role, text). Empty
+/// values without the app.
+#[pyfunction]
+fn assistant_status(py: Python<'_>) -> PyResult<Py<PyDict>> {
+    let a = session().lock().assistant.clone();
+    let d = PyDict::new(py);
+    d.set_item("busy", a.busy)?;
+    d.set_item("agent", a.agent)?;
+    d.set_item("messages", a.messages)?;
+    d.set_item("last", a.last)?;
+    d.set_item("error", a.error)?;
+    d.set_item("history", a.history)?;
+    d.set_item("frame", a.frame)?;
+    Ok(d.into())
 }
 
 /// Add a 3D view next to the active one: "right" (side by side) or "down" (above/below).
@@ -1167,19 +1669,19 @@ fn active_view(py: Python<'_>, index: u32) -> PyResult<()> {
 #[pyfunction]
 fn set_theme(mode: String) -> PyResult<()> {
     let m = mode.to_ascii_lowercase();
-    if !["dark", "light", "system"].contains(&m.as_str()) {
-        return Err(PyValueError::new_err("mode must be 'dark', 'light' or 'system'"));
+    if !["dark", "light", "system", "high contrast"].contains(&m.as_str()) {
+        return Err(PyValueError::new_err("mode must be 'dark', 'light', 'system' or 'high contrast'"));
     }
     app_command(format!("theme {m}"));
     Ok(())
 }
 
-/// Window layout preset: "full", "visualize", "analyze", "script" or "simulate".
+/// Window layout preset: "full", "visualize", "analyze", "script", "simulate" or "compact"; or a layout by the window's shape: "automatic" (follows the window as it changes), "wide" (view left, tabs right), "tall" (view on top, tabs below), "tall2" (view on top, two tab groups below).
 #[pyfunction]
 fn layout(name: String) -> PyResult<()> {
     let m = name.to_ascii_lowercase();
-    if !["full", "visualize", "analyze", "script", "simulate"].contains(&m.as_str()) {
-        return Err(PyValueError::new_err("layout must be one of full, visualize, analyze, script, simulate"));
+    if !["full", "visualize", "analyze", "script", "simulate", "compact", "automatic", "wide", "tall", "tall2"].contains(&m.as_str()) {
+        return Err(PyValueError::new_err("layout must be one of full, visualize, analyze, script, simulate, compact, automatic, wide, tall, tall2"));
     }
     app_command(format!("layout {m}"));
     Ok(())
@@ -1276,13 +1778,24 @@ fn load_state(path: String) -> PyResult<()> {
 
 /// Record an animation: keyframes if any were added (key_camera / node.key), otherwise time
 /// steps, or a 360° camera orbit with orbit=frames.
-/// The format follows the extension: .gif, .mp4 (needs ffmpeg) or .png (a folder of frames).
+/// The format follows the extension: .gif, .mp4 or .webm (these two need the video encoder:
+/// `afx.install_ffmpeg()` fetches it once) or .png (a folder of frames).
 ///
 /// With `cue`, a Python function called with the animation time t (0..1) before each frame
 /// (after the keyframes are applied), the script renders the frames itself and returns when
 /// the file is written: `afx.save_animation("a.mp4", cue=lambda t: s.set(value=t * 900))`.
+///
+/// `views="all"` records every visible 3D view and chart view as laid out in the window
+/// ("charts", "3d", "chart N" and "view N" as for `afx.screenshot`).
+///
+/// `width` and `height` set the frames' pixels (one of them keeps the view's shape) and
+/// `background` their background, as for `afx.screenshot` (a color, or `[bottom, top]` for a
+/// gradient; not "transparent"), for an animation of the active 3D view.
+///
+/// `poster="clip.jpg"` also writes the first frame as a picture (.jpg or .png), the still a
+/// web page shows before the video plays.
 #[pyfunction]
-#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None))]
+#[pyo3(signature = (path, fps=10.0, orbit=None, cue=None, frames=None, width=None, height=None, views=None, poster=None, background=None))]
 #[allow(clippy::too_many_arguments)]
 fn save_animation(
     py: Python<'_>,
@@ -1293,9 +1806,26 @@ fn save_animation(
     frames: Option<usize>,
     width: Option<u32>,
     height: Option<u32>,
+    views: Option<String>,
+    poster: Option<String>,
+    background: Option<Bound<'_, PyAny>>,
 ) -> PyResult<()> {
+    let (clear, background) = parse_background(background.as_ref())?;
+    if clear {
+        return Err(PyValueError::new_err("an animation has no transparent background: give a color, or two for a gradient"));
+    }
+    session().lock().animation_poster = poster.map(std::path::PathBuf::from);
     let Some(cue) = cue else {
-        session().lock().animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
+        let mut s = session().lock();
+        let size = match (width, height) {
+            (Some(w), Some(h)) => Some((w, h)),
+            (Some(w), None) => Some((w, 0)),
+            (None, Some(h)) => Some((0, h)),
+            _ => None,
+        };
+        s.animation_picture = (size.is_some() || background.is_some()).then_some((size, background));
+        s.animation_views = views;
+        s.animation_request = Some((std::path::PathBuf::from(path), fps, orbit));
         return Ok(());
     };
     if !cue.is_callable() {
@@ -1303,8 +1833,8 @@ fn save_animation(
     }
     let out = std::path::PathBuf::from(&path);
     let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !matches!(ext.as_str(), "gif" | "mp4" | "png") {
-        return Err(PyValueError::new_err("save_animation writes .gif, .mp4 or .png (a folder of frames)"));
+    if !matches!(ext.as_str(), "gif" | "mp4" | "webm" | "png") {
+        return Err(PyValueError::new_err("save_animation writes .gif, .mp4, .webm or .png (a folder of frames)"));
     }
     let (n, saved, time_index) = {
         let s = session().lock();
@@ -1327,7 +1857,7 @@ fn save_animation(
                 }
             }
             cue.call1((t,))?;
-            screenshot(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false, true)?;
+            screenshot_with(py, dir.join(format!("frame_{i:05}.png")).display().to_string(), width, height, false, true, views.clone(), false, background)?;
         }
         Ok(())
     };
@@ -1458,6 +1988,343 @@ fn define_colormap(name: String, points: Vec<[f64; 4]>) -> PyResult<String> {
     Ok(name)
 }
 
+// ------------------------------------------------------------------ CAD
+
+fn cad_err(e: impl std::fmt::Display) -> PyErr {
+    PyValueError::new_err(format!("{e:#}"))
+}
+
+/// One edit of a CAD Model node's document: operation name and JSON arguments; returns JSON.
+#[pyfunction]
+fn _cad_edit(node: PyRef<PyNode>, op: String, args: String) -> PyResult<String> {
+    let args: serde_json::Value = serde_json::from_str(&args).map_err(cad_err)?;
+    let out = session().lock().cad_edit(node.id, &op, &args).map_err(cad_err)?;
+    Ok(out.to_string())
+}
+
+/// The document of a CAD Model node as `.afxcad` text.
+#[pyfunction]
+fn _cad_document(node: PyRef<PyNode>) -> PyResult<String> {
+    let doc = session().lock().cad_document(node.id).map_err(cad_err)?;
+    Ok(aurafx_cad::CadFile::new(doc).to_json())
+}
+
+/// Replace the document of a CAD Model node by `.afxcad` text.
+#[pyfunction]
+fn _cad_set_document(node: PyRef<PyNode>, text: String) -> PyResult<()> {
+    let doc = aurafx_cad::Document::from_afxcad(&text).map_err(cad_err)?;
+    session().lock().cad_set_document(node.id, &doc);
+    Ok(())
+}
+
+/// What the document has: parameters (with values), features, configurations, overrides.
+#[pyfunction]
+fn _cad_info(node: PyRef<PyNode>) -> PyResult<String> {
+    let s = session().lock();
+    // While a component is edited on its own, the part read (and changed) is that component's.
+    let focused = s.cad_edit.as_ref().filter(|e| e.node == node.id).and_then(|e| e.focused().map(|c| (c.name.clone(), (*c.document).clone())));
+    let doc = match &focused {
+        Some((_, d)) => d.clone(),
+        None => s.cad_document(node.id).map_err(cad_err)?,
+    };
+    let eff = if focused.is_some() { Some(doc.clone()) } else { s.cad_effective_document(node.id).ok() };
+    let vals = eff.as_ref().and_then(|d| d.parameter_values().ok());
+    let params: Vec<serde_json::Value> = doc
+        .parameters
+        .iter()
+        .map(|p| serde_json::json!({ "name": p.name, "expr": p.expr, "comment": p.comment, "value": vals.as_ref().and_then(|v| v.get(&p.name)) }))
+        .collect();
+    Ok(serde_json::json!({
+        "name": doc.name,
+        "parameters": params,
+        "features": doc.feature_list(),
+        "finish": doc.finish.len(),
+        "components": doc.components.iter().map(|c| serde_json::json!({ "name": c.name, "id": c.id.0, "at": c.placement.translate, "rotate": c.placement.rotate_deg, "visible": c.visible, "part": c.document.name, "features": c.document.features.len() })).collect::<Vec<_>>(),
+        "configurations": doc.configurations.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+        "active_configuration": doc.active_configuration,
+        "overrides": s.cad_overrides(node.id),
+        "sketches": doc.sketches.iter().map(|k| serde_json::json!({ "name": k.name, "plane": k.sketch.plane_label(), "outlines": k.sketch.profiles().len(), "paths": k.sketch.open_paths().len() })).collect::<Vec<_>>(),
+        "mates": doc.mates.iter().map(|m| serde_json::json!({ "name": m.name, "kind": m.kind.label(), "a": m.a.label(), "b": m.b.label(), "value": m.value, "expr": m.expr, "flip": m.flip, "suppressed": m.suppressed })).collect::<Vec<_>>(),
+        "editing_component": focused.as_ref().map(|f| f.0.clone()),
+    })
+    .to_string())
+}
+
+/// Evaluate the part (with the node's overrides) now: volume, bounds and the faces.
+#[pyfunction]
+#[pyo3(signature = (node, resolution=64, kernel="Auto".to_string()))]
+fn _cad_evaluate(node: PyRef<PyNode>, resolution: usize, kernel: String) -> PyResult<String> {
+    // Inside the environment the build is shown too (it becomes the node's output).
+    if session().lock().cad_editing() == Some(node.id) {
+        let sum = session().lock().cad_env_evaluate(resolution).map_err(cad_err)?;
+        let faces: Vec<serde_json::Value> = sum.faces.iter().enumerate().map(|(i, f)| serde_json::json!({ "id": i, "name": f.name, "kind": f.kind, "area": f.area, "centroid": f.centroid, "direction": f.direction, "feature": f.feature.0 })).collect();
+        let mates: Vec<serde_json::Value> = sum.mates.iter().map(|(n, e)| serde_json::json!({ "name": n, "error": e })).collect();
+        let placements: Vec<serde_json::Value> = sum.placements.iter().map(|(n, at, r)| serde_json::json!({ "name": n, "at": at, "rotate": r })).collect();
+        return Ok(serde_json::json!({ "kernel": sum.kernel, "volume": sum.volume, "area": sum.area, "centroid": sum.centroid, "bounds": [sum.bounds.0, sum.bounds.1], "faces": faces, "notes": sum.approximate, "mates": mates, "mate_dof": sum.mate_dof, "placements": placements }).to_string());
+    }
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let choice = aurafx_cad::KernelChoice::parse(&kernel).ok_or_else(|| PyValueError::new_err("kernel is Auto, Implicit or B-rep"))?;
+    let ev = aurafx_filters::cad::evaluate_with(choice, &doc, resolution, true).map_err(cad_err)?;
+    let faces: Vec<serde_json::Value> = ev
+        .faces()
+        .map(|(_, f)| {
+            serde_json::json!({ "id": f.face_id, "name": f.name, "kind": f.kind.label(), "area": f.area, "centroid": f.centroid, "direction": f.direction, "feature": (f.id.0).0 })
+        })
+        .collect();
+    let b = &ev.bodies[0];
+    let mates: Vec<serde_json::Value> = ev.mates.iter().map(|m| serde_json::json!({ "name": m.name, "error": m.error })).collect();
+    let placements: Vec<serde_json::Value> =
+        ev.placements.iter().map(|(n, p)| serde_json::json!({ "name": n, "at": p.translate, "rotate": p.rotate_deg })).collect();
+    Ok(serde_json::json!({ "kernel": ev.kernel, "volume": ev.volume(), "area": b.area, "centroid": b.centroid, "bounds": [b.bounds.0, b.bounds.1], "faces": faces, "notes": ev.approximate, "mates": mates, "mate_dof": ev.mate_dof, "placements": placements }).to_string())
+}
+
+/// A CAD Model node whose part starts as the solid another node shows (its closed surface).
+#[pyfunction]
+fn _cad_from(node: PyRef<PyNode>) -> PyResult<PyNode> {
+    let id = session().lock().cad_from_node(node.id).map_err(cad_err)?;
+    Ok(PyNode { id })
+}
+
+/// Solve a sketch given as a description, with the node's dimensions: the status, the degrees
+/// of freedom left and where the points are now.
+#[pyfunction]
+fn _cad_sketch_solve(node: PyRef<PyNode>, spec: String) -> PyResult<String> {
+    let spec: serde_json::Value = serde_json::from_str(&spec).map_err(cad_err)?;
+    let doc = {
+        let s = session().lock();
+        match s.cad_edit.as_ref().filter(|e| e.node == node.id) {
+            Some(e) => e.active().clone(),
+            None => s.cad_effective_document(node.id).map_err(cad_err)?,
+        }
+    };
+    let mut sk = aurafx_cad::edit::sketch_from_spec(&doc, &spec).map_err(cad_err)?;
+    let r = sk.solve_with(&doc.parameter_values().map_err(cad_err)?).map_err(cad_err)?;
+    let status = match r.status {
+        aurafx_cad::SolveStatus::FullyDefined => "fully defined",
+        aurafx_cad::SolveStatus::UnderDefined(_) => "under-defined",
+        aurafx_cad::SolveStatus::OverDefined => "over-defined",
+        aurafx_cad::SolveStatus::Failed => "failed",
+    };
+    Ok(serde_json::json!({
+        "status": status, "dof": r.dof, "converged": r.converged, "max_residual": r.max_residual,
+        "points": sk.points.iter().map(|p| [p.x, p.y]).collect::<Vec<_>>(),
+        "radii": sk.entities.iter().map(|e| match e { aurafx_cad::Entity::Circle { radius, .. } => Some(*radius), _ => None }).collect::<Vec<_>>(),
+        "outlines": sk.profiles().len(), "paths": sk.open_paths().len(),
+    })
+    .to_string())
+}
+
+/// Open the CAD environment on a CAD Model node (the pipeline pauses).
+#[pyfunction]
+fn _cad_enter(node: PyRef<PyNode>) -> PyResult<()> {
+    session().lock().cad_enter(node.id).map_err(cad_err)
+}
+
+fn conflict_json(c: &aurafx_pipeline::Conflict) -> serde_json::Value {
+    serde_json::json!({
+        "node": c.node, "node_name": c.node_name, "param": c.param, "value": c.value, "reference": c.reference,
+        "kind": c.kind.label(), "may_reference": c.may_reference,
+        "fix": c.fix.as_ref().map(|f| serde_json::json!({ "value": f.value, "reason": f.reason, "check": f.check })),
+    })
+}
+
+/// The downstream check of the environment's working copy: what changed, the nodes below the
+/// part, the conflicts with their default fixes, and the prompt for the assistant.
+#[pyfunction]
+fn _cad_check() -> PyResult<String> {
+    let s = session().lock();
+    let r = s.cad_check().map_err(cad_err)?;
+    Ok(serde_json::json!({
+        "changed": !r.diff.is_empty(),
+        "diff": r.diff.describe(),
+        "downstream": r.downstream,
+        "conflicts": r.conflicts.iter().map(conflict_json).collect::<Vec<_>>(),
+        "prompt": s.cad_check_prompt(&r),
+    })
+    .to_string())
+}
+
+/// Read fixes out of an assistant's answer (a JSON list of node, param, value, reason).
+#[pyfunction]
+fn _cad_parse_fixes(answer: String) -> PyResult<String> {
+    let s = session().lock();
+    let f = aurafx_pipeline::cad_check::parse_ai_fixes(&s, &answer).map_err(cad_err)?;
+    Ok(serde_json::to_string(&f).map_err(cad_err)?)
+}
+
+/// Apply the environment's working copy to the node. `fix`: "default", "none" or a JSON list of
+/// fixes; `run`: "now" or "later"; `keep` stays in the environment.
+#[pyfunction]
+#[pyo3(signature = (keep=false, fix="default".to_string(), run="now".to_string()))]
+fn _cad_apply(keep: bool, fix: String, run: String) -> PyResult<String> {
+    let mode = match fix.as_str() {
+        "default" => aurafx_pipeline::FixMode::Default,
+        "none" => aurafx_pipeline::FixMode::None,
+        list => aurafx_pipeline::FixMode::Fixes(serde_json::from_str(list).map_err(|_| PyValueError::new_err("fix is 'default', 'none' or a list of fixes"))?),
+    };
+    let run = match run.as_str() {
+        "now" => aurafx_pipeline::RunMode::Now,
+        "later" => aurafx_pipeline::RunMode::Later,
+        _ => return Err(PyValueError::new_err("run is 'now' or 'later'")),
+    };
+    let a = session().lock().cad_apply_with(keep, mode, run).map_err(cad_err)?;
+    Ok(serde_json::json!({ "features": a.features, "kept_editing": a.kept_editing, "fixes": a.fixes, "held": a.held }).to_string())
+}
+
+/// Write the node's part as a CAD file by the path's extension (.afxcad, .step, .3mf, .stl, .obj, .sc):
+/// returns {bytes, exact, note}. `kernel`: Auto, Implicit or B-rep.
+#[pyfunction]
+#[pyo3(signature = (node, path, kernel="Auto".to_string()))]
+fn _cad_export(node: PyRef<PyNode>, path: String, kernel: String) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let choice = aurafx_cad::KernelChoice::parse(&kernel).ok_or_else(|| PyValueError::new_err("kernel is Auto, Implicit or B-rep"))?;
+    let r = aurafx_cad::io::export_file(&doc, std::path::Path::new(&path), choice).map_err(cad_err)?;
+    Ok(serde_json::json!({ "bytes": r.bytes, "exact": r.exact, "note": r.note }).to_string())
+}
+
+/// Read a CAD file as `.afxcad` text (a solid file becomes a base feature).
+#[pyfunction]
+fn _cad_import(path: String) -> PyResult<String> {
+    let doc = aurafx_cad::io::import_file(std::path::Path::new(&path)).map_err(cad_err)?;
+    Ok(aurafx_cad::CadFile::new(doc).to_json())
+}
+
+/// The edges of the part as the exact kernel builds it: index, a point on the edge, length, the
+/// faces on either side.
+#[pyfunction]
+fn _cad_edges(node: PyRef<PyNode>) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let e = aurafx_cad::kernel::brep::list_edges(&doc).map_err(cad_err)?;
+    Ok(serde_json::json!(e
+        .iter()
+        .map(|e| serde_json::json!({ "index": e.index, "point": e.mid, "length": e.length, "faces": e.faces, "straight": e.straight }))
+        .collect::<Vec<_>>())
+    .to_string())
+}
+
+/// A point on each named face of the built part (for picking faces by name).
+#[pyfunction]
+fn _cad_face_points(node: PyRef<PyNode>, names: Vec<String>) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let ev = aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 64, true).map_err(cad_err)?;
+    let mut out = Vec::new();
+    for n in &names {
+        out.push(ev.face_pick(n).ok_or_else(|| PyValueError::new_err(format!("no face named '{n}' (cad.faces() lists them)")))?);
+    }
+    Ok(serde_json::json!(out).to_string())
+}
+
+/// Mass properties, or the measure between two faces.
+#[pyfunction]
+#[pyo3(signature = (node, what, a=None, b=None, density=7.85))]
+fn _cad_measure(node: PyRef<PyNode>, what: String, a: Option<String>, b: Option<String>, density: f64) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let ev = aurafx_filters::cad::evaluate_with(aurafx_cad::KernelChoice::Auto, &doc, 64, true).map_err(cad_err)?;
+    match what.as_str() {
+        "mass" => serde_json::to_string(&ev.mass_properties(density)).map_err(cad_err),
+        "faces" => {
+            let (a, b) = (a.unwrap_or_default(), b.unwrap_or_default());
+            let m = aurafx_cad::measure_faces(&ev, &a, &b)
+                .ok_or_else(|| PyValueError::new_err(format!("no faces named '{a}' and '{b}' (cad.faces() lists them)")))?;
+            serde_json::to_string(&m).map_err(cad_err)
+        }
+        w => Err(PyValueError::new_err(format!("unknown measure '{w}'"))),
+    }
+}
+
+/// The overlap volume of two CAD Model nodes, the second placed at `at` / `rotate`.
+#[pyfunction]
+#[pyo3(signature = (node, other, at=(0.0, 0.0, 0.0), rotate=(0.0, 0.0, 0.0), resolution=0.5))]
+fn _cad_interference(node: PyRef<PyNode>, other: PyRef<PyNode>, at: (f64, f64, f64), rotate: (f64, f64, f64), resolution: f64) -> PyResult<f64> {
+    let (da, db) = {
+        let s = session().lock();
+        (s.cad_effective_document(node.id).map_err(cad_err)?, s.cad_effective_document(other.id).map_err(cad_err)?)
+    };
+    let k = aurafx_cad::KernelChoice::Auto;
+    let (ea, eb) =
+        (aurafx_filters::cad::evaluate_with(k, &da, 64, true).map_err(cad_err)?, aurafx_filters::cad::evaluate_with(k, &db, 64, true).map_err(cad_err)?);
+    let id = aurafx_cad::Placement::default();
+    let pb = aurafx_cad::Placement { translate: [at.0, at.1, at.2], rotate_deg: [rotate.0, rotate.1, rotate.2] };
+    Ok(aurafx_cad::interference_built(&ea, &id, &eb, &pb, resolution))
+}
+
+/// The pairs of parts of an assembly that overlap, with the overlap volume in mm3.
+#[pyfunction]
+#[pyo3(signature = (node, resolution=0.5))]
+fn _cad_component_interference(node: PyRef<PyNode>, resolution: f64) -> PyResult<String> {
+    let doc = session().lock().cad_effective_document(node.id).map_err(cad_err)?;
+    let r = aurafx_cad::kernel::assemble::component_interference(aurafx_cad::KernelChoice::Auto, &doc, resolution).map_err(cad_err)?;
+    Ok(serde_json::json!(r.iter().map(|(a, b, v)| serde_json::json!({ "a": a, "b": b, "volume": v })).collect::<Vec<_>>()).to_string())
+}
+
+/// Send a command to the app's window (the Apply button's dialog).
+#[pyfunction]
+fn _cad_app_command(cmd: String) {
+    app_command(cmd);
+}
+
+/// Let the nodes held back by a postponed re-run run.
+#[pyfunction]
+fn _cad_run_held() {
+    session().lock().cad_run_held();
+}
+
+/// Leave the environment without applying.
+#[pyfunction]
+fn _cad_discard() -> PyResult<()> {
+    session().lock().cad_discard().map_err(cad_err)
+}
+
+/// The state of the environment: whether it is open on this node, changes, revision, rollback.
+#[pyfunction]
+fn _cad_state(node: PyRef<PyNode>) -> String {
+    let s = session().lock();
+    match s.cad_edit.as_ref().filter(|e| e.node == node.id) {
+        Some(e) => serde_json::json!({ "editing": true, "changed": e.changed, "revision": e.revision, "rollback": e.rollback, "selected": e.selected.map(|i| i.0), "undo": e.undo.len(), "redo": e.redo.len(), "error": e.error, "component": e.focused().map(|c| c.name.clone()) }).to_string(),
+        None => serde_json::json!({ "editing": false, "other": s.cad_editing() }).to_string(),
+    }
+}
+
+/// Undo / redo / rollback / select inside the environment.
+#[pyfunction]
+#[pyo3(signature = (what, arg=None))]
+fn _cad_env(what: String, arg: Option<String>) -> PyResult<bool> {
+    let mut s = session().lock();
+    Ok(match what.as_str() {
+        "undo" => s.cad_env_undo().is_some(),
+        "redo" => s.cad_env_redo().is_some(),
+        "rollback" => {
+            let n = arg
+                .as_deref()
+                .filter(|a| !a.is_empty())
+                .map(|a| a.parse::<usize>())
+                .transpose()
+                .map_err(|_| PyValueError::new_err("rollback takes a number of features or None"))?;
+            s.cad_env_rollback(n);
+            true
+        }
+        "focus" => {
+            s.cad_env_focus(arg.as_deref().filter(|a| !a.is_empty())).map_err(cad_err)?;
+            true
+        }
+        "select" => {
+            let id = match arg.as_deref().filter(|a| !a.is_empty()) {
+                None => None,
+                Some(name) => {
+                    let id = s.cad_edit.as_ref().and_then(|e| e.active().features.iter().find(|f| f.name == name).map(|f| f.id));
+                    if id.is_none() {
+                        return Err(PyValueError::new_err(format!("no feature named '{name}'")));
+                    }
+                    id
+                }
+            };
+            s.cad_env_select(id);
+            true
+        }
+        w => return Err(PyValueError::new_err(format!("unknown environment action '{w}'"))),
+    })
+}
+
 /// Check geometry commands: the bodies they make (id, name, history lines, faces as
 /// (id, name), bounds), or the error with the line it is on.
 #[pyfunction]
@@ -1506,6 +2373,729 @@ class _MeshModule:
         return _MeshGeometry(commands)
 
 mesh = _MeshModule()
+"#;
+
+/// Plugin panels: `@afx.panel("Title")` and the `ui` the function gets.
+const PANEL_API: &str = r#"
+_panels = {}
+_panel_state = {}
+def panel(title):
+    """Add a panel to the window (Windows > Plugin panels). The function gets a `ui` and is run
+    when the panel opens and whenever a button is pressed or a value changes: ui.label(text),
+    ui.button(text) -> True on the run its press causes, ui.slider(name, value, lo, hi),
+    ui.number(name, value), ui.checkbox(name, value), ui.text(name, value),
+    ui.choice(name, options, value) give the current value, ui.image(path), ui.separator()."""
+    def deco(fn):
+        _panels[title] = fn
+        return fn
+    return deco
+
+class _PanelUI:
+    def __init__(self, title, event):
+        self.title = title
+        self.event = event or {}
+        self.items = []
+        self.state = _panel_state.setdefault(title, {})
+    def _value(self, name, value, conv):
+        if self.event.get("kind") == "set" and self.event.get("name") == name:
+            self.state[name] = conv(self.event.get("value"))
+        return self.state.setdefault(name, value)
+    def label(self, text):
+        self.items.append({"kind": "label", "text": str(text)})
+    def separator(self):
+        self.items.append({"kind": "separator"})
+    def button(self, text):
+        self.items.append({"kind": "button", "text": str(text)})
+        return self.event.get("kind") == "button" and self.event.get("name") == str(text)
+    def slider(self, name, value, lo, hi):
+        integer = isinstance(value, int) and not isinstance(value, bool)
+        v = self._value(name, value, int if integer else float)
+        self.items.append({"kind": "slider", "name": name, "value": v, "min": lo, "max": hi, "int": integer})
+        return v
+    def number(self, name, value):
+        integer = isinstance(value, int) and not isinstance(value, bool)
+        v = self._value(name, value, int if integer else float)
+        self.items.append({"kind": "number", "name": name, "value": v, "int": integer})
+        return v
+    def checkbox(self, name, value=False):
+        v = self._value(name, bool(value), bool)
+        self.items.append({"kind": "checkbox", "name": name, "value": v})
+        return v
+    def text(self, name, value=""):
+        v = self._value(name, str(value), str)
+        self.items.append({"kind": "text", "name": name, "value": v})
+        return v
+    def choice(self, name, options, value=None):
+        options = [str(o) for o in options]
+        v = self._value(name, str(value if value is not None else (options[0] if options else "")), str)
+        self.items.append({"kind": "choice", "name": name, "value": v, "options": options})
+        return v
+    def image(self, path):
+        self.items.append({"kind": "image", "path": str(path)})
+
+def _render_panel(title, event_json):
+    import json, traceback
+    fn = _panels.get(title)
+    ui = _PanelUI(title, json.loads(event_json) if event_json else None)
+    err = None
+    if fn is None:
+        err = "no panel named %r" % title
+    else:
+        try:
+            fn(ui)
+        except Exception:
+            err = traceback.format_exc()
+    return json.dumps({"items": ui.items, "error": err})
+
+def _panel_titles():
+    return list(_panels)
+"#;
+
+/// Rich output for notebooks: `afx.display(...)` and `afx.snapshot()`.
+const DISPLAY_API: &str = r#"
+_displays = []
+_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "svg": "image/svg+xml"}
+def display(obj):
+    """Show something in the notebook when auraFX runs as a Jupyter kernel: a picture file (.png,
+    .jpg, .gif, .svg), PNG bytes, or any object (as text). In the app's console it prints a line."""
+    import os
+    if isinstance(obj, (bytes, bytearray)):
+        _displays.append(("image/png", bytes(obj)))
+    elif isinstance(obj, str) and os.path.isfile(obj) and obj.rsplit(".", 1)[-1].lower() in _MIME:
+        with open(obj, "rb") as f:
+            _displays.append((_MIME[obj.rsplit(".", 1)[-1].lower()], f.read()))
+    else:
+        _displays.append(("text/plain", str(obj).encode()))
+def snapshot(width=None, height=None, views=None):
+    """A picture of the active 3D view (views="all": every view as laid out) shown in the notebook."""
+    import os, tempfile
+    fd, f = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    try:
+        if views is None:
+            screenshot(f, width=width, height=height)
+        else:
+            screenshot(f, views=views)
+        display(f)
+    finally:
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+"#;
+
+/// `afx.cad_model()` and the `cad` object of a CAD Model node.
+const CAD_API: &str = r#"
+import json as _json
+
+class _SkPoint:
+    """A point of a sketch (a line's .start and .end, a circle's .center). .xy is where it is;
+    after solve(), where the constraints put it."""
+    def __init__(self, sketch, index):
+        self._s, self.index = sketch, index
+    @property
+    def xy(self):
+        p = self._s._points[self.index]
+        return (p[0], p[1])
+    def __repr__(self):
+        return "<sketch point %d at (%g, %g)>" % ((self.index,) + self.xy)
+
+class _SkEntity:
+    """A line (.start, .end), a circle (.center) or an arc (.center, .start, .end) of a sketch:
+    what the sketch's drawing calls return and its constraints take."""
+    def __init__(self, sketch, index, kind, **points):
+        self._s, self.index, self.kind = sketch, index, kind
+        for k, v in points.items():
+            setattr(self, k, v)
+    def __repr__(self):
+        return "<sketch %s %d>" % (self.kind, self.index)
+
+class _CadSketch:
+    """A sketch: ready shapes (rectangle, circle, polygon, regular, path), or lines, circles and
+    arcs drawn one by one and tied by constraints and dimensions. A dimension's value is a number
+    or an expression of the part's dimensions ("width / 2"). Pass it to extrude(), revolve(),
+    sketch_add(), sweep() or loft()."""
+    def __init__(self, plane="XY", offset=0, node=None, face=None):
+        self.plane, self.offset, self.face, self.items = plane, offset, face, []
+        self._node, self._points, self._entities, self._constraints = node, [], [], []
+    # ready shapes, fully dimensioned
+    def rectangle(self, w, h, corner=None, center=None):
+        d = {"w": w, "h": h}
+        if center is not None: d["center"] = list(center)
+        elif corner is not None: d["corner"] = list(corner)
+        else: d["center"] = [0, 0]
+        self.items.append({"rectangle": d}); return self
+    def circle(self, r, center=(0, 0)):
+        self.items.append({"circle": {"r": r, "center": list(center)}}); return self
+    def polygon(self, points):
+        self.items.append({"polygon": [list(p) for p in points]}); return self
+    def regular(self, sides, r, center=(0, 0)):
+        self.items.append({"regular": {"sides": sides, "r": r, "center": list(center)}}); return self
+    def path(self, points):
+        """Lines joined end to end and left open: the path of a sweep."""
+        self.items.append({"path": [list(p) for p in points]}); return self
+    def project(self, face=None, edge=None):
+        """Take edges of the part as it is into the sketch, laid flat on the sketch plane: every edge
+        around a face (face="Plate z+"), the edge between two faces (edge=("Plate z+", "Bore side")),
+        or all of them (neither). A straight edge becomes a line, a round one seen face on a circle
+        or an arc, any other a fixed outline through its points; edges seen end on are left out.
+        They are a copy: they stay where they are when the part changes later."""
+        d = {}
+        if face is not None: d["face"] = face
+        if edge is not None: d["edge"] = list(edge)
+        self.items.append({"project": d}); return self
+    # drawing one by one: each call returns the thing drawn, for the constraints
+    def point(self, x, y, fixed=False):
+        """A point; fixed=True pins it where it is."""
+        self._points.append([float(x), float(y), bool(fixed)])
+        return _SkPoint(self, len(self._points) - 1)
+    def _pt(self, p):
+        return p if isinstance(p, _SkPoint) else self.point(p[0], p[1])
+    def line(self, a, b, construction=False):
+        """A line between two points: (x, y) pairs, or points of other entities (l.end) to share a corner."""
+        a, b = self._pt(a), self._pt(b)
+        self._entities.append({"line": [a.index, b.index], "construction": bool(construction)})
+        return _SkEntity(self, len(self._entities) - 1, "line", start=a, end=b)
+    def lines(self, points, closed=True):
+        """Lines through the points, sharing their corners (closed: back to the first). Returns the lines."""
+        pts = [self._pt(p) for p in points]
+        pairs = list(zip(pts, pts[1:])) + ([(pts[-1], pts[0])] if closed and len(pts) > 2 else [])
+        return [self.line(a, b) for a, b in pairs]
+    def add_circle(self, center, r, construction=False):
+        """A circle to constrain (circle() adds a ready, dimensioned one). Returns the circle."""
+        c = self._pt(center)
+        self._entities.append({"circle": [c.index, r], "construction": bool(construction)})
+        return _SkEntity(self, len(self._entities) - 1, "circle", center=c)
+    def arc(self, center, start, end, construction=False):
+        """An arc counter-clockwise from start to end around center."""
+        c, a, b = self._pt(center), self._pt(start), self._pt(end)
+        self._entities.append({"arc": [c.index, a.index, b.index], "construction": bool(construction)})
+        return _SkEntity(self, len(self._entities) - 1, "arc", center=c, start=a, end=b)
+    # constraints
+    def _con(self, kind, things, value=None):
+        for t in things:
+            if not isinstance(t, (_SkPoint, _SkEntity)) or t._s is not self:
+                raise ValueError("%s takes points and lines of this sketch (what line(), point(), add_circle() and arc() return), not %r" % (kind, t))
+        d = {kind: [t.index for t in things]}
+        if value is not None: d["value"] = value
+        self._constraints.append(d); return self
+    def horizontal(self, line): return self._con("horizontal", [line])
+    def vertical(self, line): return self._con("vertical", [line])
+    def coincident(self, p, q):
+        """Two points in one place (the end of one line on the start of another)."""
+        return self._con("coincident", [p, q])
+    def parallel(self, a, b): return self._con("parallel", [a, b])
+    def perpendicular(self, a, b): return self._con("perpendicular", [a, b])
+    def equal(self, a, b):
+        """Two lines of one length, or two circles of one radius."""
+        return self._con("equal", [a, b])
+    def tangent(self, a, b):
+        """A line touching a circle or an arc, or two of those touching."""
+        return self._con("tangent", [a, b])
+    def concentric(self, a, b): return self._con("concentric", [a, b])
+    def midpoint(self, point, line): return self._con("midpoint", [point, line])
+    def point_on(self, point, entity):
+        """A point on a line (anywhere along it) or on a circle or arc."""
+        return self._con("point_on_line" if entity.kind == "line" else "point_on_circle", [point, entity])
+    def symmetric(self, p, q, line):
+        """Two points mirror images of each other in a line."""
+        return self._con("symmetric", [p, q, line])
+    def fix(self, point): return self._con("fix", [point])
+    # dimensions: value is a number or an expression of the part's dimensions
+    def distance(self, a, b=None, value=None):
+        """A driving dimension: distance(line, 40) is the line's length, distance(p, q, 40) the distance
+        between two points, distance(p, line, 40) from a point to a line. The value may be an
+        expression of the part's dimensions: distance(l, "width")."""
+        if value is None and not isinstance(b, (_SkPoint, _SkEntity)):
+            b, value = None, b
+        if value is None: raise ValueError("distance needs a value (a number or an expression)")
+        if b is None: return self._con("length", [a], value)
+        if isinstance(a, _SkEntity): a, b = b, a
+        if isinstance(b, _SkEntity): return self._con("point_line_distance", [a, b], value)
+        return self._con("distance", [a, b], value)
+    def dimension(self, a, b=None, value=None):
+        """The same as distance()."""
+        return self.distance(a, b, value)
+    def length(self, line, value): return self._con("length", [line], value)
+    def hdistance(self, p, q, value):
+        """The distance between two points along the sketch's x."""
+        return self._con("hdistance", [p, q], value)
+    def vdistance(self, p, q, value):
+        """The distance between two points along the sketch's y."""
+        return self._con("vdistance", [p, q], value)
+    def radius(self, circle, value): return self._con("radius", [circle], value)
+    def diameter(self, circle, value): return self._con("diameter", [circle], value)
+    def angle(self, a, b, value):
+        """The angle between two lines, in degrees."""
+        return self._con("angle", [a, b], value)
+    def solve(self):
+        """Solve the constraints now: {"status": "fully defined" | "under-defined" | "over-defined" |
+        "failed", "dof": degrees of freedom left, "converged", "outlines": closed outlines, "paths":
+        open ones}. The points' .xy are then where the constraints put them. (extrude() and the
+        others solve by themselves; this is to check a sketch first.)"""
+        if self._node is None: raise ValueError("solve() needs a sketch made with node.cad.sketch()")
+        r = _json.loads(_cad_sketch_solve(self._node, _json.dumps(self.spec())))
+        for p, xy in zip(self._points, r.pop("points")):
+            p[0], p[1] = xy
+        for e, rad in zip(self._entities, r.pop("radii")):
+            if "circle" in e and rad is not None and not isinstance(e["circle"][1], str): e["circle"][1] = rad
+        return r
+    def spec(self):
+        d = {"plane": self.plane, "offset": self.offset, "items": self.items}
+        if self.face: d["face"] = self.face
+        if self._points or self._entities:
+            d.update(points=self._points, entities=self._entities, constraints=self._constraints)
+        return d
+
+class _CadApi:
+    """The parametric document of a CAD Model node. Numbers can be expressions of the document's
+    parameters ("width / 2"): the geometry then follows the parameter."""
+    def __init__(self, node):
+        self._node = node
+    def edit(self, op, args=None, **kw):
+        a = dict(args or {}); a.update(kw)
+        return _json.loads(_cad_edit(self._node, op, _json.dumps(a)))
+    # parameters and configurations
+    def parameter(self, name, expr, comment=""):
+        return self.edit("parameter", name=name, expr=expr, comment=comment)
+    def remove_parameter(self, name):
+        return self.edit("remove_parameter", name=name)
+    def parameters(self):
+        return {p["name"]: p["value"] for p in self.info()["parameters"]}
+    def configuration(self, name, **overrides):
+        return self.edit("configuration", name=name, overrides=overrides)
+    def activate(self, name=None):
+        return self.edit("activate", name=name)
+    # solids
+    def _prim(self, kind, name, op, at, rotate, blend, kw):
+        a = dict(kw); a.update(kind=kind, op=op, at=list(at), rotate=list(rotate))
+        if name: a["name"] = name
+        if blend: a["blend"] = blend
+        return self.edit("add", a)
+    def box(self, size=(10, 10, 10), name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), corner_radius=0, blend=0):
+        return self._prim("box", name, op, at, rotate, blend, {"size": list(size), "corner_radius": corner_radius})
+    def sphere(self, radius=5, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("sphere", name, op, at, rotate, blend, {"radius": radius})
+    def cylinder(self, radius=5, height=10, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("cylinder", name, op, at, rotate, blend, {"radius": radius, "height": height})
+    def cone(self, r_bottom=5, r_top=0, height=10, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("cone", name, op, at, rotate, blend, {"r_bottom": r_bottom, "r_top": r_top, "height": height})
+    def torus(self, major=10, minor=2, name=None, op="add", at=(0, 0, 0), rotate=(0, 0, 0), blend=0):
+        return self._prim("torus", name, op, at, rotate, blend, {"major": major, "minor": minor})
+    def hole(self, diameter=5, depth=10, kind="simple", name=None, at=(0, 0, 0), rotate=(0, 0, 0), **kw):
+        """A hole cut downward (-z) from `at`: kind simple, drilled, counterbore (cb_diameter, cb_depth),
+        countersink (cs_diameter, cs_angle) or tapped (pitch)."""
+        k = dict(kw); k.update(diameter=diameter, depth=depth, hole=kind)
+        return self._prim("hole", name, "cut", at, rotate, 0, k)
+    def thread(self, major_diameter=8, pitch=1.25, length=10, internal=False, name=None, op="add", at=(0, 0, 0)):
+        return self._prim("thread", name, op, at, (0, 0, 0), 0, {"major_diameter": major_diameter, "pitch": pitch, "length": length, "internal": internal})
+    def sketch(self, plane="XY", offset=0, face=None):
+        """A sketch to draw in: on a plane (XY, XZ, YZ or a reference plane's name, moved by offset),
+        or on a flat face of the part by its name (face="Plate z+"); such a sketch stays on its face
+        when the part changes. See the sketch's own calls: ready shapes, or lines with constraints."""
+        return _CadSketch(plane, offset, self._node, face)
+    def extrude(self, sketch, depth=10, name=None, op="add", end="blind", draft=0, reverse=None, at=(0, 0, 0), top=None, bottom=None):
+        """Extrude a sketch along its plane's normal. end: blind, midplane or through_all.
+        top / bottom: {"fillet": r} or {"chamfer": d} on the cap edges. reverse: against the normal
+        (left out, a sketch on a face grows out of the part, and a cut goes into it)."""
+        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch, "depth": depth, "op": op, "end": end, "draft": draft, "at": list(at)}
+        if reverse is not None: a["reverse"] = reverse
+        if name: a["name"] = name
+        if top: a["top"] = top
+        if bottom: a["bottom"] = bottom
+        return self.edit("sketch_extrude", a)
+    def revolve(self, sketch, angle=360, name=None, op="add", at=(0, 0, 0)):
+        """Revolve a sketch about its local y axis (on the XZ plane: the world z axis); x is the radius."""
+        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch, "angle": angle, "op": op, "at": list(at)}
+        if name: a["name"] = name
+        return self.edit("sketch_revolve", a)
+    # sketches kept with the part, sweeps and lofts
+    def sketch_add(self, sketch, name=None):
+        """Keep a sketch with the part under a name (Sketch 1, ...): the profile or the path of a
+        sweep, a section of a loft. Returns {"sketch": name}."""
+        a = {"sketch": sketch.spec() if hasattr(sketch, "spec") else sketch}
+        if name: a["name"] = name
+        return self.edit("sketch_add", a)
+    def sketch_set(self, name, sketch):
+        """Replace a kept sketch; the sweeps and lofts that use it follow."""
+        return self.edit("sketch_set", name=name, sketch=sketch.spec() if hasattr(sketch, "spec") else sketch)
+    def sketch_remove(self, name):
+        return self.edit("sketch_remove", name=name)
+    def sketch_rename(self, name, to):
+        return self.edit("sketch_rename", name=name, to=to)
+    def sketches(self):
+        """The sketches kept with the part: name, plane, closed outlines, open paths."""
+        return self.info()["sketches"]
+    def _sk(self, s):
+        return s.spec() if hasattr(s, "spec") else s
+    def sweep(self, profile, path, twist=0, name=None, op="add", at=(0, 0, 0)):
+        """Sweep the closed outline of one sketch along the open path of another. profile and path
+        are names of kept sketches (sketch_add) or sketches (kept as 'NAME profile' and 'NAME path', NAME being this feature's name).
+        Draw the profile on a plane the path leaves at right angles, where the path starts.
+        twist: degrees turned over the whole path. op: add or cut."""
+        a = {"profile": self._sk(profile), "path": self._sk(path), "twist": twist, "op": op, "at": list(at)}
+        if name: a["name"] = name
+        return self.edit("sweep", a)
+    def loft(self, sections, name=None, op="add", at=(0, 0, 0)):
+        """Loft through the closed outlines of two or more sketches on parallel planes at different
+        offsets (names of kept sketches, or sketches)."""
+        a = {"sections": [self._sk(x) for x in sections], "op": op, "at": list(at)}
+        if name: a["name"] = name
+        return self.edit("loft", a)
+    def sketch_face(self, feature, face=None):
+        """Put the sketch of an extruded or revolved feature on a face of the part (by name): it
+        follows that face from then on. face=None lets go of the face; the sketch stays where it is."""
+        return self.edit("sketch_face", feature=feature, face=face)
+    # modifiers: on a feature (by name), or on the whole part when feature is None
+    def modifier(self, kind, feature=None, **kw):
+        m = {"kind": kind}; m.update(kw)
+        return self.edit("modifier", feature=feature, modifier=m)
+    def fillet(self, radius, feature=None):
+        return self.modifier("Fillet", feature, radius=radius)
+    def shell(self, thickness, feature=None, open_top=None):
+        if open_top is None: return self.modifier("Shell", feature, thickness=thickness)
+        return self.modifier("ShellOpen", feature, thickness=thickness, open_top=open_top)
+    def linear_pattern(self, count, step, feature=None):
+        return self.modifier("LinearPattern", feature, count=count, step=list(step))
+    def grid_pattern(self, counts, step, feature=None):
+        return self.modifier("GridPattern", feature, counts=list(counts), step=list(step))
+    def circular_pattern(self, count, total_deg=360, axis="Z", feature=None):
+        return self.modifier("CircularPatternAngle", feature, count=count, total_deg=total_deg, axis=axis)
+    def mirror(self, plane="YZ", feature=None):
+        return self.modifier("Mirror", feature, plane=plane)
+    def split(self, plane="XY", offset=0, keep_positive=True, feature=None):
+        return self.modifier("Split", feature, plane=plane, offset=offset, keep_positive=keep_positive)
+    def scale(self, factor, feature=None):
+        return self.modifier("Scale", feature, factor=factor)
+    # edges, faces and measures of the exact part
+    def edges(self):
+        """The edges of the part as the exact (B-rep) kernel builds it: index, a point on the edge, length,
+        straight, and the names of the faces on either side. Raises when the exact kernel cannot build it."""
+        return _json.loads(_cad_edges(self._node))
+    def _edge_points(self, edges):
+        if isinstance(edges, tuple) and len(edges) == 2 and all(isinstance(e, str) for e in edges):
+            edges = [e for e in self.edges() if edges[0] in e["faces"] and edges[1] in e["faces"]]
+            if not edges: raise ValueError("no edge between those two faces")
+            return [e["point"] for e in edges]
+        all_edges = None
+        pts = []
+        for e in edges:
+            if isinstance(e, int):
+                if all_edges is None: all_edges = self.edges()
+                pts.append(all_edges[e]["point"])
+            elif isinstance(e, dict): pts.append(e["point"])
+            else: pts.append(list(e))
+        return pts
+    def fillet_edges(self, edges, size=1, name=None):
+        """Round picked edges (exact kernel): edges are indices from edges(), points on the edges, or
+        a pair of face names ('Base z+', 'Bore side') for the edge between them."""
+        return self.edit("edge_blend", edges=self._edge_points(edges), size=size, chamfer=False, **({"name": name} if name else {}))
+    def chamfer_edges(self, edges, size=1, name=None):
+        """Chamfer picked edges (see fillet_edges)."""
+        return self.edit("edge_blend", edges=self._edge_points(edges), size=size, chamfer=True, **({"name": name} if name else {}))
+    def shell_faces(self, faces=(), thickness=2, name=None):
+        """Hollow the part so far with this wall, removing the picked faces (names from faces(), or points);
+        no faces: a closed hollow body."""
+        pts = [list(f) if not isinstance(f, str) else None for f in faces]
+        names = [f for f in faces if isinstance(f, str)]
+        if names:
+            got = iter(_json.loads(_cad_face_points(self._node, names)))
+            pts = [next(got) if p is None else p for p in pts]
+        return self.edit("shell_faces", faces=pts, thickness=thickness, **({"name": name} if name else {}))
+    def mass(self, density=7.85):
+        """Volume, surface, center, bounds and mass (density in g/cm3) of the built part."""
+        return _json.loads(_cad_measure(self._node, "mass", None, None, density))
+    def measure_faces(self, a, b):
+        """The distance between two parallel flat faces (or their centers), and the angle between them."""
+        return _json.loads(_cad_measure(self._node, "faces", a, b))
+    def interference(self, other, at=(0, 0, 0), rotate=(0, 0, 0), resolution=0.5):
+        """The overlap volume with another CAD Model node placed at `at` (and rotated by `rotate` degrees)."""
+        return _cad_interference(self._node, other._node if hasattr(other, "_node") else other, tuple(at), tuple(rotate), resolution)
+    # more edge, face and body operations
+    def plane(self, name=None, from_plane="XY", offset=0, angle=0, about="x", points=None, origin=None, normal=None, x_axis=None):
+        """A reference plane to sketch on: a principal plane (XY, XZ, YZ) or another reference
+        plane moved by offset and turned by angle about its x or y axis; or through three points;
+        or by origin and normal. Sketch on it with sketch(plane=name)."""
+        a = {"from": from_plane, "offset": offset, "angle": angle, "about": about}
+        if points is not None: a = {"points": [list(p) for p in points]}
+        elif normal is not None:
+            a = {"origin": list(origin or (0, 0, 0)), "normal": list(normal)}
+            if x_axis is not None: a["x_axis"] = list(x_axis)
+        if name: a["name"] = name
+        return self.edit("plane", a)
+    def remove_plane(self, name):
+        return self.edit("remove_plane", name=name)
+    def mirror_about(self, origin, normal, name=None):
+        """Mirror the part so far about a plane, e.g. a flat face: origin is a point on it (or a face name
+        from faces()), normal its direction. The reflection is joined to the part."""
+        if isinstance(origin, str): origin = _json.loads(_cad_face_points(self._node, [origin]))[0]
+        return self.edit("mirror_plane", origin=list(origin), normal=list(normal), **({"name": name} if name else {}))
+    def draft(self, faces, angle=3, neutral_origin=(0, 0, 0), neutral_normal=(0, 0, 1), name=None):
+        """Taper side faces (names from faces(), or points) by `angle` degrees about a neutral plane they
+        stay fixed on. The exact kernel builds it; the implicit one leaves the faces vertical and says so."""
+        names = [f for f in faces if isinstance(f, str)]
+        got = iter(_json.loads(_cad_face_points(self._node, names))) if names else iter(())
+        pts = [next(got) if isinstance(f, str) else list(f) for f in faces]
+        return self.edit("draft", faces=pts, angle=angle, neutral_origin=list(neutral_origin), neutral_normal=list(neutral_normal), **({"name": name} if name else {}))
+    # assemblies: parts placed beside the part
+    def component_add(self, name=None, template=None, file=None, document=None, at=(0, 0, 0), rotate=(0, 0, 0)):
+        """Place another part: a template ('flange'), a CAD file (.afxcad, .step, .igs, .3mf, .sc), a document
+        (a dict) or a blank part to model in with component_op(). at / rotate (degrees) place it."""
+        a = {"at": list(at), "rotate": list(rotate)}
+        if name: a["name"] = name
+        if template: a["template"] = template
+        if file: a["path"] = str(file)
+        if document: a["document"] = document
+        return self.edit("component_add", **a)
+    def component_move(self, component, at=None, rotate=None, by=None):
+        """Place a component at a position (and rotation in degrees), or move it by an offset."""
+        a = {"component": component}
+        if at is not None: a["at"] = list(at)
+        if rotate is not None: a["rotate"] = list(rotate)
+        if by is not None: a["by"] = list(by)
+        return self.edit("component_move", **a)
+    def component_remove(self, component):
+        return self.edit("component_remove", component=component)
+    def component_visible(self, component, visible=True):
+        return self.edit("component_visible", component=component, visible=visible)
+    def component_rename(self, component, to):
+        return self.edit("component_rename", component=component, to=to)
+    def component_op(self, component, op, **args):
+        """Edit a component's own part with any operation of this API, e.g.
+        component_op('Plate', 'add', kind='box', size=[40, 40, 5])."""
+        return self.edit("component_op", {"component": component, "inner_op": op, "args": args})
+    def components(self):
+        """The placed parts: name, position, rotation, visibility."""
+        return self.info().get("components", [])
+    def edit_component(self, name=None):
+        """Inside the CAD environment: work on one component's own part. Every call of this object
+        (box, hole, extrude, features, faces, ...) then acts on that part, shown alone in its own
+        coordinates; edit_component(None) goes back to the assembly. Undo is the assembly's."""
+        return _cad_env("focus", name or "")
+    # mates: relations between the parts, solved into their places
+    def mate(self, kind, a, b=None, value=None, flip=False, name=None):
+        """A mate between two parts by a face of each, 'Component/Face' (faces() lists them; a face of
+        the assembly's own part is 'Face'; 'XY', 'XZ', 'YZ' are the assembly's planes).
+        kind: coincident (two flat faces meet; flip=True: flush, looking the same way), concentric
+        (two round faces on one axis), distance (flat faces value mm apart), angle (value degrees:
+        0 as coincident leaves them) or fixed (the part a stays put: mate('fixed', 'Base')).
+        value may be an expression of the assembly's dimensions. Returns {"mate", "dof", "status"}."""
+        d = {"kind": kind, "a": a, "flip": flip}
+        if b is not None: d["b"] = b
+        if value is not None: d["value"] = value
+        if name: d["name"] = name
+        return self.edit("mate", d)
+    def mate_set(self, mate, value=None, flip=None, suppressed=None):
+        """Change a mate: its distance or angle (this moves the assembly), flip, or switch it off."""
+        d = {"mate": mate}
+        if value is not None: d["value"] = value
+        if flip is not None: d["flip"] = flip
+        if suppressed is not None: d["suppressed"] = suppressed
+        return self.edit("mate_set", d)
+    def mate_remove(self, mate):
+        return self.edit("mate_remove", mate=mate)
+    def mates(self, resolution=48):
+        """The mates as the assembly builds now: name, kind, a, b, value, and "error" (why one is not
+        met, else None); with "dof" on each: the ways the mated parts can still move."""
+        ev = self.evaluate(resolution)
+        err = {m["name"]: m["error"] for m in ev.get("mates", [])}
+        return [dict(m, error=err.get(m["name"]), dof=ev.get("mate_dof")) for m in self.info()["mates"]]
+    def placements(self, resolution=48):
+        """Where the mates put every component: name, at, rotate (degrees)."""
+        return self.evaluate(resolution).get("placements", [])
+    def component_interference(self, resolution=0.5):
+        """The pairs of parts that overlap, with the overlap volume in mm3."""
+        return _json.loads(_cad_component_interference(self._node, resolution))
+    # the timeline
+    def suppress(self, feature, suppressed=True):
+        return self.edit("suppress", feature=feature, suppressed=suppressed)
+    def remove(self, feature):
+        return self.edit("remove", feature=feature)
+    def rename(self, feature, to):
+        return self.edit("rename", feature=feature, to=to)
+    def move(self, feature, to):
+        return self.edit("move", feature=feature, to=to)
+    def bind(self, feature, path, expr):
+        """Drive a numeric field of a feature by an expression; path is a JSON pointer such as /shape/size/0."""
+        return self.edit("bind", feature=feature, path=path, expr=expr)
+    def set(self, feature, path, value):
+        return self.edit("set", feature=feature, path=path, value=value)
+    def template(self, name):
+        """Start from a template: enclosure, flange, knob, threaded rod, vase or bracket."""
+        return self.edit("template", name=name)
+    def clear(self, name="Part"):
+        return self.edit("new", name=name)
+    # reading
+    def info(self):
+        return _json.loads(_cad_info(self._node))
+    def features(self):
+        return self.info()["features"]
+    def evaluate(self, resolution=64, kernel="Auto"):
+        """Build the part now: volume, area, centroid, bounds, the faces (name, kind, area, centroid, direction),
+        the kernel that built it and notes on what it could not build exactly."""
+        return _json.loads(_cad_evaluate(self._node, resolution, kernel))
+    def faces(self, resolution=64):
+        return self.evaluate(resolution)["faces"]
+    def volume(self, resolution=64):
+        return self.evaluate(resolution)["volume"]
+    def apply(self, keep_editing=False, fix="default", run="now"):
+        """Inside the CAD environment: hand the part to the node and leave (keep_editing=True stays),
+        after the downstream check. fix: "default" (apply the default fixes), "none" (leave what the
+        check found as it is), a list of {"node", "param", "value"} fixes, or the text of an assistant's
+        answer (a JSON list). run: "now", or "later" (the nodes below wait for run_held()).
+        Returns {"features", "fixes", "held", "kept_editing"}. Outside the environment: bring the
+        node up to date and return its summary."""
+        if self.editing():
+            if isinstance(fix, str) and fix not in ("default", "none"):
+                fix = _cad_parse_fixes(fix)           # an assistant's answer
+            elif not isinstance(fix, str):
+                fix = _json.dumps(fix)
+            return _json.loads(_cad_apply(keep_editing, fix, run))
+        return self._node.update()
+    def show_tab(self, name):
+        """Show a tab of the CAD ribbon (Sketch, Features, Modify, Inspect, Files) in the window."""
+        _cad_app_command("cad_tab " + name)
+    def open_picker(self, kind="fillet"):
+        """Open the edge or face picker in the window: fillet, chamfer, shell, draft, mirror, pattern,
+        or mate (two faces of two parts)."""
+        _cad_app_command("cad_pick " + kind)
+    def pick_choose(self, label):
+        """Tick an item of the open picker by its label (a face's name), as a click on it does. In the window only."""
+        _cad_app_command("cad_pick_choose " + label)
+    def pick_face_for(self, feature):
+        """Open the list of flat faces a feature's sketch can be put on (the model tree's
+        'Pick another face…'). In the window only; sketch_face() does it without the window."""
+        _cad_app_command("cad_pick repair " + feature)
+    def sketch_open(self, name):
+        """Open the sketch canvas on a sketch kept with the part. In the window only."""
+        _cad_app_command("cad_sketch_saved " + name)
+    def select_component(self, name):
+        """Select a component in the feature tree (it shows its position and turn). In the window only."""
+        _cad_app_command("cad_component " + name)
+    def check_fit(self):
+        """Run the Assemble tab's Check fit and show the overlaps. In the window only."""
+        _cad_app_command("cad_fit")
+    def sketch_new(self, plane="XY", offset=0, items=None):
+        """Open the sketch canvas (in the window) on a new sketch on a plane, optionally with ready
+        shapes (the items of cad.sketch()). Only useful from a script running in the app."""
+        spec = {"plane": plane, "offset": offset}
+        if items is not None: spec["items"] = items
+        _cad_app_command("cad_sketch_new " + _json.dumps(spec))
+    def sketch_on_face(self):
+        """Open the face picker to start a sketch on a flat face of the part (in the window)."""
+        _cad_app_command("cad_pick sketch")
+    def plane_form(self, **values):
+        """Open the New reference plane form in the window; the 3D view shows the plane it would make,
+        filled. values fill the form in: method="plane"|"face"|"points", start="XY" (or a reference
+        plane), face="Plate z+", offset=20, angle=30, about="x"|"y", name="Tilted", points=[three points]."""
+        _cad_app_command("cad_plane_form")
+        if values: _cad_app_command("cad_ui plane_form " + _json.dumps(values))
+    def preview_plane(self, plane="XY"):
+        """Show a plane filled in the 3D view of the window, as pointing at its button does: XY, XZ,
+        YZ or a reference plane's name; None takes it away."""
+        _cad_app_command("cad_ui plane_preview " + _json.dumps(plane))
+    def sketch_show_part(self, on=True):
+        """Show (or hide) the part underneath the open sketch's grid: the Sketch tab's Show part toggle."""
+        _cad_app_command("cad_ui sketch_part " + _json.dumps(bool(on)))
+    def sketch_tool(self, tool="select"):
+        """Choose the tool of the open sketch canvas: select, line, rectangle, circle, arc, spline,
+        point, or project (From the part: a click on an edge of the part takes it into the sketch)."""
+        _cad_app_command("cad_ui sketch_tool " + _json.dumps(tool))
+    def sketch_take_edge(self, x, y):
+        """Take the edge of the part nearest to (x, y) on the sketch plane into the open sketch, as a
+        click with the From the part tool does: a line, a circle, an arc or an outline. In the window
+        only; a sketch's project() does it without the window."""
+        _cad_app_command("cad_ui sketch_take " + _json.dumps([x, y]))
+    def sketch_cursor(self, x, y, line_from=None):
+        """For pictures: where the sketch canvas takes the cursor to be (sketch units) when the mouse is
+        elsewhere, optionally drawing a line from point line_from, so snaps and guides show."""
+        _cad_app_command("cad_sketch_cursor %g %g%s" % (x, y, "" if line_from is None else " line %d" % line_from))
+    def sketch_dim_edit(self, index="first"):
+        """Open the value editor of the sketch's dimension number index (as a double-click does);
+        "first": the first dimension."""
+        _cad_app_command("cad_sketch_dim_edit %s" % index)
+    def sketch_edit(self, feature):
+        """Open the sketch canvas on the sketch of an extruded or revolved feature."""
+        _cad_app_command("cad_sketch_edit " + feature)
+    def ask_apply(self, keep_editing=False):
+        """What the Apply button does in the window: run the downstream check and open its dialog
+        when the nodes below are affected (only useful from a script running in the app)."""
+        _cad_app_command("cad_apply keep" if keep_editing else "cad_apply")
+    def check(self):
+        """The downstream check of the changes made in the environment: what changed, the nodes below
+        the part, the conflicts (node, param, reference, what happened, the default fix) and the
+        prompt to ask an assistant for more fixes."""
+        return _json.loads(_cad_check())
+    def run_held(self):
+        """Run the nodes a postponed apply held back."""
+        _cad_run_held()
+    # the environment
+    def editing(self):
+        """True while the CAD environment is open on this node."""
+        return _json.loads(_cad_state(self._node))["editing"]
+    def state(self):
+        return _json.loads(_cad_state(self._node))
+    def discard(self):
+        """Leave the environment without applying."""
+        _cad_discard()
+    def undo(self):
+        return _cad_env("undo")
+    def redo(self):
+        return _cad_env("redo")
+    def rollback(self, features=None):
+        """Build only the first `features` features (None: all), like the timeline's rollback marker."""
+        return _cad_env("rollback", None if features is None else str(features))
+    def select(self, feature=None):
+        return _cad_env("select", feature)
+    # files
+    def document(self):
+        return _cad_document(self._node)
+    def save(self, path, kernel="Auto"):
+        """Write the part by the file's extension: .afxcad (the document), .step/.stp, .3mf, .stl, .obj
+        or .sc (SolidCraft). Exact faces and edges when the B-rep kernel builds the part; otherwise a
+        faceted tessellation (the result says which). Returns {"bytes", "exact", "note"}."""
+        return _json.loads(_cad_export(self._node, str(path), kernel))
+    def load(self, path):
+        """Replace the document by a file: .afxcad, or a solid (.step/.stp, .igs, .3mf, .sc, .stl, .obj)
+        as the base feature of a new document."""
+        _cad_set_document(self._node, _cad_import(str(path))); return self._node
+    def __repr__(self):
+        i = self.info()
+        return "<cad %r: %d features, %d parameters>" % (i["name"], len(i["features"]), len(i["parameters"]))
+
+def cad_check(node=None):
+    """The downstream check of the CAD environment that is open (see node.cad.check())."""
+    return _json.loads(_cad_check())
+
+def cad_from(node, name=None):
+    """A CAD Model whose part starts as the solid another node shows: a Geometry source (each
+    body apart) or any closed surface, kept as imported bodies that features add to and cut from.
+    The node itself is left as it is and hidden. afx.cad_from(g).edit_cad() opens it in the CAD environment."""
+    m = _cad_from(node)
+    if name:
+        m.cad.edit("rename_document", name=name)
+    return m
+
+def _edit_cad(node):
+    """Open the CAD environment on a CAD Model node: the pipeline pauses, node.cad.* edits a
+    working copy, node.cad.apply() hands it to the node and node.cad.discard() throws it away."""
+    _cad_enter(node)
+    return node.cad
+
+def cad_model(source=None, template=None, name=None, **kw):
+    """A parametric part. afx.cad_model() starts a plate; afx.cad_model("part.afxcad") opens a
+    document; template="flange" starts from a template. The returned node's .cad builds the part
+    and node.set(width=50) changes a parameter."""
+    node = apply("cad_model", None)
+    if source is not None:
+        node.cad.load(source)
+    elif template is not None:
+        node.cad.template(template)
+    if name:
+        node.cad.edit("rename_document", name=name)
+    if kw:
+        node.set(**kw)
+    return node
 "#;
 
 /// Build a source function for each registered source so `afx.sphere(radius=2)` works.
@@ -1573,9 +3163,11 @@ fn case_options(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<aurafx_pipeline:
                 "temperature" => o.temperature = v.extract()?,
                 "dump_every" => o.dump_every = v.extract()?,
                 "seed" => o.seed = v.extract()?,
+                "lattice_constant" => o.lattice_constant = v.extract()?,
+                "angstrom_per_unit" => o.angstrom_per_unit = v.extract()?,
                 k => {
                     return Err(PyValueError::new_err(format!(
-                        "unknown case option {k}: material, axis, strain, steps, end_time, fixed, loaded, mc_steps, temperature, dump_every, seed"
+                        "unknown case option {k}: material, axis, strain, steps, end_time, fixed, loaded, mc_steps, temperature, dump_every, seed, lattice_constant, angstrom_per_unit"
                     )))
                 }
             }
@@ -1584,10 +3176,23 @@ fn case_options(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<aurafx_pipeline:
     Ok(o)
 }
 
+/// The batch scheduler a `slurm={...}` (or `scheduler={...}`) dictionary asks for: "system" is
+/// "slurm" (the default), "pbs" or "lsf"; "partition" or "queue", "time", "nodes", "extra".
+fn batch_scheduler(sl: &std::collections::HashMap<String, String>, tasks: u32) -> PyResult<aurafx_jobs::Scheduler> {
+    let system = sl.get("system").map(String::as_str).unwrap_or("slurm");
+    let queue = sl.get("partition").or(sl.get("queue")).cloned().unwrap_or_default();
+    let time = sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into());
+    let nodes = sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1);
+    aurafx_jobs::Scheduler::batch(system, &queue, &time, nodes, tasks, sl.get("extra").map(String::as_str).unwrap_or(""))
+        .ok_or_else(|| PyValueError::new_err(format!("unknown batch system '{system}': slurm, pbs or lsf")))
+}
+
 /// Write a simulation case from a node's data into `folder`: solver "moose" (a grain mesh:
 /// mesh.e with one block per grain, grain_euler.txt, grains.tex, slip_systems.txt,
-/// polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts) or "pinnacle"
-/// (a grain mesh: mesh.e, orientations_points.csv, case.i). Options: material, axis ('x', 'y',
+/// polycrystal.i), "spparks" (a volume with FeatureIds: grains.spparks, in.potts), "pinnacle"
+/// (a grain mesh: mesh.e, orientations_points.csv, case.i) or "jaxfem" (a grain mesh of linear
+/// hexahedra or tetrahedra: nodes.txt, elements.txt, element_grains.txt, grain_axes.txt and
+/// run_jaxfem.py, a script for the JAX-FEM library). Options: material, axis ('x', 'y',
 /// 'z'), strain, steps, end_time, fixed and loaded (set names), mc_steps, temperature,
 /// dump_every, seed. Returns a dict: folder, files, input, command, outputs, template.
 #[pyfunction]
@@ -1648,13 +3253,7 @@ fn run_case(
     spec.auto_load = auto_load;
     spec.inputs = if spec.host.is_local() { Vec::new() } else { c.files.clone() };
     if let Some(sl) = slurm {
-        spec.scheduler = aurafx_jobs::Scheduler::Slurm {
-            partition: sl.get("partition").cloned().unwrap_or_default(),
-            time: sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into()),
-            nodes: sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1),
-            tasks: np,
-            extra: sl.get("extra").cloned().unwrap_or_default(),
-        };
+        spec.scheduler = batch_scheduler(&sl, np)?;
     }
     let jobs = aurafx_jobs::global();
     let id = aurafx_jobs::submit(&jobs, spec);
@@ -1701,13 +3300,7 @@ fn submit(
     spec.auto_load = auto_load;
     spec.env = env.unwrap_or_default().into_iter().collect();
     if let Some(sl) = slurm {
-        spec.scheduler = aurafx_jobs::Scheduler::Slurm {
-            partition: sl.get("partition").cloned().unwrap_or_default(),
-            time: sl.get("time").cloned().unwrap_or_else(|| "01:00:00".into()),
-            nodes: sl.get("nodes").and_then(|v| v.parse().ok()).unwrap_or(1),
-            tasks: sl.get("tasks").and_then(|v| v.parse().ok()).unwrap_or(1),
-            extra: sl.get("extra").cloned().unwrap_or_default(),
-        };
+        spec.scheduler = batch_scheduler(&sl, sl.get("tasks").and_then(|v| v.parse().ok()).unwrap_or(1))?;
     }
     let jobs = aurafx_jobs::global();
     let id = aurafx_jobs::submit(&jobs, spec);
@@ -1861,7 +3454,14 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(screenshot, m)?)?;
     m.add_function(wrap_pyfunction!(clear, m)?)?;
     m.add_function(wrap_pyfunction!(save_animation, m)?)?;
+    m.add_function(wrap_pyfunction!(install_ffmpeg, m)?)?;
     m.add_function(wrap_pyfunction!(show_panel, m)?)?;
+    m.add_function(wrap_pyfunction!(set_shortcut, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu_filters, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu_benchmark, m)?)?;
+    m.add_function(wrap_pyfunction!(assistant_prompt, m)?)?;
+    m.add_function(wrap_pyfunction!(conversation, m)?)?;
+    m.add_function(wrap_pyfunction!(new, m)?)?;
     m.add_function(wrap_pyfunction!(annotate, m)?)?;
     m.add_function(wrap_pyfunction!(key_camera, m)?)?;
     m.add_function(wrap_pyfunction!(import_colormaps, m)?)?;
@@ -1893,6 +3493,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(layout, m)?)?;
     m.add_function(wrap_pyfunction!(hide_panel, m)?)?;
     m.add_function(wrap_pyfunction!(plot, m)?)?;
+    m.add_function(wrap_pyfunction!(chart_view, m)?)?;
+    m.add_function(wrap_pyfunction!(chart_views, m)?)?;
+    m.add_function(wrap_pyfunction!(close_chart_view, m)?)?;
     m.add_function(wrap_pyfunction!(clear_plots, m)?)?;
     m.add_function(wrap_pyfunction!(over_time, m)?)?;
     m.add_function(wrap_pyfunction!(temporal_statistics, m)?)?;
@@ -1919,9 +3522,36 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_filter_kind, m)?)?;
     m.add_function(wrap_pyfunction!(plugins, m)?)?;
     m.add_function(wrap_pyfunction!(_mesh_check, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_edit, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_enter, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_from, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_sketch_solve, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_apply, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_check, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_parse_fixes, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_run_held, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_app_command, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_export, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_face_points, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_measure, m)?)?;
+    m.add_function(wrap_pyfunction!(assistant_status, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_interference, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_component_interference, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_import, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_discard, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_state, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_env, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_document, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_set_document, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_info, m)?)?;
+    m.add_function(wrap_pyfunction!(_cad_evaluate, m)?)?;
     // Decorators (@afx.filter, @afx.source, @afx.reader) and helpers are plain Python.
     m.py().run(&std::ffi::CString::new(crate::plugins::PY_API).unwrap(), Some(&m.dict()), None)?;
     m.py().run(&std::ffi::CString::new(MESH_API).unwrap(), Some(&m.dict()), None)?;
+    m.py().run(&std::ffi::CString::new(CAD_API).unwrap(), Some(&m.dict()), None)?;
+    m.py().run(&std::ffi::CString::new(DISPLAY_API).unwrap(), Some(&m.dict()), None)?;
+    m.py().run(&std::ffi::CString::new(PANEL_API).unwrap(), Some(&m.dict()), None)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__doc__", "auraFX scripting: afx.load(path), node.slice(...), node.color_by('T'), afx.screenshot('out.png'). See afx.filters().")?;
     let _ = PyTuple::empty(py);

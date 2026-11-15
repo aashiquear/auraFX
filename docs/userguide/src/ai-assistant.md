@@ -8,6 +8,26 @@ through the middle and color by temperature", "what arrays does this file have?"
 maximum stress over time", "why does my contour look cracked?". The assistant answers and,
 when something should happen in the app, writes Python using the `afx` API.
 
+## Conversations
+
+Every message, yours and the assistant's, has a **copy** button beside its name; each block of
+code has **Copy code** and **Copy to console** next to **Run code**.
+
+The buttons at the top of the panel, after the model:
+
+- **+** starts a new conversation. The one on screen stays in the history.
+- the **clock** lists the previous conversations, newest first, by the start of their first
+  question. Click one to open it and carry on; the bin beside each deletes it.
+- the **bin** deletes the conversation on screen.
+
+A conversation is saved when the assistant has replied (pictures sent with messages are not
+kept), as one JSON file in `conversations/` in auraFX's data folder (on Linux
+`~/.local/share/aurafx/conversations`). Code in a conversation opened from the history is
+not run again by itself. `afx.conversation("file.json")` shows such a file in the panel, and
+`afx.conversation()` starts a new one.
+
+![A conversation in the Assistant panel: copy buttons beside each message, and the new, history and delete buttons at the top](images/assistant_conversation.png)
+
 ## What the assistant sees
 
 A text description of your pipeline: the objects, their filters and parameters, array names
@@ -17,7 +37,7 @@ data itself. The description is rebuilt for every message.
 ## Running the code it writes
 
 Code appears in a block with a **Run code** button; nothing runs until you press it, unless
-**auto-run code** is ticked. With **agent mode** on, the assistant runs its code itself, looks
+**auto-run code** is ticked. With **agent mode** on (the default), the assistant runs its code itself, looks
 at the result (values, errors, the pipeline) and keeps going until the task is done, so
 "find where the plate yields and plot it" becomes several steps without you in between.
 
@@ -26,15 +46,75 @@ afx.ask("make an isosurface at the mean temperature")
 afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 ```
 
+**Showing it the view.** Tick the camera box next to **Send** and a picture of the 3D view goes with
+the message, for models that see images (Claude, GPT-4o, and Ollama models such as llava, gemma or
+qwen-vl): ask "what stands out in this picture?" or "is this mesh refined enough near the hole?".
+From Python: `afx.ask("describe the view", view=True)`.
+
+![The assistant with the camera box ticked: the question is sent with a picture of the 3D view](images/assistant_view.png)
+
+**Describe a filter.** **Filters › Describe a filter…** (also in the command palette) takes a
+sentence about what you want to see in the selected object, such as "regions where the von Mises
+stress is above 300 MPa" or "the vortex cores of the flow"; the assistant adds the filters that show
+it (in agent mode, so it looks at the arrays and ranges first), and its steps appear in the
+Assistant panel.
+
+**Privacy.** In the assistant's settings: **Local only** sends nothing off your network (only an
+Ollama server at a local or private address, and no cloud models; anything else is refused with the
+reason), and **Hide file paths** replaces your home folder with `~` and full paths with file names
+in what is sent. The data itself is never sent, only the pipeline's description (names, arrays,
+ranges) and the results of code the assistant runs.
+
+A script can wait for the assistant and read what it said: `afx.assistant_status()` returns
+`{"busy", "agent", "messages", "last", "error"}` (an answer is arriving, agent mode is iterating,
+the number of messages, the last answer, the last error).
+
+## Modelling parts
+
+The assistant knows the CAD modeler (see [CAD modeling](cad.md)). Ask it to **start** a part
+("a base plate 60 by 40 by 8 mm; name the dimensions width, depth and thickness"), to **build**
+it ("add a wall along the back edge, two 6 mm holes, round the corner"), and to **change** it
+("make the plate 80 mm wide and the holes 8 mm"). It names dimensions, uses the part's faces by
+name, checks the volume against numbers it worked out, and can open the part in the CAD
+environment, edit the working copy, and apply it; when applying would break a node below the
+part, it is asked for the fixes. It also places parts side by side (assemblies) and uses the
+face operations (patterns on a face, draft, mirror).
+
+## Prompts and skills
+
+**Prompts** beside the model list offers saved prompts: one click puts it in the box, with
+`{object}` replaced by the selected object's name (*Describe*, *Find problems*, *Slice and color*
+and *Plot over time* come with auraFX). **Save the message as a prompt** keeps what you typed.
+Edit, add or remove them in **Settings › AI assistant › Prompts**.
+
+**Skills** are Markdown files in the `skills` folder beside the settings
+(`~/.config/aurafx/skills` on Linux; **Open** in Settings › AI assistant › Skills shows it): the
+text of every ticked one goes with each request, for house rules ("lengths are in micrometres",
+"color temperatures with Inferno"), a lab's usual steps or naming conventions. Untick a skill to
+leave it out.
+
+![The assistant with a saved prompt put in the box for the selected object](images/assistant_prompts.png)
+
 ## Providers
 
 Choose the provider and model in the panel's drop-downs or in **Settings**:
 
 | Provider | Setup |
 |---|---|
-| **Ollama** (local or cloud models) | the server URL from `OLLAMA_HOST` or Settings; the model list comes from the server |
+| **Ollama** (local or cloud models) | the server URL from `OLLAMA_HOST` or Settings; the model list comes from the server. An Ollama server on your own machine speaks `http://`; when the address says `https://` for such a server (or the reverse), auraFX tries the other one |
 | **Anthropic** | set `ANTHROPIC_API_KEY` or paste a key in Settings |
 | **OpenAI-compatible** (OpenAI, OpenRouter, Groq, vLLM, LM Studio…) | the base URL and key in Settings |
+
+No model is chosen at first: the model list beside the provider shows `<no model>` until you
+pick one, and the choice is kept for the next start. With `<no model>`, messages are not sent:
+pick a model first.
+
+**Models that reason first.** Some Ollama models reason before they answer, and the reasoning
+counts against the tokens of a reply: on a long request such a model can spend the whole reply
+reasoning and never answer. auraFX therefore asks for the answer directly. **Settings › AI
+assistant › Let the model reason before it answers** turns reasoning on (the reply then gets
+four times **Max tokens**); while the model reasons, the panel shows the end of its reasoning.
+A reply that ends without an answer says so instead of waiting.
 
 Answers stream as they are produced. The suggestion buttons under the welcome text are good
 first questions for a new file.

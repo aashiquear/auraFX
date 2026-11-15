@@ -292,7 +292,9 @@ pub fn srod_filter(ds: &DataSet, ids_name: &str, rules: &SrodRules, output: &str
 /// K (rotation vectors to the same-grain cells of a `kernel`-wide neighbourhood against their
 /// offsets, with an intercept), Nye's tensor alpha = K^T - tr(K) I, and rho = sum |alpha_ij| / b
 /// (1/m^2; lengths in micrometres). Cells with fewer than `min_neighbours` neighbours or whose
-/// neighbours do not span three directions get NaN.
+/// neighbours do not span three directions get NaN. On a 2-D map (one layer of cells) the
+/// curvature across the map is unknown: the five components of alpha a map gives (the three in
+/// the map's normal column, the two off-diagonal ones in the plane) are summed, a lower bound.
 pub fn nye_gnd(ds: &DataSet, ids_name: &str, burgers_m: f64, kernel: usize, min_neighbours: usize) -> Result<(Vec<f64>, Vec<f64>)> {
     let img = image(ds)?;
     let v = Vox::of(img);
@@ -306,6 +308,8 @@ pub fn nye_gnd(ds: &DataSet, ids_name: &str, burgers_m: f64, kernel: usize, min_
     let r = (kernel / 2) as i64;
     let n = v.n;
     let sp = v.sp;
+    // A flat axis (a 2-D map): offsets have no component along it.
+    let flat: Option<usize> = (0..3).find(|&a| n[a] == 1);
     let eig_tol = 0.5 * sp.iter().cloned().fold(f64::INFINITY, f64::min).powi(2);
     let q: Vec<Option<Quat>> = (0..ids.len()).map(|c| if ids[c] > 0 { o.get(c).map(|x| x.0) } else { None }).collect();
     let scale = 1e6 / burgers_m;
@@ -364,8 +368,13 @@ pub fn nye_gnd(ds: &DataSet, ids_name: &str, burgers_m: f64, kernel: usize, min_
             let n1 = cnt as f64 + 1.0;
             let xm = sx.map(|x| x / n1);
             let tm = st.map(|x| x / n1);
-            let ac: [[f64; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| a[i][j] - n1 * xm[i] * xm[j]));
+            let mut ac: [[f64; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| a[i][j] - n1 * xm[i] * xm[j]));
             let bc: [[f64; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| b[i][j] - n1 * tm[i] * xm[j]));
+            if let Some(fa) = flat {
+                // Solve in the plane: a unit entry on the flat axis keeps A invertible, its column of
+                // K comes out zero and is not used below.
+                ac[fa][fa] = 1.0;
+            }
             let (ev, _) = crate::features::sym_eigen(ac);
             if ev.iter().cloned().fold(f64::INFINITY, f64::min) <= eig_tol {
                 return (f64::NAN, f64::NAN);
@@ -381,7 +390,12 @@ pub fn nye_gnd(ds: &DataSet, ids_name: &str, burgers_m: f64, kernel: usize, min_
             let mut fro = 0.0;
             for i in 0..3 {
                 for j in 0..3 {
-                    let al = k[j][i] - if i == j { tr } else { 0.0 };
+                    // alpha_ij = K_ji - delta_ij tr(K); on a map K's column of the flat axis is unknown.
+                    let al = match flat {
+                        Some(fa) if i == j && i == fa => -(0..3).filter(|&m| m != fa).map(|m| k[m][m]).sum::<f64>(),
+                        Some(fa) if i == j || i == fa => continue,
+                        _ => k[j][i] - if i == j { tr } else { 0.0 },
+                    };
                     l1 += al.abs();
                     fro += al * al;
                 }

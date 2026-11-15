@@ -2,6 +2,7 @@
 //! camera interaction and paints overlays (scalar bar, orientation axes).
 
 use crate::app::State;
+use crate::menus::MenuExt;
 use aurafx_filters::Association;
 use aurafx_pipeline::session::{CameraRequest, ScreenshotRequest};
 use aurafx_pipeline::{colormap, DisplayProps, NodeId};
@@ -28,6 +29,10 @@ pub struct Viewport {
     renderer: Option<Renderer>,
     pub camera: Camera,
     pub settings: RenderSettings,
+    /// The camera as last drawn, and when it last changed (very big surfaces are drawn coarse
+    /// while it moves).
+    last_camera: String,
+    camera_moved: Option<Instant>,
     texture: Option<egui::TextureId>,
     meshes: HashMap<NodeId, CachedMesh>,
     /// Axes grid geometry per object: (bounds + far-face key, mesh).
@@ -42,6 +47,8 @@ pub struct Viewport {
     screenshot_wait: u8,
     camera_initialized: bool,
     pub mode: InteractMode,
+    /// Dragging moves the view sideways instead of turning it (the hand button of the toolbar).
+    pub drag_pans: bool,
     drag_start: Option<Pos2>,
     pub pick: Option<PickResult>,
     selection_mesh: Option<(u64, Arc<MeshData>)>,
@@ -103,7 +110,7 @@ const GRID_NODE_ID_BASE: NodeId = 1 << 62;
 
 fn display_key(d: &DisplayProps) -> String {
     format!(
-        "{:?}|{:?}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+        "{:?}|{:?}|{:?}|{}|{}|{}|{:?}|{}|{}|{}|{}|{:?}|{}|{}|{}",
         d.representation,
         d.color_by,
         d.range,
@@ -114,11 +121,20 @@ fn display_key(d: &DisplayProps) -> String {
         d.atom_scale,
         d.bond_radius,
         d.bond_orders,
-        d.colormap == aurafx_pipeline::colormap::ELEMENTS
+        d.colormap == aurafx_pipeline::colormap::ELEMENTS,
+        d.glyph_shape,
+        d.glyph_orient,
+        d.glyph_scale_by,
+        d.glyph_scale
     )
 }
 
 impl Viewport {
+    /// The meshes this view has drawn, for finding what is under the pointer.
+    pub fn meshes_for_pick(&self) -> Vec<(NodeId, Arc<MeshData>)> {
+        self.meshes.iter().map(|(id, c)| (*id, c.mesh.clone())).collect()
+    }
+
     pub fn new(cc: &eframe::CreationContext<'_>, background: [f32; 3]) -> Self {
         Self::with_render_state(cc.wgpu_render_state.clone(), background, 0)
     }
@@ -135,6 +151,8 @@ impl Viewport {
             renderer,
             camera: Camera::default(),
             settings: RenderSettings { background, ..Default::default() },
+            last_camera: String::new(),
+            camera_moved: None,
             texture: None,
             meshes: HashMap::new(),
             grid_meshes: HashMap::new(),
@@ -146,6 +164,7 @@ impl Viewport {
             screenshot_wait: 0,
             camera_initialized: false,
             mode: InteractMode::Navigate,
+            drag_pans: false,
             drag_start: None,
             pick: None,
             selection_mesh: None,
@@ -204,7 +223,7 @@ impl Viewport {
             Some((o, width)) => self.offscreen.read(r, o, *width)?,
             None => r.read_pixels()?,
         };
-        image::save_buffer(path, &px, w, h, image::ColorType::Rgba8)?;
+        save_picture(path, &px, w, h)?;
         Ok(())
     }
 
@@ -254,7 +273,11 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, colormap:
                 let arrays = if cb.assoc == Association::Points { &info.point_arrays } else { &info.cell_arrays };
                 if let Some(a) = arrays.iter().find(|a| a.name == cb.name) {
                     if scalar_bar.is_none() || s.active == Some(n.id) {
-                        scalar_bar = Some((cb.name.clone(), n.display.effective_colormap(), n.display.range.unwrap_or(a.range), n.display.log_scale));
+                        let label = match &a.units {
+                            Some(u) => format!("{} ({u})", cb.name),
+                            None => cb.name.clone(),
+                        };
+                        scalar_bar = Some((label, n.display.effective_colormap(), n.display.range.unwrap_or(a.range), n.display.log_scale));
                     }
                 }
             }
@@ -276,13 +299,19 @@ fn collect_draws(state: &mut State) -> (Vec<NodeDraw>, Option<(String, colormap:
         };
         if n.display.show_scalar_bar && mesh.has_scalars && (scalar_bar.is_none() || s.active == Some(n.id)) {
             if let (Some(cb), Some(r)) = (&n.display.color_by, mesh.scalar_range) {
+                // The array's units, when known, after its name: "T (K)".
+                let units = aurafx_filters::selection::flat_leaves(out).iter().find_map(|(l, _, _)| {
+                    let at = if cb.assoc == Association::Points { l.point_data() } else { l.cell_data() };
+                    at.and_then(|a| a.get(&cb.name)).and_then(|a| a.units.clone())
+                });
                 let label = format!(
-                    "{}{}",
+                    "{}{}{}",
                     cb.name,
                     match cb.component {
                         Some(c) => format!(" [{c}]"),
                         None => String::new(),
-                    }
+                    },
+                    units.map(|u| format!(" ({u})")).unwrap_or_default()
                 );
                 scalar_bar = Some((label, n.display.effective_colormap(), r, n.display.log_scale));
             }
@@ -453,6 +482,13 @@ fn do_pick(state: &mut State, rect: Rect, pos: Pos2) {
     let meshes: Vec<(NodeId, Arc<MeshData>)> =
         state.viewport.meshes.iter().filter(|(id, _)| visible.contains(*id)).map(|(id, c)| (*id, c.mesh.clone())).collect();
     let radius = state.viewport.camera.world_per_pixel(rect.height() as f64) * 6.0;
+    // While a CAD picker is open a click chooses the edge or face under it.
+    if crate::cad::picking(state) {
+        if let Some(hit) = crate::pick::raycast(&ray, &meshes, radius) {
+            crate::cad::pick_click(state, hit.node, hit.world.to_array());
+        }
+        return;
+    }
     match crate::pick::raycast(&ray, &meshes, radius) {
         Some(hit) => {
             let (name, ds) = {
@@ -466,6 +502,25 @@ fn do_pick(state: &mut State, rect: Rect, pos: Pos2) {
         }
         None => state.viewport.pick = None,
     }
+}
+
+/// Write RGBA pixels as a picture in the format the file's extension names: PNG (the default,
+/// keeps transparency), JPEG (no transparency: drawn over white), BMP or TIFF.
+pub fn save_picture(path: &std::path::Path, px: &[u8], w: u32, h: u32) -> anyhow::Result<()> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(ext.as_str(), "jpg" | "jpeg") {
+        let rgb: Vec<u8> = px
+            .chunks_exact(4)
+            .flat_map(|p| {
+                let a = p[3] as u32;
+                [0, 1, 2].map(|k| ((p[k] as u32 * a + 255 * (255 - a)) / 255) as u8)
+            })
+            .collect();
+        image::save_buffer(path, &rgb, w, h, image::ColorType::Rgb8)?;
+    } else {
+        image::save_buffer(path, px, w, h, image::ColorType::Rgba8)?;
+    }
+    Ok(())
 }
 
 /// Draw the view currently in `state.viewport`. Returns true when the user started interacting
@@ -606,9 +661,25 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         state.viewport.widget_drag = None;
     }
     let widget_dragging = state.viewport.widget_drag.is_some();
+    let drag_pans = state.viewport.drag_pans && state.viewport.mode == InteractMode::Navigate;
     let cam = &mut state.viewport.camera;
+    // Two fingers on a touch screen (never a mouse): they pan, pinch to zoom (below) and turn the
+    // view about its axis, and the first finger does not orbit meanwhile.
+    let two_fingers = ui.input(|i| i.multi_touch()).filter(|t| t.num_touches >= 2 && (response.hovered() || response.dragged()));
     if widget_dragging {
         // The widget owns this drag.
+    } else if let Some(t) = two_fingers {
+        cam.pan((t.translation_delta.x / size.y) as f64, (t.translation_delta.y / size.y) as f64);
+        if t.rotation_delta.abs() > 1e-4 {
+            cam.roll(-t.rotation_delta as f64);
+        }
+    } else if drag_pans && response.dragged_by(egui::PointerButton::Primary) && !mods.command {
+        // The hand: a plain drag moves the view (Shift turns it instead).
+        if mods.shift {
+            cam.rotate((drag.x / size.x) as f64 * 1.5, (drag.y / size.y) as f64 * 1.5);
+        } else {
+            cam.pan((drag.x / size.y) as f64, (drag.y / size.y) as f64);
+        }
     } else if !selecting && response.dragged_by(egui::PointerButton::Primary) && !mods.shift && !mods.command {
         cam.rotate((drag.x / size.x) as f64 * 1.5, (drag.y / size.y) as f64 * 1.5);
     } else if response.dragged_by(egui::PointerButton::Middle) || (!selecting && response.dragged_by(egui::PointerButton::Primary) && mods.shift) {
@@ -656,8 +727,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             }
         }
     }
+    // Right-click (without dragging): what can be done here.
+    crate::view_menu::view_context_menu(state, &response, rect);
     // Click to pick (Pick mode, or Ctrl+click in any mode).
-    if response.clicked() && (state.viewport.mode == InteractMode::Pick || (mods.command && !selecting)) {
+    if response.clicked() && (state.viewport.mode == InteractMode::Pick || (mods.command && !selecting) || crate::cad::picking(state)) {
         if let Some(pos) = response.interact_pointer_pos() {
             do_pick(state, rect, pos);
         }
@@ -674,7 +747,18 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         crate::overlays::Overlays {
             scalar_bar: scalar_bar.clone(),
             grid_boxes: state.viewport.grid_boxes.clone(),
-            notes: s.annotations.clone(),
+            notes: {
+                // Text annotations, then the text of every visible annotation filter (Annotate Time, ...).
+                let mut notes = s.annotations.clone();
+                for n in s.nodes.values().filter(|n| n.visible) {
+                    if let Some((text, corner, size)) = n.output.as_deref().and_then(aurafx_filters::annotate::annotation_of) {
+                        for line in text.lines() {
+                            notes.push(aurafx_pipeline::Annotation { text: line.to_string(), corner: corner.clone(), size });
+                        }
+                    }
+                }
+                notes
+            },
             time_label: if s.show_time_label { s.current_time().map(|t| format!("t = {}", aurafx_data::info::g(t))) } else { None },
             orientation_axes: state.settings.show_orientation_axes,
             background: state.viewport.settings.background,
@@ -700,7 +784,23 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         (draws.clone(), None)
     };
     if state.viewport.renderer.is_some() {
+        // A picture of this frame is being taken (a screenshot, a capture of the window, an
+        // animation frame): it shows the full surfaces, also right after the camera moved.
+        let pictured =
+            state.viewport.screenshot.is_some() || state.capture.busy() || state.anim_job.is_some() || state.session.lock().screenshot_request.is_some();
         let vp = &mut state.viewport;
+        // The camera moved within the last moment: draw very big surfaces coarse, and come
+        // back for a full picture when it stops.
+        let key = format!("{:?}", vp.camera);
+        if key != vp.last_camera {
+            vp.last_camera = key;
+            vp.camera_moved = Some(Instant::now());
+        }
+        let moving = vp.camera_moved.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(180));
+        vp.settings.interacting = moving && !pictured;
+        if moving {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+        }
         let r = vp.renderer.as_mut().unwrap();
         let mut recreated = r.resize(w, h);
         r.set_layers(&layers);
@@ -747,7 +847,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 Some((0, sh)) => ((sh as u64 * w as u64 / h.max(1) as u64).max(1) as u32, sh),
                 Some(s) => s,
             };
-            let as_shown = (sw, sh) == (w, h) && !req.transparent;
+            let as_shown = (sw, sh) == (w, h) && !req.transparent && req.background.is_none();
             let vp = &mut state.viewport;
             let max = vp.renderer.as_ref().unwrap().max_size();
             let ext = req.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
@@ -758,10 +858,10 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                     let out = vp.offscreen.run(&overlays, rect.width(), sw, sh);
                     (out.shapes.into_iter().map(|c| c.shape).collect::<Vec<_>>(), out.pixels_per_point)
                 });
-                let bg = (!req.transparent).then_some(vp.settings.background);
+                let bg = (!req.transparent).then_some(req.background.map(|b| b.bottom).unwrap_or(vp.settings.background));
                 let res = crate::svg_export::write(&req.path, &prims, sw, sh, bg, ov.as_ref().map(|(s, k)| (s.as_slice(), *k)));
                 outcome = Some((req.clone(), res));
-            } else if matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl") {
+            } else if matches!(ext.as_str(), "glb" | "obj" | "x3d" | "wrl" | "html") {
                 // Scene export: the objects as drawn, named as in the pipeline.
                 let s = state.session.lock();
                 let objects: Vec<aurafx_render::scene_export::ExportObject> = draws
@@ -777,7 +877,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             } else if as_shown {
                 let r = vp.renderer.as_ref().unwrap();
                 let res = if req.overlays { vp.offscreen.read(r, &overlays, rect.width()) } else { r.read_pixels() }
-                    .and_then(|(w, h, px)| image::save_buffer(&req.path, &px, w, h, image::ColorType::Rgba8).map_err(Into::into));
+                    .and_then(|(w, h, px)| save_picture(&req.path, &px, w, h));
                 outcome = Some((req.clone(), res));
             } else if sw == 0 || sh == 0 || sw.max(sh) > max {
                 outcome = Some((req.clone(), Err(anyhow::anyhow!("{sw}x{sh} pixels: this GPU draws at most {max}x{max}"))));
@@ -785,6 +885,14 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                 // Render once more at the asked size (traced at that size when ray tracing).
                 let mut settings = vp.settings.clone();
                 settings.transparent = req.transparent;
+                settings.interacting = false;
+                // A gradient is put behind a picture drawn on a transparent background, so the
+                // edges of the objects blend into it cleanly.
+                let gradient = req.background.filter(|b| b.is_gradient());
+                if let Some(b) = req.background {
+                    settings.background = if b.is_gradient() { [0, 1, 2].map(|k| 0.5 * (b.bottom[k] + b.top[k])) } else { b.bottom };
+                    settings.transparent |= b.is_gradient();
+                }
                 let mut shot_layers = remote.clone();
                 let mut shot_draws = Some(draws.clone());
                 if settings.lighting.ray_tracing {
@@ -809,10 +917,12 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
                         // Overlays laid out as on the view (same width in points), scaled up.
                         let shot_overlays = crate::overlays::Overlays { background: settings.background, ..overlays.clone() };
                         let res = if req.overlays { vp.offscreen.read(r, &shot_overlays, rect.width()) } else { r.read_pixels() }.and_then(|(w, h, mut px)| {
-                            if req.transparent {
+                            if let Some(g) = gradient {
+                                over_gradient(&mut px, w, h, g.bottom, g.top);
+                            } else if req.transparent {
                                 aurafx_render::renderer::unpremultiply(&mut px);
                             }
-                            image::save_buffer(&req.path, &px, w, h, image::ColorType::Rgba8).map_err(Into::into)
+                            save_picture(&req.path, &px, w, h)
                         });
                         r.resize(w, h);
                         r.set_layers(&layers);
@@ -834,6 +944,7 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
         state.viewport.sync_texture(recreated);
         if let Some((req, res)) = outcome {
             match &res {
+                Ok(()) if req.quiet => {}
                 Ok(()) => state.toast(format!("Saved {}", req.path.display()), false),
                 Err(e) => state.toast(format!("Screenshot failed: {e:#}"), true),
             }
@@ -898,7 +1009,8 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             painter.line_segment([sp - Vec2::new(0.0, 11.0), sp + Vec2::new(0.0, 11.0)], Stroke::new(1.0, fg));
         }
     }
-    if state.viewport.mode == InteractMode::Navigate {
+    // Handles are tools: not in pictures of the views as laid out.
+    if state.viewport.mode == InteractMode::Navigate && !state.capture.hide_controls() {
         let active = |d: Option<WidgetDrag>, f: fn(usize) -> WidgetDrag| (0..32).find(|k| d == Some(f(*k)));
         if let Some(w) = crate::widgets3d::active(state) {
             crate::widgets3d::draw(&painter, &state.viewport.camera, rect, &w, active(state.viewport.widget_drag, WidgetDrag::Filter));
@@ -914,6 +1026,9 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             );
         }
     }
+    crate::cad::pick_hover(state, ui.ctx(), rect, response.hover_pos());
+    crate::cad::pick_overlay(&painter, &state.viewport.camera, rect, state);
+    crate::cad::planes_overlay(&painter, &state.viewport.camera, rect, state);
     // Ruler.
     if !state.viewport.ruler.is_empty() {
         let col = Color32::from_rgb(80, 220, 255);
@@ -931,9 +1046,13 @@ pub fn viewport_ui(state: &mut State, ui: &mut egui::Ui, is_active: bool) -> boo
             painter.galley(r.min + Vec2::splat(4.0), galley, Color32::WHITE);
         }
     }
-    viewport_toolbar(state, ui, rect);
+    // Pictures of the views as laid out leave out the tools drawn over the view.
+    let picture = state.capture.hide_controls();
+    if !picture {
+        viewport_toolbar(state, ui, rect);
+    }
     // Mark the active view when several are open.
-    if state.views.len() > 0 && is_active {
+    if !state.views.is_empty() && is_active && !picture {
         ui.painter().rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, crate::theme::ACCENT), egui::StrokeKind::Inside);
     }
     // Keep animating while dragging or playing.
@@ -958,71 +1077,14 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
     let id = egui::Id::new(("viewport_toolbar", state.viewport.id));
     egui::Area::new(id).fixed_pos(rect.left_top() + Vec2::new(8.0, 8.0)).order(egui::Order::Middle).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let m = &mut state.viewport.mode;
-                ui.selectable_value(m, InteractMode::Navigate, icons::ARROWS_OUT_CARDINAL).on_hover_text("Navigate: rotate, pan, zoom (Esc)");
-                ui.selectable_value(m, InteractMode::Pick, icons::CROSSHAIR).on_hover_text("Pick: click a surface to read values (P, or Ctrl+click)");
-                ui.selectable_value(m, InteractMode::Ruler, icons::RULER).on_hover_text("Ruler: click two points to measure the distance (M)");
-                ui.selectable_value(m, InteractMode::SelectCells, icons::SELECTION)
-                    .on_hover_text("Select visible cells in a rectangle (S). Shift adds, Ctrl removes.");
-                ui.selectable_value(m, InteractMode::SelectPoints, icons::DOTS_NINE)
-                    .on_hover_text("Select points in a rectangle (D). Shift adds, Ctrl removes.");
-                if matches!(state.viewport.mode, InteractMode::SelectCells | InteractMode::SelectPoints) {
-                    let t = state.viewport.select_through;
-                    if ui.selectable_label(t, icons::STACK).on_hover_text("Select through: include cells hidden behind the visible surface").clicked() {
-                        state.viewport.select_through = !t;
-                    }
-                }
-                ui.separator();
-                let vid = state.viewport.id;
-                if ui.small_button(icons::COLUMNS).on_hover_text("Split: add a 3D view to the right").clicked() {
-                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: false, only: None });
-                }
-                if ui.small_button(icons::ROWS).on_hover_text("Split: add a 3D view below").clicked() {
-                    state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true, only: None });
-                }
-                ui.menu_button(icons::CUBE, |ui| {
-                    ui.label(egui::RichText::new("Look from").weak());
-                    for (label, dir, up) in crate::views::VIEW_DIRECTIONS {
-                        if ui.button(*label).clicked() {
-                            ui.close();
-                            let b = state.session.lock().visible_bounds();
-                            state.viewport.camera.set_view(*dir, *up, &b);
-                            state.viewport.mark_camera_initialized();
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("Reset camera").clicked() {
-                        ui.close();
-                        let b = state.session.lock().visible_bounds();
-                        state.viewport.camera.reset_to_bounds(&b);
-                    }
-                })
-                .response
-                .on_hover_text("Camera direction for this view");
-                if !state.views.is_empty() {
-                    let link_icon = if state.viewport.linked { icons::LINK } else { icons::LINK_BREAK };
-                    if ui.selectable_label(state.viewport.linked, link_icon).on_hover_text("Link this view's camera with the other linked views").clicked() {
-                        state.viewport.linked = !state.viewport.linked;
-                    }
-                    if ui.small_button(icons::COPY).on_hover_text("Match: copy this camera to every other view once").clicked() {
-                        state.camera_match_from = Some(vid);
-                    }
-                }
-                if let Some(sel) = &sel {
-                    ui.separator();
-                    ui.label(format!("{} {}", sel.ids.len(), if sel.assoc == Association::Points { "points" } else { "cells" }));
-                    if ui.small_button("Extract").on_hover_text("Create an Extract Selection node").clicked() {
-                        let r = state.session.lock().extract_selection();
-                        if let Err(e) = r {
-                            state.toast(format!("{e:#}"), true);
-                        }
-                    }
-                    if ui.small_button(icons::X).on_hover_text("Clear selection").clicked() {
-                        state.session.lock().clear_selection();
-                    }
-                }
-            });
+            if crate::touch::mode().is_touch() {
+                // No wider than the view: the row scrolls sideways.
+                egui::ScrollArea::horizontal().id_salt("view toolbar").max_width((rect.width() - 28.0).max(120.0)).show(ui, |ui| {
+                    ui.horizontal(|ui| viewport_toolbar_items(state, ui, &sel));
+                });
+            } else {
+                ui.horizontal(|ui| viewport_toolbar_items(state, ui, &sel));
+            }
         });
     });
     // Pick result card.
@@ -1035,7 +1097,7 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
                 ui.set_max_width(320.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(format!("{} {}", icons::CROSSHAIR, pk.node_name)).strong());
-                    if ui.small_button(icons::X).clicked() {
+                    if crate::touch::small_button(ui, icons::X).clicked() {
                         close = true;
                     }
                 });
@@ -1061,5 +1123,133 @@ fn viewport_toolbar(state: &mut State, ui: &mut egui::Ui, rect: Rect) {
     }
     if close {
         state.viewport.pick = None;
+    }
+}
+
+/// The buttons of a 3D view's toolbar.
+fn viewport_toolbar_items(state: &mut State, ui: &mut egui::Ui, sel: &Option<aurafx_pipeline::Selection>) {
+    use crate::icons;
+    let m = &mut state.viewport.mode;
+    ui.selectable_value(m, InteractMode::Navigate, icons::ARROWS_OUT_CARDINAL).on_hover_text("Navigate: rotate, pan, zoom (Esc)");
+    ui.selectable_value(m, InteractMode::Pick, icons::CROSSHAIR).on_hover_text("Pick: click a surface to read values (P, or Ctrl+click)");
+    ui.selectable_value(m, InteractMode::Ruler, icons::RULER).on_hover_text("Ruler: click two points to measure the distance (M)");
+    ui.selectable_value(m, InteractMode::SelectCells, icons::SELECTION).on_hover_text("Select visible cells in a rectangle (S). Shift adds, Ctrl removes.");
+    ui.selectable_value(m, InteractMode::SelectPoints, icons::DOTS_NINE).on_hover_text("Select points in a rectangle (D). Shift adds, Ctrl removes.");
+    if matches!(state.viewport.mode, InteractMode::SelectCells | InteractMode::SelectPoints) {
+        let t = state.viewport.select_through;
+        if ui.selectable_label(t, icons::STACK).on_hover_text("Select through: include cells hidden behind the visible surface").clicked() {
+            state.viewport.select_through = !t;
+        }
+    }
+    ui.separator();
+    // The view itself: fit, closer, farther, and dragging to move instead of to turn.
+    if crate::touch::small_button(ui, icons::FRAME_CORNERS).on_hover_text("Fit: show everything visible in this view (double-click the view, or R)").clicked() {
+        let b = state.session.lock().visible_bounds();
+        state.viewport.camera.reset_to_bounds(&b);
+        state.viewport.mark_camera_initialized();
+    }
+    if crate::touch::small_button(ui, icons::MAGNIFYING_GLASS_PLUS).on_hover_text("Zoom in (scroll, or drag with the right button)").clicked() {
+        state.viewport.camera.zoom(1.25);
+    }
+    if crate::touch::small_button(ui, icons::MAGNIFYING_GLASS_MINUS).on_hover_text("Zoom out").clicked() {
+        state.viewport.camera.zoom(0.8);
+    }
+    let pans = state.viewport.drag_pans;
+    if ui
+        .selectable_label(pans, icons::HAND)
+        .on_hover_text("Pan: dragging moves the view instead of turning it (Shift+drag turns; without this, Shift+drag or the middle button moves)")
+        .clicked()
+    {
+        state.viewport.drag_pans = !pans;
+        state.viewport.mode = InteractMode::Navigate;
+    }
+    ui.separator();
+    let vid = state.viewport.id;
+    if crate::touch::mode().is_touch() {
+        // The view on the whole screen, and back.
+        let on = state.touch.view_maximized;
+        let (icon, tip) = if on { (icons::CORNERS_IN, "Show the panels again") } else { (icons::CORNERS_OUT, "Give the 3D view the whole screen") };
+        if ui.selectable_label(on, icon).on_hover_text(tip).clicked() {
+            state.touch.view_maximized = !on;
+        }
+    }
+    // (A phone has no room for a second view: Windows > New view still adds one.)
+    let split = !crate::touch::mode().is_phone();
+    if split && crate::touch::small_button(ui, icons::COLUMNS).on_hover_text("Split: add a 3D view to the right").clicked() {
+        state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: false, only: None });
+    }
+    if split && crate::touch::small_button(ui, icons::ROWS).on_hover_text("Split: add a 3D view below").clicked() {
+        state.layout_actions.push(crate::app::LayoutAction::SplitView { from: vid, vertical: true, only: None });
+    }
+    ui.scroll_menu(icons::CUBE, |ui| {
+        ui.label(egui::RichText::new("Look from").weak());
+        for (label, dir, up) in crate::views::VIEW_DIRECTIONS {
+            if ui.button(*label).clicked() {
+                ui.close();
+                let b = state.session.lock().visible_bounds();
+                state.viewport.camera.set_view(*dir, *up, &b);
+                state.viewport.mark_camera_initialized();
+            }
+        }
+        ui.separator();
+        if ui.button("Reset camera").clicked() {
+            ui.close();
+            let b = state.session.lock().visible_bounds();
+            state.viewport.camera.reset_to_bounds(&b);
+        }
+    })
+    .response
+    .on_hover_text("Camera direction for this view");
+    if !state.views.is_empty() {
+        let link_icon = if state.viewport.linked { icons::LINK } else { icons::LINK_BREAK };
+        if ui.selectable_label(state.viewport.linked, link_icon).on_hover_text("Link this view's camera with the other linked views").clicked() {
+            state.viewport.linked = !state.viewport.linked;
+        }
+        if crate::touch::small_button(ui, icons::COPY).on_hover_text("Match: copy this camera to every other view once").clicked() {
+            state.camera_match_from = Some(vid);
+        }
+    }
+    if let Some(sel) = &sel {
+        ui.separator();
+        ui.label(format!("{} {}", sel.ids.len(), if sel.assoc == Association::Points { "points" } else { "cells" }));
+        if crate::touch::small_button(ui, "Extract").on_hover_text("Create an Extract Selection node").clicked() {
+            let r = state.session.lock().extract_selection();
+            if let Err(e) = r {
+                state.toast(format!("{e:#}"), true);
+            }
+        }
+        if crate::touch::small_button(ui, icons::X).on_hover_text("Clear selection").clicked() {
+            state.session.lock().clear_selection();
+        }
+    }
+}
+
+/// Put a picture with premultiplied alpha (RGBA bytes, top row first) on a background that goes
+/// from `bottom` to `top`; the result is opaque.
+pub fn over_gradient(px: &mut [u8], w: u32, h: u32, bottom: [f32; 3], top: [f32; 3]) {
+    let (w, h) = (w as usize, h as usize);
+    for y in 0..h {
+        let t = if h > 1 { y as f32 / (h - 1) as f32 } else { 0.0 };
+        let bg = [0, 1, 2].map(|k| ((top[k] + (bottom[k] - top[k]) * t).clamp(0.0, 1.0) * 255.0).round() as u32);
+        for p in px[y * w * 4..(y + 1) * w * 4].chunks_exact_mut(4) {
+            let a = p[3] as u32;
+            for k in 0..3 {
+                p[k] = (p[k] as u32 + (255 - a) * bg[k] / 255).min(255) as u8;
+            }
+            p[3] = 255;
+        }
+    }
+}
+
+#[cfg(test)]
+mod gradient_tests {
+    #[test]
+    fn a_gradient_goes_behind_the_picture() {
+        // Two rows: a clear pixel and an opaque red one in each.
+        let mut px = vec![0, 0, 0, 0, 255, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 255];
+        super::over_gradient(&mut px, 2, 2, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        assert_eq!(&px[0..4], &[255, 255, 255, 255], "top row: the top color");
+        assert_eq!(&px[4..8], &[255, 0, 0, 255], "opaque pixels stay");
+        assert_eq!(&px[8..12], &[0, 0, 0, 255], "bottom row: the bottom color");
     }
 }

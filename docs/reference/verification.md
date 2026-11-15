@@ -440,8 +440,88 @@ the closed forms at a resolution of 96. An STL file written from a drawn sphere 
 back encloses the same volume within 0.5 %. The Signed Distance Field of that file is within
 0.01 of the exact distance to the sphere.
 
+## Volumes, point clouds, scenes and solver results
+
+Files from `scripts/gen_volumes.py`, `gen_particles_h5.py`, `gen_nek5000.py`, `gen_d3plot.py` and
+`gen_scenes.py` (see `testdata/README.md`), read with ParaView 6.1.1 (`pvpython`, under
+`ulimit -v 8000000` and a timeout) and with auraFX:
+
+| File | ParaView 6.1.1 | auraFX |
+|---|---|---|
+| `local.mha`, `zipped.mhd` | dims, spacing, origin, values | the same |
+| `float.mrc` | dims 4 3 2, spacing 1.5, origin (3, 4, 5), values | the same |
+| `permuted.mrc` (columns along y) | ignores the axis order (dims 3 4 2, file order) | puts the axes back (dims 4 3 2, x fastest), as the MRC format defines |
+| `vector.nhdr` | 3 components, values | the same |
+| `raw.nrrd`, `gzip.nrrd` (3-D, no vector axis) | takes the first axis as components; reads the big-endian gzip file as garbage | 3-D volumes; the big-endian values right |
+| DICOM folder | spacing 0.5 0.75 2.5, values 2v − 1024; rows flipped (the last row first), slices by instance number, origin 0 | the same spacing and values; rows in the file's order along the column direction, slices along the normal (position), origin at the first pixel's patient position |
+| `cells.ome.tif` | its OME-TIFF reader stops with a segmentation fault (ImageMagick reads the 12 pages) | read; values as built |
+| `steps.h5part` | positions and arrays; times 0 1 2 (the step numbers) | the same positions and arrays; times from `TimeValue` (0, 0.25, 0.5) |
+| `box.nek5000` | 54 points, 16 cells, times 0.1 0.2, pressure and temperature | the same |
+| `d3plot` | 3 times; hexahedra, a tetrahedron, a beam, a shell; stresses and moved nodes | the same |
+| `boxes.glb`, `boxes.gltf` | 48 points, 24 cells, bounds [0, 3] × [0, 2] × [0, 2] | the same |
+| `scene.wrl` | 11 points, 7 cells, transforms left out | 11 points, 7 cells, transforms applied |
+| `terrain.las` | 20 000 points (PDAL), bounds | the same |
+| `tetra.off` (COFF) | its OFF reader takes only plain `OFF` | read with colors |
+
+The openPMD files were written by the openPMD API itself and read back with the values they were
+built with. LAZ is checked by compressing points with the `laz` crate and reading them back.
+Files written by the Fluent and Nastran writers are read back with the same volume, blocks and
+side sets (Fluent faces are matched to their cells by position).
+
+## Microstructure clean-up, image filters and meshing
+
+| Check | Reference | Result |
+|---|---|---|
+| Median, Gaussian, binary erosion, dilation, opening and closing of a seeded 10 × 8 × 6 volume | scipy.ndimage 1.17 (`testdata/images/filters_reference.json`, `scripts/image_filters_reference.py`) | equal (median, morphology) and within 1e-6 (Gaussian) |
+| Otsu with one to four thresholds | exhaustive search of the between-class variance (same file) | the same thresholds |
+| Neighbor Orientation Correlation, Replace Element Attributes with Neighbor, Erode Dilate Bad Data on a 20 × 20 four-grain map with one cell in 17 spoilt | the unspoilt map | the four grains back exactly |
+| Iterative Closest Point of 400 points turned 10° and moved | the original points | RMS distance below 1e-6 |
+| Nye tensor GND on a 2-D map bent at 0.01 rad/µm about its normal | κ / b | within 2 % |
+| Insert Transformation Phases with 60° about ⟨111⟩ | the disorientation of plate and parent | 60° within 1e-3 |
+| Find Surface Area to Volume of a 4³ cube | 96 faces, 64 cells | exact |
+| Face Mesh of a 4 × 2 plate with a hole of radius 0.5 at 0.15, swept 3 layers | area, closed forms | area within the hole polygon's; worst quad and hexahedron scaled Jacobian above 0.3; 3 hexahedra per quad |
+| Remesh Surface of a sphere of radius 0.5 at 0.05, and with a chord tolerance of 0.002 | 2 √(2 R t) = 0.089 | triangle counts within 30 % and 40 % of the counts for those edge lengths; nodes on the sphere within 1 % |
+| Winslow smoothing of a 6³ grid with inner nodes moved by up to 0.1 of the side | the regular grid | back within 5 % of the disturbance; a regular grid is unchanged |
+| Tetrahedra in a Region on half of a 4³ box | volume 1 | volume exact (1e-12), every tetrahedron and pyramid positive, side sets kept |
+| Swept-curve and sheet webcuts of bricks | volumes of the pieces | within 0.02 of 0.25 + 3.75 and 2 + 2 |
+
+## NIfTI
+
+| File | Reference | Result |
+|---|---|---|
+| `head.nii.gz`, `vectors.nii`, `pair.hdr` | `vtkNIFTIImageReader` in ParaView 6.1.1 | same dimensions (in the file's index order), voxel sizes and raw values (0 to 345, 0 to 125 with 3 components, 1 to 12). The reference keeps the raw values and puts the grid at the origin, giving the slope (2, -5) and the sform/qform apart; auraFX applies the scaling and places the grid by the sform or qform |
+
+## Surface writers
+
+| File | Reference | Result |
+|---|---|---|
+| A sphere source (962 points, 64 triangles and 928 quads) saved as `.obj` and `.glb` | `vtkOBJReader` and `vtkGLTFReader` in ParaView 6.1.1 | OBJ: 962 points, 992 faces; glTF: 962 points, 1 920 triangles (the quads split in two) |
+
 ## Writers
 
 The `.htg` writer produces XML version 2, as ParaView 5.10 and later write it. Files written
 by the VTK XML, VTKHDF, Exodus, EnSight, Xdmf and CGNS writers open in ParaView with the same
 points, cells and values.
+
+## CAD parts and files
+
+The two kernels are checked against each other and against closed forms:
+
+- A box, a cylinder, a sphere, a torus, a drilled and a counterbored hole, a fillet and a chamfer
+  on picked edges, a shell with an open face, a draft (a wedge of 0.5 · h · h tan a · w), a mirror
+  about a face (twice the half's volume), a combined part (union, difference and intersection of
+  two boxes) and patterns on a face (the holes' volume and wall area) have volumes and face areas
+  that match their formulas to 0.5 % on the B-rep kernel and to a few percent (the grid's cell
+  size) on the implicit one.
+- Four of the six templates (enclosure, flange, knob, bracket) are built by both kernels and agree
+  within 1 % (3 % for the enclosure, whose open rim the implicit kernel cuts straight and says so).
+  The threaded rod and the vase fall back to the implicit kernel on purpose (a modelled thread; a
+  shell of a loft the engine's own check refuses).
+- STEP, IGES and the faceted STEP of a part only the implicit kernel builds were read back with
+  OpenCASCADE (the `cadquery-ocp` wheel, through `scripts/cad/step_check.py`, run by the test
+  `an_independent_step_reader_measures_the_same_part` when `AURAFX_OCP_PYTHON` names a Python that
+  has it): one solid, seven faces for the plate with a hole, and the volume within 0.1 % of the
+  exact kernel's. The same files read back through the vendored engine give the same volume to
+  0.1 %.
+- The overlap of two parts (Check fit) is the sampled volume of the two distance fields: two
+  boxes overlapping over a 10 × 40 × 10 slab give 4000 mm³ within 2 %.

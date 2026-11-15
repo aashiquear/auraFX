@@ -57,21 +57,28 @@ fn cells(len: f64, size: f64) -> usize {
     ((len / size).round() as usize).max(1)
 }
 
-/// The mesh of one body, in its own coordinates, or why it cannot be meshed.
-fn body_mesh(shape: &Shape, size: f64) -> Result<HexMesh, String> {
+/// The mesh of one body, in its own coordinates, or why it cannot be meshed. `div`: pieces and
+/// bias per axis (see `Model::mesh_divisions`).
+fn body_mesh(shape: &Shape, size: f64, div: Option<&(Vec<usize>, Vec<f64>, String)>) -> Result<HexMesh, String> {
+    let pick = |a: usize, n: usize| -> Division {
+        let cells = div.and_then(|d| d.0.get(a).copied()).unwrap_or(n).max(1);
+        let ratio = div.and_then(|d| d.1.get(a).copied()).unwrap_or(1.0).max(1.0);
+        let cluster = if ratio > 1.0 { div.map(|d| d.2.clone()).unwrap_or_else(|| "start".into()) } else { "none".into() };
+        Division { cells, ratio, cluster }
+    };
     match shape {
         Shape::Brick { half, .. } => {
-            let d: Vec<Division> = (0..3).map(|a| Division::uniform(cells(2.0 * half[a], size))).collect();
+            let d: Vec<Division> = (0..3).map(|a| pick(a, cells(2.0 * half[a], size))).collect();
             Ok(box_mesh(half.map(|h| -h), *half, [&d[0], &d[1], &d[2]]))
         }
         Shape::Cylinder { r, h, .. } => {
-            let n = cells(0.9 * r, size).max(2);
-            let rings = cells(0.55 * r, size).max(1);
+            let n = div.and_then(|d| d.0.first().copied()).unwrap_or_else(|| cells(0.9 * r, size)).max(2);
+            let rings = div.and_then(|d| d.0.get(1).copied()).unwrap_or_else(|| cells(0.55 * r, size)).max(1);
             let (mut pts, quads) = disk_quads(*r, n, rings);
             for p in pts.iter_mut() {
                 p[2] = -h / 2.0;
             }
-            sweep_quads(&pts, &quads, &vec![1; quads.len()], [0.0, 0.0, 1.0], *h, &Division::uniform(cells(*h, size)))
+            sweep_quads(&pts, &quads, &vec![1; quads.len()], [0.0, 0.0, 1.0], *h, &pick(2, cells(*h, size)))
         }
         _ => Err("only bricks and cylinders (moved, turned or scaled) have a structured mesh; use scheme overlay".into()),
     }
@@ -84,6 +91,7 @@ fn scheme_of(model: &Model, id: u32, shape: &Shape) -> &'static str {
         Some("overlay") => "overlay",
         Some("stairstep") => "stairstep",
         Some("structured") => "structured",
+        Some("mapped") => "mapped",
         _ if structured => "structured",
         _ => "overlay",
     }
@@ -117,17 +125,38 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
         (bid, name)
     };
     let mut overlay_bodies: Vec<(u32, f64, &'static str)> = Vec::new();
+    // Imprinted bodies are meshed with one size (the smallest asked for in the group), so their
+    // meshes meet node to node on shared faces.
+    let size_of = |id: u32, size: f64| -> f64 {
+        model
+            .imprints
+            .iter()
+            .chain(model.merges.iter())
+            .filter(|g| g.contains(&id))
+            .flat_map(|g| g.iter())
+            .filter_map(|b| model.mesh_requests.iter().find(|r| r.0 == *b).map(|r| r.1))
+            .fold(size, f64::min)
+    };
+    // The body of every element, for the interface sets.
+    let mut elem_body: Vec<u32> = Vec::new();
     for &(id, size, n) in &model.mesh_requests {
+        let size = size_of(id, size);
         let body = model.bodies.get(&id).ok_or_else(|| format!("there is no body {id}"))?;
         npe = npe.max(n);
         smallest = smallest.min(size);
         let scheme = scheme_of(model, id, &body.shape);
-        if scheme != "structured" {
+        if scheme != "structured" && scheme != "mapped" {
             overlay_bodies.push((id, size, scheme));
             continue;
         }
-        let (aff, prim) = base(&body.shape);
-        let mut m = body_mesh(prim, size).map_err(|e| format!("body {id}: {e}"))?;
+        // Mapped bodies are meshed in world coordinates (the box of the whole body, moved onto it).
+        let mapped = scheme == "mapped";
+        let (aff, prim) = if mapped { (Affine::identity(), &body.shape) } else { base(&body.shape) };
+        let mut m = if mapped {
+            crate::mapped::mapped_mesh(&body.shape, size, model.mesh_divisions.get(&id)).map_err(|e| format!("body {id}: {e}"))?
+        } else {
+            body_mesh(prim, size, model.mesh_divisions.get(&id)).map_err(|e| format!("body {id}: {e}"))?
+        };
         let proj = if let Shape::Cylinder { r, faces, .. } = prim {
             projs.push(Proj::Cylinder(aff, *r));
             Some((faces[0], projs.len() - 1))
@@ -152,6 +181,7 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
             let f = body.shape.eval(cen).1;
             face_of.push((e + e0, s, f, proj.filter(|p| p.0 == f).map(|p| p.1)));
         }
+        elem_body.extend(std::iter::repeat_n(id, m.n_elements()));
         out.append(&m);
     }
     if !overlay_bodies.is_empty() {
@@ -177,8 +207,9 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
             *b = block_of(*b as u32).0;
         }
         m.block_names = overlay_bodies.iter().map(|b| block_of(b.0)).collect();
-        m.side_sets.retain(|s| s.0.starts_with("interface "));
-        m.node_sets.retain(|s| s.0.starts_with("interface "));
+        // Interface sets are made below for every pair of bodies, overlay or structured.
+        m.side_sets.clear();
+        m.node_sets.clear();
         let e0 = out.n_elements() as u32;
         for (e, s) in m.boundary_faces() {
             let c = m.side_corners(e as usize, s);
@@ -194,9 +225,59 @@ pub fn mesh_model(model: &Model) -> Result<HexMesh, String> {
             };
             face_of.push((e + e0, s, f, Some(k)));
         }
+        elem_body.extend(body_of.iter().copied());
         out.append(&m);
     }
     out.weld(1e-9 * smallest);
+    // Faces between elements of two bodies: a side set (from the lower block's side) and a node set per pair.
+    {
+        let mut by_face: std::collections::HashMap<[u32; 4], Vec<(u32, u8)>> = std::collections::HashMap::new();
+        for e in 0..out.n_elements() {
+            for sd in 1..=6u8 {
+                let mut k = out.side_corners(e, sd);
+                k.sort_unstable();
+                by_face.entry(k).or_default().push((e as u32, sd));
+            }
+        }
+        let mut sets: std::collections::BTreeMap<String, Vec<(u32, u8)>> = std::collections::BTreeMap::new();
+        for f in by_face.values().filter(|f| f.len() == 2) {
+            let (a, b) = (elem_body[f[0].0 as usize], elem_body[f[1].0 as usize]);
+            if a == b {
+                continue;
+            }
+            let (ba, bb) = (block_of(a), block_of(b));
+            if ba.0 == bb.0 {
+                continue;
+            }
+            let (lo, other) = if ba.0 < bb.0 { (f[0], bb.1) } else { (f[1], ba.1) };
+            let name = format!("interface {} - {other}", block_of(elem_body[lo.0 as usize]).1);
+            sets.entry(name).or_default().push(lo);
+        }
+        for (name, mut fs) in sets {
+            fs.sort_unstable();
+            let nodes: Vec<u32> = fs.iter().flat_map(|(e, sd)| HEX8_SIDES[*sd as usize - 1].map(|k| out.cell(*e as usize)[k])).collect();
+            out.add_side_set(&name, fs);
+            out.add_node_set(&name, nodes);
+        }
+    }
+    // Merged bodies: a boundary face of one lying on another's surface means their meshes do not meet
+    // node to node there.
+    for group in &model.merges {
+        let tol = 1e-6 * smallest;
+        for (e, sd) in out.boundary_faces() {
+            let mine = elem_body[e as usize];
+            if !group.contains(&mine) {
+                continue;
+            }
+            let c = out.side_corners(e as usize, sd);
+            let cen: P3 = std::array::from_fn(|a| c.iter().map(|k| out.points[*k as usize][a]).sum::<f64>() / 4.0);
+            if let Some(o) = group.iter().find(|o| **o != mine && model.bodies.get(o).is_some_and(|b| b.shape.eval(cen).0.abs() < tol)) {
+                return Err(format!(
+                    "merge: the meshes of body {mine} and body {o} do not meet node to node on their shared face (imprint them, or give them the same size)"
+                ));
+            }
+        }
+    }
     // Side sets per face, then the user's.
     let mut ids: Vec<u32> = face_of.iter().map(|f| f.2).filter(|f| *f > 0).collect();
     ids.sort_unstable();

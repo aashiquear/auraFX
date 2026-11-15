@@ -495,3 +495,79 @@ fn geometry_commands_are_traced() {
     assert!(s.nodes[&g].error.is_none(), "{:?}", s.nodes[&g].error);
     assert_eq!(aurafx_pipeline::session::py_str("it's"), "'it\\'s'");
 }
+
+#[test]
+fn cad_model_keeps_its_document_and_overrides_in_state_files_and_undo() {
+    let mut s = Session::new();
+    let m = s.add_source("cad_model").unwrap();
+    s.cad_edit(m, "parameter", &serde_json::json!({"name": "radius", "expr": "6"})).unwrap();
+    s.cad_edit(m, "add", &serde_json::json!({"kind": "hole", "name": "Bore", "diameter": "radius * 2", "depth": 30, "at": [0, 0, 12]})).unwrap();
+    s.cad_set_parameter(m, "radius", &serde_json::json!("4")).unwrap();
+    s.update_blocking();
+    assert!(s.nodes[&m].error.is_none(), "{:?}", s.nodes[&m].error);
+    let vol = |s: &Session, id| match s.nodes[&id].output.as_deref() {
+        Some(aurafx_data::DataSet::PolyData(p)) => p.field_data.get("Volume").unwrap().get(0, 0),
+        _ => panic!("no surface"),
+    };
+    let v4 = vol(&s, m);
+    // A bore of diameter 8 through the 8 mm plate.
+    let expect = 40.0 * 30.0 * 8.0 - std::f64::consts::PI * 16.0 * 8.0;
+    assert!((v4 - expect).abs() / expect < 0.01, "{v4} vs {expect}");
+
+    let dir = std::env::temp_dir().join(format!("afx-cad-state-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("cad.afx");
+    s.save_state(&path, None).unwrap();
+    let mut t = Session::new();
+    t.load_state(&path).unwrap();
+    t.update_blocking();
+    let m2 = *t.nodes.keys().next().unwrap();
+    assert!(t.is_cad_model(m2));
+    assert_eq!(t.cad_document(m2).unwrap().features.len(), 2);
+    assert_eq!(t.cad_overrides(m2), vec![("radius".to_string(), "4".to_string())]);
+    assert!((vol(&t, m2) - v4).abs() < 1e-6 * v4);
+
+    // Undo takes back the override, then the hole.
+    s.undo();
+    assert!(s.cad_overrides(m).is_empty());
+    s.undo();
+    assert_eq!(s.cad_document(m).unwrap().features.len(), 1);
+    // A node that is not a CAD model says so.
+    let r = s.open_file(td("wavelet_tets.vtu")).unwrap();
+    assert!(s.cad_document(r).unwrap_err().to_string().contains("not a CAD Model"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Adding a child hides every node above it; a table or chart result leaves its parents shown.
+#[test]
+fn a_new_child_hides_all_its_parents() {
+    let mut s = Session::new();
+    let src = s.add_source("sphere").unwrap();
+    let a = s.add_filter("elevation", src).unwrap();
+    s.nodes.get_mut(&src).unwrap().visible = true; // the user turned the source back on
+    let b = s.add_filter("shrink", a).unwrap();
+    assert!(!s.nodes[&src].visible && !s.nodes[&a].visible && s.nodes[&b].visible);
+    s.nodes.get_mut(&b).unwrap().visible = true;
+    let _h = s.add_filter("histogram", b).unwrap();
+    assert!(s.nodes[&b].visible, "a chart result keeps its parent shown");
+}
+
+/// The number that tells saved from unsaved work follows everything a state file holds.
+#[test]
+fn the_state_signature_follows_display_and_charts_but_not_the_selection() {
+    let mut s = Session::new();
+    let a = s.add_source("sphere").unwrap();
+    let b = s.add_source("sphere").unwrap();
+    s.update_blocking();
+    let saved = s.state_signature();
+    s.active = Some(a);
+    assert_eq!(s.state_signature(), saved, "selecting an object is not work");
+    s.set_display(b, |d| d.opacity = 0.3);
+    let with_opacity = s.state_signature();
+    assert_ne!(with_opacity, saved, "opacity is saved, so it counts");
+    s.show_time_label = !s.show_time_label;
+    assert_ne!(s.state_signature(), with_opacity);
+    s.show_time_label = !s.show_time_label;
+    s.set_display(b, |d| d.opacity = 1.0);
+    assert_eq!(s.state_signature(), saved, "back to what was saved");
+}

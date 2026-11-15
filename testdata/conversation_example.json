@@ -1,0 +1,9 @@
+{
+  "title": "Slice this through the middle and color it by temperature",
+  "messages": [
+    {"role": "User", "content": "Slice this through the middle and color it by temperature"},
+    {"role": "Assistant", "content": "A slice through the centre, normal to z, colored by `Temp`:\n\n```python\ns = afx.active().slice(normal=[0, 0, 1])\ns.set(color_by=\"Temp\")\n```"},
+    {"role": "User", "content": "What range does Temp have on the slice?"},
+    {"role": "Assistant", "content": "On the slice `Temp` runs from about 294 to 913."}
+  ]
+}

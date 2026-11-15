@@ -8,6 +8,7 @@
 - [Filters](filters.md)
 - [Coloring and color maps](coloring.md)
 - [Views, layouts and the window](views.md)
+- [Tablets and phones](touch.md)
 - [Selection, picking and widgets](selection-widgets.md)
 - [Time, charts and animation](time-animation.md)
 
@@ -22,6 +23,7 @@
 - [AI assistant](ai-assistant.md)
 - [Plugins](plugins.md)
 - [Tutorials and examples](tutorials.md)
+- [Sample pipelines](sample-pipelines.md)
 
 # Data
 
@@ -31,7 +33,11 @@
 - [Data on another machine](client-server.md)
 - [Grains and crystals](grains.md)
 - [Geometry and meshing](geometry.md)
+- [CAD modeling](cad.md)
 
 # Reference
 
 - [Settings and keyboard shortcuts](settings.md)
+- [Filter reference](filter-reference.md)
+- [Python API reference](python-api.md)
+- [Benchmarks](benchmarks.md)

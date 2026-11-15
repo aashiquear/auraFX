@@ -1,0 +1,31 @@
+# Four of the extraction filters side by side (no file needed): Iso Volume of the Wavelet field
+# between two values, a sphere cut by Clip Closed Surface (its flat cap closes it), Extract Cells
+# By Region (whole cells of a box mesh inside a sphere), and Delaunay 3D of a random point cloud
+# (tetrahedra shrunk to show them).
+import aurafx as afx
+w = afx.wavelet()
+w.hide()
+iv = w.iso_volume(array="RTData", lower=150, upper=250)
+iv.set(color_by="RTData", cmap="Turbo")
+s = afx.sphere(radius=8, theta=48, phi=32)
+s.hide()
+cap = s.clip_closed_surface(origin=(0, 0, 2), normal=(0, 1, -1))
+cap.hide()
+cap_t = cap.transform(translate=(26, 0, 0))
+cap_t.set(color_by="Cap", cmap="Cool to Warm")
+b = afx.box_mesh()
+b.hide()
+reg = b.extract_cells_by_region(region="Sphere")
+reg.hide()
+reg_t = reg.transform(scale=(16, 16, 16), translate=(48, -8, -8))
+reg_t.set(representation="Surface With Edges", solid_color=(0.55, 0.75, 0.95))
+pts = afx.point_source(radius=8, count=300)
+pts.hide()
+tets = pts.delaunay_3d()
+tets.hide()
+sh = tets.shrink(factor=0.75)
+sh.hide()
+sh_t = sh.transform(translate=(74, 0, 0))
+sh_t.set(solid_color=(0.95, 0.7, 0.45))
+afx.view([0.35, -1.0, 0.55], up=[0, 0, 1]); afx.reset_camera()
+afx.screenshot(OUT)

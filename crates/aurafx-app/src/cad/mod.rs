@@ -1,0 +1,772 @@
+//! The CAD modeling environment's part of the app (roadmap section 13). One mode of the one
+//! window: while a CAD Model is being edited the toolbar becomes the **ribbon**, the Pipeline
+//! panel the **Model tree**, Properties the **Feature panel**, a **timeline bar** appears
+//! at the bottom, and everything else is marked stale because the pipeline is paused. The
+//! document being edited lives in the session (`CadEdit`); this module draws it and turns
+//! clicks into the same operations Python makes (`aurafx_cad::edit`).
+
+mod conflicts;
+mod feature_manager;
+mod guide;
+mod pick;
+mod planes;
+mod preview;
+mod property_manager;
+mod ribbon;
+mod sketch;
+mod sketch_dims;
+mod sketch_snap;
+mod sketch_under;
+mod timeline;
+
+use crate::app::{LayoutAction, Pane, State};
+use crate::touch::FitScreen;
+use aurafx_cad::Id;
+use aurafx_pipeline::NodeId;
+use egui::RichText;
+use serde_json::{json, Value};
+
+pub use conflicts::hold_banner;
+pub use feature_manager::feature_manager_ui;
+pub use pick::{click as pick_click, draw_overlay as pick_overlay, hover as pick_hover, open as open_picker, picking, PickKind};
+
+/// The planes over a 3D view: the reference planes of the part as dashed squares, and, filled,
+/// the plane being chosen or made.
+pub fn planes_overlay(painter: &egui::Painter, cam: &aurafx_render::Camera, rect: egui::Rect, state: &State) {
+    planes::draw_overlay(painter, cam, rect, state);
+    preview::draw_overlay(painter, cam, rect, state);
+}
+pub use sketch::{begin_on_frame as sketch_on_frame, Tool as SketchTool};
+
+/// Open the New reference plane form.
+pub fn open_plane_form(state: &mut State) {
+    state.cad.plane_form = Some(planes::PlaneForm::default());
+}
+pub use guide::{face_menu, Search as CommandSearch};
+pub use pick::choose as pick_choose;
+pub use pick::face_under;
+pub use property_manager::property_manager_ui;
+pub use ribbon::{check_fit, ribbon_ui};
+pub use sketch::{
+    begin_edit as sketch_edit, begin_from_spec as sketch_from_spec, begin_new as sketch_new, begin_saved as sketch_saved, canvas_ui as sketch_canvas_ui,
+    sketching,
+};
+pub use timeline::timeline_ui;
+
+/// What a script asks of the CAD window beyond the document's operations (`cad_ui <what> <json>`):
+/// - `plane_form {"method": "plane"|"face"|"points", "start": "XY", "face": "Plate z+", "offset": 20,
+///   "angle": 30, "about": "x", "name": "Tilted", "points": [[..], [..], [..]]}` opens the New
+///   reference plane form filled in so;
+/// - `plane_preview "XZ"` shows a principal or a reference plane filled in the 3D view (as the
+///   pointer on its button does) until `plane_preview null`;
+/// - `sketch_part true|false` shows or hides the part underneath the sketch;
+/// - `sketch_tool "project"` chooses a sketch tool (select, line, rectangle, circle, arc, spline, point, project);
+/// - `sketch_take [x, y]` takes the edge of the part nearest to that point of the sketch plane.
+pub fn ui_command(state: &mut State, arg: &str) {
+    if !editing(state) {
+        return;
+    }
+    let (what, rest) = arg.trim().split_once(' ').unwrap_or((arg.trim(), "null"));
+    let v: Value = serde_json::from_str(rest).unwrap_or(Value::Null);
+    match what {
+        "plane_form" => {
+            let mut f = state.cad.plane_form.take().unwrap_or_default();
+            let text = |k: &str| v.get(k).map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string()));
+            match v.get("method").and_then(|m| m.as_str()) {
+                Some("face") => f.method = 1,
+                Some("points") => f.method = 2,
+                Some(_) => f.method = 0,
+                None => {}
+            }
+            if let Some(t) = text("start") {
+                f.from = match t.to_uppercase().as_str() {
+                    "XY" | "TOP" => "XY".into(),
+                    "XZ" | "FRONT" => "XZ".into(),
+                    "YZ" | "RIGHT" => "YZ".into(),
+                    _ => t,
+                };
+            }
+            if let Some(name) = v.get("face").and_then(|x| x.as_str()) {
+                let flat: Vec<String> = state
+                    .session
+                    .lock()
+                    .cad_edit
+                    .as_ref()
+                    .and_then(|e| e.summary.as_ref())
+                    .map(|s| s.faces.iter().filter(|f| f.kind == "plane").map(|f| f.name.clone()).collect())
+                    .unwrap_or_default();
+                match flat.iter().position(|n| n == name) {
+                    Some(i) => (f.method, f.face) = (1, i),
+                    None => state.toast(format!("The part has no flat face '{name}'"), true),
+                }
+            }
+            for (k, slot) in [("offset", &mut f.offset), ("angle", &mut f.angle), ("name", &mut f.name)] {
+                if let Some(t) = text(k) {
+                    *slot = t;
+                }
+            }
+            if let Some(a) = v.get("about").and_then(|a| a.as_str()) {
+                f.about_x = !a.eq_ignore_ascii_case("y");
+            }
+            if let Some(pts) = v.get("points").and_then(|p| p.as_array()) {
+                f.method = 2;
+                for (k, p) in pts.iter().take(3).enumerate() {
+                    for (c, x) in p.as_array().into_iter().flatten().take(3).enumerate() {
+                        f.points[k][c] = x.to_string();
+                    }
+                }
+            }
+            state.cad.plane_form = Some(f);
+        }
+        "plane_preview" => {
+            state.cad.plane_demo = v.as_str().and_then(|name| {
+                let named = state.session.lock().cad_edit.as_ref().and_then(|e| e.active().planes.iter().find(|p| p.name.eq_ignore_ascii_case(name)).cloned());
+                match (named, name.to_uppercase().as_str()) {
+                    (Some(p), _) => Some(preview::over_part(state, p.frame, p.name, false)),
+                    (None, "XY" | "TOP") => Some(preview::principal(state, aurafx_cad::SketchPlane::XY, 0.0, "Top (XY)")),
+                    (None, "XZ" | "FRONT") => Some(preview::principal(state, aurafx_cad::SketchPlane::XZ, 0.0, "Front (XZ)")),
+                    (None, "YZ" | "RIGHT") => Some(preview::principal(state, aurafx_cad::SketchPlane::YZ, 0.0, "Right (YZ)")),
+                    _ => None,
+                }
+            });
+        }
+        "sketch_part" => state.cad.show_part = v.as_bool().unwrap_or(true),
+        "sketch_tool" => {
+            let tool = match v.as_str().unwrap_or("").to_lowercase().as_str() {
+                "select" => Some(SketchTool::Select),
+                "line" => Some(SketchTool::Line),
+                "rectangle" | "rect" => Some(SketchTool::Rect),
+                "circle" => Some(SketchTool::Circle),
+                "arc" => Some(SketchTool::Arc),
+                "spline" => Some(SketchTool::Spline),
+                "point" => Some(SketchTool::Point),
+                "project" | "from the part" => Some(SketchTool::Project),
+                _ => None,
+            };
+            if let (Some(e), Some(t)) = (state.cad.sketch.as_mut(), tool) {
+                e.select_tool(t);
+            }
+        }
+        "sketch_take" => {
+            let at = v.as_array().filter(|a| a.len() == 2).map(|a| glam::DVec2::new(a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0)));
+            if let (Some(at), true) = (at, state.cad.sketch.is_some()) {
+                sketch_under::refresh(state, true);
+                let took = state.cad.sketch.as_mut().and_then(|e| {
+                    let i = sketch_under::nearest(e.under.as_ref()?.candidates(), at, f64::INFINITY)?;
+                    sketch_under::take(e, i)
+                });
+                match took {
+                    Some(what) => {
+                        state.status = format!("Sketch: took {what} from the part");
+                        sketch::solve(state);
+                    }
+                    None => state.toast("No edge of the part to take there (or it is in the sketch already)".to_string(), true),
+                }
+            }
+        }
+        other => state.toast(format!("Unknown CAD window command '{other}'"), true),
+    }
+}
+
+/// The ribbon's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RibbonTab {
+    Sketch,
+    #[default]
+    Features,
+    Modify,
+    Inspect,
+    Assemble,
+    Files,
+}
+
+impl RibbonTab {
+    pub const ALL: [RibbonTab; 6] = [RibbonTab::Sketch, RibbonTab::Features, RibbonTab::Modify, RibbonTab::Inspect, RibbonTab::Assemble, RibbonTab::Files];
+    /// What the tab is for (its tooltip).
+    pub fn about(self) -> &'static str {
+        match self {
+            RibbonTab::Sketch => "Draw outlines on a plane or a face and turn them into solids",
+            RibbonTab::Features => "Ready shapes, holes and threads placed on the part",
+            RibbonTab::Modify => "Round, chamfer, hollow, taper, pattern and mirror what is there",
+            RibbonTab::Inspect => "Volume, mass, a section's area, the distance between faces",
+            RibbonTab::Assemble => "Other parts beside this one, combined with it, and their fit",
+            RibbonTab::Files => "Templates, opening, saving and exporting the part",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            RibbonTab::Sketch => "Sketch",
+            RibbonTab::Features => "Features",
+            RibbonTab::Modify => "Modify",
+            RibbonTab::Inspect => "Inspect",
+            RibbonTab::Assemble => "Assemble",
+            RibbonTab::Files => "Files",
+        }
+    }
+}
+
+type EvalResult = (NodeId, u64, Result<(aurafx_data::DataSet, aurafx_pipeline::CadSummary), String>);
+
+/// The environment's interface state (the document itself is in the session).
+pub struct CadUi {
+    pub tab: RibbonTab,
+    tx: std::sync::mpsc::Sender<EvalResult>,
+    rx: std::sync::mpsc::Receiver<EvalResult>,
+    /// The revision an evaluation was started for, and whether one is running.
+    requested: u64,
+    running: bool,
+    /// "Apply, discard or keep editing?" (Esc).
+    pub leave_dialog: bool,
+    /// Density for the mass readout (g/cm³) and the section height of the Inspect tab.
+    pub density: f64,
+    pub section_z: f64,
+    pub section_area: Option<f64>,
+    /// A feature being renamed in the model tree.
+    pub rename: Option<(Id, String)>,
+    pub new_param: (String, String),
+    /// Apply is waiting for the user's answer about the nodes below the part.
+    pub apply_dialog: Option<conflicts::ApplyDialog>,
+    /// Re-run the nodes below right after Apply (the dialog's checkbox).
+    pub rerun_now: bool,
+    /// The sketch open on the canvas.
+    pub sketch: Option<sketch::SketchEdit>,
+    /// The edge or face picker of the Modify tab.
+    pub pick: Option<pick::Pick>,
+    /// The New reference plane form.
+    pub plane_form: Option<planes::PlaneForm>,
+    /// The component selected in the model tree (by name).
+    pub component: Option<String>,
+    /// The overlaps found by the last "Check fit": the two parts and the volume in mm³.
+    pub fit: Option<Vec<(String, String, f64)>>,
+    /// A component being renamed in the model tree (its name, the text).
+    pub component_rename: Option<(String, String)>,
+    /// The name typed for a new configuration.
+    pub new_configuration: String,
+    /// The command search box (S), when open.
+    pub search: Option<guide::Search>,
+    /// The last "what next" sentence put in the status bar.
+    pub last_hint: String,
+    /// The two faces of the Inspect tab's distance measure, and its result.
+    pub measure: (String, String, Option<String>),
+    /// The face the 3D view's right-click menu was opened on.
+    pub menu_face: Option<aurafx_pipeline::CadFace>,
+    /// The plane a button or a row under the pointer would take, and the frame it asked in: the
+    /// 3D views show it filled.
+    pub plane_hover: Option<(u64, preview::PlanePreview)>,
+    /// A plane shown the same way until it is taken away (for scripted pictures).
+    pub plane_demo: Option<preview::PlanePreview>,
+    /// Whether the sketch canvas shows the part underneath its grid (the Sketch tab's toggle;
+    /// kept for the session).
+    pub show_part: bool,
+    /// The triangles of the part as last shown, kept until the part is built again.
+    surface: parking_lot::Mutex<Option<(std::sync::Arc<aurafx_data::DataSet>, std::sync::Arc<aurafx_cad::project::SurfaceTriangles>)>>,
+}
+
+impl Default for CadUi {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self {
+            tab: RibbonTab::default(),
+            tx,
+            rx,
+            requested: 0,
+            running: false,
+            leave_dialog: false,
+            density: 7.85,
+            section_z: 0.0,
+            section_area: None,
+            rename: None,
+            new_param: (String::new(), String::new()),
+            apply_dialog: None,
+            rerun_now: true,
+            sketch: None,
+            pick: None,
+            plane_form: None,
+            component: None,
+            fit: None,
+            component_rename: None,
+            new_configuration: String::new(),
+            search: None,
+            last_hint: String::new(),
+            measure: Default::default(),
+            menu_face: None,
+            plane_hover: None,
+            plane_demo: None,
+            show_part: true,
+            surface: Default::default(),
+        }
+    }
+}
+
+/// Whether the environment is open.
+pub fn editing(state: &State) -> bool {
+    state.session.lock().cad_edit.is_some()
+}
+
+/// Enter the environment on a CAD Model node.
+pub fn enter(state: &mut State, id: NodeId) {
+    let r = state.session.lock().cad_enter(id);
+    match r {
+        Ok(()) => {
+            state.cad.requested = 0;
+            state.cad.running = false;
+            state.layout_actions.push(LayoutAction::Show(Pane::Pipeline));
+            state.layout_actions.push(LayoutAction::Show(Pane::Properties));
+            // An empty part starts with a sketch; a part with features opens on them.
+            let empty = state.session.lock().cad_edit.as_ref().is_some_and(|e| e.document.features.is_empty());
+            state.cad.tab = if empty { RibbonTab::Sketch } else { RibbonTab::Features };
+            state.cad.last_hint.clear();
+            state.cad.search = None;
+            state.status = "CAD environment: the pipeline is paused until you apply or discard".into();
+        }
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+}
+
+/// Start a CAD part from the solid a node shows (a Geometry source's bodies, any closed
+/// surface) and open the environment on it; a CAD Model is opened as it is.
+pub fn enter_from(state: &mut State, id: NodeId) {
+    let made = state.session.lock().cad_from_node(id);
+    match made {
+        Ok(new) => {
+            enter(state, new);
+            if new != id {
+                state.status =
+                    "CAD: the solid is the first body of a new part; add to it or cut from it. The object it came from is hidden, not changed.".into();
+            }
+        }
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+}
+
+/// Edit a component of the assembly on its own (its name), or go back to the assembly (`None`).
+pub fn focus(state: &mut State, component: Option<&str>) {
+    if state.cad.sketch.is_some() {
+        state.toast("A sketch is open: finish or cancel it first.".to_string(), true);
+        return;
+    }
+    let r = state.session.lock().cad_env_focus(component);
+    match r {
+        Ok(()) => {
+            state.cad.pick = None;
+            state.cad.plane_form = None;
+            state.cad.fit = None;
+            state.cad.requested = 0;
+            state.cad.last_hint.clear();
+            state.cad.tab = if component.is_some() { RibbonTab::Features } else { RibbonTab::Assemble };
+            state.status = match component {
+                Some(c) => format!("CAD: editing the component {c} on its own, in its own coordinates; the breadcrumb at the top of the model tree goes back"),
+                None => "CAD: back in the assembly".into(),
+            };
+        }
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+}
+
+/// The component being edited on its own, if any.
+pub fn focused(state: &State) -> Option<String> {
+    state.session.lock().cad_edit.as_ref().and_then(|e| e.focused().map(|c| c.name.clone()))
+}
+
+/// Enter on the active node when it is a CAD Model.
+pub fn enter_active(state: &mut State) {
+    let id = state.session.lock().active;
+    if let Some(id) = id {
+        enter(state, id);
+    }
+}
+
+/// Run one operation on the working copy; a refusal is shown as a message.
+pub fn op(state: &mut State, name: &str, args: Value) -> Option<Value> {
+    let r = state.session.lock().cad_env_edit(name, &args);
+    match r {
+        Ok(v) => Some(v),
+        Err(e) => {
+            state.toast(format!("{e:#}"), true);
+            None
+        }
+    }
+}
+
+/// Apply (and leave, or keep editing): the downstream check first; when the nodes below are
+/// affected a dialog asks what to do.
+pub fn apply(state: &mut State, keep: bool) {
+    state.cad.leave_dialog = false;
+    // An open sketch is not part of the model yet: do not throw it away.
+    if state.cad.sketch.is_some() {
+        state.toast(
+            "A sketch is open: extrude or apply it, or cancel it, before applying the part (buttons at the bottom of the right panel).".to_string(),
+            true,
+        );
+        return;
+    }
+    conflicts::request_apply(state, keep);
+}
+
+/// Apply with the given fixes and run mode, without asking.
+pub fn apply_now(state: &mut State, keep: bool, fix: aurafx_pipeline::FixMode, run: aurafx_pipeline::RunMode) {
+    state.cad.sketch = None;
+    let r = state.session.lock().cad_apply_with(keep, fix, run);
+    match r {
+        Ok(a) => {
+            state.status = match (a.kept_editing, a.fixes, a.held) {
+                (true, ..) => "CAD: applied; still editing".into(),
+                (false, 0, 0) => "CAD: applied; the pipeline resumes".into(),
+                (false, f, 0) => format!("CAD: applied with {f} fix(es); the pipeline resumes"),
+                (false, _, h) => format!("CAD: applied; {h} node(s) below wait to be re-run"),
+            }
+        }
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+    state.cad.leave_dialog = false;
+}
+
+/// Leave without applying.
+pub fn discard(state: &mut State) {
+    state.cad.sketch = None;
+    state.cad.pick = None;
+    let r = state.session.lock().cad_discard();
+    match r {
+        Ok(()) => state.status = "CAD: changes discarded".into(),
+        Err(e) => state.toast(format!("{e:#}"), true),
+    }
+    state.cad.leave_dialog = false;
+}
+
+/// Every frame: collect finished builds, start a new one when the document changed, and ask
+/// what to do on Esc.
+pub fn tick(state: &mut State, ctx: &egui::Context) {
+    while let Ok((node, rev, result)) = state.cad.rx.try_recv() {
+        state.cad.running = false;
+        let _ = state.session.lock().cad_env_deliver(node, rev, result);
+        ctx.request_repaint();
+    }
+    let job = state.session.lock().cad_env_job();
+    let Some((doc, overrides, rev, node)) = job else {
+        state.cad.requested = 0;
+        state.cad.running = false;
+        return;
+    };
+    if rev != state.cad.requested && !state.cad.running {
+        let (res, kernel) = {
+            let s = state.session.lock();
+            (s.nodes.get(&node).map(|n| n.params.i64("resolution", 64)).unwrap_or(64).clamp(24, 96) as usize, s.cad_preview_kernel(node))
+        };
+        state.cad.requested = rev;
+        state.cad.running = true;
+        let tx = state.cad.tx.clone();
+        let ctx2 = ctx.clone();
+        std::thread::Builder::new()
+            .name("aurafx-cad".into())
+            .spawn(move || {
+                let r = aurafx_pipeline::cad_edit::evaluate_document_with(doc, &overrides, res, kernel);
+                let _ = tx.send((node, rev, r));
+                ctx2.request_repaint();
+            })
+            .ok();
+    }
+    if state.cad.running {
+        ctx.request_repaint_after(std::time::Duration::from_millis(60));
+    }
+    guide::keys(state, ctx);
+    // Keyboard: Alt+1..6 ribbon tabs, Ctrl+Enter apply, Delete removes the selected feature, F2 renames it.
+    if !ctx.text_edit_focused() && !state.cad.dialog_open() && !state.cad.leave_dialog {
+        let keys = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5, egui::Key::Num6];
+        for (k, tab) in keys.iter().zip(RibbonTab::ALL) {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::ALT, *k)) {
+                state.cad.tab = tab;
+            }
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)) {
+            apply(state, false);
+            return;
+        }
+        if state.cad.sketch.is_none() {
+            let sel = state.session.lock().cad_edit.as_ref().and_then(|e| e.selected.and_then(|id| e.active().feature(id).map(|f| (id, f.name.clone()))));
+            if let Some((id, name)) = sel {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
+                    op(state, "remove", json!({"feature": name}));
+                    state.session.lock().cad_env_select(None);
+                } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F2)) {
+                    state.cad.rename = Some((id, name));
+                }
+            }
+        }
+    }
+    if !ctx.text_edit_focused()
+        && !state.cad.leave_dialog
+        && !state.cad.dialog_open()
+        && state.cad.sketch.is_none()
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
+        state.cad.leave_dialog = true;
+    }
+}
+
+/// The "leave the CAD environment?" dialog (Esc).
+pub fn dialogs_ui(state: &mut State, ctx: &egui::Context) {
+    if editing(state) {
+        guide::search_ui(state, ctx);
+    } else {
+        state.cad.search = None;
+    }
+    conflicts::dialog_ui(state, ctx);
+    if !state.cad.leave_dialog || !editing(state) {
+        state.cad.leave_dialog = false;
+        return;
+    }
+    let changed = state.session.lock().cad_edit.as_ref().map(|e| e.changed).unwrap_or(false);
+    egui::Window::new("Leave the CAD environment?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show_fit(ctx, |ui| {
+        ui.label(if changed { "The part has changes. Apply hands them to the pipeline; discard throws them away." } else { "The part has no changes." });
+        ui.horizontal(|ui| {
+            if ui.button("Apply").clicked() {
+                apply(state, false);
+            }
+            if ui.button(if changed { "Discard" } else { "Leave" }).clicked() {
+                discard(state);
+            }
+            if ui.button("Keep editing").clicked() {
+                state.cad.leave_dialog = false;
+            }
+        });
+    });
+}
+
+/// A grey banner on views and panels that show data the paused pipeline no longer updates.
+pub fn stale_banner(state: &State, ui: &mut egui::Ui) {
+    if !editing(state) {
+        return;
+    }
+    egui::Frame::NONE.fill(egui::Color32::from_gray(70)).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+        ui.label(RichText::new("Pipeline paused while editing CAD: this shows the data as it was.").color(egui::Color32::from_gray(225)).small());
+    });
+}
+
+/// The CAD menu, shown in the menu bar while the environment is open.
+pub fn menu_ui(state: &mut State, ui: &mut egui::Ui) {
+    let (can_undo, can_redo, changed) = {
+        let s = state.session.lock();
+        s.cad_edit.as_ref().map(|e| (!e.undo.is_empty(), !e.redo.is_empty(), e.changed)).unwrap_or_default()
+    };
+    if ui.button("Apply and close").on_hover_text("Hand the part to the pipeline and leave").clicked() {
+        ui.close();
+        apply(state, false);
+    }
+    if ui.button("Apply and keep editing").clicked() {
+        ui.close();
+        apply(state, true);
+    }
+    if ui.button(if changed { "Discard changes" } else { "Close" }).clicked() {
+        ui.close();
+        discard(state);
+    }
+    ui.separator();
+    if ui.add_enabled(can_undo, egui::Button::new("Undo    Ctrl+Z")).clicked() {
+        ui.close();
+        state.session.lock().cad_env_undo();
+    }
+    if ui.add_enabled(can_redo, egui::Button::new("Redo    Ctrl+Y")).clicked() {
+        ui.close();
+        state.session.lock().cad_env_redo();
+    }
+    ui.separator();
+    for t in RibbonTab::ALL {
+        if ui.button(format!("{} tab", t.label())).clicked() {
+            ui.close();
+            state.cad.tab = t;
+        }
+    }
+}
+
+/// A text field for a number or an expression: returns the new text when the user commits it
+/// (Enter, or leaving the field).
+pub fn expr_field(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, current: &str, width: f32) -> Option<String> {
+    let key = ui.make_persistent_id(("cad field", salt));
+    let mut text: String = ui.data_mut(|d| d.get_temp(key)).unwrap_or_else(|| current.to_string());
+    let r = ui.add_sized([width, 20.0], egui::TextEdit::singleline(&mut text));
+    if r.changed() {
+        ui.data_mut(|d| d.insert_temp(key, text.clone()));
+    }
+    if r.lost_focus() {
+        ui.data_mut(|d| d.remove_temp::<String>(key));
+        if text.trim() != current.trim() && !text.trim().is_empty() {
+            return Some(text.trim().to_string());
+        }
+    }
+    None
+}
+
+/// A number as short text.
+pub fn num_text(v: f64) -> String {
+    let s = if v.abs() >= 1000.0 {
+        format!("{v:.1}")
+    } else if v.abs() >= 10.0 {
+        format!("{v:.2}")
+    } else {
+        format!("{v:.4}")
+    };
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// A JSON value for a typed number or expression.
+pub fn number_or_expr(text: &str) -> Value {
+    match text.trim().parse::<f64>() {
+        Ok(x) => json!(x),
+        Err(_) => json!(text.trim()),
+    }
+}
+
+/// The Properties of a CAD Model node.
+pub fn properties_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId) {
+    hold_banner(state, ui);
+    let (doc, effective, overrides) = {
+        let s = state.session.lock();
+        (s.cad_document(id), s.cad_effective_document(id), s.cad_overrides(id))
+    };
+    let doc = match doc {
+        Ok(d) => d,
+        Err(e) => {
+            ui.label(RichText::new(format!("{e:#}")).color(crate::theme::ERROR));
+            return;
+        }
+    };
+    let values = effective.as_ref().ok().and_then(|d| d.parameter_values().ok());
+    if ui
+        .button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE))
+        .on_hover_text("Open the CAD environment on this part: ribbon, feature tree, timeline")
+        .clicked()
+    {
+        enter(state, id);
+    }
+    egui::CollapsingHeader::new(RichText::new("Dimensions").strong()).id_salt(("cad dims", id)).default_open(true).show(ui, |ui| {
+        if doc.parameters.is_empty() {
+            ui.label(RichText::new("The part has no named dimensions. Add them in Python: node.cad.parameter(\"width\", 40).").weak().small());
+        }
+        egui::Grid::new(("cad dims grid", id)).num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
+            for p in &doc.parameters {
+                let over = overrides.iter().find(|(n, _)| n == &p.name).map(|(_, e)| e.clone());
+                let text_id = ui.make_persistent_id(("cad dim", id, &p.name));
+                let mut text: String = ui.data_mut(|d| d.get_temp(text_id)).unwrap_or_else(|| over.clone().unwrap_or_else(|| p.expr.clone()));
+                ui.label(&p.name).on_hover_text(if p.comment.is_empty() { "A named dimension of the part" } else { &p.comment });
+                ui.horizontal(|ui| {
+                    let r = ui.add_sized([110.0, 20.0], egui::TextEdit::singleline(&mut text));
+                    if r.changed() {
+                        ui.data_mut(|d| d.insert_temp(text_id, text.clone()));
+                    }
+                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter) || !i.pointer.any_down()) {
+                        ui.data_mut(|d| d.remove_temp::<String>(text_id));
+                        if text.trim() != over.clone().unwrap_or_else(|| p.expr.clone()).trim() {
+                            let value = if text.trim() == p.expr.trim() { serde_json::Value::Null } else { serde_json::Value::String(text.trim().to_string()) };
+                            let result = state.session.lock().cad_set_parameter(id, &p.name, &value);
+                            if let Err(e) = result {
+                                state.toast(format!("{e:#}"), true);
+                            }
+                        }
+                    }
+                    match values.as_ref().and_then(|v| v.get(&p.name)) {
+                        Some(v) => ui.label(RichText::new(format!("= {} mm", trim_num(*v))).weak()),
+                        None => ui.label(RichText::new("?").color(crate::theme::ERROR)),
+                    };
+                    if over.is_some() && crate::touch::small_button(ui, "reset").on_hover_text("Use the document's own value again").clicked() {
+                        ui.data_mut(|d| d.remove_temp::<String>(text_id));
+                        let _ = state.session.lock().cad_set_parameter(id, &p.name, &serde_json::Value::Null);
+                    }
+                });
+                ui.end_row();
+            }
+        });
+        if let Err(e) = &effective {
+            ui.label(RichText::new(format!("{e}")).color(crate::theme::ERROR).small());
+        }
+    });
+    if !doc.configurations.is_empty() {
+        let current = state.session.lock().nodes.get(&id).map(|n| n.params.str("configuration")).unwrap_or_default();
+        ui.horizontal(|ui| {
+            ui.label("Configuration");
+            let mut sel = current.clone();
+            egui::ComboBox::from_id_salt(("cad cfg", id)).selected_text(if sel.is_empty() { "(document)".to_string() } else { sel.clone() }).show_ui(
+                ui,
+                |ui| {
+                    ui.selectable_value(&mut sel, String::new(), "(document)");
+                    for c in &doc.configurations {
+                        ui.selectable_value(&mut sel, c.name.clone(), &c.name);
+                    }
+                },
+            );
+            if sel != current {
+                state.session.lock().set_param(id, "configuration", aurafx_filters::ParamValue::Str(sel));
+            }
+        });
+    }
+    egui::CollapsingHeader::new(RichText::new(format!("Features ({})", doc.features.len())).strong()).id_salt(("cad feats", id)).default_open(true).show(
+        ui,
+        |ui| {
+            let mut toggle: Option<(String, bool)> = None;
+            for f in &doc.features {
+                ui.horizontal(|ui| {
+                    let mut on = !f.suppressed;
+                    if ui.checkbox(&mut on, "").on_hover_text("Include this feature (off: suppressed)").changed() {
+                        toggle = Some((f.name.clone(), !on));
+                    }
+                    let kind = serde_json::to_value(&f.shape).ok().and_then(|v| v.get("kind").and_then(|k| k.as_str().map(str::to_string))).unwrap_or_default();
+                    let kind = match kind.as_str() {
+                        "SketchExtrude" | "Extrude" => "extruded sketch".to_string(),
+                        "SketchRevolve" | "Revolve" => "revolved sketch".to_string(),
+                        "SketchSweep" | "Sweep" => "sweep".to_string(),
+                        "SketchLoft" | "Loft" => "loft".to_string(),
+                        "Brep" => "imported body".to_string(),
+                        k => k.to_lowercase(),
+                    };
+                    let text = format!(
+                        "{}  ·  {} {}",
+                        f.name,
+                        match f.op {
+                            aurafx_cad::BooleanOp::Add => "adds",
+                            aurafx_cad::BooleanOp::Cut => "cuts",
+                            aurafx_cad::BooleanOp::Intersect => "intersects",
+                        },
+                        kind
+                    );
+                    ui.label(if f.suppressed { RichText::new(text).weak().strikethrough() } else { RichText::new(text) });
+                });
+            }
+            if let Some((name, sup)) = toggle {
+                let _ = state.session.lock().cad_edit(id, "suppress", &serde_json::json!({"feature": name, "suppressed": sup}));
+            }
+        },
+    );
+    let faces = {
+        let s = state.session.lock();
+        s.nodes.get(&id).and_then(|n| n.output.clone()).and_then(|o| match &*o {
+            aurafx_data::DataSet::PolyData(p) => {
+                let names = p.field_data.get("FaceNames")?;
+                let vol = p.field_data.get("Volume").map(|v| v.get(0, 0));
+                let area = p.field_data.get("SurfaceArea").map(|v| v.get(0, 0));
+                let list = match &names.data {
+                    aurafx_data::ArrayData::String(v) => v.clone(),
+                    _ => Vec::new(),
+                };
+                Some((list, vol, area))
+            }
+            _ => None,
+        })
+    };
+    if let Some((names, vol, area)) = faces {
+        egui::CollapsingHeader::new(RichText::new(format!("Faces ({})", names.len())).strong()).id_salt(("cad faces", id)).show(ui, |ui| {
+            if let (Some(v), Some(a)) = (vol, area) {
+                ui.label(RichText::new(format!("volume {} mm³, surface {} mm²", trim_num(v), trim_num(a))).weak().small());
+            }
+            for (i, n) in names.iter().enumerate() {
+                ui.label(RichText::new(format!("{i}  {n}")).small()).on_hover_text("Downstream filters refer to a face by this name or number (FaceId)");
+            }
+        });
+    }
+}
+
+fn trim_num(v: f64) -> String {
+    if v.abs() >= 1000.0 {
+        format!("{v:.0}")
+    } else {
+        format!("{v:.3}").trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}

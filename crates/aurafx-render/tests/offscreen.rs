@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 #[test]
 fn render_can_offscreen() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/can.ex2");
     if !p.exists() {
         return;

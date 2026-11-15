@@ -1,0 +1,16 @@
+[package]
+name = "aurafx-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GPU compute kernels for auraFX filters (wgpu)"
+
+[dependencies]
+aurafx-filters.workspace = true
+anyhow.workspace = true
+bytemuck.workspace = true
+tracing.workspace = true
+wgpu = "30"
+
+[dev-dependencies]
+aurafx-data.workspace = true

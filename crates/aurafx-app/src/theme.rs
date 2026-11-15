@@ -27,17 +27,46 @@ pub enum ThemeMode {
     Dark,
     Light,
     System,
+    /// Black panels, white text, thick yellow focus and selection outlines.
+    HighContrast,
 }
 
 impl ThemeMode {
-    pub const ALL: [ThemeMode; 3] = [ThemeMode::Dark, ThemeMode::Light, ThemeMode::System];
+    pub const ALL: [ThemeMode; 4] = [ThemeMode::Dark, ThemeMode::Light, ThemeMode::System, ThemeMode::HighContrast];
     pub fn label(self) -> &'static str {
         match self {
             ThemeMode::Dark => "Dark",
             ThemeMode::Light => "Light",
             ThemeMode::System => "Follow system",
+            ThemeMode::HighContrast => "High contrast",
         }
     }
+}
+
+/// High contrast: pure black backgrounds, white text and borders, yellow focus and selection.
+pub fn high_contrast_visuals() -> Visuals {
+    let mut v = Visuals::dark();
+    let (black, white, yellow) = (Color32::BLACK, Color32::WHITE, Color32::from_rgb(255, 220, 0));
+    v.panel_fill = black;
+    v.window_fill = black;
+    v.extreme_bg_color = black;
+    v.faint_bg_color = Color32::from_gray(20);
+    v.override_text_color = Some(white);
+    v.window_stroke = Stroke::new(2.0, white);
+    for w in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+        w.bg_fill = black;
+        w.weak_bg_fill = black;
+        w.fg_stroke = Stroke::new(1.5, white);
+        w.bg_stroke = Stroke::new(1.5, white);
+    }
+    v.widgets.hovered.bg_stroke = Stroke::new(2.5, yellow);
+    v.widgets.active.bg_stroke = Stroke::new(3.0, yellow);
+    v.selection.bg_fill = Color32::from_rgb(0, 70, 160);
+    v.selection.stroke = Stroke::new(2.0, yellow);
+    v.hyperlink_color = yellow;
+    common(&mut v);
+    v.widgets.active.bg_stroke = Stroke::new(3.0, yellow);
+    v
 }
 
 fn common(v: &mut Visuals) {
@@ -91,10 +120,10 @@ pub fn light_visuals() -> Visuals {
 
 /// Install both visual sets and select the theme. Call again whenever the mode or scale changes.
 pub fn apply(ctx: &egui::Context, mode: ThemeMode, scale: f32) {
-    ctx.set_visuals_of(egui::Theme::Dark, dark_visuals());
+    ctx.set_visuals_of(egui::Theme::Dark, if mode == ThemeMode::HighContrast { high_contrast_visuals() } else { dark_visuals() });
     ctx.set_visuals_of(egui::Theme::Light, light_visuals());
     ctx.set_theme(match mode {
-        ThemeMode::Dark => egui::ThemePreference::Dark,
+        ThemeMode::Dark | ThemeMode::HighContrast => egui::ThemePreference::Dark,
         ThemeMode::Light => egui::ThemePreference::Light,
         ThemeMode::System => egui::ThemePreference::System,
     });

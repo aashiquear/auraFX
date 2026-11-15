@@ -1,0 +1,23 @@
+import aurafx as afx
+import time
+# Two 3D views and two chart views, saved as one picture with views="all".
+src = afx.load(ROOT + "/testdata/disk_out_ref.ex2")
+src.set(color_by="Temp")
+clip = src.clip(normal=[1, 0, 0])
+clip.set(color_by="V", representation="Surface With Edges")
+line = src.plot_over_line(point1=[0, 0, -10], point2=[0, 0, 10])
+hist = src.histogram(array="Pres", bins=24)
+afx.hide_panel("Charts")
+afx.hide_panel("Python")
+afx.hide_panel("Spreadsheet")
+afx.hide_panel("Log")
+clip.send_to_view("right")
+line.hide(); hist.hide()
+afx.active_view(0)
+src.show()
+src.set(opacity=1.0)
+line.plot("Temp", x="arc_length", title="Temperature along the axis")
+hist.plot("Pres_count", style="bars", title="Pressure histogram")
+afx.view("iso"); afx.reset_camera()
+time.sleep(3)
+afx.screenshot(OUT, views="all")

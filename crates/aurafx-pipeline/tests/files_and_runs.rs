@@ -116,16 +116,16 @@ fn recorded_pipeline_runs() {
     let mut s = Session::new();
     let r = s.open_file(td("dream3d/am_bench_subset.dream3d")).unwrap();
     let made = s.import_pipeline(&td("dream3d/am_bench_segmentation.json"), Some(r)).unwrap();
-    // Skipped: three Delete Data steps, a feature-to-cell array copy and a CSV export.
-    assert_eq!(made.skipped.len(), 5, "{:?}", made.skipped);
-    assert_eq!(made.nodes.len(), 15);
+    // Skipped: three Delete Data steps and a CSV export.
+    assert_eq!(made.skipped.len(), 4, "{:?}", made.skipped);
+    assert_eq!(made.nodes.len(), 16);
     s.update_blocking();
     for n in &made.nodes {
         assert!(s.nodes[n].error.is_none(), "{}: {:?}", s.nodes[n].name, s.nodes[n].error);
     }
     let last = s.nodes[made.nodes.last().unwrap()].output.clone().unwrap();
     let DataSet::ImageData(img) = &*last else { panic!() };
-    for a in ["FeatureIds", "KernelAverageMisorientations", "IPFColorZ", "Quats"] {
+    for a in ["FeatureIds", "KernelAverageMisorientations", "IPFColorZ", "Quats", "EquivalentDiameters"] {
         assert!(img.cell_data.get(a).is_some(), "{a}");
     }
     let f = img.cell_data.get("FeatureIds").unwrap();
@@ -203,6 +203,34 @@ fn solver_cases() {
         let deck = std::fs::read_to_string(c.folder.join(&c.input)).unwrap();
         assert!(deck.contains("x-") && deck.contains("x+"), "{deck}");
     }
+    // JAX-FEM: plain-text mesh and crystal axes, and a script with the values filled in.
+    let c = aurafx_pipeline::cases::write_case(&poly, "jaxfem", &dir.join("jaxfem"), &o).unwrap();
+    assert!(c.files.iter().all(|f| f.exists()));
+    let read = |name: &str| std::fs::read_to_string(dir.join("jaxfem").join(name)).unwrap();
+    let ug = poly.to_unstructured().unwrap();
+    assert_eq!(read("nodes.txt").lines().count(), ug.points.len());
+    assert_eq!(read("elements.txt").lines().count(), ug.cells.len());
+    assert!(read("elements.txt").lines().all(|l| l.split_whitespace().count() == 8));
+    assert_eq!(read("element_grains.txt").lines().count(), ug.cells.len());
+    // Every grain's axes are three unit vectors at right angles.
+    let axes = read("grain_axes.txt");
+    assert_eq!(axes.lines().count(), poly.field_data().get("GrainEulerAngles").unwrap().len() - 1);
+    for l in axes.lines() {
+        let v: Vec<f64> = l.split_whitespace().map(|x| x.parse().unwrap()).collect();
+        assert_eq!(v.len(), 9);
+        for a in 0..3 {
+            for b in 0..3 {
+                let d: f64 = (0..3).map(|k| v[3 * a + k] * v[3 * b + k]).sum();
+                assert!((d - if a == b { 1.0 } else { 0.0 }).abs() < 1e-6, "{l}");
+            }
+        }
+    }
+    let script = read("run_jaxfem.py");
+    // (No placeholder left: an @ followed by a capital letter. The matrix product is "r @ strain".)
+    let b = script.as_bytes();
+    assert!(!(0..b.len() - 1).any(|i| b[i] == b'@' && b[i + 1].is_ascii_uppercase()), "a value was not filled in");
+    assert!(script.contains("ELE_TYPE = \"HEX8\"") && script.contains("STRAIN = 0.002") && script.contains("STEPS = 2"), "{script}");
+    assert_eq!((c.template, c.input.as_str(), c.outputs.as_str()), ("jaxfem", "run_jaxfem.py", "results/u.pvd"));
     // MOOSE: one orientation row per grain id, the 12 FCC slip systems.
     let rows = std::fs::read_to_string(dir.join("moose/grain_euler.txt")).unwrap();
     let gmax = poly.field_data().get("GrainEulerAngles").unwrap().len() - 1;

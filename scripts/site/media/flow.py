@@ -6,4 +6,4 @@ c = d.contour(array="Temp", values=[400.0]); c.set(color_by="Temp", opacity=0.35
 s = d.stream_tracer(seeds=60); s.hide()
 t = s.tube(radius=0.12); t.set(color_by="Temp", cmap="Inferno")
 afx.view([0.7, -1.0, 0.5], up=[0, 0, 1]); afx.reset_camera()
-afx.save_animation(OUT, fps=20, orbit=80)
+afx.save_animation(OUT, poster=OUT[:-4] + '.jpg', fps=20, orbit=80)

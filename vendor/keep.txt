@@ -1,0 +1,4 @@
+# Directories left empty (with a .gitkeep) after pruning: SolidCraft's workspace lists `apps/*` as
+# members, and cargo reads a glob over a missing directory as a literal path, which makes
+# `cargo metadata` and `cargo fmt` fail. scripts/cad/upstream-pull.sh recreates them.
+vendor/solidcraft/apps

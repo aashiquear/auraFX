@@ -26,6 +26,8 @@ pub struct JobsPanel {
     pub gpu: GpuChoice,
     pub gpu_ids: String,
     pub slurm: bool,
+    /// Which batch system when `slurm` (run through a scheduler) is on: Slurm, PBS or LSF.
+    pub batch: String,
     pub partition: String,
     pub time: String,
     pub nodes: u32,
@@ -82,6 +84,7 @@ impl Default for JobsPanel {
             gpu: GpuChoice::None,
             gpu_ids: "0".into(),
             slurm: false,
+            batch: "Slurm".into(),
             partition: String::new(),
             time: "01:00:00".into(),
             nodes: 1,
@@ -261,7 +264,14 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.selectable_value(&mut p.host, i, &h.name);
                         }
                     });
-                    ui.checkbox(&mut p.slurm, "via Slurm");
+                    ui.checkbox(&mut p.slurm, "through a scheduler").on_hover_text("Submit the job to the machine's batch system instead of running it directly");
+                    if p.slurm {
+                        egui::ComboBox::from_id_salt("batch system").selected_text(p.batch.clone()).width(70.0).show_ui(ui, |ui| {
+                            for (name, tip) in [("Slurm", "sbatch, squeue"), ("PBS", "qsub, qstat (PBS Professional, OpenPBS, Torque)"), ("LSF", "bsub, bjobs")] {
+                                ui.selectable_value(&mut p.batch, name.to_string(), name).on_hover_text(tip);
+                            }
+                        });
+                    }
                 });
                 ui.end_row();
                 ui.label("Name");
@@ -337,16 +347,21 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                 });
                 ui.end_row();
                 if p.slurm {
-                    ui.label("Partition / time");
+                    ui.label(if p.batch == "Slurm" { "Partition / time" } else { "Queue / time" });
                     ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut p.partition).hint_text("partition").desired_width(100.0));
+                        ui.add(egui::TextEdit::singleline(&mut p.partition).hint_text(if p.batch == "Slurm" { "partition" } else { "queue" }).desired_width(100.0));
                         ui.add(egui::TextEdit::singleline(&mut p.time).desired_width(80.0));
                         ui.label("nodes");
                         ui.add(egui::DragValue::new(&mut p.nodes).range(1..=10000));
                     });
                     ui.end_row();
-                    ui.label("Extra #SBATCH");
-                    ui.add(egui::TextEdit::multiline(&mut p.extra).desired_rows(1).hint_text("--account=myproj"));
+                    let (tag, hint) = match p.batch.as_str() {
+                        "PBS" => ("Extra #PBS", "-A myproj"),
+                        "LSF" => ("Extra #BSUB", "-P myproj"),
+                        _ => ("Extra #SBATCH", "--account=myproj"),
+                    };
+                    ui.label(tag);
+                    ui.add(egui::TextEdit::multiline(&mut p.extra).desired_rows(1).hint_text(hint));
                     ui.end_row();
                 }
                 ui.label("Environment");
@@ -390,8 +405,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                         .filter(|(k, _)| !k.is_empty())
                         .collect();
                     if p.slurm {
-                        spec.scheduler =
-                            Scheduler::Slurm { partition: p.partition.clone(), time: p.time.clone(), nodes: p.nodes, tasks: p.np, extra: p.extra.clone() };
+                        spec.scheduler = Scheduler::batch(&p.batch, &p.partition, &p.time, p.nodes, p.np, &p.extra).unwrap_or_default();
                     }
                     // Case templates: write the case from the selected data (here, or into a
                     // folder whose files are uploaded to the host).
@@ -429,7 +443,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                         p.selected = Some(id);
                     }
                 }
-                if p.command_override.is_some() && ui.small_button("Reset command").clicked() {
+                if p.command_override.is_some() && crate::touch::small_button(ui, "Reset command").clicked() {
                     p.command_override = None;
                 }
                 ui.label(RichText::new(TEMPLATES[p.template].description).weak().small());
@@ -448,7 +462,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new(RichText::new(format!("{} Jobs ({})", icons::LIST, rows.len())).strong()).default_open(true).show(ui, |ui| {
             if rows.is_empty() {
                 ui.label(RichText::new("No jobs yet. Fill in the form above and press Run, or call afx.submit(...) from Python.").weak());
-            } else if ui.small_button("Clear finished").clicked() {
+            } else if crate::touch::small_button(ui, "Clear finished").clicked() {
                 aurafx_jobs::clear_finished(&jobs);
             }
             egui::Grid::new("joblist").striped(true).num_columns(6).spacing([10.0, 4.0]).show(ui, |ui| {
@@ -461,13 +475,13 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.label(RichText::new(st.label()).color(state_color(st)));
                     ui.label(rt.map(fmt_dur).unwrap_or_default());
                     if st.is_active() {
-                        if ui.small_button(format!("{} Stop", icons::X)).clicked() {
+                        if crate::touch::small_button(ui, format!("{} Stop", icons::X)).clicked() {
                             let _ = aurafx_jobs::cancel(&jobs, *id);
                         }
                     } else {
                         ui.label("");
                     }
-                    if *nout > 0 && ui.small_button(format!("{} Open results ({nout})", icons::FOLDER_OPEN)).clicked() {
+                    if *nout > 0 && crate::touch::small_button(ui, format!("{} Open results ({nout})", icons::FOLDER_OPEN)).clicked() {
                         let outs = jobs.lock().jobs.iter().find(|j| j.id == *id).map(|j| j.outputs.clone()).unwrap_or_default();
                         for o in outs.into_iter().take(8) {
                             state.open_file(o);
@@ -486,10 +500,10 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("Log of job #{sel}")).strong());
                         ui.add(egui::TextEdit::singleline(&mut state.jobs_panel.log_filter).hint_text("filter").desired_width(140.0));
-                        if ui.small_button(format!("{} Copy", icons::COPY)).clicked() {
+                        if crate::touch::small_button(ui, format!("{} Copy", icons::COPY)).clicked() {
                             ui.ctx().copy_text(log.join("\n"));
                         }
-                        if ui.small_button(format!("{} Ask AI", icons::SPARKLE)).on_hover_text("Send the end of this log to the assistant").clicked() {
+                        if crate::touch::small_button(ui, format!("{} Ask AI", icons::SPARKLE)).on_hover_text("Send the end of this log to the assistant").clicked() {
                             let tail: Vec<&String> = log.iter().rev().take(60).collect::<Vec<_>>().into_iter().rev().collect();
                             let msg = format!(
                                 "Here is the end of my simulation log. Explain what happened and suggest fixes if it failed:\n```\n{}\n```",
@@ -569,7 +583,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     if let HostKind::Ssh { target, .. } = &h.kind {
                         ui.label(RichText::new(target).weak());
                     }
-                    if ui.small_button("Test").clicked() {
+                    if crate::touch::small_button(ui, "Test").clicked() {
                         let host = h.clone();
                         let (tx, rx) = std::sync::mpsc::channel();
                         let c = ctx.clone();
@@ -581,7 +595,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                         });
                         state.jobs_panel.host_test = Some(rx);
                     }
-                    if ui.small_button(icons::TRASH).clicked() {
+                    if crate::touch::small_button(ui, icons::TRASH).clicked() {
                         remove = Some(i);
                     }
                 });
@@ -645,6 +659,7 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                     },
                     setup: p.new_host_setup.clone(),
                     server_processes: 0,
+                    launcher: String::new(),
                 });
                 aurafx_jobs::set_hosts(state.settings.hosts.clone());
                 state.settings.save();
@@ -660,12 +675,13 @@ pub fn jobs_ui(state: &mut State, ui: &mut egui::Ui) {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("From ~/.ssh/config:").weak());
                     for a in ssh_aliases {
-                        if !state.settings.hosts.iter().any(|h| h.name == a) && ui.small_button(format!("+ {a}")).clicked() {
+                        if !state.settings.hosts.iter().any(|h| h.name == a) && crate::touch::small_button(ui, format!("+ {a}")).clicked() {
                             state.settings.hosts.push(Host {
                                 name: a.clone(),
                                 kind: HostKind::Ssh { target: a, port: None, identity: None, jump: None },
                                 setup: String::new(),
                                 server_processes: 0,
+                                launcher: String::new(),
                             });
                             aurafx_jobs::set_hosts(state.settings.hosts.clone());
                             state.settings.save();
@@ -767,7 +783,7 @@ fn shell_home(p: &str) -> String {
     }
 }
 
-fn ssh_config_hosts() -> Vec<String> {
+pub(crate) fn ssh_config_hosts() -> Vec<String> {
     let Some(home) = std::env::var_os("HOME") else { return vec![] };
     let Ok(text) = std::fs::read_to_string(std::path::Path::new(&home).join(".ssh/config")) else { return vec![] };
     text.lines()

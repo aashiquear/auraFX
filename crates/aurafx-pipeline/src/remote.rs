@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::Arc;
 
-pub const PROTOCOL: u32 = 11;
+pub const PROTOCOL: u32 = 14;
 
 /// One node of the recipe the client sends, keyed by the client's node id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,7 +180,16 @@ pub enum Request {
     Forget {
         ids: Vec<NodeId>,
     },
+    /// A parallel server's worker: keep the attached border cells of the other pieces under
+    /// `key` (for ghost layers).
+    Ghosts {
+        key: String,
+    },
     Shutdown,
+    /// A parallel server's worker: drop the border cells kept under these keys.
+    DropGhosts {
+        keys: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +216,10 @@ pub struct ServeOptions {
     pub piece: Option<(usize, usize)>,
     /// A parallel server's coordinator: its workers.
     pub workers: Vec<Arc<RemoteClient>>,
+    /// Ask the workers one after another, not at once (a streamed server: pieces read in turn).
+    pub sequential: bool,
+    /// Forget everything after each request (a streamed piece: only one piece in memory).
+    pub forget: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,11 +311,17 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
     let mut r = BufReader::new(input);
     let mut w = BufWriter::new(output);
     let piece = opts.piece;
-    let cluster = (!opts.workers.is_empty()).then(|| crate::cluster::Cluster::new(opts.workers));
+    let forget = opts.forget;
+    let sequential = opts.sequential;
+    let cluster = (!opts.workers.is_empty()).then(|| {
+        let mut c = crate::cluster::Cluster::new(opts.workers);
+        c.sequential = sequential;
+        c
+    });
     let mut srv = Server { hook: opts.hook, gpu: opts.gpu, cluster, ..Server::default() };
     srv.session.piece = piece;
     loop {
-        let Ok((head, _)) = read_frame(&mut r) else { return Ok(()) }; // client went away
+        let Ok((head, att)) = read_frame(&mut r) else { return Ok(()) }; // client went away
         let req: Request = match postcard::from_bytes(&head) {
             Ok(m) => m,
             Err(e) => {
@@ -315,6 +334,17 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
                 write_msg(&mut w, &Reply::Ok, &[])?;
                 return Ok(());
             }
+            Request::Ghosts { key } => match decode(&att) {
+                Ok(d) => {
+                    aurafx_filters::ghost_exchange::store(&key, d);
+                    (Reply::Ok, vec![])
+                }
+                Err(e) => (Reply::Error { message: format!("could not read the ghost cells: {e:#}") }, vec![]),
+            },
+            Request::DropGhosts { keys } => {
+                aurafx_filters::ghost_exchange::forget(&keys);
+                (Reply::Ok, vec![])
+            }
             other => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| srv.handle(other))) {
                 Ok(r) => r,
                 Err(p) => {
@@ -324,14 +354,17 @@ pub fn serve_opts(input: impl Read, output: impl Write, opts: ServeOptions) -> R
                     srv = Server { hook: srv.hook.take(), gpu: srv.gpu.clone(), cluster: srv.cluster.take(), ..Server::default() };
                     srv.session.piece = piece;
                     if let Some(c) = srv.cluster.as_mut() {
-                        c.gathered.clear();
-                        c.infos.lock().clear();
+                        c.reset();
                     }
                     (Reply::Error { message: format!("the server failed: {msg}") }, vec![])
                 }
             },
         };
         write_msg(&mut w, &reply, &att)?;
+        if forget {
+            srv = Server { hook: srv.hook.take(), gpu: srv.gpu.clone(), cluster: srv.cluster.take(), ..Server::default() };
+            srv.session.piece = piece;
+        }
     }
 }
 
@@ -375,7 +408,10 @@ impl Server {
             ),
             Request::Forget { ids } => {
                 if let Some(c) = &self.cluster {
-                    let _ = c.each(|w| w.request(&Request::Forget { ids: ids.clone() }).map(|_| ()));
+                    // The workers also hold the nodes a neighbour filter became there.
+                    let mut all = ids.clone();
+                    all.extend(ids.iter().flat_map(|&id| crate::cluster::ghost_ids(id)));
+                    let _ = c.each(|w| w.request(&Request::Forget { ids: all.clone() }).map(|_| ()));
                     for id in &ids {
                         if let Some(c) = self.cluster.as_mut() {
                             c.gathered.remove(id);
@@ -403,7 +439,7 @@ impl Server {
                 Ok(r) => r,
                 Err(e) => (Reply::Error { message: format!("{e:#}") }, vec![]),
             },
-            Request::Shutdown => (Reply::Ok, vec![]),
+            Request::Shutdown | Request::Ghosts { .. } | Request::DropGhosts { .. } => (Reply::Ok, vec![]),
         }
     }
 
@@ -452,8 +488,8 @@ impl Server {
 
     fn render(&mut self, specs: &[NodeSpec], time: Option<f64>, job: &RenderJob) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
-        if self.cluster.is_some() {
-            let local = crate::cluster::piece_local(specs);
+        if let Some(cluster) = &self.cluster {
+            let local = cluster.local_nodes(specs, time);
             let (mine, theirs): (Vec<_>, Vec<_>) = job.targets.iter().cloned().partition(|(id, _)| local.contains(id));
             let mut image: Option<(Vec<u8>, Vec<f32>)> = None;
             if !mine.is_empty() {
@@ -580,7 +616,7 @@ impl Server {
     ) -> Result<(Reply, Vec<u8>)> {
         let t0 = std::time::Instant::now();
         if let Some(cluster) = &self.cluster {
-            let local = crate::cluster::piece_local(specs);
+            let local = cluster.local_nodes(specs, time);
             if local.contains(&target) {
                 let sub: Vec<NodeSpec> = specs.iter().filter(|s| local.contains(&s.id)).cloned().collect();
                 return cluster.compute_local(&sub, target, time, fetch, max_bytes, level, max_surface);
@@ -598,7 +634,16 @@ impl Server {
         if let Some(e) = &n.error {
             bail!("{e}");
         }
-        let out = n.output.clone().ok_or_else(|| anyhow!("no output"))?;
+        let Some(out) = n.output.clone() else {
+            // Nothing was computed because a node above failed: say why.
+            for s in specs {
+                let above = self.nodes.get(&s.id).and_then(|(sid, _)| self.session.nodes.get(sid));
+                if let Some(e) = above.and_then(|n| n.error.as_ref()) {
+                    bail!("{e}");
+                }
+            }
+            bail!("no output");
+        };
         let full_bytes = out.n_bytes() as u64;
         let times = self.session.node_times(sid, 0);
         let surface_useful = !matches!(&*out, DataSet::PolyData(_) | DataSet::Table(_));
@@ -696,6 +741,9 @@ pub struct RemoteClient {
     spawn: Spawner,
     stderr: Mutex<Arc<Mutex<String>>>,
     pub info: Mutex<Option<ServerInfo>>,
+    /// For a server on a thread of this process: a signal sent when that thread has finished
+    /// (and dropped what it held, such as a GPU device). Dropping the client waits for it.
+    done: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
 }
 
 impl std::fmt::Debug for RemoteClient {
@@ -707,7 +755,9 @@ impl std::fmt::Debug for RemoteClient {
 /// Name under which a session keeps its connection to a host (a parallel server on the same
 /// host is a different connection).
 pub fn client_key(h: &aurafx_jobs::Host) -> String {
-    if h.server_processes > 1 {
+    if h.server_processes > 1 && h.launcher.trim() == "stream" {
+        format!("{} ×{} streamed", h.name, h.server_processes)
+    } else if h.server_processes > 1 {
         format!("{} ×{}", h.name, h.server_processes)
     } else {
         h.name.clone()
@@ -723,7 +773,14 @@ impl RemoteClient {
     pub fn for_host(host: aurafx_jobs::Host) -> Arc<Self> {
         let name = host.name.clone();
         let spawn: Spawner = Box::new(move || {
-            let cmd = if host.server_processes > 1 {
+            let cmd = if host.server_processes > 1 && host.launcher.trim() == "stream" {
+                // Files larger than memory: one process reads the pieces one after another.
+                SERVER_COMMAND.replace("--stdio", &format!("--stdio --stream {}", host.server_processes))
+            } else if host.server_processes > 1 && !host.launcher.trim().is_empty() {
+                // An MPI or Slurm launch: the ranks connect back to the server.
+                let l = host.launcher.trim().replace('\'', "'\\''");
+                SERVER_COMMAND.replace("--stdio", &format!("--stdio --workers {} --launcher '{l}'", host.server_processes))
+            } else if host.server_processes > 1 {
                 SERVER_COMMAND.replace("--stdio", &format!("--stdio --workers {}", host.server_processes))
             } else {
                 SERVER_COMMAND.to_string()
@@ -763,7 +820,7 @@ impl RemoteClient {
             }
             Ok((Conn { child: Some(child), r: Box::new(r), w: Box::new(BufWriter::new(w)) }, err))
         });
-        Arc::new(Self { name, conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+        Arc::new(Self { name, conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None), done: Mutex::new(None) })
     }
 
     /// A server process started by `make` (with stdin/stdout piped), restarted when needed.
@@ -795,17 +852,28 @@ impl RemoteClient {
             }
             Ok((Conn { child: Some(child), r: Box::new(r), w: Box::new(BufWriter::new(w)) }, err))
         });
-        Arc::new(Self { name: name.to_string(), conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+        Arc::new(Self {
+            name: name.to_string(),
+            conn: Mutex::new(None),
+            spawn,
+            stderr: Mutex::new(Arc::default()),
+            info: Mutex::new(None),
+            done: Mutex::new(None),
+        })
     }
 
     /// A server running on threads of this process with these options (tests).
     pub fn in_process_opts(name: &str, opts: ServeOptions) -> Arc<Self> {
         let (c2s_r, c2s_w) = pipe();
         let (s2c_r, s2c_w) = pipe();
+        let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = serve_opts(c2s_r, s2c_w, opts);
+            let _ = tx.send(());
         });
-        Self::from_streams(name, s2c_r, c2s_w)
+        let c = Self::from_streams(name, s2c_r, c2s_w);
+        *c.done.lock() = Some(rx);
+        c
     }
 
     /// A client over existing streams (tests, or a server in the same process).
@@ -815,7 +883,14 @@ impl RemoteClient {
             let (r, w) = cell.lock().take().ok_or_else(|| anyhow!("the connection was closed"))?;
             Ok((Conn { child: None, r, w }, Arc::default()))
         });
-        Arc::new(Self { name: name.to_string(), conn: Mutex::new(None), spawn, stderr: Mutex::new(Arc::default()), info: Mutex::new(None) })
+        Arc::new(Self {
+            name: name.to_string(),
+            conn: Mutex::new(None),
+            spawn,
+            stderr: Mutex::new(Arc::default()),
+            info: Mutex::new(None),
+            done: Mutex::new(None),
+        })
     }
 
     /// A server running on threads of this process (for trying client/server locally).
@@ -827,10 +902,14 @@ impl RemoteClient {
     pub fn in_process_with(name: &str, hook: Option<Box<dyn RenderHook>>, gpu: Option<String>) -> Arc<Self> {
         let (c2s_r, c2s_w) = pipe();
         let (s2c_r, s2c_w) = pipe();
+        let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = serve_with(c2s_r, s2c_w, hook, gpu);
+            let _ = tx.send(());
         });
-        Self::from_streams(name, s2c_r, c2s_w)
+        let c = Self::from_streams(name, s2c_r, c2s_w);
+        *c.done.lock() = Some(rx);
+        c
     }
 
     pub fn is_connected(&self) -> bool {
@@ -871,6 +950,22 @@ impl RemoteClient {
 
     /// Send a request and wait for the reply, connecting (or reconnecting once) as needed.
     pub fn request(&self, req: &Request) -> Result<(Reply, Vec<u8>)> {
+        self.request_with(req, &[])
+    }
+
+    /// [`RemoteClient::request`] with an attachment; an error reply is an error.
+    pub fn request_with(&self, req: &Request, attachment: &[u8]) -> Result<(Reply, Vec<u8>)> {
+        let r = self.request_raw(req, attachment)?;
+        if let Reply::Error { message } = &r.0 {
+            if attachment.is_empty() {
+                return Ok(r);
+            }
+            bail!("{message}");
+        }
+        Ok(r)
+    }
+
+    fn request_raw(&self, req: &Request, attachment: &[u8]) -> Result<(Reply, Vec<u8>)> {
         let mut guard = self.conn.lock();
         let mut first: Option<anyhow::Error> = None;
         for _ in 0..2 {
@@ -881,7 +976,7 @@ impl RemoteClient {
                 }
             }
             let conn = guard.as_mut().unwrap();
-            let res = write_msg(&mut conn.w, req, &[]).and_then(|_| read_msg::<Reply>(&mut conn.r));
+            let res = write_msg(&mut conn.w, req, attachment).and_then(|_| read_msg::<Reply>(&mut conn.r));
             match res {
                 Ok(r) => return Ok(r),
                 Err(e) => {
@@ -953,15 +1048,31 @@ impl RemoteClient {
 
 impl Drop for RemoteClient {
     fn drop(&mut self) {
-        if let Some(mut c) = self.conn.lock().take() {
-            let _ = write_msg(&mut c.w, &Request::Shutdown, &[]);
-            if let Some(mut ch) = c.child {
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    let _ = ch.kill();
-                    let _ = ch.wait();
-                });
+        let in_process = self.done.lock().take();
+        match self.conn.lock().take() {
+            Some(mut c) => {
+                let _ = write_msg(&mut c.w, &Request::Shutdown, &[]);
+                if let Some(mut ch) = c.child.take() {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        let _ = ch.kill();
+                        let _ = ch.wait();
+                    });
+                }
+                // Closing the streams ends an in-process server that missed the request.
+                drop(c);
             }
+            None => {
+                // Never connected: an in-process server still waits on its streams; take and close them.
+                if in_process.is_some() {
+                    let _ = (self.spawn)();
+                }
+            }
+        }
+        // Wait for an in-process server's thread to finish, so what it holds (a GPU device) is
+        // released before this process can exit (a driver torn down under a live device crashes).
+        if let Some(rx) = in_process {
+            let _ = rx.recv_timeout(std::time::Duration::from_secs(20));
         }
     }
 }
@@ -992,6 +1103,11 @@ impl Read for PipeReader {
         let n = out.len().min(self.buf.len() - self.pos);
         out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
         self.pos += n;
+        if self.pos >= self.buf.len() {
+            // Do not keep the last message (a piece's data can be large).
+            self.buf = Vec::new();
+            self.pos = 0;
+        }
         Ok(n)
     }
 }

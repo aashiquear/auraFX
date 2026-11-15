@@ -1,12 +1,24 @@
 //! AI assistant panel: chat with pipeline context, runnable code blocks.
 
 use crate::app::State;
+use crate::menus::MenuExt;
 use crate::settings::Settings;
+use crate::touch::FitScreen;
 use crate::worker::PythonResult;
 use aurafx_ai::{AiConfig, ChatMessage, ProviderKind, Role, StreamEvent};
 use egui::RichText;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::sync::mpsc::Receiver;
+
+/// The model list's entry when no model is chosen (the shipped default).
+pub const NO_MODEL: &str = "<no model>";
+
+/// The folder of skills: Markdown files beside the settings (`skills/`), made on first use.
+pub fn skills_dir() -> Option<std::path::PathBuf> {
+    let d = directories::ProjectDirs::from("org", "aurafx", "auraFX")?.config_dir().join("skills");
+    let _ = std::fs::create_dir_all(&d);
+    Some(d)
+}
 
 pub struct Assistant {
     pub messages: Vec<ChatMessage>,
@@ -28,9 +40,148 @@ pub struct Assistant {
     agent_results: Vec<String>,
     agent_continue: bool,
     pub agent_active: bool,
+    /// Send a picture of the 3D view with the next message.
+    pub include_view: bool,
+    /// A message waiting for its picture of the view: the screenshot's id and file, the text and the
+    /// pipeline description.
+    pending_view: Option<(u64, std::path::PathBuf, String, String)>,
+    /// The "Describe a filter" window: open, and its text.
+    pub describe_open: bool,
+    pub describe_text: String,
+    /// The model's reasoning before the answer that is arriving (shown while waiting, not kept).
+    thinking: String,
+    /// The file name (without .json) of the conversation on screen once it has been saved.
+    conversation: Option<String>,
+    /// The saved conversations (file name, title), newest first; read again when `None`.
+    history: Option<Vec<(String, String)>>,
+}
+
+/// Where conversations are kept: `conversations/` in the app's data folder, one JSON file each.
+pub fn conversations_dir() -> Option<std::path::PathBuf> {
+    let d = directories::ProjectDirs::from("org", "aurafx", "auraFX")?.data_dir().join("conversations");
+    let _ = std::fs::create_dir_all(&d);
+    Some(d)
+}
+
+/// A conversation's title: the start of its first question.
+pub fn conversation_title(messages: &[ChatMessage]) -> String {
+    let first = messages.iter().find(|m| m.role == Role::User && !m.content.starts_with(TOOL_PREFIX)).map(|m| m.content.as_str()).unwrap_or("Conversation");
+    let line = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() > 60 {
+        format!("{}…", line.chars().take(60).collect::<String>())
+    } else {
+        line
+    }
+}
+
+/// Write a conversation as JSON (pictures sent with messages are left out).
+pub fn write_conversation(path: &std::path::Path, messages: &[ChatMessage]) -> std::io::Result<()> {
+    let msgs: Vec<ChatMessage> = messages.iter().map(|m| ChatMessage::new(m.role, m.content.clone())).collect();
+    let v = serde_json::json!({"title": conversation_title(messages), "messages": msgs});
+    std::fs::write(path, serde_json::to_string_pretty(&v).unwrap_or_default())
+}
+
+/// Read a conversation written by [`write_conversation`]: its title and messages.
+pub fn read_conversation(path: &std::path::Path) -> Option<(String, Vec<ChatMessage>)> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let messages: Vec<ChatMessage> = serde_json::from_value(v.get("messages")?.clone()).ok()?;
+    let title = v.get("title").and_then(|t| t.as_str()).map(|t| t.to_string()).unwrap_or_else(|| conversation_title(&messages));
+    Some((title, messages))
 }
 
 impl Assistant {
+    /// Forget what is on screen (a saved conversation stays in the history).
+    pub fn new_conversation(&mut self) {
+        self.stop_agent();
+        self.messages.clear();
+        self.code_results.clear();
+        self.auto_ran = 0;
+        self.conversation = None;
+        self.error = None;
+    }
+
+    /// Keep the conversation on screen in the history (called when a reply has ended).
+    fn save_conversation(&mut self) {
+        if self.messages.is_empty() {
+            return;
+        }
+        let Some(dir) = conversations_dir() else { return };
+        let name = self.conversation.get_or_insert_with(|| {
+            let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+            format!("{ms:015}")
+        });
+        if let Err(e) = write_conversation(&dir.join(format!("{name}.json")), &self.messages) {
+            tracing::warn!("AI: the conversation could not be saved: {e}");
+        }
+        self.history = None;
+    }
+
+    /// The saved conversations (file name, title), newest first.
+    fn conversations(&mut self) -> Vec<(String, String)> {
+        if self.history.is_none() {
+            let mut out = Vec::new();
+            if let Some(dir) = conversations_dir() {
+                let mut names: Vec<String> = std::fs::read_dir(&dir)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).map(|n| n.to_string()))
+                    .collect();
+                names.sort();
+                names.reverse();
+                for n in names.into_iter().take(100) {
+                    if let Some((title, _)) = read_conversation(&dir.join(format!("{n}.json"))) {
+                        out.push((n, title));
+                    }
+                }
+            }
+            self.history = Some(out);
+        }
+        self.history.clone().unwrap_or_default()
+    }
+
+    fn open_conversation(&mut self, name: &str) {
+        let Some((_, messages)) = conversations_dir().and_then(|d| read_conversation(&d.join(format!("{name}.json")))) else {
+            self.error = Some("That conversation could not be read.".into());
+            self.history = None;
+            return;
+        };
+        self.new_conversation();
+        // (Code in an old conversation is not run again by auto-run or agent mode.)
+        self.auto_ran = messages.len();
+        self.messages = messages;
+        self.conversation = Some(name.to_string());
+    }
+
+    /// Show a conversation from any file (it joins the history only when it is continued).
+    pub fn show_conversation_file(&mut self, path: &std::path::Path) {
+        match read_conversation(path) {
+            Some((_, messages)) => {
+                self.new_conversation();
+                self.auto_ran = messages.len();
+                self.messages = messages;
+            }
+            None => self.error = Some(format!("{} is not a conversation file.", path.display())),
+        }
+    }
+
+    fn delete_conversation(&mut self, name: &str) {
+        if let Some(d) = conversations_dir() {
+            let _ = std::fs::remove_file(d.join(format!("{name}.json")));
+        }
+        self.history = None;
+        if self.conversation.as_deref() == Some(name) {
+            self.conversation = None;
+            self.new_conversation();
+        }
+    }
+}
+
+impl Assistant {
+    /// Whether an answer is still arriving.
+    pub fn busy(&self) -> bool {
+        self.stream.is_some()
+    }
     pub fn reset_agent_steps(&mut self) {
         self.agent_steps = 0;
     }
@@ -59,6 +210,13 @@ impl Assistant {
             agent_results: Vec::new(),
             agent_continue: false,
             agent_active: false,
+            include_view: false,
+            pending_view: None,
+            describe_open: false,
+            describe_text: String::new(),
+            thinking: String::new(),
+            conversation: None,
+            history: None,
         };
         a.refresh_models();
         a
@@ -87,11 +245,7 @@ impl Assistant {
                     Ok(m) => {
                         tracing::info!("AI: {} models available from {:?}", m.len(), self.cfg.provider);
                         self.models = m;
-                        if self.cfg.model.is_empty() {
-                            if let Some(first) = self.models.first() {
-                                self.cfg.model = first.clone();
-                            }
-                        }
+                        // No model is chosen for the user: the list stays at <no model> until they pick one.
                     }
                     Err(e) => {
                         tracing::warn!("AI: listing models failed: {e:#}");
@@ -106,6 +260,7 @@ impl Assistant {
             for ev in rx.try_iter() {
                 match ev {
                     StreamEvent::Delta(d) => self.partial.push_str(&d),
+                    StreamEvent::Thinking(t) => self.thinking.push_str(&t),
                     StreamEvent::Done => done = true,
                     StreamEvent::Error(e) => {
                         self.error = Some(e);
@@ -116,34 +271,94 @@ impl Assistant {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
         if done {
-            if !self.partial.is_empty() {
-                self.messages.push(ChatMessage { role: Role::Assistant, content: std::mem::take(&mut self.partial) });
+            let answered = !self.partial.is_empty();
+            if answered {
+                self.messages.push(ChatMessage::new(Role::Assistant, std::mem::take(&mut self.partial)));
             }
             self.stream = None;
+            self.thinking.clear();
+            if !answered || self.error.is_some() {
+                // Nothing to act on: agent mode does not wait for a reply that will not come.
+                self.agent_active = false;
+                self.agent_pending = 0;
+                self.agent_continue = false;
+                self.agent_results.clear();
+                if !answered && self.error.is_none() {
+                    self.error = Some("The model sent an empty reply. Try again, or pick another model.".into());
+                }
+            }
+            self.save_conversation();
         }
     }
 
     pub fn send(&mut self, text: String, pipeline: String) {
+        self.send_with_images(text, pipeline, Vec::new());
+    }
+
+    /// Ask for a picture of the active 3D view and send the message with it once it is taken.
+    pub fn send_with_view(&mut self, text: String, pipeline: String, session: &aurafx_pipeline::SharedSession) {
+        if self.stream.is_some() || self.pending_view.is_some() {
+            tracing::warn!("AI: request dropped (an answer is still arriving)");
+            return;
+        }
+        let id =
+            0x5649_0000_0000 + (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(1) & 0xffff_ffff);
+        let path = std::env::temp_dir().join(format!("aurafx_assistant_view_{}_{id}.png", std::process::id()));
+        session.lock().screenshot_request =
+            Some(aurafx_pipeline::session::ScreenshotRequest { size: Some((960, 0)), id, ..aurafx_pipeline::session::ScreenshotRequest::new(path.clone()) });
+        self.pending_view = Some((id, path, text, pipeline));
+    }
+
+    /// Every frame: when the picture of the view is ready, send the message waiting for it.
+    pub fn tick_view(&mut self, session: &aurafx_pipeline::SharedSession) {
+        let Some((id, _, _, _)) = &self.pending_view else { return };
+        let id = *id;
+        let result = {
+            let mut s = session.lock();
+            s.screenshot_results.iter().position(|r| r.0 == id).map(|k| s.screenshot_results.remove(k).1)
+        };
+        let Some(result) = result else { return };
+        let (_, path, text, pipeline) = self.pending_view.take().unwrap();
+        let images = match result.and_then(|_| std::fs::read(&path).map_err(|e| e.to_string())) {
+            Ok(bytes) => {
+                use base64::Engine;
+                vec![base64::engine::general_purpose::STANDARD.encode(bytes)]
+            }
+            Err(e) => {
+                self.error = Some(format!("the picture of the view could not be taken ({e}); sent without it"));
+                Vec::new()
+            }
+        };
+        let _ = std::fs::remove_file(&path);
+        self.send_with_images(text, pipeline, images);
+    }
+
+    pub fn send_with_images(&mut self, text: String, pipeline: String, images: Vec<String>) {
         if text.trim().is_empty() || self.stream.is_some() {
+            tracing::warn!("AI: request dropped ({})", if text.trim().is_empty() { "empty" } else { "an answer is still arriving" });
             return;
         }
         self.error = None;
-        if self.cfg.model.is_empty() && self.cfg.provider == ProviderKind::Ollama {
-            match self.models.first() {
-                Some(m) => self.cfg.model = m.clone(),
-                None => {
-                    self.error = Some("No model selected. Pick one in the model list (or check the Ollama URL in Settings).".into());
-                    return;
-                }
-            }
+        if self.cfg.model.is_empty() {
+            self.error = Some(if self.models.is_empty() && self.cfg.provider == ProviderKind::Ollama {
+                "No model selected, and none is listed: check the Ollama URL in Settings, then pick a model in the model list.".into()
+            } else {
+                "No model selected: pick one in the model list beside the provider.".into()
+            });
+            return;
         }
-        self.messages.push(ChatMessage { role: Role::User, content: text });
+        let mut m = ChatMessage::new(Role::User, text);
+        m.images = images;
+        self.messages.push(m);
         let catalog: String = aurafx_filters::registry()
             .iter()
             .map(|f| format!("- {}: {} [{}]", f.id, f.description, f.params.iter().map(|p| p.key.as_str()).collect::<Vec<_>>().join(", ")))
             .collect::<Vec<_>>()
             .join("\n");
-        let system = aurafx_ai::system_prompt(&pipeline, &catalog);
+        let mut system = aurafx_ai::system_prompt(&pipeline, &catalog);
+        if let Some(dir) = skills_dir() {
+            system += &aurafx_ai::skills_prompt(&aurafx_ai::load_skills(&dir, &self.cfg.skills_off));
+        }
         // Keep the last 20 messages to bound context.
         let msgs: Vec<ChatMessage> = self.messages.iter().rev().take(20).rev().cloned().collect();
         self.stream = Some(aurafx_ai::stream_chat(self.cfg.clone(), system, msgs));
@@ -155,10 +370,13 @@ impl Assistant {
         self.agent_pending = 0;
         self.agent_continue = false;
         self.agent_results.clear();
+        self.thinking.clear();
         if self.stream.take().is_some() && !self.partial.is_empty() {
             let text = std::mem::take(&mut self.partial);
-            self.messages.push(ChatMessage { role: Role::Assistant, content: format!("{text}\n\n*(stopped)*") });
+            self.messages.push(ChatMessage::new(Role::Assistant, format!("{text}\n\n*(stopped)*")));
+            self.save_conversation();
         }
+        self.partial.clear();
     }
 
     pub fn on_python_result(&mut self, r: &PythonResult) {
@@ -204,8 +422,9 @@ impl Assistant {
             ui.label("Model");
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("model")
-                    .selected_text(if self.cfg.model.is_empty() { "(default)".to_string() } else { self.cfg.model.clone() })
+                    .selected_text(if self.cfg.model.is_empty() { NO_MODEL.to_string() } else { self.cfg.model.clone() })
                     .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.cfg.model, String::new(), NO_MODEL);
                         for m in self.models.clone() {
                             ui.selectable_value(&mut self.cfg.model, m.clone(), m);
                         }
@@ -242,14 +461,85 @@ impl Assistant {
             ui.label("Max tokens");
             ui.add(egui::DragValue::new(&mut self.cfg.max_tokens).range(256..=64000));
             ui.end_row();
+            ui.label("Reasoning");
+            ui.checkbox(&mut self.cfg.think, "Let the model reason before it answers").on_hover_text(
+                "Ollama models that reason: slower, and the reasoning counts against the tokens of a reply (it gets four times Max tokens). Off, the answer starts at once.",
+            );
+            ui.end_row();
             ui.label("Temperature");
             ui.add(egui::Slider::new(&mut self.cfg.temperature, 0.0..=1.5));
+            ui.end_row();
+            ui.label("Privacy");
+            ui.vertical(|ui| {
+                ui.checkbox(&mut self.cfg.local_only, "Local only").on_hover_text(
+                    "Send nothing off this computer's network: only Ollama at a local or private address, and no cloud models",
+                );
+                ui.checkbox(&mut self.cfg.redact_paths, "Hide file paths").on_hover_text(
+                    "Replace your home folder with ~ and full file paths with their file names in what is sent (the assistant then names files without their folders)",
+                );
+            });
             ui.end_row();
             ui.label("Auto-run code");
             ui.checkbox(&mut settings.auto_run_ai_code, "Run Python blocks from the assistant automatically")
                 .on_hover_text("Off by default: review code before running it.");
             ui.end_row();
         });
+        // Saved prompts.
+        egui::CollapsingHeader::new(format!("Prompts ({})", self.cfg.prompts.len())).id_salt("ai prompts").show(ui, |ui| {
+            ui.label(RichText::new("Offered by the Prompts button of the assistant; {object} stands for the selected object's name.").weak().small());
+            let mut remove = None;
+            for (i, p) in self.cfg.prompts.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut p.name).desired_width(110.0));
+                    ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(2).desired_width(300.0));
+                    if crate::touch::small_button(ui, "×").on_hover_text("Remove this prompt").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                self.cfg.prompts.remove(i);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Add a prompt").clicked() {
+                    self.cfg.prompts.push(aurafx_ai::PromptTemplate { name: "New prompt".into(), text: "Show {object} ...".into() });
+                }
+                if ui.button("Defaults").clicked() {
+                    self.cfg.prompts = aurafx_ai::default_prompts();
+                }
+            });
+        });
+        // Skills: Markdown files whose text joins the assistant's instructions.
+        let dir = skills_dir();
+        let all = dir.as_ref().map(|d| aurafx_ai::load_skills(d, &[])).unwrap_or_default();
+        egui::CollapsingHeader::new(format!("Skills ({})", all.len())).id_salt("ai skills").show(ui, |ui| {
+            ui.label(
+                RichText::new("Markdown files in the skills folder (house rules, usual steps, naming): the text of each one ticked goes with every request.")
+                    .weak()
+                    .small(),
+            );
+            for (name, text) in &all {
+                let mut on = !self.cfg.skills_off.contains(name);
+                if ui.checkbox(&mut on, name).on_hover_text(text.chars().take(400).collect::<String>()).changed() {
+                    if on {
+                        self.cfg.skills_off.retain(|n| n != name);
+                    } else {
+                        self.cfg.skills_off.push(name.clone());
+                    }
+                }
+            }
+            if let Some(d) = &dir {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(d.display().to_string()).monospace().small());
+                    if crate::touch::small_button(ui, "Open").clicked() {
+                        let _ = crate::plugins_ui::open_in_os(d);
+                    }
+                });
+            }
+        });
+        if before.prompts != self.cfg.prompts || before.skills_off != self.cfg.skills_off {
+            settings.ai = self.cfg.clone();
+        }
         if before.provider != self.cfg.provider
             || before.ollama_url != self.cfg.ollama_url
             || before.api_key != self.cfg.api_key
@@ -275,11 +565,73 @@ fn cfg_eq(a: &AiConfig, o: &AiConfig) -> bool {
         && a.anthropic_url == o.anthropic_url
         && a.max_tokens == o.max_tokens
         && a.temperature == o.temperature
+        && a.local_only == o.local_only
+        && a.redact_paths == o.redact_paths
+        && a.think == o.think
+}
+
+/// The "Describe a filter" window: a sentence about what to see becomes a filter (or a short chain)
+/// on the selected object, made by the assistant in agent mode.
+pub fn describe_window(state: &mut State, ctx: &egui::Context) {
+    if !state.assistant.describe_open {
+        return;
+    }
+    let active = {
+        let s = state.session.lock();
+        s.active.and_then(|id| s.nodes.get(&id).map(|n| n.name.clone()))
+    };
+    let mut open = true;
+    let mut go = false;
+    egui::Window::new(format!("{} Describe a filter", crate::icons::SPARKLE)).open(&mut open).collapsible(false).default_width(460.0).show_fit(ctx, |ui| {
+        match &active {
+            Some(n) => ui.label(format!("Say what you want to see in \"{n}\"; the assistant adds the filters that show it.")),
+            None => ui.label(RichText::new("Select an object in the Pipeline first.").color(crate::theme::ERROR)),
+        };
+        let r = ui.add(
+            egui::TextEdit::multiline(&mut state.assistant.describe_text)
+                .desired_rows(2)
+                .desired_width(f32::INFINITY)
+                .hint_text("regions where the von Mises stress is above 300 MPa\nthe vortex cores of the flow\na slice through the hottest point"),
+        );
+        let enter = r.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        ui.horizontal(|ui| {
+            let ok = active.is_some() && !state.assistant.describe_text.trim().is_empty() && !state.assistant.is_streaming();
+            go = (ui.add_enabled(ok, egui::Button::new(RichText::new(format!("{} Make it", crate::icons::SPARKLE)).strong())).clicked() || enter) && ok;
+            ui.label(RichText::new("uses the assistant's model; the steps show in the Assistant panel").weak().small());
+        });
+    });
+    if go {
+        let want = std::mem::take(&mut state.assistant.describe_text);
+        let name = active.unwrap_or_default();
+        let text = format!(
+            "Add filters to the object \"{name}\" (afx.active()) that show this: {}. Use the afx filter calls on that node (one filter, or a short chain), \
+             choose the arrays and values from its data (look at its arrays and ranges first when you need them), color the result sensibly, \
+             then say in one sentence what the result shows.",
+            want.trim()
+        );
+        let desc = state.session.lock().describe();
+        state.settings.ai_agent_mode = true;
+        state.assistant.agent_active = true;
+        state.assistant.reset_agent_steps();
+        state.assistant.send(text, desc);
+        state.layout_actions.push(crate::app::LayoutAction::Show(crate::app::Pane::Assistant));
+        state.assistant.describe_open = false;
+    } else if !open {
+        state.assistant.describe_open = false;
+    }
 }
 
 pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
-    // Header: provider + model quick switch.
-    ui.horizontal(|ui| {
+    // Header: provider + model quick switch. (On a desktop the row wraps in a narrow panel: wider
+    // than the panel, it would push the settings button and everything below past the edge.)
+    let top_row = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
+        if crate::touch::mode().is_touch() {
+            crate::touch::row(ui, "assistant top", |ui| add(ui));
+        } else {
+            ui.horizontal_wrapped(|ui| add(ui));
+        }
+    };
+    top_row(ui, &mut |ui| {
         let a = &mut state.assistant;
         let before = a.cfg.provider;
         egui::ComboBox::from_id_salt("asst_provider").selected_text(a.cfg.provider.label()).width(140.0).show_ui(ui, |ui| {
@@ -292,10 +644,16 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             state.settings.ai = a.cfg.clone();
             a.refresh_models();
         }
-        let model_label = if a.cfg.model.is_empty() { a.cfg.model_or_default() } else { a.cfg.model.clone() };
+        let model_label = if a.cfg.model.is_empty() { NO_MODEL.to_string() } else { a.cfg.model.clone() };
         let before_model = a.cfg.model.clone();
         egui::ComboBox::from_id_salt("asst_model").selected_text(model_label).width(160.0).show_ui(ui, |ui| {
-            for m in a.models.clone() {
+            ui.selectable_value(&mut a.cfg.model, String::new(), NO_MODEL);
+            let mut listed = a.models.clone();
+            // Cloud providers: their usual model is offered even when the list is empty.
+            if a.cfg.provider != ProviderKind::Ollama && !listed.contains(&a.cfg.model_or_default()) {
+                listed.insert(0, a.cfg.model_or_default());
+            }
+            for m in listed {
                 ui.selectable_value(&mut a.cfg.model, m.clone(), m);
             }
             if a.models.is_empty() {
@@ -315,17 +673,50 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
         if ui.button(crate::icons::GEAR).on_hover_text("AI settings").clicked() {
             state.show_settings = true;
         }
-        if ui.button(crate::icons::TRASH).on_hover_text("Clear conversation").clicked() {
-            state.assistant.messages.clear();
-            state.assistant.code_results.clear();
+        if ui.button(crate::icons::PLUS).on_hover_text("New conversation (this one stays in the history)").clicked() {
+            state.assistant.new_conversation();
+        }
+        let history = state.assistant.conversations();
+        ui.scroll_menu(crate::icons::CLOCK, |ui| {
+            ui.set_min_width(260.0);
+            if history.is_empty() {
+                ui.label(RichText::new("No saved conversations yet: each one is kept here once the assistant has replied.").weak());
+            }
+            for (name, title) in &history {
+                ui.horizontal(|ui| {
+                    if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Delete this conversation").clicked() {
+                        state.assistant.delete_conversation(name);
+                    }
+                    let current = state.assistant.conversation.as_deref() == Some(name.as_str());
+                    if ui.selectable_label(current, title).clicked() {
+                        state.assistant.open_conversation(name);
+                        ui.close();
+                    }
+                });
+            }
+        })
+        .response
+        .on_hover_text("Previous conversations");
+        if ui.button(crate::icons::TRASH).on_hover_text("Delete this conversation").clicked() {
+            match state.assistant.conversation.clone() {
+                Some(name) => state.assistant.delete_conversation(&name),
+                None => state.assistant.new_conversation(),
+            }
         }
     });
     if let Some(e) = state.assistant.error.clone() {
         ui.colored_label(crate::theme::ERROR, e);
     }
     ui.separator();
-    let input_h = 100.0;
-    let h = (ui.available_height() - input_h).max(60.0);
+    // (The text box and the row of buttons below it; both are taller in the touch interfaces.)
+    // Their height is the one measured in the last frame, so that a message of several lines or
+    // a row of buttons that wraps takes its room from the conversation above and stays in view.
+    let input_id = ui.id().with("assistant input height");
+    let room = ui.available_height();
+    let input_h: f32 = ui.data(|d| d.get_temp(input_id)).unwrap_or(if crate::touch::mode().is_touch() { 160.0 } else { 100.0 });
+    let h = (room - input_h).max(60.0);
+    // The text box grows to this height, then scrolls.
+    let box_max = (room * 0.4).clamp(48.0, 240.0);
     let mut run_code: Option<String> = None;
     let mut send_text: Option<String> = None;
     egui::ScrollArea::vertical().id_salt("chat").auto_shrink([false, false]).max_height(h).stick_to_bottom(true).show(ui, |ui| {
@@ -334,7 +725,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.label(RichText::new("Ask about your data or tell me what to visualize, e.g.\n• \"slice this through the middle and color by temperature\"\n• \"what arrays does this file have?\"\n• \"make an isosurface at the mean value\"\n• \"plot the maximum stress over time\"").weak());
             ui.add_space(6.0);
             for s in ["Describe the loaded data", "Show a slice colored by the main scalar", "Make a contour at the median value", "What filters would help analyze this?"] {
-                if ui.small_button(s).clicked() {
+                if crate::touch::small_button(ui, s).clicked() {
                     send_text = Some(s.to_string());
                 }
             }
@@ -352,7 +743,12 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                 Role::User => ("You", crate::theme::INFO),
                 Role::Assistant => ("auraFX AI", crate::theme::ACCENT_SOFT),
             };
-            ui.label(RichText::new(name).strong().color(color));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(name).strong().color(color));
+                if crate::touch::small_button(ui, crate::icons::COPY).on_hover_text("Copy this message").clicked() {
+                    ui.ctx().copy_text(m.content.clone());
+                }
+            });
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 CommonMarkViewer::new().show(ui, &mut a.cache, &m.content);
@@ -364,7 +760,10 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                         if ui.button(format!("{} Run code {}", crate::icons::PLAY, if blocks.len() > 1 { format!("#{}", k + 1) } else { String::new() })).clicked() {
                             run_code = Some(b.clone());
                         }
-                        if ui.small_button("Copy to console").clicked() {
+                        if crate::touch::small_button(ui, "Copy code").clicked() {
+                            ui.ctx().copy_text(b.clone());
+                        }
+                        if crate::touch::small_button(ui, "Copy to console").clicked() {
                             state.console.input = b.clone();
                         }
                     });
@@ -373,7 +772,7 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
                     let _ = idx;
                     let col = if *err { crate::theme::ERROR } else { ui.visuals().text_color() };
                     ui.label(RichText::new(text.trim_end()).monospace().small().color(col));
-                    if *err && ui.small_button("Ask AI to fix").clicked() {
+                    if *err && crate::touch::small_button(ui, "Ask AI to fix").clicked() {
                         send_text = Some(format!("Running your code failed with:\n```\n{}\n```\nPlease fix it.", text.trim_end()));
                     }
                 }
@@ -385,31 +784,86 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 if a.partial.is_empty() {
-                    ui.spinner();
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        if !a.thinking.is_empty() {
+                            ui.label(RichText::new("Reasoning…").weak());
+                        }
+                    });
+                    if !a.thinking.is_empty() {
+                        // The end of the reasoning so far, so that it is plain the model is at work.
+                        let tail: String = {
+                            let chars: Vec<char> = a.thinking.chars().collect();
+                            chars[chars.len().saturating_sub(280)..].iter().collect()
+                        };
+                        ui.label(RichText::new(tail).weak().small());
+                    }
                 } else {
                     CommonMarkViewer::new().show(ui, &mut a.cache, &a.partial);
                 }
             });
         }
     });
+    let input_top = ui.cursor().top();
     ui.separator();
-    let resp = ui.add(
-        egui::TextEdit::multiline(&mut state.assistant.input)
-            .desired_rows(2)
-            .desired_width(f32::INFINITY)
-            .hint_text("Ask the assistant… (Enter to send, Shift+Enter for newline)"),
-    );
+    let resp = egui::ScrollArea::vertical()
+        .id_salt("assistant input")
+        .max_height(box_max)
+        .stick_to_bottom(true)
+        .show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::multiline(&mut state.assistant.input)
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("Ask the assistant… (Enter to send, Shift+Enter for newline)"),
+            )
+        })
+        .inner;
     if state.assistant.focus_input {
         resp.request_focus();
         state.assistant.focus_input = false;
     }
     let enter = resp.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-    ui.horizontal(|ui| {
+    // (On a desktop the row wraps in a narrow panel rather than being cut off.)
+    let send_row = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
+        if crate::touch::mode().is_touch() {
+            crate::touch::row(ui, "assistant send", |ui| add(ui));
+        } else {
+            ui.horizontal_wrapped(|ui| add(ui));
+        }
+    };
+    send_row(ui, &mut |ui| {
+        // Saved prompts: one click puts it in the box (the selected object filled in).
+        let object = state.session.lock().active_node().map(|n| n.name.clone()).unwrap_or_else(|| "the data".into());
+        let prompts = state.assistant.cfg.prompts.clone();
+        ui.menu_button("Prompts", |ui| {
+            for p in &prompts {
+                if ui.button(&p.name).on_hover_text(p.fill(&object)).clicked() {
+                    state.assistant.input = p.fill(&object);
+                    state.assistant.focus_input = true;
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if ui.add_enabled(!state.assistant.input.trim().is_empty(), egui::Button::new("Save the message as a prompt")).clicked() {
+                let text = state.assistant.input.trim().to_string();
+                let name: String = text.split_whitespace().take(4).collect::<Vec<_>>().join(" ");
+                state.assistant.cfg.prompts.push(aurafx_ai::PromptTemplate { name, text });
+                state.settings.ai = state.assistant.cfg.clone();
+                state.settings.save();
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text("Saved prompts (edit them in Settings › AI assistant)");
+
         let busy = state.assistant.is_streaming();
         if ui.add_enabled(!busy, egui::Button::new("Send")).clicked() || enter {
             let t = std::mem::take(&mut state.assistant.input);
             send_text = Some(t);
         }
+        ui.checkbox(&mut state.assistant.include_view, format!("{} view", crate::icons::CAMERA))
+            .on_hover_text("Send a picture of the 3D view with the message, for models that see images (llava, gemma, qwen-vl, Claude, GPT-4o…)");
         ui.checkbox(&mut state.settings.ai_agent_mode, "agent mode").on_hover_text(
             "Do it for me: the assistant's code runs automatically and the results go back to it, so it can continue or fix errors (up to 8 steps)",
         );
@@ -425,13 +879,23 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
             }
         }
     });
+    let used = ui.cursor().top() - input_top + ui.spacing().item_spacing.y;
+    if (used - input_h).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(input_id, used));
+        ui.ctx().request_repaint();
+    }
     if let Some(t) = send_text {
         let desc = state.session.lock().describe();
         if state.settings.ai_agent_mode {
             state.assistant.agent_active = true;
             state.assistant.agent_steps = 0;
         }
-        state.assistant.send(t, desc);
+        if state.assistant.include_view {
+            let session = state.session.clone();
+            state.assistant.send_with_view(t, desc, &session);
+        } else {
+            state.assistant.send(t, desc);
+        }
     }
     // Agent mode: run new code blocks, then send the results back.
     if state.settings.ai_agent_mode && !state.assistant.is_streaming() {
@@ -479,5 +943,29 @@ pub fn assistant_ui(state: &mut State, ui: &mut egui::Ui) {
     }
     if let Some(code) = run_code {
         state.run_python(&code, "assistant");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_conversation_is_written_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("aurafx_conv_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.json");
+        let mut first = ChatMessage::new(Role::User, "Slice   this through the middle\nand color it by temperature, then make a contour at the mean value");
+        first.images = vec!["AAAA".into()];
+        let messages = vec![first, ChatMessage::new(Role::Assistant, "```python\nafx.active().slice()\n```")];
+        write_conversation(&path, &messages).unwrap();
+        let (title, back) = read_conversation(&path).unwrap();
+        assert!(title.starts_with("Slice this through the middle and color it"), "{title}");
+        assert!(title.ends_with('…') && title.chars().count() == 61);
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[1].content, messages[1].content);
+        // Pictures are not kept.
+        assert!(back[0].images.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

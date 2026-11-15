@@ -3,6 +3,7 @@ use aurafx_render::tessellate::tessellate;
 
 #[test]
 fn can_exodus_tessellates() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/can.ex2");
     if !p.exists() {
         return;
@@ -35,6 +36,7 @@ fn can_exodus_tessellates() {
 /// or legend; with direct colors off they go through the color map.
 #[test]
 fn rgb_arrays_are_drawn_as_their_colors() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     use aurafx_data::*;
     let mut img = ImageData { extent: [0, 2, 0, 1, 0, 0], ..Default::default() };
     img.cell_data.insert(Array::new("IPFColor", 3, ArrayData::U8(vec![255, 0, 0, 10, 20, 30])));

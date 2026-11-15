@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d8ec7292.js";
+            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1384fa24.js"></script>
+        <script src="toc-8b305462.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -203,20 +203,29 @@ temporal filters and so on) run there too. What comes back:</p>
 (Programmable Filter, Python Calculator) and plugin filters run on this computer, on the data
 brought over. The server keeps results, so changing one filter only re-runs that filter there.</p>
 <h2 id="setting-up-a-host"><a class="header" href="#setting-up-a-host">Setting up a host</a></h2>
+<p>Everything is in one window: <strong>Remote › Open data on another machine…</strong> (also <strong>File › Open on
+Server…</strong>). It walks through four steps:</p>
 <ol>
-<li>Make sure <code>ssh yourhost</code> works without a password prompt.</li>
-<li>Put <code>aurafx-server</code> on the host: <strong>File › Open on Server… › Install server</strong> copies the one
-shipped with the app to <code>~/.local/bin</code> (Linux hosts of the same architecture; the packages
-run on glibc 2.35 or newer), or build it there with <code>cargo build --release -p aurafx-server</code>,
-or point <code>AURAFX_SERVER</code> at it in the host’s setup lines.</li>
-<li><strong>Check server</strong> shows its version and GPU.</li>
+<li><strong>The machine.</strong> Pick it, or open <strong>Add a machine</strong> and type its SSH target (<code>user@machine</code>
+or an alias from <code>~/.ssh/config</code>; the aliases found there are offered as buttons), with a port,
+key file or jump host if needed. <code>ssh machine</code> must work without a password prompt. Machines
+added here are also the Simulations panel’s, and the other way round. “This computer” runs the
+server locally, which is handy for trying it out.</li>
+<li><strong>aurafx-server on it.</strong> <strong>Check server</strong> shows its version and GPU; <strong>Install server</strong> copies
+the one shipped with the app to <code>~/.local/bin</code> (Linux hosts of the same architecture; the
+packages run on glibc 2.35 or newer). You can also build it there with
+<code>cargo build --release -p aurafx-server</code>, or point <code>AURAFX_SERVER</code> at it in the host’s setup lines.</li>
+<li><strong>Where the picture is drawn.</strong> <em>Auto</em> brings the geometry here unless even its surface is too
+big to send; <em>On the server</em> renders it with the server’s GPU and sends only pictures (the 3D
+view on this computer shows them, merged with local objects by depth; picking does not work on
+them); <em>On this computer</em> always brings the geometry. Each object keeps the choice, and
+<strong>Properties › Display › Draw on</strong> changes it later.</li>
+<li><strong>Open a file.</strong> Browse to it and double-click, or select it and press <strong>Open on …</strong>.</li>
 </ol>
-<p>Hosts come from the Simulations panel and from <code>~/.ssh/config</code>. “This computer” runs the
-server locally, which is handy for trying it out.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/remote_window.png" alt="The Remote window: the machine with Add a machine, the server check, where the picture is drawn, and the file browser"><span class="img-wrapper"><img src="images/remote_window.png" alt="The Remote window: the machine with Add a machine, the server check, where the picture is drawn, and the file browser"></span></label></p>
 <h2 id="opening-files"><a class="header" href="#opening-files">Opening files</a></h2>
-<p><strong>File › Open on Server…</strong>: pick the host, browse to the file, double-click it. A cloud icon
-marks objects that run on a server; hover it, or look at the top of Properties, to see what
-was transferred and how long the server took.</p>
+<p>A cloud icon marks objects that run on a server; hover it, or look at the top of Properties, to
+see what was transferred and how long the server took. From Python:</p>
 <pre><code class="language-python">d = afx.load("/scratch/run42/out.e", host="cluster")   # a Simulations host, ssh alias or user@machine
 d = afx.load("ssh://cluster/scratch/run42/out.e")       # the same
 s = d.slice(normal=(0, 0, 1))                            # runs on the server
@@ -248,15 +257,62 @@ Translucent objects, volumes and Surface LIC are always drawn here. The view’s
 shadows travel with each request; screen effects (ambient occlusion, Eye-Dome Lighting, FXAA,
 tone mapping) are applied here to the whole picture.</p>
 <h2 id="parallel-servers"><a class="header" href="#parallel-servers">Parallel servers</a></h2>
-<p>Data too big for one process can be spread over several, like <code>mpirun pvserver</code>:
+<p>Data too big for one process can be spread over several:
 <strong>Open on Server › Processes</strong>, or <code>afx.load(path, host="cluster", processes=8)</code>, starts
 eight worker processes on the host (<code>aurafx-server --workers node1:16,node2:16</code> spreads them
 over machines sharing a file system). Partitioned VTK files are read piece by piece; other
 files are read by every process and split. Cell-by-cell filters run on every piece with
 automatic values taken from the whole data; the pieces come back appended, as a merged
 surface, or as pictures composited by depth. Results match a single process exactly.</p>
-<p>Not yet: MPI launchers (<code>srun</code>) for the workers, ghost cells, sharing one server between
-people, temporal filters on parallel servers.</p>
+<p>Filters that look at the cells around each point (<strong>Gradient</strong>, <strong>Cell Data to Point Data</strong>,
+<strong>Surface Normals</strong>, <strong>Curvature</strong>, <strong>Compute Derivatives</strong>) also run on every piece: each
+process first gets a layer of ghost cells, the neighbouring pieces’ cells along its border, so
+values on the borders between pieces are the same as with one process; the ghosts are
+dropped before anything comes back. Other filters (connectivity, statistics, anything that
+needs the whole data) run on the server’s main process with the pieces put together.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/server_ghosts.png" alt="A gradient computed by four processes, cut open: the colors run smoothly across the borders between the pieces"><span class="img-wrapper"><img src="images/server_ghosts.png" alt="A gradient computed by four processes, cut open: the colors run smoothly across the borders between the pieces"></span></label></p>
+<h3 id="starting-the-processes-with-mpi-or-slurm"><a class="header" href="#starting-the-processes-with-mpi-or-slurm">Starting the processes with MPI or Slurm</a></h3>
+<p>On a cluster, choose <strong>started by</strong> next to Processes: <em>mpirun</em> (MPI), <em>srun</em> (Slurm), or <em>a
+command</em> with <code>{n}</code> for the number of processes and <code>{cmd}</code> for the worker command (for example
+<code>mpiexec -n {n} -hostfile hosts {cmd}</code>). The server opens a port, runs the launcher, and each
+rank (from <code>OMPI_COMM_WORLD_RANK</code>, <code>PMI_RANK</code>, <code>PMIX_RANK</code> or <code>SLURM_PROCID</code>) connects back with
+a one-time token and holds its piece. The token travels in the environment
+(<code>AURAFX_RANK_TOKEN</code>), not on the command line; a launcher that does not pass the environment
+on to other nodes needs it named in the command (for Open MPI, <code>-x AURAFX_RANK_TOKEN</code>). The ranks must be able to reach the server’s machine
+(<code>AURAFX_CONNECT_HOST</code> sets the address they use, by default its host name); a launch that ends
+early, or ranks that do not connect within 60 seconds, give an error naming the command.</p>
+<pre><code class="language-python">big = afx.load("/scratch/run/out.pvtu", host="cluster", processes=64, launcher="srun")
+</code></pre>
+<p>Results match a single process: three ranks from a launch give the same contour area as one
+process to 1e-9.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/server_launcher.png" alt="The Open on Server window with eight processes started by srun"><span class="img-wrapper"><img src="images/server_launcher.png" alt="The Open on Server window with eight processes started by srun"></span></label></p>
+<h2 id="files-larger-than-memory"><a class="header" href="#files-larger-than-memory">Files larger than memory</a></h2>
+<p>A file bigger than the memory of the machine can still be cut, contoured or sliced: choose
+<strong>started by › one process, one piece at a time</strong> next to Processes (on <em>This computer</em> or any
+host), or</p>
+<pre><code class="language-python">big = afx.load("/data/run/volume.vti", stream=16)       # on this computer
+big.contour(array="T", values=[600]).set(color_by="T")
+</code></pre>
+<p>One server process then reads the file in 16 pieces, one after another: it reads a piece, runs
+the filters on it, keeps what comes out (a surface, a slice, a contour, a table of numbers),
+forgets the piece and goes on to the next, so it needs memory for one piece and the results
+only. The same filters as on a parallel server work this way, including the ones that need
+ghost cells; filters that need the whole data at once (connectivity, statistics) put the
+pieces together and need the memory for all of them. Each change re-reads the file, so this is
+slower than holding the data in memory.</p>
+<p>Which files are read piece by piece:</p>
+<ul>
+<li>VTK XML image, rectilinear, structured and unstructured grids (<code>.vti</code>, <code>.vtr</code>, <code>.vts</code>,
+<code>.vtu</code>) with their data appended as raw or compressed binary, as auraFX and most programs
+write them: a piece is a slab of the grid (or a range of cells and the points they use), and
+only its bytes are read from the file (compressed data: only the blocks holding it are
+unpacked).</li>
+<li>Partitioned VTK files (<code>.pvtu</code>, <code>.pvti</code>, …): each piece reads its share of the piece files.</li>
+<li>Other formats are read whole for every piece and then cut, which saves no memory: convert
+them to VTK XML first (File › Save Data).</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/server_stream.png" alt="A wavelet read in four pieces one after another: its contour, and the Open on Server window with one process reading one piece at a time"><span class="img-wrapper"><img src="images/server_stream.png" alt="A wavelet read in four pieces one after another: its contour, and the Open on Server window with one process reading one piece at a time"></span></label></p>
+<p>Not yet: ghost cells, sharing one server between people, temporal filters on parallel servers.</p>
 
                     </main>
 

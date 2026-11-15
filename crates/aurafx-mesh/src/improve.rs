@@ -63,12 +63,176 @@ fn condition(p: &[P3], c: &[u32]) -> f64 {
 pub const SMOOTH_LAPLACIAN: &str = "Laplacian";
 pub const SMOOTH_SMART: &str = "Smart Laplacian";
 pub const SMOOTH_CONDITION: &str = "Condition number";
+pub const SMOOTH_WINSLOW: &str = "Winslow";
+
+/// Local corner coordinates of a VTK hexahedron.
+const HEX_LOCAL: [[i32; 3]; 8] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]];
+
+/// The 3 x 3 x 3 block of nodes around an interior node in eight hexahedra (index
+/// (dx + 1) + 3 (dy + 1) + 9 (dz + 1)), when the hexahedra around it are arranged like a
+/// structured grid; None otherwise.
+fn stencil(v: u32, around: &[usize], cells: &[Vec<u32>]) -> Option<[u32; 27]> {
+    if around.len() != 8 || around.iter().any(|&e| cells[e].len() != 8) {
+        return None;
+    }
+    let mut off: HashMap<u32, [i32; 3]> = HashMap::new();
+    off.insert(v, [0, 0, 0]);
+    let mut done = vec![false; 8];
+    for _round in 0..8 {
+        let mut progress = false;
+        for (k, &e) in around.iter().enumerate() {
+            if done[k] {
+                continue;
+            }
+            let c = &cells[e];
+            let cv = c.iter().position(|&x| x == v)?;
+            let lv = HEX_LOCAL[cv];
+            // The three edge neighbours of v in this hex: local axis a, sign s.
+            let mut cols: [Option<[i32; 3]>; 3] = [None; 3];
+            let mut signs = [0i32; 3];
+            for (j, &u) in c.iter().enumerate() {
+                let d: [i32; 3] = std::array::from_fn(|a| HEX_LOCAL[j][a] - lv[a]);
+                if d.iter().map(|x| x.abs()).sum::<i32>() == 1 {
+                    let a = (0..3).find(|&a| d[a] != 0).unwrap();
+                    signs[a] = d[a];
+                    if let Some(o) = off.get(&u) {
+                        cols[a] = Some(*o);
+                    }
+                }
+            }
+            let known = cols.iter().filter(|x| x.is_some()).count();
+            if known < 2 && !(off.len() == 1 && k == 0) {
+                continue;
+            }
+            // Columns: the lattice direction of each local axis (times its sign).
+            let mut m: [[i32; 3]; 3] = [[0; 3]; 3];
+            if off.len() == 1 {
+                // The first hex sets the frame.
+                for a in 0..3 {
+                    let mut col = [0; 3];
+                    col[a] = signs[a];
+                    m[a] = col;
+                }
+            } else {
+                for a in 0..3 {
+                    if let Some(col) = cols[a] {
+                        m[a] = col;
+                    }
+                }
+                if known == 2 {
+                    let a = (0..3).find(|&a| cols[a].is_none()).unwrap();
+                    let (b, cc) = ((a + 1) % 3, (a + 2) % 3);
+                    // Right-handed: col_a = sign_a sign_b sign_c (col_b x col_c) for a proper hex.
+                    let (x, y) = (m[b], m[cc]);
+                    let cr = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+                    let sg = signs[a] * signs[b] * signs[cc];
+                    m[a] = cr.map(|t| t * sg);
+                }
+            }
+            for (j, &u) in c.iter().enumerate() {
+                let d: [i32; 3] = std::array::from_fn(|a| HEX_LOCAL[j][a] - lv[a]);
+                // Each local unit step d_a along axis a maps to m[a] * sign(d_a) * signs[a]... as d_a = signs[a] or 0.
+                let mut o = [0; 3];
+                for a in 0..3 {
+                    if d[a] != 0 {
+                        for t in 0..3 {
+                            o[t] += m[a][t];
+                        }
+                    }
+                }
+                match off.get(&u) {
+                    Some(prev) if *prev != o => return None,
+                    _ => {
+                        off.insert(u, o);
+                    }
+                }
+            }
+            done[k] = true;
+            progress = true;
+        }
+        if done.iter().all(|d| *d) {
+            break;
+        }
+        if !progress {
+            return None;
+        }
+    }
+    if off.len() != 27 {
+        return None;
+    }
+    let mut st = [u32::MAX; 27];
+    for (u, o) in off {
+        if o.iter().any(|x| x.abs() > 1) {
+            return None;
+        }
+        let i = ((o[0] + 1) + 3 * (o[1] + 1) + 9 * (o[2] + 1)) as usize;
+        if st[i] != u32::MAX {
+            return None;
+        }
+        st[i] = u;
+    }
+    Some(st)
+}
+
+/// The Winslow (elliptic) position of the centre of a 3 x 3 x 3 block: the discrete solution of
+/// sum_ij A_ij x_ij = 0 with A the adjugate of the metric tensor.
+fn winslow_point(p: &[P3], st: &[u32; 27]) -> P3 {
+    let at = |dx: i32, dy: i32, dz: i32| p[st[((dx + 1) + 3 * (dy + 1) + 9 * (dz + 1)) as usize] as usize];
+    let unit = |a: usize, s: i32| -> [i32; 3] {
+        let mut u = [0; 3];
+        u[a] = s;
+        u
+    };
+    let g = |o: [i32; 3]| at(o[0], o[1], o[2]);
+    let d: [P3; 3] = std::array::from_fn(|a| {
+        let (f, b) = (g(unit(a, 1)), g(unit(a, -1)));
+        [(f[0] - b[0]) / 2.0, (f[1] - b[1]) / 2.0, (f[2] - b[2]) / 2.0]
+    });
+    let gm: [[f64; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| dot(d[i], d[j])));
+    let adj: [[f64; 3]; 3] = std::array::from_fn(|i| {
+        std::array::from_fn(|j| {
+            let (r0, r1, c0, c1) = ((j + 1) % 3, (j + 2) % 3, (i + 1) % 3, (i + 2) % 3);
+            gm[r0][c0] * gm[r1][c1] - gm[r0][c1] * gm[r1][c0]
+        })
+    });
+    let mut num = [0.0; 3];
+    let mut den = 0.0;
+    for i in 0..3 {
+        let (f, b) = (g(unit(i, 1)), g(unit(i, -1)));
+        for t in 0..3 {
+            num[t] += adj[i][i] * (f[t] + b[t]);
+        }
+        den += 2.0 * adj[i][i];
+        for j in 0..3 {
+            if i == j {
+                continue;
+            }
+            let o = |si: i32, sj: i32| {
+                let mut o = [0; 3];
+                o[i] = si;
+                o[j] = sj;
+                g(o)
+            };
+            let (pp, pm, mp, mm) = (o(1, 1), o(1, -1), o(-1, 1), o(-1, -1));
+            for t in 0..3 {
+                num[t] += adj[i][j] * (pp[t] - pm[t] - mp[t] + mm[t]) / 4.0;
+            }
+        }
+    }
+    if den.abs() < 1e-300 {
+        return at(0, 0, 0);
+    }
+    num.map(|x| x / den)
+}
 
 /// Smooth a mesh in place: nodes on its boundary (and those in `fixed`) stay put. Laplacian:
 /// each free node to the mean of its edge neighbours. Smart Laplacian: the same, kept only if
 /// the worst scaled Jacobian around the node does not drop. Condition number: each free node
 /// searches for the position that lowers the sum of the worst condition numbers of its
-/// cells. Returns the smallest scaled Jacobian after.
+/// cells. Winslow: nodes whose eight hexahedra are arranged like a structured grid move to the
+/// solution of the elliptic (Winslow) equations on their 3 x 3 x 3 block, which spreads nodes
+/// evenly and keeps them from folding; other nodes use the guarded Laplacian.
+/// Returns the smallest scaled Jacobian after.
 pub fn smooth(points: &mut [P3], m: &Cells3, scheme: &str, iterations: usize, fixed: &HashSet<u32>) -> f64 {
     let n = points.len();
     let mut nbr: Vec<BTreeSet<u32>> = vec![BTreeSet::new(); n];
@@ -108,11 +272,26 @@ pub fn smooth(points: &mut [P3], m: &Cells3, scheme: &str, iterations: usize, fi
     let free: Vec<usize> = (0..n).filter(|v| !boundary[*v] && !fixed.contains(&(*v as u32)) && !cells_of[*v].is_empty()).collect();
     let local_q = |p: &[P3], v: usize| cells_of[v].iter().map(|e| quality(p, &m.cells[*e])).fold(f64::INFINITY, f64::min);
     let local_c = |p: &[P3], v: usize| cells_of[v].iter().map(|e| condition(p, &m.cells[*e])).sum::<f64>();
+    let stencils: Vec<Option<[u32; 27]>> =
+        if scheme == SMOOTH_WINSLOW { free.iter().map(|&v| stencil(v as u32, &cells_of[v], &m.cells)).collect() } else { Vec::new() };
     for it in 0..iterations {
-        for &v in &free {
+        for (fi, &v) in free.iter().enumerate() {
             let k = nbr[v].len() as f64;
             let c: P3 = std::array::from_fn(|a| nbr[v].iter().map(|j| points[*j as usize][a]).sum::<f64>() / k);
             match scheme {
+                SMOOTH_WINSLOW => {
+                    // Structured neighbourhoods: Winslow; elsewhere the guarded Laplacian.
+                    let old = points[v];
+                    let before = local_q(points, v);
+                    points[v] = match &stencils[fi] {
+                        Some(st) => winslow_point(points, st),
+                        None => c,
+                    };
+                    let after = local_q(points, v);
+                    if (stencils[fi].is_some() && after <= 0.0 && after < before) || (stencils[fi].is_none() && after < before.min(1.0) - 1e-12) {
+                        points[v] = old;
+                    }
+                }
                 SMOOTH_SMART => {
                     let old = points[v];
                     let before = local_q(points, v);

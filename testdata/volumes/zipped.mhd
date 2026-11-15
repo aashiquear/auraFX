@@ -1,0 +1,11 @@
+ObjectType = Image
+NDims = 3
+BinaryData = True
+BinaryDataByteOrderMSB = False
+CompressedData = True
+CompressedDataSize = 71
+Offset = 0 0 0
+ElementSpacing = 1 1 1
+DimSize = 4 3 2
+ElementType = MET_FLOAT
+ElementDataFile = zipped.zraw

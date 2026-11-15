@@ -1,19 +1,23 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# The B-rep kernel is carried in vendor/ (see vendor/README.md): its crates are path dependencies of
+# aurafx-cad and belong to the vendored workspaces, not to this one.
+exclude = ["vendor"]
 default-members = ["crates/aurafx-app"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.9.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/aashiquear/auraFX"
-rust-version = "1.85"
+rust-version = "1.95"
 
 [workspace.dependencies]
 aurafx-data = { path = "crates/aurafx-data" }
 aurafx-io = { path = "crates/aurafx-io" }
 aurafx-filters = { path = "crates/aurafx-filters" }
+aurafx-gpu = { path = "crates/aurafx-gpu" }
 aurafx-pipeline = { path = "crates/aurafx-pipeline" }
 aurafx-render = { path = "crates/aurafx-render" }
 aurafx-python = { path = "crates/aurafx-python" }
@@ -21,6 +25,7 @@ aurafx-ai = { path = "crates/aurafx-ai" }
 aurafx-jobs = { path = "crates/aurafx-jobs" }
 aurafx-crystal = { path = "crates/aurafx-crystal" }
 aurafx-mesh = { path = "crates/aurafx-mesh" }
+aurafx-cad = { path = "crates/aurafx-cad" }
 
 anyhow = "1"
 thiserror = "2"
@@ -37,8 +42,18 @@ half = { version = "2", features = ["serde"] }
 
 [profile.dev]
 opt-level = 1
+# Line numbers only (backtraces keep file and line); full debug info for a debugger session with
+# CARGO_PROFILE_DEV_DEBUG=2. Full debug info everywhere made target/debug grow past 300 GB.
+debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 [profile.release]
 lto = "thin"
 codegen-units = 4
+
+# solidcraft pins solidcore by git revision; the same revision is carried in vendor/solidcore, so a build
+# needs nothing from the network but crates.io (docs/reference/third-party.md).
+[patch."https://github.com/tangency-labs/solidcore"]
+solidcore = { path = "vendor/solidcore/crates/solidcore" }
+solidcore-record = { path = "vendor/solidcore/crates/solidcore-record" }

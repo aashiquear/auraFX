@@ -1,6 +1,7 @@
 //! Pipeline browser, properties, information, log and spreadsheet panels.
 
 use crate::app::State;
+use crate::menus::MenuExt;
 use aurafx_filters::{Association, ParamKind, ParamSpec, ParamValue};
 use aurafx_pipeline::{ColorBy, LogLevel, NodeId, Representation};
 use egui::RichText;
@@ -8,7 +9,8 @@ use egui::RichText;
 // ------------------------------------------------------------------ pipeline
 
 pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
+    crate::cad::hold_banner(state, ui);
+    crate::touch::row(ui, "pipeline top", |ui| {
         if ui.button(crate::icons::FOLDER_OPEN).on_hover_text("Open file").clicked() {
             state.open_file_dialog();
         }
@@ -108,16 +110,19 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
             ui.label(RichText::new(format!("{} selected", multi_sel.len())).strong());
             for (id, label) in [("append_datasets", "Append"), ("append_attributes", "Append arrays")] {
                 let tip = aurafx_filters::find(id).map(|d| d.description).unwrap_or_default();
-                if ui.small_button(label).on_hover_text(tip).clicked() {
+                if crate::touch::small_button(ui, label).on_hover_text(tip).clicked() {
                     state.add_filter(id);
                 }
             }
-            if ui.small_button("Clear").on_hover_text("Select only the active node").clicked() {
+            if crate::touch::small_button(ui, "Clear").on_hover_text("Select only the active node").clicked() {
                 state.pipeline_selection.clear();
             }
         });
     }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // Sideways too, for long names and deep trees.
+    let panel_width = ui.available_width();
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        ui.set_max_width(panel_width);
         for r in rows {
             ui.horizontal(|ui| {
                 ui.add_space(r.depth as f32 * 14.0);
@@ -136,7 +141,8 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                 if !r.extra.is_empty() {
                     hover += &format!("\nAlso reads: {}", r.extra.join(", "));
                 }
-                hover += "\nCtrl+click to select several (for Append and other multi-input filters)";
+                hover +=
+                    "\nRight-click: what you can do with it. Double-click: rename.\nCtrl+click to select several (for Append and other multi-input filters)";
                 let resp = resp.on_hover_text(hover);
                 if resp.clicked() {
                     let ctrl = ui.input(|i| i.modifiers.command);
@@ -190,10 +196,24 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                         }
                         ui.close();
                     }
+                    if state.session.lock().is_cad_model(r.id) {
+                        if ui.button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE)).clicked() {
+                            crate::cad::enter(state, r.id);
+                            ui.close();
+                        }
+                    } else if state.session.lock().nodes.get(&r.id).is_some_and(|n| n.output.is_some())
+                        && ui
+                            .button(format!("{} Edit in CAD…", crate::icons::PENCIL_SIMPLE))
+                            .on_hover_text("Start a CAD part from this object: its solid (a Geometry source's bodies, any closed surface) becomes the first body, to add to and cut from. This object is hidden, not changed.")
+                            .clicked()
+                    {
+                        crate::cad::enter_from(state, r.id);
+                        ui.close();
+                    }
                     ui.separator();
                     let views = state.view_ids();
                     if views.len() > 1 {
-                        ui.menu_button(format!("{} Move to view", crate::icons::ARROW_SQUARE_OUT), |ui| {
+                        ui.scroll_menu(format!("{} Move to view", crate::icons::ARROW_SQUARE_OUT), |ui| {
                             ui.label(RichText::new("Show it there, hide it everywhere else").weak().small());
                             for &v in &views {
                                 if ui.button(crate::views::view_title(v)).clicked() {
@@ -202,7 +222,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                                 }
                             }
                         });
-                        ui.menu_button(format!("{} Show in views", crate::icons::EYE), |ui| {
+                        ui.scroll_menu(format!("{} Show in views", crate::icons::EYE), |ui| {
                             for &v in &views {
                                 let mut on = state.shown_in(v, r.id);
                                 if ui.checkbox(&mut on, crate::views::view_title(v)).changed() {
@@ -211,7 +231,7 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                             }
                         });
                     }
-                    ui.menu_button(format!("{} Move to new view", crate::icons::SQUARE_SPLIT_HORIZONTAL), |ui| {
+                    ui.scroll_menu(format!("{} Move to new view", crate::icons::SQUARE_SPLIT_HORIZONTAL), |ui| {
                         ui.label(RichText::new("Opens a 3D view with only this object").weak().small());
                         let from = state.active_view;
                         if ui.button(format!("{} Side by side", crate::icons::SQUARE_SPLIT_HORIZONTAL)).clicked() {
@@ -223,24 +243,34 @@ pub fn pipeline_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.close();
                         }
                     });
+                    if ui
+                        .button(format!("{} Plot in a new chart view", crate::icons::WAVE_SINE))
+                        .on_hover_text("Opens a chart of this object's arrays beside the other charts; each chart view keeps its own object")
+                        .clicked()
+                    {
+                        state.session.lock().new_chart_view(Some(r.id));
+                        ui.close();
+                    }
                     ui.separator();
                     if r.selected && multi_sel.len() >= 2 {
-                        ui.menu_button(format!("{} Combine {} selected", crate::icons::PLUS, multi_sel.len()), |ui| {
-                            for f in aurafx_filters::registry().iter().filter(|f| f.multi.is_some_and(|m| m.max.is_none_or(|x| x >= multi_sel.len()))) {
-                                if ui.button(f.label).on_hover_text(f.description).clicked() {
-                                    state.add_filter(f.id);
-                                    ui.close();
-                                }
+                        ui.scroll_menu(format!("{} Combine {} selected", crate::icons::PLUS, multi_sel.len()), |ui| {
+                            let n = multi_sel.len();
+                            if let Some(id) = crate::menus::filter_menu(ui, |f| f.multi.is_some_and(|m| m.max.is_none_or(|x| x >= n))) {
+                                state.add_filter(id);
                             }
                         });
                     }
-                    ui.menu_button("Add filter", |ui| {
-                        for f in aurafx_filters::registry().iter().filter(|f| !f.is_source) {
-                            if ui.button(f.label).clicked() {
-                                state.session.lock().active = Some(r.id);
-                                state.add_filter(f.id);
-                                ui.close();
-                            }
+                    let ctx_info = crate::menus::node_context(state, Some(r.id));
+                    if let Some((info, timed)) = &ctx_info {
+                        if let Some(id) = crate::menus::suggestion_buttons(ui, info, *timed) {
+                            state.session.lock().active = Some(r.id);
+                            state.add_filter(id);
+                        }
+                    }
+                    ui.scroll_menu("All filters", |ui| {
+                        if let Some(id) = crate::menus::filter_menu_for(ui, ctx_info.as_ref().map(|c| &c.0), |_| true) {
+                            state.session.lock().active = Some(r.id);
+                            state.add_filter(id);
                         }
                     });
                     if ui.button("Re-run").clicked() {
@@ -334,7 +364,7 @@ fn text_param(ui: &mut egui::Ui, node: NodeId, key: &str, value: &str, kind: Tex
                 apply = true;
             }
             if dirty {
-                if ui.small_button("Revert").clicked() {
+                if crate::touch::small_button(ui, "Revert").clicked() {
                     s = value.to_string();
                 }
                 ui.label(RichText::new("not applied yet").weak().small());
@@ -353,7 +383,7 @@ fn text_param(ui: &mut egui::Ui, node: NodeId, key: &str, value: &str, kind: Tex
     None
 }
 
-fn param_widget(
+pub(crate) fn param_widget(
     state: &mut State,
     ui: &mut egui::Ui,
     id: NodeId,
@@ -381,7 +411,7 @@ fn param_widget(
             if v.is_nan() {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("auto").weak());
-                    if ui.small_button("edit").on_hover_text("Replace the automatic value with an explicit one").clicked() {
+                    if crate::touch::small_button(ui, "edit").on_hover_text("Replace the automatic value with an explicit one").clicked() {
                         out = Some(auto_fill(state, id, spec));
                     }
                 });
@@ -392,7 +422,7 @@ fn param_widget(
                     if r.drag_stopped() || (r.changed() && !r.dragged()) {
                         out = Some(ParamValue::Float(v));
                     }
-                    if spec.default.as_f64().map(|d| d.is_nan()).unwrap_or(false) && ui.small_button("auto").clicked() {
+                    if spec.default.as_f64().map(|d| d.is_nan()).unwrap_or(false) && crate::touch::small_button(ui, "auto").clicked() {
                         out = Some(ParamValue::Float(f64::NAN));
                     }
                 });
@@ -403,7 +433,7 @@ fn param_widget(
             if v.iter().any(|x| x.is_nan()) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("auto (data center)").weak());
-                    if ui.small_button("edit").clicked() {
+                    if crate::touch::small_button(ui, "edit").clicked() {
                         out = Some(auto_fill(state, id, spec));
                     }
                 });
@@ -420,12 +450,12 @@ fn param_widget(
                     }
                     if spec.key == "normal" {
                         for (l, n) in [("X", [1.0, 0.0, 0.0]), ("Y", [0.0, 1.0, 0.0]), ("Z", [0.0, 0.0, 1.0])] {
-                            if ui.small_button(l).clicked() {
+                            if crate::touch::small_button(ui, l).clicked() {
                                 out = Some(ParamValue::Vec3(n));
                             }
                         }
                     }
-                    if spec.default.as_vec3().map(|d| d[0].is_nan()).unwrap_or(false) && ui.small_button("auto").clicked() {
+                    if spec.default.as_vec3().map(|d| d[0].is_nan()).unwrap_or(false) && crate::touch::small_button(ui, "auto").clicked() {
                         out = Some(ParamValue::Vec3([f64::NAN; 3]));
                     }
                 });
@@ -543,7 +573,7 @@ fn inputs_ui(state: &mut State, ui: &mut egui::Ui, id: NodeId, m: aurafx_filters
                     ui.label(format!("Input {}", k + 2));
                     ui.horizontal(|ui| {
                         ui.label(ename);
-                        if ui.small_button(crate::icons::TRASH).on_hover_text("Remove this input").clicked() {
+                        if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Remove this input").clicked() {
                             new_extra = Some(extra.iter().map(|e| e.0).filter(|x| x != eid).collect());
                         }
                     });
@@ -667,14 +697,14 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
         ui.label(RichText::new("Select a node in the pipeline to edit its properties.").weak());
         return;
     };
-    ui.horizontal(|ui| {
+    // (Wrapped: a long name on one line would make everything below as wide as itself, wider
+    // than the panel, and nothing would scroll sideways.)
+    ui.horizontal_wrapped(|ui| {
         ui.heading(&name);
         ui.label(RichText::new(&kind).weak());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ms > 0.0 {
-                ui.label(RichText::new(format!("{ms:.0} ms")).weak().small());
-            }
-        });
+        if ms > 0.0 {
+            ui.label(RichText::new(format!("{ms:.0} ms")).weak().small());
+        }
     });
     if let Some((host, st, full)) = &server {
         ui.horizontal_wrapped(|ui| {
@@ -717,7 +747,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     n.follow_latest = follow;
                 }
             }
-            if ui.small_button("Reload now").clicked() {
+            if crate::touch::small_button(ui, "Reload now").clicked() {
                 let path = match &state.session.lock().nodes[&id].kind {
                     aurafx_pipeline::NodeKind::Reader { path, .. } => path.clone(),
                     _ => return,
@@ -762,7 +792,11 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
             });
         }
     }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // Sideways too: a long name or a wide row can be reached in a narrow panel.
+    let panel_width = ui.available_width();
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        // (Laid out to the panel's width, not to the endless width of a scrolling area.)
+        ui.set_max_width(panel_width);
         // Arrays available to parameter widgets: from the input for filters, own output for sources.
         let src_info = if def.as_ref().map(|d| d.is_source).unwrap_or(true) { info.as_ref() } else { input_info.as_ref() };
         let mut arrays: Vec<(Association, String, usize)> = Vec::new();
@@ -786,6 +820,10 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                             if (spec.advanced && !adv) || matches!(spec.kind, ParamKind::Code) {
                                 continue;
                             }
+                            // A CAD Model shows its dimensions and configuration in its own section.
+                            if def.id == "cad_model" && matches!(spec.key.as_str(), "parameters" | "configuration") {
+                                continue;
+                            }
                             let label = ui.label(&spec.label);
                             if !spec.help.is_empty() {
                                 label.on_hover_text(&spec.help);
@@ -797,16 +835,33 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                             ui.end_row();
                         }
                     });
-                    for spec in def.params.iter().filter(|p| matches!(p.kind, ParamKind::Code)) {
+                    for spec in def.params.iter().filter(|p| matches!(p.kind, ParamKind::Code) && !(def.id == "cad_model" && p.key == "document")) {
                         ui.label(RichText::new(&spec.label).strong());
                         let value = params.get(&spec.key).and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
                         if let Some(nv) = text_param(ui, id, &spec.key, &value, TextKind::Code(14)) {
                             state.session.lock().set_param(id, &spec.key, ParamValue::Str(nv));
                         }
+                        // The Geometry source's commands: menus that write them.
+                        if def.id == "geometry" && spec.key == "commands" {
+                            if let Some(line) = crate::mesh_guide::insert_menu(ui) {
+                                let did = ui.make_persistent_id(("param_draft", id, spec.key.as_str()));
+                                let cur: String = ui.data(|d| d.get_temp::<String>(did)).unwrap_or_else(|| value.clone());
+                                ui.data_mut(|d| d.remove::<String>(did));
+                                let new = format!("{}\n{line}\n", cur.trim_end());
+                                state.session.lock().set_param(id, &spec.key, ParamValue::Str(new));
+                            }
+                        }
+                    }
+                    if def.id == "cad_model" {
+                        crate::cad::properties_ui(state, ui, id);
                     }
                     if def.id == "geometry" {
                         let cmds = params.get("commands").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
-                        geometry_tree(ui, &cmds);
+                        // The steps first (they are what a newcomer needs), then the bodies.
+                        let ids = aurafx_mesh::Model::from_commands(&cmds, None).ok().map(|m| m.describe().iter().map(|b| b.0).collect::<Vec<u32>>());
+                        let output = params.get("output").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
+                        crate::mesh_guide::steps_ui(state, ui, id, &cmds, &output, ids.as_deref());
+                        let _ = geometry_tree(ui, &cmds);
                     }
                     if def.params.iter().any(|p| p.advanced) {
                         if ui.checkbox(&mut adv, "Show advanced").changed() {
@@ -938,7 +993,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         if changed {
                             d.range = Some(r);
                         }
-                        if d.range.is_some() && ui.small_button("auto").clicked() {
+                        if d.range.is_some() && crate::touch::small_button(ui, "auto").clicked() {
                             d.range = None;
                         }
                         ui.checkbox(&mut d.log_scale, "log");
@@ -951,6 +1006,44 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
 
+                if d.representation == Representation::Glyphs {
+                    let vectors: Vec<String> = own.iter().filter(|(a, _, c)| *a == Association::Points && *c == 3).map(|(_, n, _)| n.clone()).collect();
+                    let point_arrays: Vec<String> = own.iter().filter(|(a, _, _)| *a == Association::Points).map(|(_, n, _)| n.clone()).collect();
+                    ui.label("Glyph");
+                    egui::ComboBox::from_id_salt("glyph shape").selected_text(d.glyph_shape.label()).show_ui(ui, |ui| {
+                        for g in aurafx_pipeline::GlyphShape::ALL {
+                            ui.selectable_value(&mut d.glyph_shape, g, g.label());
+                        }
+                    });
+                    ui.end_row();
+                    let pick = |ui: &mut egui::Ui, id: &str, v: &mut String, opts: &[String], none: &str| {
+                        egui::ComboBox::from_id_salt(id).selected_text(if v.is_empty() { none.to_string() } else { v.clone() }).show_ui(ui, |ui| {
+                            ui.selectable_value(v, String::new(), none);
+                            for o in opts {
+                                ui.selectable_value(v, o.clone(), o);
+                            }
+                        });
+                    };
+                    ui.label("Orient by");
+                    pick(ui, "glyph orient", &mut d.glyph_orient, &vectors, "(along x)");
+                    ui.end_row();
+                    ui.label("Size by");
+                    pick(ui, "glyph scale", &mut d.glyph_scale_by, &point_arrays, "(all the same)");
+                    ui.end_row();
+                    ui.label("Size");
+                    let mut auto = d.glyph_scale <= 0.0;
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut auto, "automatic").changed() {
+                            d.glyph_scale = if auto { 0.0 } else { 1.0 };
+                        }
+                        if !auto {
+                            ui.add(egui::DragValue::new(&mut d.glyph_scale).speed(0.01).range(1e-9..=f32::MAX));
+                        }
+                    })
+                    .response
+                    .on_hover_text("The length of the largest glyph; automatic: about the spacing of the points.");
+                    ui.end_row();
+                }
                 if d.representation == Representation::Molecule {
                     ui.label("Style");
                     egui::ComboBox::from_id_salt("molecule style").selected_text(d.molecule_style.label()).show_ui(ui, |ui| {
@@ -987,7 +1080,7 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                         ui.add(egui::DragValue::new(&mut d.roughness).range(0.02..=1.0).speed(0.01).prefix("rough ")).on_hover_text("Small: sharp highlights and mirror-like reflections; 1: matte");
                         ui.add(egui::DragValue::new(&mut d.specular).range(0.0..=1.0).speed(0.01).prefix("shine ")).on_hover_text("Strength of highlights on non-metals");
                         let default = aurafx_pipeline::DisplayProps::default();
-                        if (d.metallic, d.roughness, d.specular) != (default.metallic, default.roughness, default.specular) && ui.small_button("reset").clicked() {
+                        if (d.metallic, d.roughness, d.specular) != (default.metallic, default.roughness, default.specular) && crate::touch::small_button(ui, "reset").clicked() {
                             (d.metallic, d.roughness, d.specular) = (default.metallic, default.roughness, default.specular);
                         }
                     });
@@ -1009,12 +1102,12 @@ pub fn properties_ui(state: &mut State, ui: &mut egui::Ui) {
                                 .map(|t| std::path::Path::new(t).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| t.to_string()))
                                 .unwrap_or_else(|| "none".into());
                             ui.label(shown).on_hover_text(d.texture.clone().unwrap_or_else(|| "An image shown on the surface through its texture coordinates".into()));
-                            if ui.small_button("Choose…").on_hover_text("Pick a PNG or JPEG image to show on the surface").clicked() {
+                            if crate::touch::small_button(ui, "Choose…").on_hover_text("Pick a PNG or JPEG image to show on the surface").clicked() {
                                 if let Some(p) = crate::dialogs::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg"]).pick_file() {
                                     d.texture = Some(p.to_string_lossy().into_owned());
                                 }
                             }
-                            if d.texture.is_some() && ui.small_button(crate::icons::X).on_hover_text("No texture").clicked() {
+                            if d.texture.is_some() && crate::touch::small_button(ui, crate::icons::X).on_hover_text("No texture").clicked() {
                                 d.texture = None;
                             }
                         });
@@ -1177,12 +1270,13 @@ fn info_body(ui: &mut egui::Ui, info: &aurafx_data::DataSetInfo) {
         }
         ui.add_space(4.0);
         ui.label(RichText::new(title).strong());
-        egui::Grid::new(title).striped(true).num_columns(4).spacing([10.0, 2.0]).show(ui, |ui| {
+        egui::Grid::new(title).striped(true).num_columns(5).spacing([10.0, 2.0]).show(ui, |ui| {
             for a in arrs {
                 ui.label(&a.name);
                 ui.label(RichText::new(&a.dtype).weak());
                 ui.label(format!("{}c", a.ncomp));
                 ui.label(format!("{} .. {}", aurafx_data::info::g(a.range.0), aurafx_data::info::g(a.range.1)));
+                ui.label(RichText::new(a.units.as_deref().unwrap_or("")).weak());
                 ui.end_row();
             }
         });
@@ -1196,7 +1290,11 @@ pub fn information_ui(state: &mut State, ui: &mut egui::Ui) {
     let info = state.session.lock().active_node().and_then(|n| n.info.clone());
     match info {
         Some(i) => {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| info_body(ui, &i));
+            let panel_width = ui.available_width();
+            egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_max_width(panel_width);
+                info_body(ui, &i)
+            });
         }
         None => {
             ui.label(RichText::new("No dataset selected.").weak());
@@ -1207,7 +1305,7 @@ pub fn information_ui(state: &mut State, ui: &mut egui::Ui) {
 // ------------------------------------------------------------------ log
 
 pub fn log_ui(state: &mut State, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "log top", |ui| {
         if ui.button("Clear").clicked() {
             state.session.lock().log.clear();
         }
@@ -1248,7 +1346,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
     };
     let Some(ds) = ds else { return };
     let table_mode = matches!(ds, aurafx_data::DataSet::Table(_));
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "sheet top", |ui| {
         ui.label(RichText::new(&name).strong());
         if !table_mode {
             ui.selectable_value(&mut state.spreadsheet_assoc, Association::Points, "Points");
@@ -1275,7 +1373,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
     let page_size = 200;
     let pages = n_rows.div_ceil(page_size).max(1);
     state.spreadsheet_page = state.spreadsheet_page.min(pages - 1);
-    ui.horizontal(|ui| {
+    crate::touch::row(ui, "sheet pages", |ui| {
         if ui.button(crate::icons::CARET_LEFT).clicked() && state.spreadsheet_page > 0 {
             state.spreadsheet_page -= 1;
         }
@@ -1338,7 +1436,7 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
         }
         for a in &cols {
             h.col(|ui| {
-                ui.label(RichText::new(&a.name).strong()).on_hover_text(format!("{} x {}", a.scalar_type().vtk_name(), a.ncomp));
+                ui.label(RichText::new(a.label()).strong()).on_hover_text(format!("{} x {}", a.scalar_type().vtk_name(), a.ncomp));
             });
         }
     })
@@ -1377,14 +1475,15 @@ pub fn spreadsheet_ui(state: &mut State, ui: &mut egui::Ui) {
 type BodyList = Vec<(u32, String, Vec<String>, Vec<(u32, String)>)>;
 
 /// The bodies a Geometry source's commands make, how each was built and its faces, as a tree.
-fn geometry_tree(ui: &mut egui::Ui, commands: &str) {
+fn geometry_tree(ui: &mut egui::Ui, commands: &str) -> Option<Vec<u32>> {
     static CACHE: std::sync::Mutex<Option<(String, Result<BodyList, String>)>> = std::sync::Mutex::new(None);
     let mut cache = CACHE.lock().unwrap();
     if cache.as_ref().is_none_or(|(c, _)| c != commands) {
         let r = aurafx_mesh::Model::from_commands(commands, None).map(|m| m.describe()).map_err(|e| format!("{e:#}"));
         *cache = Some((commands.to_string(), r));
     }
-    let Some((_, result)) = cache.as_ref() else { return };
+    let Some((_, result)) = cache.as_ref() else { return None };
+    let ids = result.as_ref().ok().map(|b| b.iter().map(|x| x.0).collect::<Vec<u32>>());
     egui::CollapsingHeader::new(RichText::new("Bodies").strong()).default_open(true).show(ui, |ui| match result {
         Err(e) => {
             ui.label(RichText::new(e).color(crate::theme::ERROR));
@@ -1407,4 +1506,5 @@ fn geometry_tree(ui: &mut egui::Ui, commands: &str) {
             }
         }
     });
+    ids
 }

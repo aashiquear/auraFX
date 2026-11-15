@@ -19,6 +19,7 @@ fn plane(z: f64, size: f64) -> DataSet {
 
 #[test]
 fn transparency_lighting_and_points() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (200u32, 160u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");

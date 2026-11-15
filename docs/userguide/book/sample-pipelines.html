@@ -1,0 +1,572 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Sample pipelines - auraFX User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-8b305462.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">auraFX User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/aashiquear/auraFX" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="sample-pipelines"><a class="header" href="#sample-pipelines">Sample pipelines</a></h1>
+<p>The short clips on the <a href="https://aashiquear.github.io/auraFX/">project page</a> are ordinary auraFX
+pipelines, recorded with the same command anyone can use. This chapter goes through every one
+of them from the file (or the source) to the finished clip, twice: once as the steps in the
+window, with the menu each one is in, and once as the Python that does the same. Type the
+Python into the console (the <strong>Python</strong> panel), or save it as a file and run
+<code>aurafx --script file.py</code>.</p>
+<p>The data files are in the repository’s <code>testdata/</code> and <code>examples/</code> folders
+(<a href="https://github.com/aashiquear/auraFX">https://github.com/aashiquear/auraFX</a>); four examples need no file at all. The scripts
+that made the clips on the page are in <code>scripts/site/media/</code>, one per clip.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_pipeline.png" alt="The crystal-plasticity example built in the window: the result, the points with the grains, Assign Grains, Warp By Vector and the grain boundaries in the Pipeline, the plate colored by plastic strain in the 3D view"><span class="img-wrapper"><img src="images/sample_pipeline.png" alt="The crystal-plasticity example built in the window: the result, the points with the grains, Assign Grains, Warp By Vector and the grain boundaries in the Pipeline, the plate colored by plastic strain in the 3D view"></span></label></p>
+<h2 id="what-every-example-uses"><a class="header" href="#what-every-example-uses">What every example uses</a></h2>
+<p><strong>Opening and adding.</strong> <strong>File › Open…</strong> (Ctrl+O) opens a file; a file with time steps shows
+the time toolbar. A filter is added to the object selected in the Pipeline from <strong>Filters ›</strong>
+<em>its menu</em>, or by typing its name after Ctrl+K. Sources (data made without a file) are in the
+<strong>Sources</strong> menu.</p>
+<p><strong>Showing and hiding.</strong> A new filter hides the object it was made from and shows its own
+result. The eye beside each object in the Pipeline shows or hides it (<code>node.hide()</code>,
+<code>node.show()</code>); the examples say when an eye has to be closed or opened by hand.</p>
+<p><strong>Coloring and drawing.</strong> With an object selected, <strong>Properties</strong> has <strong>Color by</strong> (the array),
+the color map beside it, <strong>Range</strong> (type two values to fix it over all time steps),
+<strong>Representation</strong> (Surface, Surface With Edges, Wireframe, Points, Volume) and <strong>Opacity</strong>.
+See <a href="coloring.html">Coloring and color maps</a> and
+<a href="representations.html">Volumes, point clouds and curved cells</a>.</p>
+<p><strong>The camera.</strong> <strong>+X</strong>, <strong>+Y</strong>, <strong>+Z</strong> and <strong>Iso</strong> in the toolbar look along an axis; drag to
+turn, and <strong>Fit</strong> in the 3D view’s own toolbar (or the R key) shows everything. From Python,
+<code>afx.view(direction, up=...)</code> then <code>afx.reset_camera()</code>.</p>
+<p><strong>Recording.</strong> <strong>File › Animation…</strong> records the clip. Choose the mode (<strong>Time steps</strong>,
+<strong>Orbit 360°</strong> or <strong>Keyframes</strong>), the frame rate, the size and the format, then <strong>Save…</strong>.
+MP4 and WebM need the video encoder, which the Animation window offers to fetch when the
+machine has none (<a href="time-animation.html#the-video-encoder">Time, charts and animation</a>). The
+clips on the page are 720 pixels wide; for a figure or a talk raise the size, for example
+1920 × 1080.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind of clip</th><th>In the window</th><th>In Python</th></tr>
+</thead>
+<tbody>
+<tr><td>A turntable</td><td>mode <strong>Orbit 360°</strong>, 80 frames, 20 frames a second</td><td><code>afx.save_animation("clip.mp4", fps=20, orbit=80)</code></td></tr>
+<tr><td>The data’s time steps</td><td>mode <strong>Time steps</strong></td><td><code>afx.save_animation("clip.mp4", fps=12)</code></td></tr>
+<tr><td>A value that changes</td><td><strong>Keyframes</strong> tab: select the value, <strong>Key value at</strong> 0 % and at 100 %</td><td><code>afx.save_animation("clip.mp4", frames=45, cue=f)</code> with a function <code>f(t)</code>, t from 0 to 1</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>poster="clip.jpg"</code> in <code>afx.save_animation</code> also writes the first frame as a picture.</p>
+<h2 id="crystal-plasticity-a-polycrystal-plate-under-tension"><a class="header" href="#crystal-plasticity-a-polycrystal-plate-under-tension">Crystal plasticity: a polycrystal plate under tension</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_plate_cp.jpg" alt="A plate of 30 grains with a hole, pulled to 2 % strain, colored by the equivalent plastic strain with the grain boundaries drawn in white"><span class="img-wrapper"><img src="images/sample_plate_cp.jpg" alt="A plate of 30 grains with a hole, pulled to 2 % strain, colored by the equivalent plastic strain with the grain boundaries drawn in white"></span></label></p>
+<p>This one starts before the data exists: the plate is meshed, given grains, run in a
+crystal-plasticity solver and read back. It needs the PINNACLE solver on the machine (or on a
+remote one, see <a href="simulations.html">Running simulations</a>); to skip the run, open the result kept
+in <code>testdata/solver/pinnacle_plate_fine/</code> and go to step 5.</p>
+<p><strong>Build and run</strong></p>
+<ol>
+<li><strong>Sources › Plate Mesh.</strong> In Properties leave <strong>Width, height, thickness</strong> at 100, 50, 1,
+<strong>Hole</strong> at <em>Circle</em> with <strong>Semi-axis a (radius)</strong> 2.5, and set <strong>Cell size</strong> to 1. The plate is one element thick, with its faces
+named <code>x-</code>, <code>x+</code> and so on.</li>
+<li>With the plate selected, <strong>Filters › Mesh › Assign Grains.</strong> <strong>Grains from</strong> <em>Voronoi</em>,
+<strong>Grains (Voronoi)</strong> 30, <strong>Random seed</strong> 1, and tick <strong>One block per grain</strong>. Color by <code>grain_id</code> to
+see them.</li>
+<li><strong>Simulate › Run a simulation…</strong> opens the Simulations panel. <strong>Template</strong> <em>PINNACLE crystal
+plasticity</em>; the grain mesh selected in the Pipeline shows under <strong>Case from</strong>. Set a
+<strong>Working directory</strong>, <strong>Material</strong> <em>Aluminium</em>, <strong>Pull along</strong> x, <strong>strain</strong> 0.02 and
+<strong>steps</strong> 40.</li>
+<li><strong>Run.</strong> The panel writes <code>mesh.e</code>, <code>orientations_points.csv</code> and <code>case.i</code> into the
+folder and starts the solver; the job’s log follows each load step. On a laptop this mesh
+(about 5 000 elements) takes around half an hour. With <strong>open when done</strong> ticked, the
+result (<code>solver/fields.pvd</code>) opens when the run ends.</li>
+</ol>
+<pre><code class="language-python">import aurafx as afx
+plate = afx.plate_mesh(size=(100, 50, 1), cell=1.0, hole="Circle", a=2.5)
+poly = plate.assign_grains(grains=30, seed=1, blocks=True)
+afx.run_case(poly, "pinnacle", "~/runs/plate", material="Aluminium", axis="x",
+             strain=0.02, steps=40, wait=True)
+</code></pre>
+<p><strong>From the result to the clip</strong></p>
+<ol start="5">
+<li><strong>File › Open…</strong> the final state of the run (<code>solver/fields.vtk</code> in the working directory;
+in the repository, <code>testdata/solver/pinnacle_plate_fine/fields_final.vtu</code>) and the case’s
+<code>orientations_points.csv</code>. The result has the displacement, the stress and
+the equivalent plastic strain, but not the grains: the point file has them, one point at
+every element’s centre.</li>
+<li>Select the result, <strong>Filters › Mesh › Assign Grains.</strong> <strong>Grains from</strong> <em>Nearest point</em>,
+choose the point file as the second input, and tick <strong>Side set on grain boundaries</strong>. Every
+element has its grain again, and the faces between grains are a set named
+<code>grain boundaries</code>.</li>
+<li><strong>Filters › Common › Warp By Vector</strong>, <strong>Vectors</strong> <code>displacement</code>. Set <strong>Scale factor</strong> to
+0 for now: the keyframes will raise it. <strong>Color by</strong> <code>equivalent_plastic_strain</code>, color
+map <em>Inferno</em>.</li>
+<li>With the warped plate selected, <strong>Filters › Mesh › Extract Set</strong>, <strong>Set name</strong>
+<code>grain boundaries</code>. In Properties: <strong>Solid color</strong> a light grey, <strong>Representation</strong>
+<em>Wireframe</em>, <strong>Line width</strong> 2. The new filter hid the plate: open the plate’s eye again in
+the Pipeline.</li>
+<li><strong>+Z</strong> in the toolbar, then <strong>Fit</strong>.</li>
+<li><strong>File › Animation…</strong>, <strong>Keyframes</strong> tab: select the Warp By Vector’s <em>Scale factor</em>, set
+it to 0 and press <strong>Key value at 0 %</strong>; move the slider to 100 %, set it to 9, press
+<strong>Key value at 100 %</strong>. 45 frames at 15 a second, 720 × 400, <strong>Save…</strong>.</li>
+</ol>
+<pre><code class="language-python">d = "testdata/solver/pinnacle_plate_fine/"
+res = afx.load(d + "fields_final.vtu"); res.hide()
+pts = afx.load(d + "orientations_points.csv"); pts.hide()
+g = res.assign_grains(pts, method="Nearest point", boundaries=True); g.hide()
+w = g.warp_by_vector(vectors="displacement", scale=0.0)
+w.set(color_by="equivalent_plastic_strain", cmap="Inferno")
+b = w.extract_set(set="grain boundaries"); w.show()     # a new filter hides its input
+b.set(color_by=None, representation="Wireframe", solid_color=(0.92, 0.92, 0.92), line_width=2)
+afx.view([0, 0, 1], up=[0, 1, 0]); afx.reset_camera()
+afx.save_animation("plate_cp.mp4", fps=15, frames=45, width=720, height=400,
+                   cue=lambda t: w.set(scale=9.0 * t))
+</code></pre>
+<p>The displacements are drawn nine times larger than they are, so that 2 % strain can be seen.
+Statistics per grain (mean stress, mean plastic strain) come from the same <code>grain_id</code> array:
+see <a href="simulations.html#simulation-cases-from-the-pipeline">Grains on the results</a>.</p>
+<h2 id="cad-modeling-a-flange-that-follows-its-dimensions"><a class="header" href="#cad-modeling-a-flange-that-follows-its-dimensions">CAD modeling: a flange that follows its dimensions</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_cad_model.jpg" alt="A flange colored by face"><span class="img-wrapper"><img src="images/sample_cad_model.jpg" alt="A flange colored by face"></span></label></p>
+<p>No file. A part from the templates is rebuilt while three of its dimensions change.</p>
+<ol>
+<li><strong>Model › New CAD part</strong> opens the CAD environment. On the ribbon’s <em>Files</em> tab choose
+<strong>New from template</strong> › <em>flange</em>, then <strong>Apply</strong> to return to the pipeline with the part.</li>
+<li><strong>Color by</strong> <code>FaceId</code>, color map <em>Turbo</em>: every named face has its own color.</li>
+<li><strong>Kernel</strong> <em>B-rep</em> in the part’s Properties, for exact edges on every frame.</li>
+<li>Look from a direction above and to the side, <strong>Fit</strong>.</li>
+<li>The dimensions are in Properties under <strong>Dimensions</strong>: <code>od</code> (outside diameter),
+<code>bolt_circle</code> and <code>holes</code>. Type a new value and the part is rebuilt with the same face
+names. The clip changes all three between frames with a function, which keeps the bolt
+circle at three quarters of the diameter and adds bolt holes as the flange grows; that part
+is Python.</li>
+</ol>
+<pre><code class="language-python">import math
+m = afx.cad_model(template="flange")
+m.set(color_by="FaceId", cmap="Turbo", kernel="B-rep")
+afx.view([0.7, -1.0, 0.9], up=[0, 0, 1]); afx.reset_camera()
+
+def cue(t):
+    s = 0.5 - 0.5 * math.cos(2 * math.pi * t)          # 0 → 1 → 0
+    od = 90 + 40 * s
+    m.set(od=od, bolt_circle=round(od * 0.75, 1), holes=int(6 + round(4 * s)))
+
+afx.save_animation("cad_model.mp4", fps=14, frames=48, width=720, height=450, cue=cue)
+</code></pre>
+<p>More in <a href="cad.html">CAD modeling</a>.</p>
+<h2 id="mechanics-explicit-dynamics-from-an-exodus-file"><a class="header" href="#mechanics-explicit-dynamics-from-an-exodus-file">Mechanics: explicit dynamics from an Exodus file</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_can_crash.jpg" alt="A crushed can colored by plastic strain"><span class="img-wrapper"><img src="images/sample_can_crash.jpg" alt="A crushed can colored by plastic strain"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/can.ex2</code> (44 time steps).</li>
+<li><strong>Color by</strong> <code>EQPS</code>, color map <em>Turbo</em>. Type the <strong>Range</strong> 0 to 1.5, so the colors mean the
+same at every step (the last step reaches about 1.8).</li>
+<li>Move the time slider to the middle step before framing, so both the plate and the can
+stay in the picture; look from the side and <strong>Fit</strong>.</li>
+<li><strong>File › Animation…</strong>, mode <strong>Time steps</strong>, 14 frames a second.</li>
+</ol>
+<pre><code class="language-python">c = afx.load("testdata/can.ex2")
+c.set(color_by="EQPS", cmap="Turbo", range=(0.0, 1.5))
+n = afx.time()[1]                       # the number of time steps
+afx.time(n // 2)
+afx.view([1.0, -0.75, 0.12], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("can_crash.mp4", fps=14, frames=n, width=720, height=450,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<h2 id="flow-and-heat-streamlines-over-a-temperature-surface"><a class="header" href="#flow-and-heat-streamlines-over-a-temperature-surface">Flow and heat: streamlines over a temperature surface</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_flow.jpg" alt="Streamlines as tubes colored by temperature over a translucent surface"><span class="img-wrapper"><img src="images/sample_flow.jpg" alt="Streamlines as tubes colored by temperature over a translucent surface"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/disk_out_ref.ex2</code>; close its eye.</li>
+<li>Select the file, <strong>Filters › Common › Contour</strong>: <strong>Contour by</strong> <code>Temp</code>, <strong>Values</strong> 400.
+<strong>Color by</strong> <code>Temp</code>, <strong>Opacity</strong> 0.35.</li>
+<li>Select the file again, <strong>Filters › Common › Stream Tracer</strong>, <strong>Number of seeds</strong> 60. Close its eye:
+the lines are drawn by the next filter.</li>
+<li>With the Stream Tracer selected, <strong>Filters › Geometry › Tube</strong>, <strong>Radius</strong> 0.12.
+<strong>Color by</strong> <code>Temp</code>, color map <em>Inferno</em>.</li>
+<li>The Contour and the Tube now show together (their eyes are open in the Pipeline). Frame,
+then <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>, 80 frames.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/disk_out_ref.ex2"); d.hide()
+c = d.contour(array="Temp", values=[400.0]); c.set(color_by="Temp", opacity=0.35)
+s = d.stream_tracer(seeds=60); s.hide()
+t = s.tube(radius=0.12); t.set(color_by="Temp", cmap="Inferno")
+afx.view([0.7, -1.0, 0.5], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("flow.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="phase-field-spinodal-decomposition"><a class="header" href="#phase-field-spinodal-decomposition">Phase field: spinodal decomposition</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_spinodal.jpg" alt="Two phases separating"><span class="img-wrapper"><img src="images/sample_spinodal.jpg" alt="Two phases separating"></span></label></p>
+<p>The data comes from a small solver in the repository, run from auraFX.</p>
+<ol>
+<li><strong>Simulate › Run a simulation…</strong>, <strong>Template</strong> <em>Python pipeline</em>, <strong>Working directory</strong>
+<code>examples/phase_field</code>, <strong>Input</strong> <code>cahn_hilliard.py</code>, <strong>Result files</strong> <code>ch_*.vtk</code>, <strong>Run</strong>
+(about ten seconds). The series opens when it ends; or open <code>ch_00000.vtk</code> afterwards, which
+brings the whole series.</li>
+<li><strong>Color by</strong> <code>concentration</code>, color map <em>Viridis</em>, <strong>Range</strong> 0 to 1.</li>
+<li><strong>+Z</strong>, <strong>Fit</strong>. <strong>File › Animation…</strong>, <strong>Time steps</strong>, 12 frames a second, 560 × 560.</li>
+</ol>
+<pre><code class="language-python">afx.submit("python3 -u cahn_hilliard.py", workdir="examples/phase_field",
+           outputs="ch_*.vtk", wait=True)
+d = afx.load("examples/phase_field/ch_00000.vtk")
+d.set(color_by="concentration", cmap="Viridis", range=(0, 1))
+afx.view([0, 0, 1], up=[0, 1, 0]); afx.reset_camera()
+n = afx.time()[1]
+afx.save_animation("spinodal.mp4", fps=12, frames=n, width=560, height=560,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<h2 id="grain-growth-a-potts-model-run"><a class="header" href="#grain-growth-a-potts-model-run">Grain growth: a Potts-model run</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_grain_growth.jpg" alt="Grains coarsening"><span class="img-wrapper"><img src="images/sample_grain_growth.jpg" alt="Grains coarsening"></span></label></p>
+<p>The same as the phase-field example with <code>examples/grain_growth/potts.py</code> (result files
+<code>grains_*.vtk</code>): color by <code>grain_id</code> with <em>Turbo</em>, record the time steps.</p>
+<pre><code class="language-python">afx.submit("python3 -u potts.py", workdir="examples/grain_growth", outputs="grains_*.vtk", wait=True)
+d = afx.load("examples/grain_growth/grains_0000.vtk")
+d.set(color_by="grain_id", cmap="Turbo")
+afx.view([0, 0, 1], up=[0, 1, 0]); afx.reset_camera()
+n = afx.time()[1]
+afx.save_animation("grain_growth.mp4", fps=12, frames=n, width=560, height=560,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<p><strong>Filters › Grains › Segment Features</strong> on a step (<strong>Group by</strong> <em>Scalar</em>, <strong>Tolerance</strong> 0) gives feature
+ids that the grain filters measure.</p>
+<h2 id="particles-a-melting-crystal"><a class="header" href="#particles-a-melting-crystal">Particles: a melting crystal</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_particles.jpg" alt="Atoms colored by their potential energy"><span class="img-wrapper"><img src="images/sample_particles.jpg" alt="Atoms colored by their potential energy"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/fcc_melt.dump</code> (a LAMMPS dump, 20 frames).</li>
+<li><strong>Representation</strong> <em>Points</em>, <strong>Point size</strong> 5. <strong>Color by</strong> <code>c_pe</code>, color map <em>Plasma</em>.</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Time steps</strong>, 8 frames a second.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/fcc_melt.dump")
+d.set(representation="Points", point_size=5, color_by="c_pe", cmap="Plasma")
+afx.view([0.5, -1.0, 0.6], up=[0, 0, 1]); afx.reset_camera()
+n = afx.time()[1]
+afx.save_animation("particles.mp4", fps=8, frames=n, width=720, height=450,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<h2 id="chemistry-a-molecule"><a class="header" href="#chemistry-a-molecule">Chemistry: a molecule</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_molecule.jpg" alt="A molecule as balls and sticks"><span class="img-wrapper"><img src="images/sample_molecule.jpg" alt="A molecule as balls and sticks"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/molecules/test.cml</code>. It opens as balls and sticks.</li>
+<li><strong>Atom size</strong> 0.22 in Properties.</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">m = afx.load("testdata/molecules/test.cml")
+m.set(atom_scale=0.22)
+afx.view([0.15, -0.35, 1.0], up=[0, 1, 0]); afx.reset_camera()
+afx.save_animation("molecule.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="geoscience-ocean-temperature-on-the-globe"><a class="header" href="#geoscience-ocean-temperature-on-the-globe">Geoscience: ocean temperature on the globe</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_ocean.jpg" alt="Sea temperature on a sphere"><span class="img-wrapper"><img src="images/sample_ocean.jpg" alt="Sea temperature on a sphere"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/netcdf/mpas_ocean.nc</code>. The cells are placed on the sphere as the
+file says.</li>
+<li><strong>Color by</strong> <code>temperature</code>, color map <em>Cool to Warm</em>.</li>
+<li>Move the time slider to step 2. Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/netcdf/mpas_ocean.nc")
+d.set(color_by="temperature", cmap="Cool to Warm")
+afx.time(2)
+afx.view([-0.3, -1.0, 0.25], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("ocean.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="geoscience-terrain-from-an-elevation-model"><a class="header" href="#geoscience-terrain-from-an-elevation-model">Geoscience: terrain from an elevation model</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_terrain.jpg" alt="Terrain raised from a raster"><span class="img-wrapper"><img src="images/sample_terrain.jpg" alt="Terrain raised from a raster"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/rasters/dem.tif</code>. A raster has one value per cell.</li>
+<li><strong>Filters › Data › Cell Data to Point Data</strong>: Warp By Scalar moves points, so the
+elevation has to be on the points.</li>
+<li><strong>Filters › Common › Warp By Scalar</strong>: <strong>Scalars</strong> <code>Elevation</code>, <strong>Scale factor</strong> 2.
+<strong>Color by</strong> <code>Elevation</code>, color map <em>Viridis</em>.</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/rasters/dem.tif"); d.hide()
+p = d.cell_data_to_point_data(); p.hide()
+w = p.warp_by_scalar(array="Elevation", scale=2.0)
+w.set(color_by="Elevation", cmap="Viridis")
+afx.view([0.55, -1.0, 0.75], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("terrain.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="microstructure-grain-boundary-surfaces"><a class="header" href="#microstructure-grain-boundary-surfaces">Microstructure: grain boundary surfaces</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_grains_orbit.jpg" alt="Smoothed grain boundaries colored by the boundary plane"><span class="img-wrapper"><img src="images/sample_grains_orbit.jpg" alt="Smoothed grain boundaries colored by the boundary plane"></span></label></p>
+<p>No file. The same chain works on a 3D EBSD volume in place of the synthetic grains.</p>
+<ol>
+<li><strong>Sources › Voronoi Grains</strong>: <strong>Cells</strong> 40 × 40 × 40, <strong>Grains</strong> 60.</li>
+<li><strong>Filters › Grains › Quick Surface Mesh</strong> makes triangles on every face between two grains.</li>
+<li><strong>Filters › Grains › Smooth Boundaries</strong>, <strong>Iterations</strong> 20, takes the stair steps out.</li>
+<li><strong>Filters › Grains › Face Orientation Colors</strong> colors each triangle by the crystal direction
+of its boundary plane. <strong>Color by</strong> <code>FaceIPFColors</code> (drawn with its own colors).</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">v = afx.voronoi_grains(cells=[40, 40, 40], grains=60); v.hide()
+s = v.quick_surface_mesh(); s.hide()
+m = s.smooth_boundaries(iterations=20); m.hide()
+c = m.face_orientation_colors()
+c.set(color_by="FaceIPFColors")
+afx.view([0.6, -1.0, 0.8], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("grains_orbit.mp4", fps=20, orbit=80)
+</code></pre>
+<p>More in <a href="grains.html#grain-boundary-surfaces">Grain boundary surfaces</a>.</p>
+<h2 id="meshing-conforming-hexahedra-around-inclusions"><a class="header" href="#meshing-conforming-hexahedra-around-inclusions">Meshing: conforming hexahedra around inclusions</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"><span class="img-wrapper"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"></span></label></p>
+<p>No file.</p>
+<ol>
+<li><strong>Sources › Inclusion Mesh</strong>: <strong>Inclusions</strong> 8, <strong>Radius</strong> 0.075, <strong>Cells along the
+shortest side</strong> 24, <strong>Seed</strong> 7. Close its eye: the next steps show parts of it.</li>
+<li>Select the mesh, <strong>Filters › Common › Threshold</strong>: <strong>Scalars</strong> <code>ElementBlock</code>, <strong>Lower</strong> 50.
+This keeps the inclusions’ blocks. <strong>Solid color</strong> a red, <strong>Representation</strong> <em>Surface With
+Edges</em>.</li>
+<li>Select the mesh again, <strong>Filters › Mesh › Extract Set</strong>, <strong>Set name</strong> <code>x-</code>; grey, <em>Surface With
+Edges</em>. Do the same for <code>y+</code> and <code>z-</code>: three walls of the box.</li>
+<li>The inclusions and the three walls show together. Frame, <strong>File › Animation…</strong>, <strong>Orbit
+360°</strong>.</li>
+</ol>
+<pre><code class="language-python">m = afx.inclusion_mesh(count=8, radius=0.075, cells=24, seed=7); m.hide()
+incl = m.threshold(array="ElementBlock", lower=50)
+incl.set(color_by=None, solid_color=(0.85, 0.35, 0.25),
+         representation="Surface With Edges", edge_color=(0.15, 0.05, 0.05))
+for name in ("x-", "y+", "z-"):
+    w = m.extract_set(set=name)
+    w.set(color_by=None, solid_color=(0.78, 0.8, 0.84),
+          representation="Surface With Edges", edge_color=(0.35, 0.37, 0.42))
+afx.view([1.0, -0.7, 0.6], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("hex_mesh.mp4", fps=20, orbit=80)
+</code></pre>
+<p>More in <a href="geometry.html#inclusion-mesh">Geometry and meshing</a>.</p>
+<h2 id="rendering-a-volume"><a class="header" href="#rendering-a-volume">Rendering: a volume</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_volume.jpg" alt="A volume drawn with the Inferno color map"><span class="img-wrapper"><img src="images/sample_volume.jpg" alt="A volume drawn with the Inferno color map"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/wavelet.vti</code>.</li>
+<li><strong>Representation</strong> <em>Volume</em>, <strong>Color by</strong> <code>RTData</code>, color map <em>Inferno</em>. Set <strong>Transparent
+below</strong> to 0.45 so the low values are clear.</li>
+<li><strong>Iso</strong>, <strong>Fit</strong>, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">w = afx.load("testdata/wavelet.vti")
+w.set(representation="Volume", color_by="RTData", cmap="Inferno", volume_threshold=0.45)
+afx.view("iso"); afx.reset_camera()
+afx.save_animation("volume.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="making-all-of-them-again"><a class="header" href="#making-all-of-them-again">Making all of them again</a></h2>
+<p>In a checkout of the repository with the release program built, <code>scripts/site/media.sh</code> runs
+every script in <code>scripts/site/media/</code> and writes the clips and their first frames into
+<code>site/media/</code>; <code>scripts/site/media.sh flow</code> makes one. The two examples that run a solver first
+(<code>examples/phase_field/cahn_hilliard.py</code>, <code>examples/grain_growth/potts.py</code>) take a few seconds
+each with plain Python and NumPy.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="tutorials.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="file-formats.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="tutorials.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="file-formats.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

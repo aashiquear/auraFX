@@ -7,21 +7,21 @@ use aurafx_render::server::{render_camera, ServerRenderer};
 use aurafx_render::*;
 use std::sync::Arc;
 
-/// In-process servers draw on background threads: shut them down (dropping their GPU devices)
-/// before the test process exits, or the driver may be torn down under them.
+/// In-process servers draw on background threads: dropping the session drops their clients,
+/// which wait for those threads to finish (releasing their GPU devices) before the test ends.
 fn shut_down(s: Session) {
     drop(s);
-    std::thread::sleep(std::time::Duration::from_millis(600));
 }
 
 #[test]
 fn server_drawn_objects_match_local_drawing() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let Some(hook) = ServerRenderer::new() else {
         eprintln!("no GPU adapter");
         return;
     };
     let gpu = hook.gpu();
-    let host = Host { name: "gpu-server".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0 };
+    let host = Host { name: "gpu-server".into(), kind: HostKind::Local, setup: String::new(), server_processes: 0, launcher: String::new() };
     let mut s = Session::new();
     s.remote_clients.insert(host.name.clone(), RemoteClient::in_process_with("gpu-server", Some(Box::new(hook)), Some(gpu)));
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/disk_out_ref.ex2");
@@ -122,6 +122,7 @@ fn server_drawn_objects_match_local_drawing() {
 /// by depth ("sort-last"), which looks like drawing the whole here.
 #[test]
 fn parallel_server_composites_pieces_by_depth() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     use aurafx_pipeline::remote::ServeOptions;
     if ServerRenderer::new().is_none() {
         eprintln!("no GPU adapter");
@@ -132,10 +133,13 @@ fn parallel_server_composites_pieces_by_depth() {
         .map(|k| {
             let hook = ServerRenderer::for_pieces().unwrap();
             let gpu = Some(hook.gpu());
-            RemoteClient::in_process_opts(&format!("w{k}"), ServeOptions { hook: Some(Box::new(hook)), gpu, piece: Some((k, n)), workers: vec![] })
+            RemoteClient::in_process_opts(
+                &format!("w{k}"),
+                ServeOptions { hook: Some(Box::new(hook)), gpu, piece: Some((k, n)), workers: vec![], ..Default::default() },
+            )
         })
         .collect();
-    let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32 };
+    let host = Host { name: "cluster".into(), kind: HostKind::Local, setup: String::new(), server_processes: n as u32, launcher: String::new() };
     let mut s = Session::new();
     s.remote_clients
         .insert(aurafx_pipeline::remote::client_key(&host), RemoteClient::in_process_opts("cluster", ServeOptions { workers, ..Default::default() }));

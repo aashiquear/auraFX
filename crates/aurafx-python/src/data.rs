@@ -158,7 +158,7 @@ impl PyData {
     fn field_data(slf: Py<Self>) -> ArrayMap {
         ArrayMap { owner: slf, which: Which::Field }
     }
-    /// ParaView-style names (`output.PointData.append(array, "name")`).
+    /// The same arrays under capitalized names (`output.PointData.append(array, "name")`).
     #[getter(PointData)]
     fn point_data_pv(slf: Py<Self>) -> ArrayMap {
         ArrayMap { owner: slf, which: Which::Points }
@@ -250,7 +250,20 @@ impl ArrayMap {
         let mut d = self.owner.borrow_mut(py);
         d.attrs_mut(self.which).and_then(|a| a.remove(name)).map(|_| ()).ok_or_else(|| PyKeyError::new_err(format!("no array {name:?}")))
     }
-    /// ParaView-style `append(array, name)`.
+    /// The units of an array ("K", "m/s"), or None.
+    fn units(&self, py: Python<'_>, name: &str) -> PyResult<Option<String>> {
+        let d = self.owner.borrow(py);
+        let a = d.attrs(self.which).and_then(|a| a.get(name)).ok_or_else(|| PyKeyError::new_err(format!("no array {name:?}")))?;
+        Ok(a.units.clone())
+    }
+    /// Set the units of an array (an empty string clears them).
+    fn set_units(&self, py: Python<'_>, name: &str, units: &str) -> PyResult<()> {
+        let mut d = self.owner.borrow_mut(py);
+        let a = d.attrs_mut(self.which).and_then(|a| a.get_mut(name)).ok_or_else(|| PyKeyError::new_err(format!("no array {name:?}")))?;
+        *a = a.clone().with_units(units);
+        Ok(())
+    }
+    /// `append(array, name)`, the same as `self[name] = array`.
     fn append(&self, py: Python<'_>, value: &Bound<'_, PyAny>, name: &str) -> PyResult<()> {
         self.__setitem__(py, name, value)
     }
@@ -440,6 +453,51 @@ fn run_task(py: Python<'_>, task: aurafx_filters::python::PyTask) -> anyhow::Res
             map.__setitem__(py, if result.is_empty() { "result" } else { result }, &v).map_err(|e| py_error(py, e))?;
             let ds = out.borrow(py).ds.clone();
             Ok(ds)
+        }
+        PyTask::Text { expression, input, time, step } => {
+            // Point arrays, then cell arrays not named like a point array, over every block.
+            let leaves: Vec<&DataSet> = match input {
+                DataSet::MultiBlock(mb) => mb.leaves().into_iter().map(|l| l.1).collect(),
+                d => vec![d],
+            };
+            let mut arrays: std::collections::BTreeMap<String, (usize, Vec<f64>)> = Default::default();
+            let mut points: Vec<f64> = Vec::new();
+            for which in 0..2 {
+                let mut these: std::collections::BTreeMap<String, (usize, Vec<f64>)> = Default::default();
+                for leaf in &leaves {
+                    let attrs = if which == 0 { leaf.point_data() } else { leaf.cell_data() };
+                    for arr in attrs.into_iter().flat_map(|a| a.iter()).filter(|a| a.scalar_type() != ScalarType::String) {
+                        if arrays.contains_key(&arr.name) {
+                            continue;
+                        }
+                        let e = these.entry(arr.name.clone()).or_insert((arr.ncomp, Vec::new()));
+                        if e.0 == arr.ncomp {
+                            e.1.extend(arr.data.to_f64_vec());
+                        }
+                    }
+                    if which == 0 {
+                        if let Some(p) = leaf.points() {
+                            points.extend(p.data.to_f64_vec());
+                        }
+                    }
+                }
+                arrays.extend(these);
+            }
+            for (name, (nc, v)) in arrays {
+                if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit()) {
+                    g.set_item(&name, array_to_numpy(py, &ArrayData::F64(v), nc).map_err(|e| py_error(py, e))?).map_err(|e| py_error(py, e))?;
+                }
+            }
+            g.set_item("points", array_to_numpy(py, &ArrayData::F64(points), 3).map_err(|e| py_error(py, e))?).map_err(|e| py_error(py, e))?;
+            let inp = Py::new(py, PyData { ds: input.clone() }).map_err(|e| py_error(py, e))?;
+            g.set_item("inputs", PyList::new(py, [&inp]).map_err(|e| py_error(py, e))?).map_err(|e| py_error(py, e))?;
+            g.set_item("t", time).map_err(|e| py_error(py, e))?;
+            g.set_item("step", step).map_err(|e| py_error(py, e))?;
+            let v = py.eval(&code(expression)?, Some(&g), None).map_err(|e| py_error(py, e))?;
+            let text: String = v.str().map_err(|e| py_error(py, e))?.to_string();
+            let mut t = Table::default();
+            t.columns.insert(Array::new("Text", 1, ArrayData::String(vec![text])));
+            Ok(DataSet::Table(t))
         }
     }
 }

@@ -75,7 +75,7 @@ pub(crate) fn image(ds: &DataSet) -> Result<&ImageData> {
     }
 }
 
-fn cell_i32(img: &ImageData, name: &str) -> Result<Vec<i32>> {
+pub(crate) fn cell_i32(img: &ImageData, name: &str) -> Result<Vec<i32>> {
     let a = img.cell_data.get(name).ok_or_else(|| anyhow!("no cell array {name} (run Segment Features first)"))?;
     Ok((0..a.len()).map(|k| a.get(k, 0) as i32).collect())
 }
@@ -94,7 +94,7 @@ fn mask_of(img: &ImageData, mask: Option<&str>) -> Result<Option<Vec<bool>>> {
 const ENSEMBLE: [&str; 3] = ["CrystalStructures", "LatticeConstants", "MaterialName"];
 
 /// The number of feature rows (max id + 1).
-fn rows(ids: &[i32]) -> usize {
+pub(crate) fn rows(ids: &[i32]) -> usize {
     ids.iter().copied().max().unwrap_or(0).max(0) as usize + 1
 }
 
@@ -383,7 +383,7 @@ pub fn fill_bad_data(ds: &DataSet, min_defect: usize, ids_name: &str) -> Result<
 }
 
 /// Keep `rows` of the per-feature field arrays (`n_old` rows) in that order.
-fn keep_feature_rows(img: &mut ImageData, n_old: usize, rows: &[usize]) {
+pub(crate) fn keep_feature_rows(img: &mut ImageData, n_old: usize, rows: &[usize]) {
     for name in feature_arrays(img, n_old) {
         let a = img.field_data.get(&name).unwrap().gather(rows);
         img.field_data.insert(a);

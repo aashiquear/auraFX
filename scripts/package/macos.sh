@@ -31,6 +31,7 @@ cp -a "$PYROOT" "$APP/Contents/Resources/python"
 rm -rf "$APP/Contents/Resources/python/include" "$APP/Contents/Resources/python/share"
 find "$APP/Contents/Resources/python" -type d \( -name test -o -name tests -o -name __pycache__ -o -name idlelib -o -name tkinter -o -name turtledemo \) -prune -exec rm -rf {} +
 sed "s/@VERSION@/$VERSION/g" "$ROOT/packaging/macos/Info.plist" > "$APP/Contents/Info.plist"
+cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/THIRD-PARTY-NOTICES.txt" "$APP/Contents/Resources/"
 
 # Icon.
 ICONSET="$WORK/aurafx.iconset"

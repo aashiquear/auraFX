@@ -34,6 +34,20 @@ pub struct Settings {
     pub lighting: aurafx_pipeline::Lighting,
     /// Show the custom lights as handles in the 3D views (drag to aim them).
     pub show_light_widgets: bool,
+    /// Adding a source opens a window to insert it with its standard settings or change them first.
+    pub ask_source_settings: bool,
+    /// Keyboard shortcuts (actions bound to keys) and vim-style view keys.
+    pub shortcuts: crate::shortcuts::Shortcuts,
+    /// Let filters use the GPU (the results are the same; only faster on big grids).
+    pub gpu_filters: bool,
+    /// Show the welcome window at start.
+    pub show_welcome: bool,
+    /// The interface: Automatic (Desktop on a computer; Tablet or Phone on a tablet or a phone),
+    /// or one of them whatever the device is.
+    pub interface: crate::touch::InterfaceChoice,
+    /// Touch interfaces: leave the lower part of the screen free while typing, where the system
+    /// does not say how tall its on-screen keyboard is.
+    pub keyboard_room: bool,
 }
 
 impl Default for Settings {
@@ -47,7 +61,7 @@ impl Default for Settings {
             dark_theme: true,
             ui_scale: 1.0,
             auto_run_ai_code: false,
-            ai_agent_mode: false,
+            ai_agent_mode: true,
             show_orientation_axes: true,
             default_colormap: "Viridis".into(),
             hosts: Vec::new(),
@@ -57,6 +71,12 @@ impl Default for Settings {
             threads: 0,
             lighting: Default::default(),
             show_light_widgets: true,
+            ask_source_settings: true,
+            shortcuts: Default::default(),
+            gpu_filters: true,
+            show_welcome: true,
+            interface: Default::default(),
+            keyboard_room: true,
         }
     }
 }

@@ -5,7 +5,8 @@
 auraFX embeds Python with NumPy. The **Python** panel is a console: type a line and press
 **Ctrl+Enter** (or **Run**), use Tab to complete, Up/Down for history, **Run script…** to run a
 file, **Clear** to empty the log, **Help** for the cheat sheet. **Trace** turns what you did
-with the mouse into the equivalent code, which you can paste into a script. Everything the
+with the mouse into the equivalent code, which you can paste into a script. Copy and paste
+work with other programs in both directions (Ctrl+C, Ctrl+V), here and in every text box. Everything the
 UI does is reachable from the `afx` module, and `aurafx --script file.py` runs a script at
 startup (the app stays open afterwards).
 
@@ -91,6 +92,35 @@ afx.sweep("lmp -var T {T} -in in.melt", T=[300, 600, 900], host="cluster")
 afx.jobs(); afx.job(id); afx.cancel(id); afx.gpus("rocm-server"); afx.hosts()
 afx.servers(); afx.load_remote("cluster", "/scratch/run.e")
 ```
+
+## Notebooks
+
+auraFX runs Jupyter notebooks two ways:
+
+- **The Notebook panel** (Windows › Notebook): Markdown and Python cells run in the same Python
+  as the console (Shift+Enter runs a cell and moves on, **Run all**), with their printed output,
+  values, errors and pictures below them. **Open…** and **Save** read and write `.ipynb` files,
+  so a notebook moves between this panel and Jupyter.
+- **As a Jupyter kernel**: `aurafx --install-jupyter-kernel` once, then choose
+  **auraFX (Python)** as the kernel of a notebook in JupyterLab, Jupyter Notebook or an editor
+  that runs notebooks. Jupyter starts auraFX with its window; the cells drive it through `afx`,
+  and their output, values, errors and pictures come back to the notebook. Tab completes names;
+  shutting the kernel down closes the window. A running cell cannot be interrupted yet (the
+  request is answered with an error saying so); shutting down works while a cell runs.
+
+In either, `afx.snapshot()` shows a picture of the 3D view in the notebook (`views="all"`: every
+view as laid out) and `afx.display(x)` shows a picture file, PNG bytes or any object as text.
+
+```python
+w = afx.wavelet()
+w.slice(normal=[0, 0, 1]).set(color_by="RTData")
+afx.snapshot(width=640, height=400)
+```
+
+![The Notebook panel after Run all, scrolled to the picture of the 3D view that a cell made with afx.snapshot()](images/notebook_panel.png)
+
+Every function and method, with its arguments and the text `help()` shows, is in the
+[Python API reference](python-api.md), generated from the module itself.
 
 The **Help › Python API cheat sheet** window lists the same calls inside the app, and every
 function has a docstring (`help(afx.lighting)`).

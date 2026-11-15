@@ -69,7 +69,7 @@ pub(crate) fn grid(dims: [usize; 3], step: [f64; 3], first: [f64; 3], cells: Att
 pub fn read_ang(path: &Path) -> Result<DataSet> {
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut phases: Vec<Phase> = Vec::new();
-    let (mut xstep, mut ystep, mut ncols, mut nrows) = (0.0f64, 0.0f64, 0usize, 0usize);
+    let (mut xstep, mut ystep, mut ncols, mut nrows, mut ncols_even) = (0.0f64, 0.0f64, 0usize, 0usize, 0usize);
     let mut grid = String::from("SqrGrid");
     let mut data_lines = Vec::new();
     for line in text.lines() {
@@ -104,6 +104,7 @@ pub fn read_ang(path: &Path) -> Result<DataSet> {
                 "xstep" => xstep = val.parse().unwrap_or(0.0),
                 "ystep" => ystep = val.parse().unwrap_or(0.0),
                 "ncols_odd" => ncols = val.parse().unwrap_or(0),
+                "ncols_even" => ncols_even = val.parse().unwrap_or(0),
                 "nrows" => nrows = val.parse().unwrap_or(0),
                 _ => {}
             }
@@ -111,13 +112,16 @@ pub fn read_ang(path: &Path) -> Result<DataSet> {
             data_lines.push(l);
         }
     }
-    if !grid.eq_ignore_ascii_case("SqrGrid") {
-        bail!("{}: {grid} maps are not read (square grids are)", path.display());
+    let hex = grid.eq_ignore_ascii_case("HexGrid");
+    if !hex && !grid.eq_ignore_ascii_case("SqrGrid") {
+        bail!("{}: {grid} maps are not read (square and hexagonal grids are)", path.display());
     }
     if ncols == 0 || nrows == 0 {
         bail!("{}: the header gives no NCOLS_ODD / NROWS", path.display());
     }
-    let n = ncols * nrows;
+    // A hexagonal grid alternates rows of NCOLS_ODD and NCOLS_EVEN points, the even ones shifted by half a step.
+    let row_len = |r: usize| if hex && r % 2 == 1 { ncols_even.max(1) } else { ncols };
+    let n: usize = (0..nrows).map(row_len).sum();
     if data_lines.len() < n {
         bail!("{}: {} points for a {ncols} x {nrows} grid", path.display(), data_lines.len());
     }
@@ -157,7 +161,73 @@ pub fn read_ang(path: &Path) -> Result<DataSet> {
         cells.insert(Array::new(format!("Column {}", c + 1), 1, ArrayData::F32(cols[c].iter().map(|v| *v as f32).collect())));
     }
     let step = [if xstep > 0.0 { xstep } else { 1.0 }, if ystep > 0.0 { ystep } else { 1.0 }];
+    if hex {
+        return Ok(hex_to_square(cells, ncols, nrows, &row_len, step, [cols[3][0], cols[4][0]], &phases));
+    }
     Ok(image(ncols, nrows, step, [cols[3][0], cols[4][0]], cells, &phases))
+}
+
+/// A hexagonal-grid map resampled on a square grid of the hexagonal grid's x step: each square cell
+/// takes every value of the nearest scan point. The field array `ResampledFromHexGrid` records it.
+fn hex_to_square(
+    cells: Attributes,
+    ncols: usize,
+    nrows: usize,
+    row_len: &dyn Fn(usize) -> usize,
+    step: [f64; 2],
+    first: [f64; 2],
+    phases: &[Phase],
+) -> DataSet {
+    let starts: Vec<usize> = (0..nrows)
+        .scan(0usize, |acc, r| {
+            let s = *acc;
+            *acc += row_len(r);
+            Some(s)
+        })
+        .collect();
+    let s = step[0];
+    let height = (nrows.saturating_sub(1)) as f64 * step[1];
+    let (nx, ny) = (ncols, (height / s).round() as usize + 1);
+    // The scan point nearest to a position: the closest of the nearest rows.
+    let nearest = |x: f64, y: f64| -> usize {
+        let r0 = ((y / step[1]).round() as i64).clamp(0, nrows as i64 - 1);
+        let mut best = (f64::INFINITY, 0usize);
+        for r in (r0 - 1).max(0)..=(r0 + 1).min(nrows as i64 - 1) {
+            let r = r as usize;
+            let off = if r % 2 == 1 { 0.5 } else { 0.0 };
+            let k = ((x / step[0] - off).round() as i64).clamp(0, row_len(r) as i64 - 1) as usize;
+            let (px, py) = ((k as f64 + off) * step[0], r as f64 * step[1]);
+            let d = (px - x).powi(2) + (py - y).powi(2);
+            if d < best.0 {
+                best = (d, starts[r] + k);
+            }
+        }
+        best.1
+    };
+    let map: Vec<usize> = (0..ny).flat_map(|j| (0..nx).map(move |i| (i, j))).map(|(i, j)| nearest(i as f64 * s, j as f64 * s)).collect();
+    let mut out = Attributes::new();
+    for a in cells.iter() {
+        let mut b = Array::new(a.name.clone(), a.ncomp, ArrayData::F64(Vec::with_capacity(map.len() * a.ncomp)));
+        let data: Vec<f64> = map.iter().flat_map(|&p| (0..a.ncomp).map(move |c| a.get(p, c))).collect();
+        b.data = match &a.data {
+            ArrayData::I32(_) => ArrayData::I32(data.iter().map(|v| *v as i32).collect()),
+            ArrayData::F32(_) => ArrayData::F32(data.iter().map(|v| *v as f32).collect()),
+            _ => ArrayData::F64(data),
+        };
+        out.insert(b);
+    }
+    let mut ds = image(nx, ny, [s, s], first, out, phases);
+    if let DataSet::ImageData(img) = &mut ds {
+        img.field_data.insert(Array::new(
+            "ResampledFromHexGrid",
+            1,
+            ArrayData::String(vec![format!(
+                "hexagonal grid {ncols} x {nrows} (x step {}, y step {}) on a square grid of step {s}, nearest point",
+                step[0], step[1]
+            )]),
+        ));
+    }
+    ds
 }
 
 /// An Oxford `.ctf` file (angles in degrees; phase 0 = not indexed).
@@ -242,4 +312,101 @@ pub fn read_ctf(path: &Path) -> Result<DataSet> {
     let (xc, yc) = (col("X").unwrap_or(1), col("Y").unwrap_or(2));
     let step = [if xs > 0.0 { xs } else { 1.0 }, if ys > 0.0 { ys } else { 1.0 }];
     Ok(image(nx, ny, step, [cols[xc][0], cols[yc][0]], cells, &phases))
+}
+
+#[cfg(test)]
+mod hex_tests {
+    use super::*;
+
+    /// A hexagonal .ang scan of `nodd` / `nodd - 1` points per row; phi1 holds each point's index.
+    pub(crate) fn hex_ang(nodd: usize, nrows: usize, xstep: f64) -> String {
+        let ystep = xstep * 3f64.sqrt() / 2.0;
+        let mut t = format!(
+            "# TEM_PIXperUM 1.0\n# Phase 1\n# MaterialName Nickel\n# Symmetry 43\n# LatticeConstants 3.52 3.52 3.52 90 90 90\n# GRID: HexGrid\n# XSTEP: {xstep}\n# YSTEP: {ystep}\n# NCOLS_ODD: {nodd}\n# NCOLS_EVEN: {}\n# NROWS: {nrows}\n#\n",
+            nodd - 1
+        );
+        let mut k = 0;
+        for r in 0..nrows {
+            let (n, off) = if r % 2 == 1 { (nodd - 1, 0.5) } else { (nodd, 0.0) };
+            for i in 0..n {
+                t += &format!("{} 0.5 0.25 {} {} 100 0.9 1 1 0.5\n", k as f64 * 0.001, (i as f64 + off) * xstep, r as f64 * ystep);
+                k += 1;
+            }
+        }
+        t
+    }
+
+    #[test]
+    fn a_hexagonal_scan_is_resampled_on_a_square_grid_by_the_nearest_point() {
+        let (nodd, nrows, xs) = (9, 12, 0.5);
+        let p = std::env::temp_dir().join(format!("afx_hex_{}.ang", std::process::id()));
+        std::fs::write(&p, hex_ang(nodd, nrows, xs)).unwrap();
+        let ds = read_ang(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        let DataSet::ImageData(img) = &ds else { panic!() };
+        let ys = xs * 3f64.sqrt() / 2.0;
+        let ny = ((nrows - 1) as f64 * ys / xs).round() as usize + 1;
+        assert_eq!([img.extent[1] - img.extent[0], img.extent[3] - img.extent[2]], [nodd as i64, ny as i64]);
+        assert_eq!(img.spacing[0], xs);
+        assert_eq!(img.spacing[1], xs, "square cells");
+        assert!(img.field_data.get("ResampledFromHexGrid").is_some());
+        // Every square cell holds the value of the scan point nearest to it (brute force).
+        let pts: Vec<(f64, f64)> = (0..nrows)
+            .flat_map(|r| {
+                let (n, off) = if r % 2 == 1 { (nodd - 1, 0.5) } else { (nodd, 0.0) };
+                (0..n).map(move |i| ((i as f64 + off) * xs, r as f64 * ys))
+            })
+            .collect();
+        let e = img.cell_data.get("EulerAngles").unwrap();
+        for j in 0..ny {
+            for i in 0..nodd {
+                let (x, y) = (i as f64 * xs, j as f64 * xs);
+                let d = |p: &(f64, f64)| (p.0 - x).powi(2) + (p.1 - y).powi(2);
+                let best = pts.iter().map(d).fold(f64::INFINITY, f64::min);
+                let got = (e.get(j * nodd + i, 0) / 0.001).round() as usize;
+                assert!((d(&pts[got]) - best).abs() < 1e-9, "cell ({i}, {j}) took point {got}");
+            }
+        }
+        // Single-phase points keep phase 1 and the other columns come along.
+        assert!(img.cell_data.get("Confidence Index").is_some());
+    }
+}
+
+#[cfg(test)]
+mod hex_testdata {
+    /// testdata/ebsd/hex_grains.ang: a 60 x 52 hexagonal-grid scan of seven nickel grains (each point
+    /// takes the orientation of the nearest of seven fixed seeds; CI falls near the boundaries).
+    /// `cargo test -p aurafx-io write_hex_testdata -- --ignored`.
+    #[test]
+    #[ignore]
+    fn write_hex_testdata() {
+        let (nodd, nrows, xs) = (60usize, 52usize, 0.5);
+        let ys = xs * 3f64.sqrt() / 2.0;
+        let seeds = [
+            (3.0, 4.0, [0.2, 0.4, 0.1]),
+            (12.0, 3.0, [1.1, 0.7, 0.3]),
+            (25.0, 6.0, [2.0, 0.3, 1.2]),
+            (6.0, 15.0, [3.0, 1.0, 0.5]),
+            (17.0, 13.0, [4.2, 0.5, 0.9]),
+            (27.0, 17.0, [5.1, 0.9, 0.2]),
+            (14.0, 20.0, [0.7, 1.2, 1.4]),
+        ];
+        let mut t = format!(
+            "# TEM_PIXperUM 1.0\n# x-star 0.5\n# y-star 0.5\n# z-star 0.7\n# WorkingDistance 15.0\n#\n# Phase 1\n# MaterialName Nickel\n# Formula Ni\n# Symmetry 43\n# LatticeConstants 3.520 3.520 3.520 90.000 90.000 90.000\n#\n# GRID: HexGrid\n# XSTEP: {xs}\n# YSTEP: {ys}\n# NCOLS_ODD: {nodd}\n# NCOLS_EVEN: {}\n# NROWS: {nrows}\n#\n# OPERATOR: auraFX test data\n# SAMPLEID: hex_grains\n# SCANID: 1\n#\n",
+            nodd - 1
+        );
+        for r in 0..nrows {
+            let (n, off) = if r % 2 == 1 { (nodd - 1, 0.5) } else { (nodd, 0.0) };
+            for i in 0..n {
+                let (x, y) = ((i as f64 + off) * xs, r as f64 * ys);
+                let mut d: Vec<(f64, usize)> = seeds.iter().enumerate().map(|(k, s)| ((s.0 - x).powi(2) + (s.1 - y).powi(2), k)).collect();
+                d.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let e = seeds[d[0].1].2;
+                let ci = ((d[1].0.sqrt() - d[0].0.sqrt()) / 2.0).clamp(0.05, 1.0);
+                t += &format!("{:.5} {:.5} {:.5} {x:.5} {y:.5} {:.1} {ci:.3} 1 0 0.500\n", e[0], e[1], e[2], 100.0 + 50.0 * ci);
+            }
+        }
+        let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ebsd/hex_grains.ang");
+        std::fs::write(p, t).unwrap();
+    }
 }

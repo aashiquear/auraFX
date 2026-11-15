@@ -133,3 +133,38 @@ fn boundary_layers_and_smoothing() {
         assert!(after > before + 0.1, "{scheme}");
     }
 }
+
+#[test]
+fn winslow_smoothing_evens_out_a_disturbed_grid_and_keeps_a_regular_one() {
+    use aurafx_mesh::improve::{smooth, Cells3, SMOOTH_WINSLOW};
+    use aurafx_mesh::structured::{box_mesh, Division};
+    let d = Division::uniform(6);
+    let m = box_mesh([0.0; 3], [1.0; 3], [&d, &d, &d]);
+    let cells = Cells3 { cells: (0..m.n_elements()).map(|e| m.cell(e)[..8].to_vec()).collect() };
+    // A regular grid stays.
+    let mut p = m.points.clone();
+    smooth(&mut p, &cells, SMOOTH_WINSLOW, 5, &Default::default());
+    assert!(p.iter().zip(&m.points).all(|(a, b)| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-12)));
+    // Interior nodes moved by up to a third of a cell come back near the regular places.
+    let mut s = 7u64;
+    let mut rnd = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        (s % 1000) as f64 / 1000.0 - 0.5
+    };
+    let h = 1.0 / 6.0;
+    let mut q = m.points.clone();
+    for x in q.iter_mut() {
+        if x.iter().all(|c| *c > 1e-9 && *c < 1.0 - 1e-9) {
+            for c in x.iter_mut() {
+                *c += rnd() * h * 0.6;
+            }
+        }
+    }
+    let err = |p: &[[f64; 3]]| p.iter().zip(&m.points).map(|(a, b)| (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f64>()).sum::<f64>().sqrt();
+    let before = err(&q);
+    let worst = smooth(&mut q, &cells, SMOOTH_WINSLOW, 30, &Default::default());
+    assert!(err(&q) < 0.05 * before, "{} -> {}", before, err(&q));
+    assert!(worst > 0.95, "{worst}");
+}

@@ -162,7 +162,7 @@ pub fn power_labels(n: [usize; 3], h: [f64; 3], seeds: &[[f64; 3]], weights: &[f
 }
 
 /// Labels renumbered from 1 in order of first appearance; the old label of each new one.
-fn compact(labels: &[u32]) -> (Vec<i32>, Vec<u32>) {
+pub(crate) fn compact(labels: &[u32]) -> (Vec<i32>, Vec<u32>) {
     let mut map = std::collections::HashMap::new();
     let mut order = Vec::new();
     let ids = labels
@@ -189,7 +189,7 @@ pub const ORIENT_FIBER111: &str = "<111> along Z";
 
 /// One orientation per grain: random, or a fibre (a crystal direction along sample Z within
 /// a Gaussian spread of `spread` radians, random about Z).
-fn grain_orientations(n: usize, kind: &str, spread: f64, r: &mut dyn Draws) -> Vec<Quat> {
+pub(crate) fn grain_orientations(n: usize, kind: &str, spread: f64, r: &mut dyn Draws) -> Vec<Quat> {
     (0..n)
         .map(|_| {
             if kind == ORIENT_RANDOM {
@@ -217,7 +217,7 @@ fn grain_orientations(n: usize, kind: &str, spread: f64, r: &mut dyn Draws) -> V
 
 /// A microstructure dataset: cells of `h` on `n`, FeatureIds, Phases (1), EulerAngles, and
 /// the class of phase 1 as CrystalStructures.
-fn microstructure(n: [usize; 3], h: [f64; 3], ids: Vec<i32>, orients: &[Quat], laue: Laue) -> ImageData {
+pub(crate) fn microstructure(n: [usize; 3], h: [f64; 3], ids: Vec<i32>, orients: &[Quat], laue: Laue) -> ImageData {
     let mut img = ImageData { extent: [0, n[0] as i64, 0, n[1] as i64, 0, n[2] as i64], origin: [0.0; 3], spacing: h, ..Default::default() };
     let eul: Vec<f32> = ids.iter().flat_map(|i| cx::quat_to_euler(orients[(*i - 1) as usize]).map(|x| x as f32)).collect();
     let nc = ids.len();
@@ -239,6 +239,14 @@ pub struct TessellationParams {
     pub spread_deg: f64,
     pub structure: String,
     pub seed: u64,
+    /// Relaxation sweeps, the width of their Gaussian in cells, the boundary roughness and
+    /// its correlation length (length units) and the fraction of the smallest grains removed
+    /// (see `grain_realism`); all zero: the plain tessellation.
+    pub relax: usize,
+    pub relax_width: f64,
+    pub roughness: f64,
+    pub roughness_length: f64,
+    pub coarsen: f64,
 }
 
 /// Voronoi / Laguerre Grains: seeds placed at random, each cell of the grid given to the
@@ -266,7 +274,21 @@ pub fn tessellation(p: &TessellationParams) -> Result<DataSet> {
             }
         })
         .collect();
-    let labels = power_labels(n, h, &seeds, &weights, p.periodic);
+    let mut labels = power_labels(n, h, &seeds, &weights, p.periodic);
+    let realism = crate::grain_realism::RealismParams {
+        relax: p.relax,
+        width: p.relax_width,
+        roughness: p.roughness,
+        roughness_length: p.roughness_length,
+        coarsen: p.coarsen,
+        periodic: [p.periodic; 3],
+        seed: p.seed,
+    };
+    if !realism.is_off() {
+        let ids: Vec<i32> = labels.iter().map(|l| *l as i32 + 1).collect();
+        let src = crate::grain_realism::realism_map(&ids, n, h, &realism);
+        labels = src.iter().map(|s| labels[*s as usize]).collect();
+    }
     let (ids, order) = compact(&labels);
     let orients = grain_orientations(order.len(), &p.orientations, p.spread_deg.to_radians(), &mut r);
     let mut img = microstructure(n, h, ids, &orients, laue);
@@ -296,9 +318,46 @@ pub struct ColumnParams {
     pub width_height_exponent: f64,
 }
 
+/// Growth rules of columnar grains beyond the plain columns.
+#[derive(Clone, Debug)]
+pub struct ColumnGrowth {
+    /// Competitive growth, 0 to 1: columns whose <100> lies nearer the build direction widen
+    /// with height at the cost of their neighbours, and an overgrown column is replaced by a
+    /// new grain with probability 1 - competitive only.
+    pub competitive: f64,
+    /// Layer thickness (0: no layers).
+    pub layer: f64,
+    /// Share of the columns that continue through a layer boundary; the others end there
+    /// and a new grain starts in their place.
+    pub epitaxial: f64,
+    /// Lean of the columns along x, alternating from layer to layer (degrees).
+    pub scan_tilt_deg: f64,
+    pub orientations: String,
+    /// Fibre spread, radians.
+    pub spread: f64,
+    pub seed: u64,
+}
+
+/// How far a layered build leans the columns sideways at height z per unit of tan(lean): up
+/// in even layers, back in odd ones.
+fn zigzag(z: f64, layer: f64) -> f64 {
+    if layer <= 0.0 {
+        return 0.0;
+    }
+    let m = (z / layer).floor();
+    let u = z - m * layer;
+    if m as i64 % 2 == 0 {
+        u
+    } else {
+        layer - u
+    }
+}
+
 /// Columns of an additive build: labels (z slowest, then y, then x; from 0), the grid size
-/// and per grain (base, top, tilt in degrees, originating in the build).
+/// and per grain (base, top, tilt in degrees, originating in the build), and with growth
+/// rules the grain orientations they were grown with.
 pub struct Columns {
+    pub orient: Vec<Quat>,
     pub n: [usize; 3],
     pub labels: Vec<u32>,
     pub base: Vec<f64>,
@@ -315,6 +374,18 @@ pub struct Columns {
 /// cross-sections (or, with `width_sigma` / `width_height_exponent`, lognormal widths that
 /// grow with the column's height). Grains are connected stacks of slices.
 pub fn columns(p: &ColumnParams, r: &mut dyn Draws) -> Result<Columns> {
+    columns_with(p, None, r)
+}
+
+/// `columns` with growth rules (None: exactly `columns`). The rules draw from their own
+/// random numbers, and every column gets its orientation when it starts: its favour is
+/// minus the angle between its nearest <100> and the build direction, in units of the
+/// texture's spread (at most 3), and the weight of its cross-section changes by
+/// competitive / 2 x favour x width x height.
+pub fn columns_with(p: &ColumnParams, growth: Option<&ColumnGrowth>, r: &mut dyn Draws) -> Result<Columns> {
+    let mut r2 = Rng::new(growth.map(|g| g.seed).unwrap_or(0) ^ 0x6C0F_FEE5);
+    let mut orient: Vec<Quat> = Vec::new();
+    let mut favour: Vec<f64> = Vec::new();
     let vox = p.voxel;
     let nn: [usize; 3] = std::array::from_fn(|a| ((p.size[a] / vox).round() as usize).max(4));
     let (lx, ly, lz) = (nn[0] as f64 * vox, nn[1] as f64 * vox, nn[2] as f64 * vox);
@@ -363,7 +434,15 @@ pub fn columns(p: &ColumnParams, r: &mut dyn Draws) -> Result<Columns> {
     }
     macro_rules! sp {
         ($z:expr) => {
-            spawn($z, p, lx, ly, r, (&mut x0, &mut y0, &mut zb, &mut zt, &mut tx, &mut ty, &mut wt, &mut tilt, &mut appeared, &mut ended))
+            spawn($z, p, lx, ly, r, (&mut x0, &mut y0, &mut zb, &mut zt, &mut tx, &mut ty, &mut wt, &mut tilt, &mut appeared, &mut ended));
+            if let Some(g) = growth {
+                let q = grain_orientations(1, &g.orientations, g.spread, &mut r2)[0];
+                let along = cx::rotate(q, [0.0, 0.0, 1.0]);
+                let theta = along.iter().fold(0.0f64, |m, x| m.max(x.abs())).min(1.0).acos();
+                let scale = if g.orientations == ORIENT_RANDOM { 20f64.to_radians() } else { g.spread.max(2f64.to_radians()) };
+                orient.push(q);
+                favour.push(-(theta / scale).min(3.0));
+            }
         };
     }
     for _ in 0..n_active {
@@ -371,6 +450,7 @@ pub fn columns(p: &ColumnParams, r: &mut dyn Draws) -> Result<Columns> {
     }
     let (nx, ny, nz) = (nn[0], nn[1], nn[2]);
     let mut labels = vec![u32::MAX; nx * ny * nz];
+    let mut band = 0i64;
     for k in 0..nz {
         let z = (k as f64 + 0.5) * vox;
         let mut i = 0;
@@ -384,10 +464,41 @@ pub fn columns(p: &ColumnParams, r: &mut dyn Draws) -> Result<Columns> {
             }
             i += 1;
         }
+        if let Some(g) = growth.filter(|g| g.layer > 0.0 && g.epitaxial < 1.0) {
+            // A layer boundary: the columns that do not continue end, a new grain in their place.
+            let m = (z / g.layer).floor() as i64;
+            if m > band {
+                band = m;
+                let zl = m as f64 * g.layer;
+                for i in 0..zb.len() {
+                    if !ended[i] && appeared[i] && zb[i] < zl && r2.random() >= g.epitaxial {
+                        ended[i] = true;
+                        zt[i] = zl;
+                        let (px, py) = (x0[i] + (zl - zb[i]) * tx[i], y0[i] + (zl - zb[i]) * ty[i]);
+                        sp!(zl);
+                        let j = x0.len() - 1;
+                        x0[j] = rem(px + r2.uniform(-0.25, 0.25) * w, lx);
+                        y0[j] = rem(py + r2.uniform(-0.25, 0.25) * w, ly);
+                    }
+                }
+            }
+        }
         let act: Vec<usize> = (0..zb.len()).filter(|i| zb[*i] <= z && !ended[*i]).collect();
-        let cx: Vec<f64> = act.iter().map(|i| rem(x0[*i] + (z - zb[*i]) * tx[*i], lx)).collect();
-        let cy: Vec<f64> = act.iter().map(|i| rem(y0[*i] + (z - zb[*i]) * ty[*i], ly)).collect();
-        let w2: Vec<f64> = act.iter().map(|i| wt[*i] * wt[*i]).collect();
+        let (cx, cy, w2): (Vec<f64>, Vec<f64>, Vec<f64>) = match growth {
+            None => (
+                act.iter().map(|i| rem(x0[*i] + (z - zb[*i]) * tx[*i], lx)).collect(),
+                act.iter().map(|i| rem(y0[*i] + (z - zb[*i]) * ty[*i], ly)).collect(),
+                act.iter().map(|i| wt[*i] * wt[*i]).collect(),
+            ),
+            Some(g) => {
+                let lean = zigzag(z, g.layer) * g.scan_tilt_deg.to_radians().tan();
+                (
+                    act.iter().map(|i| rem(x0[*i] + (z - zb[*i]) * tx[*i] + lean, lx)).collect(),
+                    act.iter().map(|i| rem(y0[*i] + (z - zb[*i]) * ty[*i], ly)).collect(),
+                    act.iter().map(|i| wt[*i] * wt[*i] + 0.5 * g.competitive * favour[*i] * w * z).collect(),
+                )
+            }
+        };
         let slice: Vec<u32> = (0..nx * ny)
             .into_par_iter()
             .map(|c| {
@@ -415,7 +526,13 @@ pub fn columns(p: &ColumnParams, r: &mut dyn Draws) -> Result<Columns> {
             if !on[i] && appeared[i] {
                 zt[i] = z;
                 ended[i] = true;
-                sp!(z);
+                let renew = match growth {
+                    Some(g) if g.competitive > 0.0 => r2.random() >= g.competitive,
+                    _ => true,
+                };
+                if renew {
+                    sp!(z);
+                }
             }
         }
         for (i, o) in on.iter().enumerate() {
@@ -443,6 +560,7 @@ pub fn columns(p: &ColumnParams, r: &mut dyn Draws) -> Result<Columns> {
         }
     }
     Ok(Columns {
+        orient: if growth.is_some() { present.iter().map(|l| orient[*l as usize]).collect() } else { Vec::new() },
         n: nn,
         labels,
         base: zmin.iter().map(|k| *k as f64 * vox).collect(),
@@ -453,7 +571,7 @@ pub fn columns(p: &ColumnParams, r: &mut dyn Draws) -> Result<Columns> {
 }
 
 /// x mod m with the sign of m (as Python's %).
-fn rem(x: f64, m: f64) -> f64 {
+pub(crate) fn rem(x: f64, m: f64) -> f64 {
     let r = x % m;
     if r != 0.0 && (r < 0.0) != (m < 0.0) {
         r + m
@@ -462,17 +580,131 @@ fn rem(x: f64, m: f64) -> f64 {
     }
 }
 
+/// What makes columnar grains look more like those of a layered build (all off by default).
+#[derive(Clone, Debug)]
+pub struct ColumnExtras {
+    pub competitive: f64,
+    pub layer: f64,
+    pub epitaxial: f64,
+    pub scan_tilt_deg: f64,
+    /// Fine equiaxed grains at the layer boundaries: how many per (0.4 width)² of cross-section.
+    pub equiaxed: f64,
+    pub relax: usize,
+    pub relax_width: f64,
+    pub roughness: f64,
+    pub roughness_length: f64,
+}
+
+impl Default for ColumnExtras {
+    fn default() -> Self {
+        ColumnExtras {
+            competitive: 0.0,
+            layer: 0.0,
+            epitaxial: 1.0,
+            scan_tilt_deg: 0.0,
+            equiaxed: 0.0,
+            relax: 0,
+            relax_width: 1.5,
+            roughness: 0.0,
+            roughness_length: 0.0,
+        }
+    }
+}
+
+impl ColumnExtras {
+    fn growth(&self) -> bool {
+        self.competitive > 0.0 || (self.layer > 0.0 && (self.epitaxial < 1.0 || self.scan_tilt_deg != 0.0))
+    }
+    fn is_off(&self) -> bool {
+        !self.growth() && !(self.layer > 0.0 && self.equiaxed > 0.0) && self.relax == 0 && self.roughness <= 0.0
+    }
+}
+
 /// Columnar Grains as a dataset (z the build direction).
 pub fn columnar_grains(p: &ColumnParams, orientations: &str, spread_deg: f64, structure: &str, seed: u64) -> Result<DataSet> {
+    columnar_grains_with(p, orientations, spread_deg, structure, seed, &ColumnExtras::default())
+}
+
+/// Columnar Grains with competitive growth, layers (epitaxy, lean, fine grains at the layer
+/// boundaries), boundary roughness and relaxation; with all of them off, `columnar_grains`.
+pub fn columnar_grains_with(p: &ColumnParams, orientations: &str, spread_deg: f64, structure: &str, seed: u64, extras: &ColumnExtras) -> Result<DataSet> {
     let laue = Laue::from_label(structure).ok_or_else(|| anyhow!("unknown crystal structure {structure}"))?;
     let cells = p.size.iter().map(|s| (s / p.voxel).round().max(4.0)).product::<f64>();
     if cells > 100e6 {
         bail!("more than 100 million cells: use larger voxels");
     }
     let mut r = Rng::new(seed);
-    let c = columns(p, &mut r)?;
+    let c = if extras.is_off() {
+        columns(p, &mut r)?
+    } else {
+        let growth = extras.growth().then(|| ColumnGrowth {
+            competitive: extras.competitive.clamp(0.0, 1.0),
+            layer: extras.layer.max(0.0),
+            epitaxial: extras.epitaxial.clamp(0.0, 1.0),
+            scan_tilt_deg: extras.scan_tilt_deg,
+            orientations: orientations.to_string(),
+            spread: spread_deg.to_radians(),
+            seed,
+        });
+        let c = columns_with(p, growth.as_ref(), &mut r)?;
+        let ng = c.base.len();
+        let mut orient = if c.orient.is_empty() { grain_orientations(ng, orientations, spread_deg.to_radians(), &mut r) } else { c.orient.clone() };
+        let (mut labels, mut tilt, mut originating) = (c.labels, c.tilt, c.originating);
+        let (nx, ny, nz) = (c.n[0], c.n[1], c.n[2]);
+        if extras.layer > 0.0 && extras.equiaxed > 0.0 {
+            let mut r3 = Rng::new(seed ^ 0x0F1E_5EED);
+            let made = crate::grain_realism::stamp_equiaxed(&mut labels, c.n, p.voxel, ng, extras.layer, 0.4 * p.width, extras.equiaxed, &mut r3);
+            for _ in 0..made {
+                orient.push(random_quat(&mut r3));
+                tilt.push(0.0);
+                originating.push(true);
+            }
+        }
+        let realism = crate::grain_realism::RealismParams {
+            relax: extras.relax,
+            width: extras.relax_width,
+            roughness: extras.roughness,
+            roughness_length: extras.roughness_length,
+            coarsen: 0.0,
+            periodic: [true, true, false],
+            seed,
+        };
+        if !realism.is_off() {
+            let ids: Vec<i32> = labels.iter().map(|l| *l as i32 + 1).collect();
+            let src = crate::grain_realism::realism_map(&ids, c.n, [p.voxel; 3], &realism);
+            labels = src.iter().map(|s| labels[*s as usize]).collect();
+        }
+        // The grains left, numbered in their old order, with their extent along z.
+        let mut present = vec![false; orient.len()];
+        for l in &labels {
+            present[*l as usize] = true;
+        }
+        let kept: Vec<usize> = (0..orient.len()).filter(|l| present[*l]).collect();
+        let mut remap = vec![u32::MAX; orient.len()];
+        for (k, l) in kept.iter().enumerate() {
+            remap[*l] = k as u32;
+        }
+        let labels: Vec<u32> = labels.iter().map(|l| remap[*l as usize]).collect();
+        let mut zmin = vec![nz; kept.len()];
+        let mut zmax = vec![0usize; kept.len()];
+        for k in 0..nz {
+            for l in &labels[k * nx * ny..(k + 1) * nx * ny] {
+                zmin[*l as usize] = zmin[*l as usize].min(k);
+                zmax[*l as usize] = zmax[*l as usize].max(k);
+            }
+        }
+        Columns {
+            n: c.n,
+            labels,
+            base: zmin.iter().map(|k| *k as f64 * p.voxel).collect(),
+            top: zmax.iter().map(|k| (*k + 1) as f64 * p.voxel).collect(),
+            tilt: kept.iter().map(|l| tilt[*l]).collect(),
+            originating: kept.iter().map(|l| originating[*l]).collect(),
+            orient: kept.iter().map(|l| orient[*l]).collect(),
+        }
+    };
     let ng = c.base.len();
-    let orients = grain_orientations(ng, orientations, spread_deg.to_radians(), &mut r);
+    let orients = if c.orient.is_empty() { grain_orientations(ng, orientations, spread_deg.to_radians(), &mut r) } else { c.orient.clone() };
     let ids: Vec<i32> = c.labels.iter().map(|l| *l as i32 + 1).collect();
     let mut img = microstructure(c.n, [p.voxel; 3], ids, &orients, laue);
     let with0 = |v: &[f64]| -> Vec<f64> { std::iter::once(0.0).chain(v.iter().copied()).collect() };
@@ -485,18 +717,18 @@ pub fn columnar_grains(p: &ColumnParams, orientations: &str, spread_deg: f64, st
 
 // ------------------------------------------------------------------ orientation changes
 
-fn orientation_target(ds: &DataSet, name: &str) -> Result<(Association, Array)> {
+pub(crate) fn orientation_target(ds: &DataSet, name: &str) -> Result<(Association, Array)> {
     let (assoc, a) = crate::crystal::orientation_array(ds, if name.is_empty() { None } else { Some((Association::Cells, name.to_string())) })?;
     Ok((assoc, a.clone()))
 }
 
-fn encode_like(a: &Array, qs: &[Quat]) -> Result<Array> {
+pub(crate) fn encode_like(a: &Array, qs: &[Quat]) -> Result<Array> {
     let repr = crate::crystal::Repr::guess(a.ncomp).ok_or_else(|| anyhow!("{} is not an orientation array", a.name))?;
     let vals: Vec<f64> = qs.iter().flat_map(|q| repr.encode(*q)).collect();
     Ok(Array::new(&a.name, a.ncomp, ArrayData::F64(vals)))
 }
 
-fn replace(ds: &DataSet, assoc: Association, arr: Array) -> Result<DataSet> {
+pub(crate) fn replace(ds: &DataSet, assoc: Association, arr: Array) -> Result<DataSet> {
     let mut out = ds.clone();
     let attrs = match assoc {
         Association::Cells => out.cell_data_mut(),
@@ -534,7 +766,7 @@ pub fn orientation_noise(ds: &DataSet, orientations: &str, sigma_deg: f64, per_f
     replace(ds, assoc, encode_like(&a, &qs)?)
 }
 
-fn feature_ids(ds: &DataSet, name: &str, assoc: Association, n: usize) -> Result<Vec<i32>> {
+pub(crate) fn feature_ids(ds: &DataSet, name: &str, assoc: Association, n: usize) -> Result<Vec<i32>> {
     let attrs = match assoc {
         Association::Cells => ds.cell_data(),
         Association::Points => ds.point_data(),

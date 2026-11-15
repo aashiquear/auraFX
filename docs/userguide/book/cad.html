@@ -1,0 +1,951 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>CAD modeling - auraFX User Guide</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-e96d0476.css">
+        <link rel="stylesheet" href="css/chrome-d279d366.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-8b305462.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">auraFX User Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/aashiquear/auraFX" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="cad-modeling"><a class="header" href="#cad-modeling">CAD modeling</a></h1>
+<p>auraFX has a parametric part modeler. A part is a short list of <strong>features</strong> (a sketch
+extruded, a hole cut, a boss added) with <strong>named dimensions</strong>. Change a dimension and the whole
+part rebuilds, and everything built on it (meshes, grains, solver cases) can be re-run. The part
+keeps <strong>named faces</strong>, so a later step can say “the wall of the bore” instead of a number that
+changes when the part does.</p>
+<p>It sits beside the command-based Geometry source of the previous chapter. Use Geometry for
+quick specimens written as text; use a CAD model when the part has dimensions you want to
+change, sketches, patterns and holes.</p>
+<h2 id="the-cad-model-source"><a class="header" href="#the-cad-model-source">The CAD Model source</a></h2>
+<p>Add one with <strong>Sources › CAD Model</strong> (or the command palette, <code>Ctrl+K</code>). It starts as a plate.
+Its Properties show:</p>
+<ul>
+<li><strong>Dimensions</strong>: the part’s named dimensions. Type a new value or an expression such as
+<code>width / 2</code> and press <strong>Enter</strong>; the part and everything downstream update. The value the
+expression gives is shown next to it. <strong>reset</strong> returns to the value stored in the part.
+A dimension changed here belongs to this node and leaves the part untouched, so two nodes
+can show two sizes of one part.</li>
+<li><strong>Configuration</strong>: shown when the part has configurations (named sets of dimensions such as
+<em>small</em> and <em>large</em>); pick one to build that variant.</li>
+<li><strong>Features</strong>: the part’s history in order. The checkbox suppresses a feature (the part is
+rebuilt without it).</li>
+<li><strong>Faces</strong>: every face of the result with its number and name, its volume and area.</li>
+<li><strong>Resolution</strong> and <strong>Output</strong>: cells along the longest side when the surface is drawn, and
+<em>Surface</em> or <em>Distance field</em> (the signed distance to the part, negative inside).</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_part.png" alt="A flange from the templates, colored by face: the bolt holes, the counterbore and the plate each have their own faces"><span class="img-wrapper"><img src="images/cad_part.png" alt="A flange from the templates, colored by face: the bolt holes, the counterbore and the plate each have their own faces"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_panel.png" alt="The CAD Model in the window: Properties list the dimensions with their values, the configuration, the features and the faces"><span class="img-wrapper"><img src="images/cad_panel.png" alt="The CAD Model in the window: Properties list the dimensions with their values, the configuration, the features and the faces"></span></label></p>
+<h2 id="faces-and-their-names"><a class="header" href="#faces-and-their-names">Faces and their names</a></h2>
+<p>The surface has the cell arrays <code>BodyId</code> and <code>FaceId</code>, and the field arrays <code>FaceNames</code>
+(indexed by face number), <code>BodyNames</code>, <code>Volume</code> and <code>SurfaceArea</code>: the same layout as the
+Geometry source, so everything that works on a Geometry result works on a CAD model. Color by
+<code>FaceId</code> to see the faces.</p>
+<p>A face is named after the feature that made it and its place on that feature: a brick has
+<code>x-</code>, <code>x+</code>, <code>y-</code>, <code>y+</code>, <code>z-</code> and <code>z+</code>; a cylinder or a hole has <code>side</code>, <code>bottom</code> and <code>top</code>; an
+extruded sketch has <code>bottom</code>, <code>top</code> and one <code>side N</code> for each line, arc or circle of the
+sketch (the sketch’s own order). <code>Bore side</code> is the wall of a hole named <em>Bore</em>; <code>Base z+</code> is
+the top of a brick named <em>Base</em>. Rename a feature and its faces are renamed with it, which the
+later <em>downstream check</em> uses to follow them.</p>
+<h2 id="the-cad-environment"><a class="header" href="#the-cad-environment">The CAD environment</a></h2>
+<p>Editing happens in one mode of the same window. Open it from <strong>Sources › CAD Model…</strong> (which
+adds a new part and opens it), from <strong>Edit in CAD…</strong> (right-click a CAD Model in the Pipeline,
+or the button at the top of its Properties), or from Python with <code>part.edit_cad()</code>. While it
+is open:</p>
+<ul>
+<li>the toolbar becomes the <strong>ribbon</strong> (every button with an icon and its name) with tabs <em>Sketch</em>, <em>Features</em>, <em>Modify</em>, <em>Inspect</em>,
+<em>Assemble</em> and <em>Files</em> (Alt+1 to Alt+6). Each button adds a feature with sensible sizes at
+the top of the part; you then set its numbers in the feature panel. <em>Inspect</em> reads the part
+(volume, surface, size, center, mass for a density, the area of a cross-section); <em>Assemble</em>
+places other parts (see below); <em>Files</em> starts from a template or opens and saves a document.</li>
+<li>the Pipeline panel becomes the <strong>Model tree</strong>: the part’s dimensions, its features in
+order (the checkbox suppresses one; double-click renames; right-click for <em>Suppress</em>,
+<em>Roll back to here</em>, <em>Move up</em>, <em>Move down</em>, <em>Delete</em>), the modifiers on the whole part and
+the <strong>configurations</strong>: named sets of dimension values, variants of one part. Type a name and
+press <em>Save values</em> to keep the dimensions’ present values under it (saving under an existing
+name replaces it), click a configuration to make it the active one, × removes it. The parts
+of an assembly are listed under <em>Components</em>: click one to move or turn it, double-click to
+rename it.</li>
+<li>the Properties panel becomes the <strong>Feature panel</strong>: every field of the selected feature.
+Each number accepts an expression of the dimensions: type <code>width / 2</code> instead of a number
+and the field follows the dimension (the value it gives is shown beside it). Choices (the
+end condition of an extrusion, the type of a hole, a mirror plane) are menus. With no
+feature selected it shows the part itself and its faces.</li>
+<li>the <strong>timeline bar</strong> at the bottom lists the features in order. The orange marker is the
+<em>rollback marker</em>: only the features before it are built, so you can look at the part as it
+was after the third feature, or insert a hole earlier in the history: a feature added while
+rolled back goes in at the marker. ◀ ▶ move it. Apply always hands over the whole part.</li>
+<li>the menu bar gains a <strong>CAD</strong> menu, and the part is built again after every edit, in the
+background (the timeline shows the time it took and the part’s volume).</li>
+<li><strong>the pipeline is paused.</strong> Other 3D views, charts and spreadsheets stay as they were and
+say so in a grey banner; nothing downstream re-runs on every edit.</li>
+</ul>
+<h3 id="finding-your-way"><a class="header" href="#finding-your-way">Finding your way</a></h3>
+<p>You do not need to know where a command is:</p>
+<ul>
+<li><strong>Next</strong>, at the top of the model tree, follows what you are doing and offers the steps that
+make sense now as buttons: on an empty part <em>Sketch on the Top plane</em>, <em>Box</em> and <em>Start from a
+template</em>; in a sketch it says whether the outline is closed and how many degrees of freedom
+are left, and offers <em>Extrude</em>; when the part does not build it shows the reason and <em>Undo</em>.
+The same sentence is in the status bar at the bottom of the window.</li>
+<li><strong>Command search</strong>: press <strong>S</strong> in the 3D view (or Ctrl+K, or the <em>Search</em> button beside the
+tabs). A small box opens at the pointer; type a few letters (<code>fil</code>, <code>hole</code>, <code>export</code>) and
+press Enter. Each result says which tab it is on, so you can find the button next time.</li>
+<li><strong>Right-click a face</strong> of the part in the 3D view: its name, kind and area, and what can be
+done with it (<em>Sketch on this face</em>, <em>Fillet edges…</em>, <em>Shell</em>, <em>Pattern holes</em>, <em>Mirror</em>,
+<em>Select its feature</em>). Right-click a feature in the tree or the timeline for <em>Suppress</em>,
+<em>Roll back to here</em> and the rest.</li>
+<li><strong>Hover</strong> over any button for what it does; a greyed button says why it cannot be used yet
+(<em>Apply</em> when the part does not build, a constraint without the right selection, <em>Extrude</em>
+without a closed outline).</li>
+<li>A feature that stops the part from building is <strong>red with a warning sign</strong> in the tree, and
+the reason stays at the top of the feature panel, with an <em>Undo the last change</em> button,
+until the part builds again. A feature marked <strong>≈</strong> is shown roughly by the kernel in use.</li>
+<li><strong>Keys</strong>: Alt+1…6 the tabs, Ctrl+Enter Apply, Esc leave, Delete and F2 on the selected feature,
+Ctrl+Z / Ctrl+Shift+Z undo and redo (inside an open sketch they undo the sketch’s own
+changes); in a sketch L line, R rectangle, C circle, A arc, P point.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_next_steps.png" alt="An empty part: the Next strip at the top of the model tree offers the first steps, and the Sketch tab is open"><span class="img-wrapper"><img src="images/cad_next_steps.png" alt="An empty part: the Next strip at the top of the model tree offers the first steps, and the Sketch tab is open"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_command_search.png" alt="The command search opened with S: typing “fil” lists the fillet commands and the tab each is on"><span class="img-wrapper"><img src="images/cad_command_search.png" alt="The command search opened with S: typing “fil” lists the fillet commands and the tab each is on"></span></label></p>
+<p>While you edit, the part is rebuilt after every change. With the node’s <strong>Kernel</strong> on <em>Auto</em>
+the quick distance-field kernel does that, unless the part has features only the exact kernel
+can show (fillets, chamfers and drafts on picked edges or faces, shells with picked open
+faces): then the exact B-rep kernel builds it, which can take a few seconds, and a feature it
+could only approximate is marked ≈. A kernel chosen on the node (<em>B-rep</em> or <em>Implicit</em>) is
+used as it is. Apply always builds with the node’s setting.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_environment.png" alt="The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline"><span class="img-wrapper"><img src="images/cad_environment.png" alt="The CAD environment: ribbon, feature tree with dimensions, the properties of a counterbored hole, the part colored by face and the timeline"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_inspect.png" alt="The Inspect tab: the bracket template’s volume, surface, size, center of volume, mass for a density and a cross-section area"><span class="img-wrapper"><img src="images/cad_inspect.png" alt="The Inspect tab: the bracket template’s volume, surface, size, center of volume, mass for a density and a cross-section area"></span></label></p>
+<p><strong>Starter parts.</strong> <em>Files › New from template</em> (or <code>afx.cad_model(template="flange")</code>) replaces the
+part by one of six starters, all driven by named dimensions (the enclosure follows <code>width</code>,
+<code>depth</code>, <code>height</code> and <code>wall</code>; the flange its diameter, bolt circle and number of holes):</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_templates.png" alt="The six templates side by side: enclosure, flange, knob, threaded rod, vase and bracket, colored by face"><span class="img-wrapper"><img src="images/cad_templates.png" alt="The six templates side by side: enclosure, flange, knob, threaded rod, vase and bracket, colored by face"></span></label></p>
+<p>The right end of the ribbon leaves the environment:</p>
+<ul>
+<li><strong>Apply</strong> hands the part to the CAD Model node and closes the environment; the nodes below
+it re-run. A part that does not build is refused, with the reason.</li>
+<li><strong>Apply, keep editing</strong> does the same and stays.</li>
+<li><strong>Discard</strong> (or <code>Esc</code>, which asks) closes it and leaves everything as it was.</li>
+</ul>
+<p>All the edits of a session are <strong>one undo step</strong> in the main window (<em>Edit › Undo</em> after Apply
+takes back the whole session). Inside the environment, <em>Undo</em> and <em>Redo</em> (<code>Ctrl+Z</code>,
+<code>Ctrl+Y</code>, the timeline bar, the CAD menu) step through single edits.</p>
+<p>The <em>Inspect</em> tab reads the part: volume, surface, size, center of volume, mass for a density,
+and the area of a cross-section at a height. The <em>Files</em> tab starts from a template, opens an
+<code>.afxcad</code> file, or saves the part as one.</p>
+<p>From Python:</p>
+<pre><code class="language-python">e = part.edit_cad()            # open the environment; e is part.cad
+e.box(size=(10, 10, 6), name="Boss", at=(0, 0, 11))
+e.evaluate()                   # build it now (the window does this by itself)
+e.rollback(1)                  # build only the first feature
+e.undo(); e.redo()
+e.apply()                      # or e.apply(keep_editing=True) / e.discard()
+</code></pre>
+<h2 id="what-the-nodes-below-depend-on"><a class="header" href="#what-the-nodes-below-depend-on">What the nodes below depend on</a></h2>
+<p>Other nodes refer to a part by the names inside it: an Extract Set that names <code>Bore side</code>, a
+mesh command that names a face, a clip plane placed inside the plate. Editing the part can
+break these. So <strong>Apply checks them first</strong>. It compares the part as the nodes below were built
+against with the part you made, finds what they refer to that changed, and opens a dialog:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_check.png" alt="Applying the CAD changes affects 3 downstream objects: the Extract Set whose face was renamed, a clip and a slice that now fall outside the narrower plate"><span class="img-wrapper"><img src="images/cad_check.png" alt="Applying the CAD changes affects 3 downstream objects: the Extract Set whose face was renamed, a clip and a slice that now fall outside the narrower plate"></span></label></p>
+<ul>
+<li><strong>What changed in the part</strong> lists faces that were renamed, replaced, removed or moved,
+dimensions added or removed, and the new bounds and volume.</li>
+<li>Each row is something below the part that refers to a changed thing: the object, its
+parameter, what happened to the thing it refers to (<em>renamed to…</em>, <em>removed</em>, <em>now outside
+the part</em>, <em>one of several</em>), the <strong>default fix</strong>, the <strong>assistant’s fix</strong> when you asked for
+one, and a choice per row (<em>default</em>, <em>assistant</em>, <em>leave</em>).</li>
+<li>The default fixes are the safe ones. A renamed face is renamed where it is used, including
+inside command and expression text (whole names only: <code>Bore side</code> is not found inside <code>Bore sides</code>). A face that is gone but has one successor in the same place is replaced by it, and
+marked <em>(check)</em> because that is a guess. A position that fell outside the part is moved onto
+its nearest point. A face that is simply gone, or has several possible successors, has no
+default: you choose, or ask the assistant.</li>
+<li><strong>Ask the assistant</strong> sends the changes, the conflicts and each affected node’s filter and
+parameters to the assistant, which answers with a list of changes; they appear in the
+<em>Assistant’s fix</em> column and the same chat shows its reasoning.</li>
+<li><strong>Apply fixes and re-run</strong> applies the part and your choices, together, as one undo step;
+<strong>Apply without fixing</strong> applies the part and leaves the references (those nodes will show
+their own errors); <strong>Back to CAD</strong> returns; <strong>Discard CAD changes</strong> closes the environment
+as it was. The checkbox <em>re-run the nodes below now</em> postpones their re-run: they keep their
+old results, marked by a banner with <strong>Run now</strong>.</li>
+</ul>
+<p>When nothing below is affected the dialog is only the question <em>Re-run N downstream filters?</em>
+with <strong>Run now</strong>, <strong>Later</strong> and <strong>Back to CAD</strong>. A Python filter’s code is searched for the
+names as text: such rows say <em>(in code)</em> and have no default fix, because the name may not be
+a reference.</p>
+<p>From Python:</p>
+<pre><code class="language-python">e = part.edit_cad()
+e.rename("Bore", "Pin hole")
+report = e.check()             # {'diff': ..., 'conflicts': [...], 'downstream': [...], 'prompt': ...}
+e.apply()                      # fix="default": applies the default fixes
+e.apply(fix="none")            # leave what the check found as it is
+e.apply(fix=answer_text)       # the text of an assistant's answer (a JSON list of fixes)
+e.apply(run="later")           # the nodes below wait; part.cad.run_held() runs them
+</code></pre>
+<h2 id="a-part-from-a-geometry-source-or-a-surface"><a class="header" href="#a-part-from-a-geometry-source-or-a-surface">A part from a Geometry source or a surface</a></h2>
+<p><strong>Edit in CAD…</strong> is not only for CAD Models. Right-click a <strong>Geometry</strong> source, or any object
+whose surface is closed (a sphere, a clipped and capped part, the surface of a mesh), in the
+Pipeline panel and choose <strong>Edit in CAD…</strong> (also <strong>Model › Edit in CAD…</strong> for the selected
+object). A new CAD Model is made whose first feature is that solid as an <strong>imported body</strong>: its
+triangles are kept in the part, fixed, and every feature of the environment adds to it or cuts
+from it: a hole, a pocket sketched on the Top plane, a rib. A Geometry source with several
+bodies gives one imported body per body, named as the bodies are. The object you started from
+is hidden, not changed; the new part does not follow it afterwards.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_edit_geometry.png" alt="An angle bracket made with geometry commands, opened in the CAD environment: the imported body first in the model tree, a hole and a rib added to it"><span class="img-wrapper"><img src="images/cad_edit_geometry.png" alt="An angle bracket made with geometry commands, opened in the CAD environment: the imported body first in the model tree, a hole and a rib added to it"></span></label></p>
+<pre><code class="language-python">g = afx.mesh.geometry()
+g.cmd("brick x 30 y 20 z 10")
+body = g.result()
+c = afx.cad_from(body, name="Bracket")      # a CAD Model; its first feature is the brick
+c.cad.hole(diameter=6, depth=30, at=(0, 0, 6), name="Bore")
+e = c.edit_cad()                            # or carry on in the window
+</code></pre>
+<p>The surface must be closed (every edge shared by two triangles): an open one is refused with
+the number of open edges; close it first (Clip Closed Surface, or take the surface of a
+volume). Up to 400 000 triangles are kept (Decimate a finer surface first). An imported body is
+triangles, not exact faces: its whole surface is one face named after the body (<code>body 1 surface</code>), while the features you add have their usual faces (<code>Bore side</code>). The exact kernel
+does not cut or join a triangle body, so once features are added the part is built by the
+implicit kernel, and the node’s kernel note says so.</p>
+<h2 id="sketching"><a class="header" href="#sketching">Sketching</a></h2>
+<p>A sketch is a drawing on a plane that a feature extrudes or revolves. Start one from the
+ribbon’s <strong>Sketch</strong> tab:</p>
+<ul>
+<li><strong>Top (XY)</strong>, <strong>Front (XZ)</strong> or <strong>Right (YZ)</strong>, or <strong>Top of the part</strong> (the plane of the
+highest face, to add a boss or cut a pocket).</li>
+<li><strong>A face…</strong> opens the face picker: click any flat face of the part in the 3D view (or tick it
+in the list) and press <strong>Apply</strong>. Slanted faces work too: the sketch lies on the face, its x
+axis along the world’s x (or y) laid flat on it. With no feature selected, <em>Faces</em> in the
+Feature panel also has <strong>Sketch here</strong> next to each flat face. A sketch started on a face
+<a href="#sketches-that-stay-on-their-face">stays on that face</a> when the part changes.</li>
+<li>A <strong>reference plane</strong> (each one has a button in the tab), made with <strong>Plane…</strong>.</li>
+</ul>
+<p>To change an existing feature’s sketch, right-click it in the model tree and choose <strong>Edit
+sketch…</strong>, or press <strong>Edit sketch…</strong> in its properties.</p>
+<h3 id="seeing-the-plane-you-choose"><a class="header" href="#seeing-the-plane-you-choose">Seeing the plane you choose</a></h3>
+<p>A plane that is being chosen shows in the 3D view as a <strong>filled, see-through rectangle in the
+highlight color</strong> (the orange of the selected menu item), with a few lines across it and an
+arrow along its normal, as large as the part, or as large as the face when it is a face’s
+plane. It is drawn lightly while it is only pointed at, and strongly once it is chosen:</p>
+<ul>
+<li>Point at <strong>Top (XY)</strong>, <strong>Front (XZ)</strong>, <strong>Right (YZ)</strong>, <strong>Top of the part</strong> or a reference
+plane’s button on the Sketch tab: the plane shows before you click. The same goes for
+<strong>Mirror YZ</strong>, <strong>Mirror XZ</strong> and <strong>Split</strong> on the Modify tab, and for a row of <em>Reference
+planes</em> in the feature panel.</li>
+<li>While a face list is open (<strong>A face…</strong>, <strong>Mirror about a face…</strong>, <strong>Pattern on a face…</strong>,
+<em>Pick another face…</em>, the faces of <strong>Shell</strong>, <strong>Draft</strong> and <strong>Add mate…</strong>), the flat face under
+the pointer in the 3D view shows as its plane, and so does the row under the pointer in the
+list. The chosen face stays filled until you press <strong>Apply</strong> or <strong>Cancel</strong>. A round face shows
+as a ring at a point of it, an edge as a thick line.</li>
+<li>The 3D view’s right-click menu on a flat face shows that face’s plane while the menu is open.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_plane_choice.png" alt="Choosing the face to sketch on: the top of the plate is chosen and shows as a filled plane as large as the face, with its normal; the Front plane shows lightly, as it does while the pointer is on its button"><span class="img-wrapper"><img src="images/cad_plane_choice.png" alt="Choosing the face to sketch on: the top of the plate is chosen and shows as a filled plane as large as the face, with its normal; the Front plane shows lightly, as it does while the pointer is on its button"></span></label></p>
+<p>The rectangle is drawn over the part, not cut by it: where the plane passes inside the part
+the part shows through the tint. From Python, <code>e.preview_plane("XZ")</code> shows a principal or a
+reference plane this way in the window (<code>e.preview_plane(None)</code> takes it away), and
+<code>e.sketch_on_face()</code> with <code>e.pick_choose("Base top")</code> opens the face list and chooses a face.</p>
+<h3 id="reference-planes"><a class="header" href="#reference-planes">Reference planes</a></h3>
+<p><strong>Plane…</strong> opens a form in the feature panel that makes a named plane, kept with the part:</p>
+<ul>
+<li><strong>From a plane</strong>: Top, Front, Right or another reference plane, moved by an <strong>Offset</strong> along its
+normal and turned by an <strong>Angle</strong> about its own x or y axis.</li>
+<li><strong>From a face</strong>: a flat face of the part, moved and turned the same way.</li>
+<li><strong>Through 3 points</strong>: the normal follows the right-hand rule from point 1 to 2 to 3, and the
+sketch’s x axis runs from point 1 to point 2.</li>
+</ul>
+<p><strong>While the form is open the 3D view shows the plane it would make</strong>, filled in the highlight
+color and named, and follows the values as you type them: change the offset or the angle and
+the plane moves before anything is made. When the new plane is moved or turned away from the
+plane or the face it starts from, that one shows too, more lightly, so the offset and the
+turn can be read off the picture. Three points on one line make no plane, and nothing shows.
+<strong>Make plane</strong> keeps it; <strong>Cancel</strong> leaves the part as it was.</p>
+<p>The planes of the part show as dashed squares with their names in the 3D view, and are listed under
+<em>Reference planes</em> in the feature panel (no feature selected) with <strong>Sketch</strong> and <strong>×</strong>
+(remove; sketches already drawn on a plane keep their place). A sketch on a plane 20 above the
+top plane, turned 30° about its x axis, extrudes along the turned normal in both kernels.</p>
+<pre><code class="language-python">m.cad.plane(name="Tilted", from_plane="XY", offset=20, angle=30, about="x")
+m.cad.plane(name="P", points=[(0, 0, 0), (10, 0, 0), (0, 10, 5)])
+m.cad.extrude(m.cad.sketch(plane="Tilted").rectangle(20, 10), depth=5)
+</code></pre>
+<p><code>e.plane_form(start="YZ", offset=12, angle=20, about="y", name="Side cut")</code> opens the form in
+the window filled in (also <code>method="face"</code> with <code>face="Plate z+"</code>, or <code>points=[...]</code>).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_planes.png" alt="The New reference plane form filled in for a plane 12 mm from the Right plane, turned 20°: the 3D view shows the plane it would make, filled and named, and the Right plane it starts from more lightly; the plane Tilted made earlier is a dashed square"><span class="img-wrapper"><img src="images/cad_planes.png" alt="The New reference plane form filled in for a plane 12 mm from the Right plane, turned 20°: the 3D view shows the plane it would make, filled and named, and the Right plane it starts from more lightly; the plane Tilted made earlier is a dashed square"></span></label></p>
+<p>The canvas takes the place of the 3D view while a sketch is open:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sketch.png" alt="The sketch canvas on the L-bracket: its outline with the dimensions from the part’s own dimensions (length, height, t), the status “Fully defined” and the constraint list"><span class="img-wrapper"><img src="images/cad_sketch.png" alt="The sketch canvas on the L-bracket: its outline with the dimensions from the part’s own dimensions (length, height, t), the status “Fully defined” and the constraint list"></span></label></p>
+<ul>
+<li><strong>Draw</strong> with the tools in the ribbon: <em>Line</em> (connected lines; right-click ends the chain),
+<em>Rectangle</em> (two corners), <em>Circle</em> (center, then a point on it), <em>Arc</em> (center, start,
+end), <em>Spline</em>, <em>Point</em>. A line drawn nearly horizontal or vertical becomes so.</li>
+<li><strong>Snap</strong> (the ribbon’s toggle) places new points on what is under the cursor, shown by an
+orange mark and its name: existing <strong>points</strong> (which joins shapes), <strong>centers</strong> of circles and
+arcs, <strong>midpoints</strong> of lines, <strong>quadrants</strong> of circles, <strong>intersections</strong>, the nearest point
+<strong>on curves</strong>, and the <strong>grid</strong>. While drawing, dashed <strong>guide lines</strong> show when the cursor
+lines up horizontally or vertically with a point, also one far away or the last point of the
+shape, and the point lands on that line. Each kind is switched on or off under <em>Snap</em> in the
+Feature panel, with the grid step; hold <code>Ctrl</code> to place a point freely. A point placed on a
+midpoint, a curve or an intersection is constrained there (midpoint, on line, on circle).</li>
+<li><strong>Show part</strong> (the ribbon’s toggle, on when you start) shows <strong>the part underneath the sketch
+grid</strong>: its faces as seen looking straight down on the sketch plane, dimmed, with their
+borders as thin lines, and the grid and the sketch drawn over them, so you see where on the
+part you are drawing. Nearer faces hide the ones behind them, as in the 3D view. Turn the
+toggle off for a plain canvas; it stays as you left it for the next sketches, until the app
+closes. The first view of a sketch is framed to hold the part.</li>
+<li><strong>From the part</strong> takes an edge of the part into the sketch. Choose the tool: every edge that
+can be taken is drawn in blue; the one under the cursor turns orange and says what it would
+become. <strong>Click it</strong>: a straight edge becomes a <strong>line</strong>, a round edge seen face on a
+<strong>circle</strong> (a whole one) or an <strong>arc</strong> (a part of one), any other curve (a round edge seen at
+a slant, a spline) a fixed <strong>outline</strong> through its points. The edge is laid flat on the
+sketch plane, so edges above or below the plane can be taken as well as the edges of the
+face you draw on; an edge seen end on is not offered. What is taken has fixed points (a
+circle also gets its radius as a dimension), so the sketch stays fully defined, and edges
+that meet share their corners, so four edges of a face make one closed outline. <code>Esc</code>
+goes back to <em>Select</em>.</li>
+<li><strong>Select</strong> shapes and points by clicking (Shift adds); drag a point to move it. Right or
+middle mouse drag pans, the wheel zooms, <code>Esc</code> ends a chain, <code>Del</code> deletes.</li>
+<li><strong>Constrain</strong> the selection with the ribbon: horizontal, vertical, parallel, perpendicular,
+equal, tangent, concentric, coincident, midpoint, on line, on circle, symmetric, fix.
+<strong>Dimension</strong> it: <em>Length</em> of a line, <em>Radius</em>, <em>Diameter</em>, <em>Distance</em> between two points (also
+<em>Horizontal distance</em> and <em>Vertical distance</em>), <em>Distance to line</em> (a point and a line),
+<em>Distance between lines</em> (two parallel lines) and <em>Angle</em> between two lines.</li>
+<li>A dimension starts at the current size, with its value open for typing: type a number, or an
+expression of the part’s dimensions (<code>width / 2</code>, <code>3 in</code>), and press <code>Enter</code>; the sketch follows
+the dimension from then on. Dimensions are drawn with extension lines and arrows (an arc for
+an angle, a leader for a radius or diameter). <strong>Drag a label</strong> to move it where it reads best,
+and <strong>double-click</strong> it to change the value. The <strong>Constraints</strong> list in the feature panel
+edits the same values.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_snap.png" alt="Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension’s value open for typing"><span class="img-wrapper"><img src="images/cad_snap.png" alt="Drawing a line on the sketch canvas: the cursor snapped to where a guide line from a far corner meets the grid, the orange mark and the dashed guide, and a dimension’s value open for typing"></span></label></p>
+<ul>
+<li>The <strong>solver runs after every change</strong>. Shapes are <strong>blue</strong> while the sketch can still move
+(the status says how many degrees of freedom are left), <strong>white or black</strong> when it is fully
+defined, and <strong>red</strong> when constraints conflict (remove one). <em>Construction</em> turns the
+selected shapes into guides that are not part of the outline.</li>
+</ul>
+<p>Finish from the feature panel: <strong>Extrude</strong> (or <strong>Cut</strong>, for a pocket) with a depth that may be
+an expression, <strong>reverse</strong> to go against the plane’s normal, <strong>Revolve</strong> about the plane’s
+vertical axis (draw on the Front plane with x as the radius), or <strong>Apply sketch</strong> when you
+edited the sketch of an existing feature. The sketch then becomes a feature with named faces:
+<code>side 1</code>, <code>side 2</code>… follow the order the shapes were drawn.</p>
+<p>From Python, <code>e.sketch_new(plane="XY", items=[...])</code> and <code>e.sketch_edit("Bracket")</code> open the
+canvas in the window, and <code>e.sketch(...)</code> with <code>e.extrude(...)</code> builds the same features
+without it.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sketch_under.png" alt="A sketch on the top of a plate with the part showing underneath the grid: the rim of the bore and the front edge of the plate were taken from the part as a circle and a line, and the foot of the boss under the cursor is marked “circle r 7”"><span class="img-wrapper"><img src="images/cad_sketch_under.png" alt="A sketch on the top of a plate with the part showing underneath the grid: the rim of the bore and the front edge of the plate were taken from the part as a circle and a line, and the foot of the boss under the cursor is marked “circle r 7”"></span></label></p>
+<p>Taking edges from the part in Python needs no window: a sketch’s <code>project()</code> adds them when
+the sketch is used.</p>
+<pre><code class="language-python">s = m.cad.sketch(plane="XY", offset=8).project(face="Plate z+")        # every edge around a face
+rim = m.cad.sketch(plane="XY", offset=8).project(edge=("Plate z+", "Bore side"))   # between two faces
+m.cad.extrude(s, depth=3, name="Raised top")
+
+e.sketch_show_part(False)          # in the window: the Show part toggle
+e.sketch_tool("project")           # the From the part tool
+e.sketch_take_edge(20, 2)          # take the edge nearest to (20, 2) on the sketch plane
+</code></pre>
+<p><code>project()</code> with neither argument takes every edge of the part. The edges are those of the
+part as it is when the sketch is used.</p>
+<h3 id="sketches-that-stay-on-their-face"><a class="header" href="#sketches-that-stay-on-their-face">Sketches that stay on their face</a></h3>
+<p>A sketch started on a face remembers the face by its name (<code>Plate z+</code>). Every time the part is
+built, the sketch plane is put back on that face as the features before it leave it: make the
+plate thicker and the boss drawn on its top moves up with it; a face that turns takes the
+sketch with it. The Feature panel says <em>On the face …</em> under the feature’s sketch, and the
+sketch canvas says so while you draw. A boss on a face grows out of the part and a cut goes
+into it.</p>
+<p>If the face is gone (its feature was removed, or renamed, so no face has that name any more),
+the feature is marked in red in the model tree and the part does not build; the message names
+the feature and the face. <strong>Right-click the feature › Pick another face…</strong> lists the flat faces
+of the part as it is before that feature (click one in the list, <strong>Apply</strong>), and <strong>Detach from
+its face</strong> leaves the sketch where it last was, no longer following anything. A sketch on a
+principal plane or a reference plane can be given a face the same way (<strong>Put its sketch on a
+face…</strong>).</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sketch_on_face.png" alt="A boss and a pocket sketched on the top face of a plate that was then made thicker: both moved with the face; the list of flat faces the boss’s sketch can be moved to is open on the right"><span class="img-wrapper"><img src="images/cad_sketch_on_face.png" alt="A boss and a pocket sketched on the top face of a plate that was then made thicker: both moved with the face; the list of flat faces the boss’s sketch can be moved to is open on the right"></span></label></p>
+<pre><code class="language-python">m.cad.box(size=(40, 30, "t"), at=(0, 0, "t / 2"), name="Plate")
+boss = m.cad.sketch(face="Plate z+").circle(r=5)       # on a face, by its name
+m.cad.extrude(boss, depth=5, name="Boss")              # grows out of the plate
+m.set(t=12)                                            # the boss follows the top face
+m.cad.sketch_face("Boss", "Plate x+")                  # another face for the same sketch
+m.cad.sketch_face("Boss", None)                        # let go of the face
+</code></pre>
+<h3 id="side-faces-keep-their-names"><a class="header" href="#side-faces-keep-their-names">Side faces keep their names</a></h3>
+<p>Every line, arc and circle of a sketch has a number of its own, and the faces an extrusion or a
+revolve makes from them are named by it: <code>Base side 3</code> is the face of entity 3 for as long as
+that entity exists. Adding a line gives it a new number (<code>side 7</code>), deleting one retires its
+number, and the others keep theirs, so a filter below the part that names <code>Base side 3</code> still
+means the same face after the outline gained or lost a line. Files written before entities had
+numbers get them when they are opened, in the order that gives every face the name it had.</p>
+<h3 id="sketches-with-constraints-from-python"><a class="header" href="#sketches-with-constraints-from-python">Sketches with constraints from Python</a></h3>
+<p>The sketch object of <code>m.cad.sketch()</code> draws line by line and takes the same constraints and
+dimensions as the canvas. Each drawing call returns what it drew; a line has <code>.start</code> and <code>.end</code>,
+a circle <code>.center</code>, and passing one of those points to the next call shares the corner:</p>
+<pre><code class="language-python">m.cad.parameter("w", 40)
+s = m.cad.sketch(plane="XY")
+a = s.line((0, 0), (38, 1))            # drawn roughly ...
+b = s.line(a.end, (41, 19))
+c = s.line(b.end, (2, 22))
+d = s.line(c.end, a.start)
+s.fix(a.start)
+s.horizontal(a).vertical(b).horizontal(c).vertical(d)   # ... squared up by constraints
+s.distance(a, "w")                     # a length that follows the dimension w
+s.dimension(a.end, b.end, 20)          # the distance between two points
+print(s.solve())                       # {'status': 'fully defined', 'dof': 0, ...}
+m.cad.extrude(s, depth=5, name="Plate")
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Call</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>s.line(a, b)</code>, <code>s.lines(points, closed=True)</code>, <code>s.point(x, y, fixed=False)</code>, <code>s.add_circle(center, r)</code>, <code>s.arc(center, start, end)</code></td><td>draw; <code>construction=True</code> makes a helper line that is not part of the outline</td></tr>
+<tr><td><code>s.horizontal(l)</code>, <code>vertical(l)</code>, <code>parallel(a, b)</code>, <code>perpendicular(a, b)</code>, <code>equal(a, b)</code>, <code>tangent(a, b)</code>, <code>concentric(a, b)</code></td><td>relations between lines, circles and arcs</td></tr>
+<tr><td><code>s.coincident(p, q)</code>, <code>midpoint(p, l)</code>, <code>point_on(p, l_or_circle)</code>, <code>symmetric(p, q, l)</code>, <code>fix(p)</code></td><td>relations of points</td></tr>
+<tr><td><code>s.distance(l, v)</code>, <code>distance(p, q, v)</code>, <code>distance(p, l, v)</code> (<code>dimension</code> is the same), <code>length</code>, <code>hdistance</code>, <code>vdistance</code>, <code>radius</code>, <code>diameter</code>, <code>angle</code></td><td>driving dimensions: a number, or an expression of the part’s dimensions</td></tr>
+<tr><td><code>s.solve()</code></td><td>the status (<code>fully defined</code>, <code>under-defined</code>, <code>over-defined</code>, <code>failed</code>), the degrees of freedom left, and the points moved to where the constraints put them (<code>a.end.xy</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The ready shapes (<code>rectangle</code>, <code>circle</code>, <code>polygon</code>, <code>regular</code>, and <code>path(points)</code> for an open
+line) can be mixed into the same sketch. <code>extrude</code>, <code>revolve</code>, <code>sketch_add</code>, <code>sweep</code> and <code>loft</code>
+solve the sketch themselves; <code>solve()</code> is for checking it first. A sketch whose constraints
+contradict each other is refused when it is used, with the size of the contradiction.</p>
+<h2 id="sweeps-and-lofts"><a class="header" href="#sweeps-and-lofts">Sweeps and lofts</a></h2>
+<p>A <strong>sweep</strong> moves a closed outline along a path; a <strong>loft</strong> joins closed outlines drawn on
+parallel planes. Both are made from sketches <em>kept with the part</em>:</p>
+<ol>
+<li>On the <strong>Sketch</strong> tab draw the outline and, instead of extruding it, press <strong>Keep as a
+sketch</strong> (in the panel on the right). The sketch appears under <strong>Sketches</strong> in the model tree.</li>
+<li>Draw and keep the second sketch: for a sweep an <strong>open path</strong> (lines and arcs end to end,
+not closed) on a plane the profile’s plane crosses, starting where the profile is; for a loft
+another closed outline on a <strong>parallel plane at another height</strong> (set <strong>Offset</strong> before you draw).</li>
+<li>On the <strong>Features</strong> tab press <strong>Sweep</strong> or <strong>Loft</strong>. A button that is off says, when you
+point at it, what is still missing (a path, a second section, sections on one plane).</li>
+</ol>
+<p>The feature panel of a sweep has <strong>profile</strong> and <strong>path</strong> (each a list of the kept sketches
+that fit, with <strong>Edit…</strong> to open the sketch), <strong>twist</strong> in degrees over the whole path, and
+<strong>Operation</strong> (Add or Cut: a swept cut makes a channel). A loft lists its <strong>sections</strong> with <strong>×</strong>
+to take one out and <strong>Add a section…</strong>. Changing a kept sketch (click it under <em>Sketches</em>,
+change it, <strong>Apply sketch</strong>) rebuilds every sweep and loft that uses it, and its dimensions may
+follow the part’s dimensions like any sketch’s. The faces are named <code>Handle start</code>, <code>Handle end</code>
+and <code>Handle side</code>; <code>Vase bottom</code>, <code>Vase top</code> and <code>Vase side</code>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_sweep_loft.png" alt="A handle swept along a bent path and a foot lofted from a square to a circle: the kept sketches in the model tree, the Sweep and Loft buttons, and the sweep’s profile and path in the feature panel"><span class="img-wrapper"><img src="images/cad_sweep_loft.png" alt="A handle swept along a bent path and a foot lofted from a square to a circle: the kept sketches in the model tree, the Sweep and Loft buttons, and the sweep’s profile and path in the feature panel"></span></label></p>
+<pre><code class="language-python">h = afx.cad_model(name="Handle")
+h.cad.clear("Handle")
+h.cad.sketch_add(h.cad.sketch(plane="YZ").circle(r=3), name="Profile")       # looks along x
+h.cad.sketch_add(h.cad.sketch(plane="XY").path([(0, 0), (40, 0), (40, 25)]), name="Path")
+h.cad.sweep("Profile", "Path", name="Handle")                                # op="cut" for a channel
+h.cad.loft([h.cad.sketch(offset=-12).rectangle(20, 20),                      # sketches given in place
+            h.cad.sketch(offset=-3).circle(r=4)], name="Foot")               # are kept as "Foot section"
+h.cad.sketches()                                                             # name, plane, outlines, paths
+</code></pre>
+<p>Both kernels build them: the exact kernel a loft and a sweep along a flat path without twist;
+a twisted sweep, or one along a path that leaves its plane, is built by the implicit kernel
+(the node’s kernel note says why). The profile of a sweep is taken as it is seen along the start of
+the path, so draw it on a plane the path leaves at right angles; a profile lying along the
+path is refused. The sections of a loft must be on parallel planes at different heights.</p>
+<h2 id="kernels-step-and-other-files"><a class="header" href="#kernels-step-and-other-files">Kernels, STEP and other files</a></h2>
+<p>A part is built by one of two kernels, chosen in the CAD Model’s Properties (<strong>Kernel</strong>):</p>
+<ul>
+<li><strong>B-rep</strong> builds <em>exact</em> solids with true faces and edges (a cylinder is a cylinder, a hole’s
+wall is a real cylindrical face). It maps primitives, extruded and revolved sketches, lofts,
+holes, patterns (as copies), rounding and hollowing of a feature or of the whole part, the
+rounded junction a feature’s <em>blend</em> makes with the part, drafts, mirrors about a face,
+combined parts, and cap chamfers. This is what <strong>STEP</strong> and <strong>IGES</strong> are written from, and it
+reads imported solids.</li>
+<li><strong>Implicit</strong> describes the part as a distance field. It builds every feature, including
+threads, sweeps and a loft’s shell, and never fails; edges are not exact. It leaves a picked
+fillet or a draft undone and says so.</li>
+<li><strong>Auto</strong> (the default) uses B-rep when it can build the part and Implicit otherwise. The
+result carries a field <code>Kernel</code> (which one built it) and <code>KernelNotes</code> (why B-rep could not).</li>
+</ul>
+<p>Both kernels name faces the same way (<code>Base z+</code>, <code>Bore side</code>), so everything built on the names
+works on either. The CAD environment shows the part with the Implicit kernel while you edit (it
+is quick), and the node builds it with the kernel you chose when you apply.</p>
+<p><strong>Files.</strong> <em>File › Open</em> (and <code>afx.load</code>) opens a <strong><code>.step</code> / <code>.stp</code></strong> (AP203, AP214, AP242),
+<strong><code>.igs</code> / <code>.iges</code></strong>, <strong><code>.3mf</code></strong>, a SolidCraft <strong><code>.sc</code></strong> design, or an <strong><code>.afxcad</code></strong> document as
+a <strong>CAD Model</strong>: the file’s solid becomes the base feature of a part, with its bytes kept inside
+the document, so you can add features to it (cut a hole through an imported bracket) and the
+part still opens on another computer. STL and OBJ keep their ordinary readers; to edit one, add
+it as a CAD Model from Python.</p>
+<pre><code class="language-python">m = afx.cad_model("bracket.step")                 # a solid from a STEP file as a CAD Model
+m.cad.hole(diameter=6, depth=20, at=(10, 5, 8))   # cut into it
+m.cad.save("bracket2.step")                       # exact STEP (faces and edges)
+m.cad.save("bracket2.3mf"); m.cad.save("part.sc") # 3MF, a SolidCraft design (also .stl, .obj)
+m.cad.save("bracket2.igs")                        # IGES, exact (the exact kernel only)
+r = m.cad.save("lofted.step")                     # {"exact": False, "note": "faceted: ..."} when
+                                                  # only the Implicit kernel builds the part
+</code></pre>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_import.png" alt="A STEP file opened as a CAD Model: the file’s solid is the base feature, a second hole was cut into it, and the faces are colored by their numbers"><span class="img-wrapper"><img src="images/cad_import.png" alt="A STEP file opened as a CAD Model: the file’s solid is the base feature, a second hole was cut into it, and the faces are colored by their numbers"></span></label></p>
+<p>A part that only the Implicit kernel builds is written as STEP or STL from its tessellation: a
+valid solid of triangles whose header says <em>faceted B-rep</em> and why. IGES is written only for a
+part the exact kernel builds (its faces are true surfaces); for any other part the message says to
+write STEP instead.</p>
+<p>The files auraFX writes were checked with an independent CAD reader: the same number of faces
+and the same volume, to a thousandth, for STEP and IGES (the checks are in the test suite and
+need that reader installed to run).</p>
+<h2 id="edges-faces-and-measures"><a class="header" href="#edges-faces-and-measures">Edges, faces and measures</a></h2>
+<p>With the exact kernel the part has real edges, and you can work on them. In the <strong>Modify</strong> tab:</p>
+<p>While one of these pickers is open you can also <strong>click the part in the 3D view</strong>: a click chooses
+the face under the pointer, or, for an edge, the edge of that face the click is nearest to (click
+again to un-choose). Chosen edges are drawn in orange and chosen faces are marked with a dot.</p>
+<ul>
+<li><strong>Fillet edges…</strong> and <strong>Chamfer edges…</strong> open a picker in the feature panel that <strong>lists the
+part’s edges</strong>, each with the two faces it lies between (<code>Base z+ × Bore side</code>), its length and
+whether it is curved. Tick the edges, set the size (a number or an expression of the
+dimensions) and press <strong>Apply</strong>: a <em>Fillet</em> or <em>Chamfer</em> feature is added after the features it
+modifies, so it follows them when you roll back or change a dimension.</li>
+<li><strong>Shell, open faces…</strong> lists the faces; tick the ones to remove (none: a closed hollow body)
+and give the wall.</li>
+<li><strong>Draft faces…</strong> lists the faces; tick the side faces to taper and give the angle. They stay
+fixed where the part meets the bottom plane and lean by that angle above it.</li>
+<li><strong>Pattern on a face…</strong> lists the <em>flat</em> faces; pick one, choose <strong>Holes</strong> or <strong>Bosses</strong> and a
+<strong>Row</strong>, <strong>Grid</strong> or <strong>Circle</strong>, and give the size, the count, the spacing (or the radius of the
+circle). The first copy sits at the face’s center and the row runs along the face’s own x axis,
+so the pattern follows a face that is not horizontal. A pattern on a face is one feature: the
+count and the spacing can be changed afterwards, and a hole’s copies share its face names
+(<code>Hole side</code>).</li>
+<li><strong>Mirror about a face…</strong> lists the flat faces; the reflection of the part about the chosen face
+is joined to it. Model half a part, mirror it, and the halves stay in step when a dimension
+changes.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_pick.png" alt="The edge picker: the edges of a plate with a bored hole, each with the faces on either side"><span class="img-wrapper"><img src="images/cad_pick.png" alt="The edge picker: the edges of a plate with a bored hole, each with the faces on either side"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_face_ops.png" alt="Three parts side by side: a plate with a bolt circle of holes and a grid of pins laid out on its top face, a block with drafted sides, and a half part mirrored about its flat face"><span class="img-wrapper"><img src="images/cad_face_ops.png" alt="Three parts side by side: a plate with a bolt circle of holes and a grid of pins laid out on its top face, a block with drafted sides, and a half part mirrored about its flat face"></span></label></p>
+<p>These features need the <strong>B-rep</strong> kernel for a fillet, a chamfer and a draft. On the Implicit
+kernel a picked fillet or chamfer leaves the edges sharp and a draft leaves the faces vertical, and
+the result says so (<code>KernelNotes</code>); a picked-face shell is approximated. Patterns on a face and
+mirrors work on both kernels.
+<strong>Fillet</strong> and <strong>Chamfer</strong> without a picker round every edge of the selected feature or of the
+whole part.</p>
+<p>The <strong>Inspect</strong> tab and Python read the part: mass (volume, surface, center, bounds, mass for a
+density), the distance between two parallel flat faces and the angle between two faces (in the
+tab: choose the two faces in the lists after <em>between</em> and press <strong>Distance</strong>), and the
+volume two parts overlap when one is placed against the other. A sketch-extruded feature names
+its faces <code>top</code>, <code>bottom</code> and <code>side 1</code>, <code>side 2</code>… in the order its outline was drawn (the
+default plate: <code>Base side 1</code> at the front, then counter-clockwise); right-click a face in the
+3D view to read its name.</p>
+<pre><code class="language-python">b = afx.cad_model()                                  # the default plate
+b.cad.edges()                                        # [{'index': 0, 'point': [...], 'length': 30.0,
+                                                     #   'faces': ['Base bottom', 'Base side 1'], ...}, ...]
+b.cad.fillet_edges(("Base top", "Base side 2"), size=2)  # the edge between two named faces
+b.cad.chamfer_edges([0, 3, 5], size=1)               # edges by index (or a point on each)
+b.cad.shell_faces(["Base top"], thickness=2)         # an open box
+b.cad.draft(["Base side 1"], angle=5)                # taper a face, fixed at the bottom plane
+b.cad.mirror_about("Base side 4", (1, 0, 0))         # the reflection about that face (the one at x = -20)
+b.cad.edit("face_pattern", face="Base top", layout="circular", count=6, radius=12, diameter=4, depth=6)
+b.cad.edit("combine", template="flange", op="subtract", at=(0, 0, 4))   # cut another part from this one
+b.cad.mass(7.85)                                     # steel
+b.cad.measure_faces("Base side 4", "Base side 2")    # {'parallel': True, 'distance': 40.0, ...}
+b.cad.interference(other, at=(12, 6, 0))             # overlap volume with another CAD Model placed there
+</code></pre>
+<h2 id="assemblies"><a class="header" href="#assemblies">Assemblies</a></h2>
+<p>A CAD Model can hold <strong>several parts side by side</strong>. On the <strong>Assemble</strong> tab, <strong>Insert part</strong>
+places another part: a template, a blank part, or a CAD file (<code>.afxcad</code>, STEP, IGES, 3MF, <code>.sc</code>).
+The part keeps its own features and dimensions; the model shows all the parts together, as one
+surface with one body per part, and a part’s faces are named <code>Part/Face</code> (<code>Lid/Base z+</code>), so the
+mesh tools and the downstream check refer to them as they do to any face.</p>
+<p>In the feature tree a <strong>Components</strong> section lists the parts. Tick one off to leave it out, click
+a name to see where it sits: three positions (mm) and three turns (degrees, about x, y and then
+z), which you can drag or type; <strong>×</strong> removes it. <strong>Check fit</strong> lists the pairs of parts that
+overlap, with the overlap volume in mm³ (the parts are compared two at a time, on the exact
+solids when the exact kernel builds them), and says so when none do.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_assembly.png" alt="The Assemble tab: a housing with a lid and a flange placed beside it, the flange selected with its position and turn, and Check fit’s list of overlaps"><span class="img-wrapper"><img src="images/cad_assembly.png" alt="The Assemble tab: a housing with a lid and a flange placed beside it, the flange selected with its position and turn, and Check fit’s list of overlaps"></span></label></p>
+<h3 id="editing-a-part-of-the-assembly"><a class="header" href="#editing-a-part-of-the-assembly">Editing a part of the assembly</a></h3>
+<p><strong>Double-click</strong> a part under <em>Components</em> (or right-click it › <strong>Edit component</strong>) to work on
+its own features. The model tree, the feature panel, the ribbon and the sketch canvas then
+belong to that part: the tree starts with a breadcrumb, <strong>Assembly › Part</strong>, and shows the
+part’s dimensions, sketches and features; every button adds to this part; faces are picked on
+it. The part is shown <strong>alone, in its own coordinates</strong> (where it was modelled, not where the
+assembly places it), and the rest of the assembly is hidden until you click the assembly’s name
+in the breadcrumb (or <strong>Back to the assembly</strong> on the Assemble tab, or in the command search).
+The edits are edits of the assembly: one undo history, and <strong>Apply</strong> hands over the whole
+assembly. The timeline’s rollback marker is the assembly’s and rests while a part is edited.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_component_edit.png" alt="A component edited on its own: the breadcrumb to the assembly at the top of the model tree, the cap’s own features, a counterbored hole and a boss added to it"><span class="img-wrapper"><img src="images/cad_component_edit.png" alt="A component edited on its own: the breadcrumb to the assembly at the top of the model tree, the cap’s own features, a counterbored hole and a boss added to it"></span></label></p>
+<pre><code class="language-python">e = m.edit_cad()
+e.edit_component("Cap")                    # every call now acts on the Cap's own part
+e.hole(diameter=8, depth=30, at=(0, 0, 10), name="Bore")
+e.extrude(e.sketch(face="Slab z+").circle(r=3, center=(12, 12)), depth=4, name="Boss")
+e.edit_component(None)                     # back to the assembly
+</code></pre>
+<h3 id="mates-and-motion"><a class="header" href="#mates-and-motion">Mates and motion</a></h3>
+<p>A <strong>mate</strong> ties two parts together by a face of each, and the assembly works out where the
+parts go. On the <strong>Assemble</strong> tab press <strong>Add mate…</strong>, click a face on one part and a face on
+another (or tick them in the list, where each says <em>flat</em> or <em>round</em>), choose the kind and
+press <strong>Apply</strong>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Mate</th><th>Faces</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>coincident</strong></td><td>two flat</td><td>the faces meet in one plane, looking at each other; <strong>flush</strong> has them look the same way</td></tr>
+<tr><td><strong>concentric</strong></td><td>two round (a hole, a pin)</td><td>the two axes become one</td></tr>
+<tr><td><strong>distance</strong></td><td>two flat (or two round)</td><td>parallel, that many mm apart</td></tr>
+<tr><td><strong>angle</strong></td><td>two flat (or two round)</td><td>the angle between them in degrees: 0 as a coincident mate leaves them, 90 at right angles</td></tr>
+<tr><td><strong>fixed</strong></td><td>a part</td><td>the part stays where it is placed: right-click it under <em>Components</em> › <strong>Fix in place</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p>The mates are solved every time the assembly is built, each part moving as little as it can
+from where it is placed, so a part keeps the freedom its mates leave it. The <strong>Mates</strong> section
+of the model tree lists them and says how many ways the mated parts can still move (<em>fully
+held</em> at none); the position and turn shown for a part under <em>Components</em> is where it starts
+from, with where the mates put it underneath. A mate that cannot be met (its face is gone, the
+faces are the wrong kind, or it contradicts another mate) is marked in red with the reason; the
+rest of the assembly still builds. A mate that contradicts the others is refused when you make it.
+Fix one part first: with nothing fixed, both parts of a mate move to meet each other.</p>
+<p><strong>Motion</strong>: every distance and angle mate has a <strong>slider</strong> in the model tree; dragging it
+moves the assembly as it is rebuilt (the parts are built once and only placed again, so this is
+quick), and a drag is one step to undo. For an animation, let the mate follow a dimension of
+the assembly and key that dimension:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_mates.png" alt="A lid hinged on a box by mates: the Mates section of the model tree lists the fixed box, the hinge, the flush fronts and the opening angle with its slider; the lid is open by 40°"><span class="img-wrapper"><img src="images/cad_mates.png" alt="A lid hinged on a box by mates: the Mates section of the model tree lists the fixed box, the hinge, the flush fronts and the opening angle with its slider; the lid is open by 40°"></span></label></p>
+<pre><code class="language-python">e = m.edit_cad()
+e.parameter("gap", 5)
+e.mate("fixed", "Base")
+e.mate("coincident", "Base/Slab z+", "Cap/Slab z-")
+r = e.mate("distance", "Base/Slab x+", "Cap/Slab x-", value="gap", name="Gap")
+print(r["dof"], r["status"])               # 1 '1 way(s) left to move'
+e.mate_set("Gap", value=12)                # moves the cap
+e.mates(); e.placements()                  # each mate with its error, where each part is put
+e.apply()
+m.key("gap", 0, 5); m.key("gap", 1, 40)    # the dimension on the animation: the cap slides
+</code></pre>
+<p>Faces are written <code>Part/Face</code> (<code>e.faces()</code> lists them); a face of the assembly’s own part is
+just <code>Face</code>, and <code>XY</code>, <code>XZ</code>, <code>YZ</code> are the assembly’s planes (<code>e.mate("distance", "XY", "Cap/Slab z-", value=7)</code>). While an assembly has mates it is shown by the exact kernel where
+that builds the parts, because mates read the planes and axes of the faces.</p>
+<p><strong>Add part</strong>, <strong>Cut with part</strong> and <strong>Keep common part</strong> (on the same tab) do something else: they
+make another part a <em>feature</em> of this one, which joins it, removes its volume or keeps only the
+common volume. Use components for parts that stay apart (a bolt in a bracket) and these for parts
+that become one solid.</p>
+<pre><code class="language-python">m = afx.cad_model(name="Housing")
+m.cad.component_add(name="Lid", template="bracket", at=(0, 0, 14))
+m.cad.component_add(name="Bolt", file="bolt.step", at=(20, 0, 14), rotate=(0, 90, 0))
+m.cad.component_op("Lid", "add", kind="cylinder", radius=3, height=6)   # one edit of a part in place
+m.cad.component_move("Bolt", by=(0, 5, 0))
+m.cad.component_interference()                        # [{'a': 'Lid', 'b': 'Bolt', 'volume': 120.4}]
+m.cad.components()                                    # name, position, turn, visibility
+</code></pre>
+<h2 id="from-a-cad-part-to-a-mesh-and-a-solver-case"><a class="header" href="#from-a-cad-part-to-a-mesh-and-a-solver-case">From a CAD part to a mesh and a solver case</a></h2>
+<p>A CAD Model feeds the meshing tools directly, and <strong>its faces come along as named side sets</strong>:</p>
+<ul>
+<li><strong>Overlay Mesh</strong> of a CAD Model fills it with hexahedra; the mesh has one side set per CAD face
+(<code>Bore side</code>, <code>Base z+</code>, or <code>plate_with_hole face 3</code> for a solid read from a STEP file), so a
+boundary condition can name the wall of a hole. <strong>Extract Set</strong> shows one.</li>
+<li>In geometry commands, <strong><code>import 'part.step'</code></strong> (also <code>.stp</code>, <code>.igs</code>, <code>.3mf</code>, <code>.sc</code>, <code>.afxcad</code>)
+brings the part in as a body whose faces keep their names, and <code>mesh body 1 size 0.5 scheme overlay</code> meshes it; the Hex mesh output carries the same side sets.</li>
+<li><strong>Tet Mesh</strong> keeps the names too: one side set per CAD face.</li>
+<li>Assign Grains and the solver cases follow as for any mesh: give the set to hold and the set to
+pull by name (<code>fixed='plate_with_hole face 1'</code>, <code>loaded='plate_with_hole face 2'</code>).</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/cad_mesh.png" alt="A STEP file’s plate with its hole, meshed with hexahedra; the highlighted faces are the side set of one of the file’s faces"><span class="img-wrapper"><img src="images/cad_mesh.png" alt="A STEP file’s plate with its hole, meshed with hexahedra; the highlighted faces are the side set of one of the file’s faces"></span></label></p>
+<pre><code class="language-python">part = afx.load("bracket.step")                # a CAD Model
+mesh = part.overlay_mesh(cell=1.0)             # hexahedra; side sets named after the faces
+grains = mesh.assign_grains(grains=40, blocks=True, boundaries=True)
+afx.simulation_case(grains, "moose", "case", fixed="bracket face 1", loaded="bracket face 2")
+</code></pre>
+<h2 id="python"><a class="header" href="#python">Python</a></h2>
+<pre><code class="language-python">m = afx.cad_model()                                   # a plate; or afx.cad_model("part.afxcad"),
+                                                      # afx.cad_model(template="flange")
+m.cad.parameter("width", "60 mm")                     # a named dimension
+m.cad.hole(diameter="width / 10", depth=20, name="Bore", at=(0, 0, 12))   # cuts down from z = 12
+m.cad.fillet(0.8)                                     # round the whole part
+print(m.cad.volume(), [f["name"] for f in m.cad.faces()])
+m.set(width=80)                                       # a dimension, without editing the part
+</code></pre>
+<p>Any number may be an expression of the dimensions (<code>"width / 2"</code>): the field then follows the
+dimension. The calls:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Call</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m.cad.parameter(name, expr)</code></td><td>names a dimension (units allowed: <code>"1.5 in"</code>)</td></tr>
+<tr><td><code>m.cad.box</code>, <code>sphere</code>, <code>cylinder</code>, <code>cone</code>, <code>torus</code></td><td>add (<code>op="add"</code>), cut (<code>"cut"</code>) or intersect (<code>"intersect"</code>) a solid; <code>at=(x, y, z)</code> and <code>rotate=(rx, ry, rz)</code> place it</td></tr>
+<tr><td><code>m.cad.hole(diameter, depth, kind=...)</code></td><td>a hole cut downward from <code>at</code>: <code>simple</code>, <code>drilled</code>, <code>counterbore</code>, <code>countersink</code>, <code>tapped</code></td></tr>
+<tr><td><code>m.cad.thread(major_diameter, pitch, length)</code></td><td>a helical thread</td></tr>
+<tr><td><code>s = m.cad.sketch(plane="XY")</code>, then <code>.rectangle(w, h, center=...)</code>, <code>.circle(r)</code>, <code>.polygon(points)</code>, <code>.regular(sides, r)</code></td><td>a sketch with its dimensions</td></tr>
+<tr><td><code>s.project(face="Plate z+")</code>, <code>s.project(edge=("Plate z+", "Bore side"))</code></td><td><a href="#sketching">edges of the part</a> laid on the sketch plane as lines, circles, arcs and outlines</td></tr>
+<tr><td><code>m.cad.extrude(s, depth, end="blind")</code></td><td>extrude a sketch (<code>"midplane"</code>, <code>"through_all"</code>; <code>draft</code>, <code>top={"fillet": 1}</code>)</td></tr>
+<tr><td><code>m.cad.revolve(s, angle=360)</code></td><td>revolve a sketch about its vertical axis (x is the radius)</td></tr>
+<tr><td><code>s = m.cad.sketch(face="Plate z+")</code>; <code>s.line</code>, <code>s.horizontal</code>, <code>s.distance</code>, <code>s.solve()</code> …</td><td>a sketch on a face; <a href="#sketches-with-constraints-from-python">lines with constraints and dimensions</a></td></tr>
+<tr><td><code>m.cad.sketch_add(s, name)</code>, <code>sweep(profile, path, twist=0)</code>, <code>loft(sections)</code>, <code>sketches()</code></td><td><a href="#sweeps-and-lofts">sweeps and lofts</a> from kept sketches</td></tr>
+<tr><td><code>m.cad.sketch_face(feature, face)</code></td><td>put a feature’s sketch on another face, or (<code>None</code>) let go of it</td></tr>
+<tr><td><code>afx.cad_from(node)</code></td><td>a CAD Model that starts as the solid another object shows</td></tr>
+<tr><td><code>m.cad.fillet(r)</code>, <code>shell(t)</code>, <code>linear_pattern</code>, <code>grid_pattern</code>, <code>circular_pattern</code>, <code>mirror</code>, <code>split</code>, <code>scale</code></td><td>modifiers on a feature (<code>feature="Base"</code>) or the whole part</td></tr>
+<tr><td><code>m.cad.mirror_about(face_or_point, normal)</code>, <code>draft(faces, angle)</code>, <code>edit("face_pattern", ...)</code>, <code>edit("combine", ...)</code></td><td>operations on faces and bodies</td></tr>
+<tr><td><code>m.cad.component_add(...)</code>, <code>component_move</code>, <code>component_op</code>, <code>component_visible</code>, <code>component_remove</code>, <code>components()</code>, <code>component_interference()</code></td><td>assemblies</td></tr>
+<tr><td><code>e.edit_component(name)</code>; <code>e.mate(kind, a, b, value)</code>, <code>mate_set</code>, <code>mate_remove</code>, <code>mates()</code>, <code>placements()</code></td><td>a part edited in place; <a href="#mates-and-motion">mates</a></td></tr>
+<tr><td><code>m.cad.suppress(name)</code>, <code>remove</code>, <code>rename</code>, <code>move</code></td><td>edit the history</td></tr>
+<tr><td><code>m.cad.configuration("small", width=20)</code>, <code>activate("small")</code></td><td>named variants</td></tr>
+<tr><td><code>m.cad.faces()</code>, <code>volume()</code>, <code>features()</code>, <code>parameters()</code></td><td>read the result</td></tr>
+<tr><td><code>m.cad.save("part.afxcad")</code>, <code>m.cad.load(path)</code></td><td>files</td></tr>
+</tbody>
+</table>
+</div>
+<p>Every call is one undo step, and is recorded in the Python trace. A feature name can be used once
+(faces are named after features): adding a second <code>Base</code> is refused with that reason, and
+<code>m.cad.clear("Name")</code> empties a part to start from nothing.</p>
+<h2 id="files"><a class="header" href="#files">Files</a></h2>
+<p>A part is saved as an <strong><code>.afxcad</code></strong> file: readable JSON with a format version, so a later
+auraFX opens an earlier file, and an earlier one says plainly that a file is from a newer
+version. The state files (<code>.afx</code>) hold the part inside, so a session reopens with it.</p>
+<h2 id="meshing-a-part"><a class="header" href="#meshing-a-part">Meshing a part</a></h2>
+<p>A CAD model feeds the same tools as Geometry: <strong>Overlay Mesh</strong> turns its surface into
+hexahedra, <strong>Tet Mesh</strong> into tetrahedra, <strong>Assign Grains</strong> and the solver cases follow.
+Face names carry through: an extracted set or a boundary layer can name <code>Bore side</code>.</p>
+<h2 id="limits"><a class="header" href="#limits">Limits</a></h2>
+<ul>
+<li>The Implicit kernel describes the part as a distance field. It never fails on a hard
+combination of features, but edges are not exact lines: the faces it reports are labelled
+regions of the surface. The B-rep kernel is exact but refuses a few things (a feature-level
+mirror of a shape that is not symmetric, a twisted sweep): <em>Auto</em> then falls back and says so.</li>
+<li>Geometry taken from the part (<strong>From the part</strong>, <code>project()</code>) is a copy: it does not move when
+the part changes later. A round edge becomes a circle or an arc only when the sketch plane is
+parallel to it (within a ten-thousandth of its size); seen at a slant it is an outline of
+straight pieces that the solver does not move. Edges are those between the named faces: the
+exact ones when the B-rep kernel builds the part, else the borders between the faces of the
+surface, which follow its triangles. Hidden edges can be taken too: of two edges that land
+on the same place, the one nearer to the eye is taken.</li>
+<li>The part underneath a sketch is drawn from the part’s surface as last built, flat-shaded and
+without the section where the sketch plane cuts the part: what is above the sketch plane
+shows as well as what is below. The plane previews in the 3D view are drawn over the part and
+are not hidden by it.</li>
+<li>A sketch follows its face by the face’s name: renaming the feature that made the face, or
+removing it, leaves the sketch without a face until you pick another. The face must be one
+the features <em>before</em> the sketch’s feature make, and flat.</li>
+<li>A sweep’s path is one open chain of lines and arcs in one sketch (the longest, when a sketch
+has several); a closed path, guide rails and a profile that changes along the path are not
+there. A loft is straight between its sections, which must be on parallel planes.</li>
+<li>Mates read a face’s plane or axis from its triangles. On the exact kernel that is exact; on
+the implicit kernel a small round face may not be recognised as round (the mate then says
+so). Angle mates run from 0 to 180°. There are no gear, cam or limit mates, and no collision
+while dragging (Check fit finds overlaps afterwards).</li>
+<li>A component is edited on its own in its own coordinates; the rest of the assembly is not
+shown beside it, and a component’s own components are not opened from there.</li>
+<li>A dimension that makes a sketch impossible (constraints that contradict each other) is
+refused, and the part keeps its last valid state.</li>
+<li>Sketches start on the principal planes, on reference planes and on flat faces; a curved face
+cannot be sketched on.</li>
+<li>Check fit samples the two solids on a grid, so a thin overlap smaller than a cell is missed;
+the result is accurate to a few percent for overlaps that span several cells.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="geometry.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="settings.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="geometry.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="settings.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-09f2665d.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

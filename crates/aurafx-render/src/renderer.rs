@@ -53,11 +53,13 @@ pub struct RenderSettings {
     /// Clear to transparent (for screenshots): the color target then holds premultiplied
     /// color, see [`Renderer::save_png_with`].
     pub transparent: bool,
+    /// The camera is moving: very big surfaces may be drawn from their coarse copy.
+    pub interacting: bool,
 }
 
 impl Default for RenderSettings {
     fn default() -> Self {
-        Self { background: [0.12, 0.13, 0.16], background_top: None, lighting: Default::default(), transparent: false }
+        Self { background: [0.12, 0.13, 0.16], background_top: None, lighting: Default::default(), transparent: false, interacting: false }
     }
 }
 
@@ -103,9 +105,58 @@ struct GpuNode {
     shadow_bg: wgpu::BindGroup,
     /// Surface LIC vectors, one buffer per `tris` buffer.
     lic: Vec<wgpu::Buffer>,
+    /// Runs of `tris` with their bounds, and which are in view this frame.
+    chunks: Vec<crate::lod::Chunk>,
+    visible: Vec<bool>,
+    /// A coarse copy of a very big surface (drawn while the camera moves), and the thread
+    /// making it (one at a time; started once the surface has stayed the same for a moment).
+    lod: Vec<(wgpu::Buffer, u32)>,
+    lod_job: Option<LodJob>,
+    /// The coarse copy of this mesh was made (it is not made twice, also when it came out empty).
+    lod_made: bool,
+    /// How often this mesh was drawn, and when it arrived.
+    frames_same: u32,
+    since: std::time::Instant,
+    /// 3D Glyphs: the shape, and the instances in buffers.
+    glyph_shape: Option<(wgpu::Buffer, u32)>,
+    glyph_instances: Vec<(wgpu::Buffer, u32)>,
+}
+
+/// A thread making the coarse copy of a surface.
+struct LodJob {
+    rx: std::sync::mpsc::Receiver<Option<Vec<Vertex>>>,
+    /// Tells the thread to give up.
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    /// The surface was replaced: the result is not wanted (the thread is still winding down).
+    stale: bool,
+}
+
+impl LodJob {
+    fn start(mesh: Arc<MeshData>) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::lod::coarse_until(&mesh.tris, crate::lod::LOD_TARGET_TRIS, !mesh.textured && !mesh.direct_rgb, &flag));
+        });
+        Self { rx, stop, stale: false }
+    }
+
+    fn cancel(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.stale = true;
+    }
+}
+
+impl Drop for LodJob {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 pub struct Renderer {
+    /// The camera is moving (see [`RenderSettings::interacting`]).
+    interacting: bool,
     device: wgpu::Device,
     queue: wgpu::Queue,
     pub width: u32,
@@ -141,6 +192,9 @@ pub struct Renderer {
     pipe_lines_opaque: wgpu::RenderPipeline,
     pipe_points_opaque: wgpu::RenderPipeline,
     pipe_tris_oit: wgpu::RenderPipeline,
+    /// 3D Glyphs: a shape drawn per instance.
+    pipe_glyphs: wgpu::RenderPipeline,
+    pipe_glyphs_oit: wgpu::RenderPipeline,
     pipe_lines_oit: wgpu::RenderPipeline,
     pipe_wide_lines: wgpu::RenderPipeline,
     pipe_overlay_wide_lines: wgpu::RenderPipeline,
@@ -415,6 +469,24 @@ fn vertex_layout(step: wgpu::VertexStepMode) -> wgpu::VertexBufferLayout<'static
     }
 }
 
+/// The vertex buffers of a vertex entry point: wide lines take segments, 3D glyphs a shape and
+/// their instances, everything else vertices.
+fn buffers_for(vs: &str, step: wgpu::VertexStepMode) -> Vec<Option<wgpu::VertexBufferLayout<'static>>> {
+    match vs {
+        "vs_wide_line" => vec![Some(segment_layout())],
+        "vs_glyph" => vec![
+            Some(vertex_layout(wgpu::VertexStepMode::Vertex)),
+            Some(wgpu::VertexBufferLayout { array_stride: 32, step_mode: wgpu::VertexStepMode::Instance, attributes: &GLYPH_ATTRIBUTES }),
+        ],
+        _ => vec![Some(vertex_layout(step))],
+    }
+}
+
+const GLYPH_ATTRIBUTES: [wgpu::VertexAttribute; 2] = [
+    wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 3 },
+    wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 16, shader_location: 4 },
+];
+
 /// A line segment's two vertices per instance (wide lines: `vs_wide_line`).
 fn segment_layout() -> wgpu::VertexBufferLayout<'static> {
     let v = std::mem::size_of::<Vertex>() as u64;
@@ -604,7 +676,7 @@ impl Renderer {
                     vertex: wgpu::VertexState {
                         module: &shader,
                         entry_point: Some(vs),
-                        buffers: &[Some(if vs == "vs_wide_line" { segment_layout() } else { vertex_layout(step) })],
+                        buffers: &buffers_for(vs, step),
                         compilation_options: Default::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
@@ -633,6 +705,7 @@ impl Renderer {
         use wgpu::PrimitiveTopology::{LineList, TriangleList};
         use wgpu::VertexStepMode::{Instance, Vertex};
         let pipe_tris = make_pipeline("tris", "vs_mesh", "fs_mesh", TriangleList, Vertex, false, true, false);
+        let pipe_glyphs = make_pipeline("glyphs", "vs_glyph", "fs_mesh", TriangleList, Vertex, false, false, false);
         let pipe_overlay_tris = make_pipeline("overlay tris", "vs_mesh", "fs_mesh", TriangleList, Vertex, true, false, true);
         let pipe_overlay_lines = make_pipeline("overlay lines", "vs_mesh", "fs_line", LineList, Vertex, true, false, true);
         let pipe_overlay_points = make_pipeline("overlay points", "vs_point", "fs_point", TriangleList, Instance, true, false, true);
@@ -650,12 +723,7 @@ impl Renderer {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vs),
-                    buffers: &[Some(if vs == "vs_wide_line" { segment_layout() } else { vertex_layout(step) })],
-                    compilation_options: Default::default(),
-                },
+                vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), buffers: &buffers_for(vs, step), compilation_options: Default::default() },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(fs),
@@ -687,6 +755,7 @@ impl Renderer {
             })
         };
         let pipe_tris_oit = make_oit("tris oit", "vs_mesh", "fs_mesh_oit", TriangleList, Vertex);
+        let pipe_glyphs_oit = make_oit("glyphs oit", "vs_glyph", "fs_mesh_oit", TriangleList, Vertex);
         let pipe_lines_oit = make_oit("lines oit", "vs_mesh", "fs_line_oit", LineList, Vertex);
         let pipe_points_oit = make_oit("points oit", "vs_point", "fs_point_oit", TriangleList, Instance);
         let pipe_wide_lines_oit = make_oit("wide lines oit", "vs_wide_line", "fs_line_oit", TriangleList, Instance);
@@ -1179,6 +1248,7 @@ impl Renderer {
             scene_bg,
             vol_sampler,
             nodes: HashMap::new(),
+            interacting: false,
             adapter_info,
             pipe_resolve_depth,
             pipe_layer,
@@ -1188,6 +1258,8 @@ impl Renderer {
             pipe_lines_opaque,
             pipe_points_opaque,
             pipe_tris_oit,
+            pipe_glyphs,
+            pipe_glyphs_oit,
             pipe_lines_oit,
             pipe_wide_lines,
             pipe_overlay_wide_lines,
@@ -1618,6 +1690,21 @@ impl Renderer {
             .collect()
     }
 
+    /// Glyph instances (8 floats each), in buffers within the device's size limit.
+    fn upload_instances(&self, inst: &[[f32; 8]]) -> Vec<(wgpu::Buffer, u32)> {
+        let max = (self.device.limits().max_buffer_size.min(1 << 30) as usize / 32).max(1);
+        inst.chunks(max)
+            .map(|c| {
+                let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("glyph instances"),
+                    contents: bytemuck::cast_slice(c),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                (buf, c.len() as u32)
+            })
+            .collect()
+    }
+
     fn upload(&self, label: &str, verts: &[Vertex], group: usize) -> Vec<(wgpu::Buffer, u32)> {
         let max = (self.device.limits().max_buffer_size.min(1 << 30) as usize / std::mem::size_of::<Vertex>()) / group * group;
         verts
@@ -1642,8 +1729,30 @@ impl Renderer {
             let points = self.upload("points", &draw.mesh.points, 1);
             let edges = self.upload("edges", &draw.mesh.edges, 2);
             let lic = self.upload_lic(&draw.mesh.lic, &tris);
+            let (glyph_shape, glyph_instances) = match &draw.mesh.glyphs {
+                Some(gd) if !gd.instances.is_empty() => (self.upload("glyph shape", &gd.shape, 3).into_iter().next(), self.upload_instances(&gd.instances)),
+                _ => (None, Vec::new()),
+            };
+            let lens: Vec<usize> = tris.iter().map(|t| t.1 as usize).collect();
+            let chunks = crate::lod::chunks(&draw.mesh.tris, &lens);
+            let visible = vec![true; chunks.len()];
+            // (The coarse copy of a very big surface is made later, in `render`, once the
+            // surface has stayed the same for a moment.)
             match self.nodes.get_mut(&draw.id) {
                 Some(g) => {
+                    g.chunks = chunks;
+                    g.visible = visible;
+                    g.glyph_shape = glyph_shape;
+                    g.glyph_instances = glyph_instances;
+                    g.lod = Vec::new();
+                    // A copy being made is of the old surface: stop it. Until its thread has
+                    // ended no other is started.
+                    if let Some(j) = g.lod_job.as_mut() {
+                        j.cancel();
+                    }
+                    g.lod_made = false;
+                    g.frames_same = 0;
+                    g.since = std::time::Instant::now();
                     g.lic = lic;
                     g.volume = volume;
                     g.tris = tris;
@@ -1693,6 +1802,15 @@ impl Renderer {
                             bind_group,
                             shadow_bg,
                             lic,
+                            chunks,
+                            visible,
+                            lod: Vec::new(),
+                            lod_job: None,
+                            lod_made: false,
+                            frames_same: 0,
+                            since: std::time::Instant::now(),
+                            glyph_shape,
+                            glyph_instances,
                         },
                     );
                 }
@@ -1727,6 +1845,44 @@ impl Renderer {
         self.nodes.retain(|id, _| live.contains(id));
         for d in draws {
             self.sync_node(d);
+        }
+        self.interacting = settings.interacting;
+        // Coarse copies: those that are ready, and new ones for very big surfaces that have
+        // stayed the same for a moment (one thread per surface at a time).
+        let mut ready: Vec<(NodeId, Vec<Vertex>)> = Vec::new();
+        for (id, g) in self.nodes.iter_mut() {
+            g.frames_same = g.frames_same.saturating_add(1);
+            if let Some(job) = &g.lod_job {
+                match job.rx.try_recv() {
+                    Ok(Some(v)) if !job.stale => {
+                        ready.push((*id, v));
+                        g.lod_made = true;
+                        g.lod_job = None;
+                    }
+                    Ok(_) | Err(std::sync::mpsc::TryRecvError::Disconnected) => g.lod_job = None,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                }
+            }
+            let wanted = !g.lod_made && g.mesh.tris.len() >= 3 * crate::lod::LOD_MIN_TRIS && g.mesh.lic.is_empty();
+            if wanted && g.lod_job.is_none() && g.frames_same >= crate::lod::LOD_SETTLE_FRAMES && g.since.elapsed() >= crate::lod::LOD_SETTLE {
+                g.lod_job = Some(LodJob::start(g.mesh.clone()));
+            }
+        }
+        for (id, v) in ready {
+            let bufs = self.upload("coarse tris", &v, 3);
+            if let Some(g) = self.nodes.get_mut(&id) {
+                g.lod = bufs;
+            }
+        }
+        // Which runs of triangles are in view.
+        let aspect = self.width as f64 / self.height.max(1) as f64;
+        for d in draws {
+            let vp = camera.view_proj_f32(aspect, DVec3::from_array(d.mesh.origin));
+            if let Some(g) = self.nodes.get_mut(&d.id) {
+                for (v, c) in g.visible.iter_mut().zip(&g.chunks) {
+                    *v = crate::lod::in_view(&vp, c.min, c.max);
+                }
+            }
         }
         self.light_kit = settings.lighting.light_kit;
         self.sync_environment(&settings.lighting);
@@ -2260,10 +2416,35 @@ impl Renderer {
         } else {
             (&self.pipe_tris, &self.pipe_lines_opaque, &self.pipe_points_opaque, &self.pipe_wide_lines)
         };
-        for (buf, n) in &g.tris {
-            pass.set_pipeline(pt);
-            pass.set_vertex_buffer(0, buf.slice(..));
-            pass.draw(0..*n, 0..1);
+        pass.set_pipeline(pt);
+        if self.interacting && !g.lod.is_empty() && !d.overlay {
+            // The camera is moving: the coarse copy of a very big surface.
+            for (buf, n) in &g.lod {
+                pass.set_vertex_buffer(0, buf.slice(..));
+                pass.draw(0..*n, 0..1);
+            }
+        } else {
+            // The runs of triangles in view.
+            let mut bound = usize::MAX;
+            for (c, &seen) in g.chunks.iter().zip(&g.visible) {
+                if !seen {
+                    continue;
+                }
+                if bound != c.buffer {
+                    pass.set_vertex_buffer(0, g.tris[c.buffer].0.slice(..));
+                    bound = c.buffer;
+                }
+                pass.draw(c.first..c.first + c.count, 0..1);
+            }
+        }
+        // 3D Glyphs: one shape, drawn once per instance.
+        if let Some((shape, n)) = &g.glyph_shape {
+            pass.set_pipeline(if translucent { &self.pipe_glyphs_oit } else { &self.pipe_glyphs });
+            pass.set_vertex_buffer(0, shape.slice(..));
+            for (inst, k) in &g.glyph_instances {
+                pass.set_vertex_buffer(1, inst.slice(..));
+                pass.draw(0..*n, 0..*k);
+            }
         }
         // Hairlines for a width of 1 pixel (or less); wider lines as a quad per segment.
         let wide = d.display.line_width > 1.0;
@@ -2407,6 +2588,14 @@ fn srgb_to_linear(c: f32) -> f64 {
     }
 }
 
+/// For tests that draw: hold the returned guard for the whole test, so the tests of one program
+/// draw one at a time. A software GPU driver (as on a build machine without a GPU) can crash when
+/// several devices draw at once in one process.
+pub fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Create a renderer on a headless device (no window), for batch rendering and tests.
 pub fn headless(width: u32, height: u32) -> Result<Renderer> {
     headless_with_samples(width, height, MSAA)
@@ -2414,7 +2603,12 @@ pub fn headless(width: u32, height: u32) -> Result<Renderer> {
 
 /// [`headless`] with a sample count (1: no multisampling).
 pub fn headless_with_samples(width: u32, height: u32, samples: u32) -> Result<Renderer> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    // No debug labels or validation unless asked for (WGPU_DEBUG, WGPU_VALIDATION): with several
+    // devices working on different threads at once (a server drawing beside the client), the
+    // Vulkan loader's debug-name calls can crash in debug builds.
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    desc.flags = wgpu::InstanceFlags::empty().with_env();
+    let instance = wgpu::Instance::new(desc);
     let adapter = pollster_block(
         instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
     )?;

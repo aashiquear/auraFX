@@ -69,6 +69,12 @@ impl TriMesh {
     /// A surface from points and triangles. Points closer than a millionth of the size are
     /// merged first (STL files repeat every corner).
     pub fn new(points: &[V], tris: &[[u32; 3]]) -> Result<TriMesh> {
+        Self::new_labeled(points, tris, None)
+    }
+
+    /// Like [`TriMesh::new`] with a label per triangle (a CAD face number, say) that replaces the
+    /// patches found between sharp edges: `patch` and `n_patches` then follow the labels.
+    pub fn new_labeled(points: &[V], tris: &[[u32; 3]], labels: Option<&[u32]>) -> Result<TriMesh> {
         if tris.is_empty() {
             bail!("the surface has no triangles");
         }
@@ -92,7 +98,9 @@ impl TriMesh {
                 })
             })
             .collect();
-        let tris: Vec<[u32; 3]> = tris.iter().map(|t| t.map(|i| remap[i as usize])).filter(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2]).collect();
+        let keep: Vec<bool> = tris.iter().map(|t| t.map(|i| remap[i as usize])).map(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2]).collect();
+        let labels: Option<Vec<u32>> = labels.map(|l| l.iter().zip(&keep).filter(|(_, k)| **k).map(|(x, _)| *x).collect());
+        let tris: Vec<[u32; 3]> = tris.iter().zip(&keep).filter(|(_, k)| **k).map(|(t, _)| t.map(|i| remap[i as usize])).collect();
         let mut face_n = Vec::with_capacity(tris.len());
         let mut vert_n = vec![[0.0; 3]; verts.len()];
         let mut edge_n: HashMap<(u32, u32), V> = HashMap::new();
@@ -138,6 +146,13 @@ impl TriMesh {
             }
             n_patches += 1;
         }
+        let (patch, n_patches) = match labels {
+            Some(l) => {
+                let n = l.iter().copied().max().map(|m| m + 1).unwrap_or(0);
+                (l, n)
+            }
+            None => (patch, n_patches),
+        };
         let mut m = TriMesh { verts, tris, face_n, vert_n, edge_n, nodes: Vec::new(), order: Vec::new(), patch, n_patches, lo, hi };
         m.build();
         Ok(m)
@@ -238,6 +253,31 @@ impl TriMesh {
                 d * d
             })
             .sum()
+    }
+
+    /// The point of the surface nearest `p`, with its triangle.
+    pub fn closest_point(&self, p: V) -> (V, usize) {
+        let mut best = (f64::INFINITY, 0usize, p);
+        let mut stack = vec![0usize];
+        while let Some(n) = stack.pop() {
+            let node = &self.nodes[n];
+            if Self::box_dist2(node.lo, node.hi, p) >= best.0 {
+                continue;
+            }
+            if node.count > 0 {
+                for &t in &self.order[node.start..node.start + node.count] {
+                    let (q, _) = self.closest(t, p);
+                    let d = dot(sub(p, q), sub(p, q));
+                    if d < best.0 {
+                        best = (d, t, q);
+                    }
+                }
+            } else {
+                stack.push(node.left);
+                stack.push(node.right);
+            }
+        }
+        (best.2, best.1)
     }
 
     /// Signed distance to the surface (negative inside).

@@ -1,0 +1,180 @@
+{
+  "format": 1,
+  "kind": "auraFX CAD document",
+  "document": {
+    "name": "plate",
+    "features": [
+      {
+        "id": 1,
+        "name": "Plate",
+        "op": "Add",
+        "shape": {
+          "kind": "SketchExtrude",
+          "sketch": {
+            "points": [
+              {
+                "x": -20.0,
+                "y": -15.0,
+                "fixed": false
+              },
+              {
+                "x": 20.0,
+                "y": -15.0,
+                "fixed": false
+              },
+              {
+                "x": 20.0,
+                "y": 15.0,
+                "fixed": false
+              },
+              {
+                "x": -20.0,
+                "y": 15.0,
+                "fixed": false
+              },
+              {
+                "x": 0.0,
+                "y": 0.0,
+                "fixed": true
+              }
+            ],
+            "entities": [
+              {
+                "type": "Line",
+                "a": 0,
+                "b": 2,
+                "construction": true
+              },
+              {
+                "type": "Line",
+                "a": 0,
+                "b": 1,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "a": 1,
+                "b": 2,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "a": 2,
+                "b": 3,
+                "construction": false
+              },
+              {
+                "type": "Line",
+                "a": 3,
+                "b": 0,
+                "construction": false
+              }
+            ],
+            "constraints": [
+              {
+                "Midpoint": [
+                  4,
+                  0
+                ]
+              },
+              {
+                "Horizontal": 1
+              },
+              {
+                "Vertical": 2
+              },
+              {
+                "Horizontal": 3
+              },
+              {
+                "Vertical": 4
+              },
+              {
+                "Length": [
+                  1,
+                  {
+                    "value": 40.0,
+                    "expr": null
+                  }
+                ]
+              },
+              {
+                "Length": [
+                  2,
+                  {
+                    "value": 30.0,
+                    "expr": null
+                  }
+                ]
+              }
+            ],
+            "plane": "XY",
+            "offset": 0.0
+          },
+          "depth": 10.0,
+          "end": "Blind",
+          "draft_deg": 0.0,
+          "top_edge": {
+            "type": "None"
+          },
+          "bottom_edge": {
+            "type": "None"
+          },
+          "reverse": false
+        },
+        "placement": {
+          "translate": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotate_deg": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "blend": 0.0,
+        "modifiers": [],
+        "suppressed": false,
+        "blend_kind": "Round",
+        "bindings": []
+      },
+      {
+        "id": 2,
+        "name": "Bore",
+        "op": "Cut",
+        "shape": {
+          "kind": "Hole",
+          "hole": {
+            "type": "Simple"
+          },
+          "diameter": 8.0,
+          "depth": 10.0
+        },
+        "placement": {
+          "translate": [
+            5.0,
+            3.0,
+            10.0
+          ],
+          "rotate_deg": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "blend": 0.0,
+        "modifiers": [],
+        "suppressed": false,
+        "blend_kind": "Round",
+        "bindings": []
+      }
+    ],
+    "finish": [],
+    "parameters": [],
+    "configurations": [],
+    "active_configuration": null,
+    "next_id": 2
+  }
+}

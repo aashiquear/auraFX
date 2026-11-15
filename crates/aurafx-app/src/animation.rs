@@ -2,6 +2,7 @@
 //! and write PNG frames, an animated GIF, or an MP4 (when ffmpeg is installed).
 
 use crate::app::State;
+use crate::touch::FitScreen;
 use egui::RichText;
 use std::path::PathBuf;
 
@@ -17,6 +18,7 @@ pub enum AnimMode {
 pub enum AnimFormat {
     Gif,
     Mp4,
+    Webm,
     Png,
 }
 
@@ -32,11 +34,30 @@ pub struct AnimDialog {
     pub preview: Option<(std::time::Instant, f64)>,
     /// Parameter chosen for a new track.
     pub track_key: String,
+    /// What is recorded: 0 the active 3D view, 1 every view as laid out, 2 the chart views,
+    /// 3 every 3D view, 4 one 3D view by number.
+    pub views: u8,
+    /// The 3D view of choice 4 (1 = the first).
+    pub view_no: u32,
+    /// The frames' size, shape and background.
+    pub options: crate::picture_options::PictureOptions,
 }
 
 impl Default for AnimDialog {
     fn default() -> Self {
-        Self { open: false, mode: AnimMode::Time, format: AnimFormat::Gif, fps: 10.0, orbit_frames: 72, t: 0.0, preview: None, track_key: String::new() }
+        Self {
+            open: false,
+            mode: AnimMode::Time,
+            format: AnimFormat::Gif,
+            fps: 10.0,
+            orbit_frames: 72,
+            t: 0.0,
+            preview: None,
+            track_key: String::new(),
+            views: 0,
+            view_no: 1,
+            options: Default::default(),
+        }
     }
 }
 
@@ -55,16 +76,120 @@ pub struct AnimJob {
     pub start_camera: Option<aurafx_render::Camera>,
     /// Animated parameter values before the export (restored afterwards).
     pub start_params: Vec<(aurafx_pipeline::NodeId, String, aurafx_filters::params::ParamValue)>,
+    /// Record these views as laid out (3D views and charts) instead of the active 3D view.
+    pub layout: Option<crate::capture::Views>,
+    /// A frame of the layout is being captured.
+    pub capturing: bool,
+    /// The active 3D view drawn on its own at a size or with a background other than the screen's.
+    pub picture: Option<(Option<(u32, u32)>, Option<aurafx_pipeline::session::PictureBackground>)>,
+    /// The frame being drawn that way (its result is in the session's `screenshot_results`).
+    pub frame_id: u64,
+}
+
+fn runs(program: &std::path::Path) -> bool {
+    let mut c = std::process::Command::new(program);
+    c.arg("-version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // no console window
+    }
+    c.status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Where auraFX keeps programs it downloaded for the user (the video encoder).
+pub fn tools_dir() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("AURAFX_DATA_DIR") {
+        return Some(PathBuf::from(d).join("tools"));
+    }
+    directories::ProjectDirs::from("org", "aurafx", "auraFX").map(|d| d.data_dir().join("tools"))
+}
+
+fn own_ffmpeg() -> Option<PathBuf> {
+    tools_dir().map(|d| d.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }))
+}
+
+/// The video encoder: `ffmpeg` on the PATH, else the copy auraFX downloaded. The answer is kept
+/// for a few seconds (the Animation window asks every frame).
+pub fn ffmpeg_path() -> Option<PathBuf> {
+    static CACHE: std::sync::Mutex<Option<(std::time::Instant, Option<PathBuf>)>> = std::sync::Mutex::new(None);
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, p)) = c.as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(3) {
+            return p.clone();
+        }
+    }
+    let found = if runs(std::path::Path::new("ffmpeg")) { Some(PathBuf::from("ffmpeg")) } else { own_ffmpeg().filter(|p| p.exists() && runs(p)) };
+    *c = Some((std::time::Instant::now(), found.clone()));
+    found
 }
 
 pub fn ffmpeg_available() -> bool {
-    std::process::Command::new("ffmpeg")
-        .arg("-version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    ffmpeg_path().is_some()
+}
+
+/// The address of a ready-made encoder for this machine, or None when there is none.
+pub fn ffmpeg_download_url() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-x64.gz"),
+        ("linux", "aarch64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-arm64.gz"),
+        ("macos", "aarch64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz"),
+        ("macos", "x86_64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-x64.gz"),
+        ("windows", "x86_64") => Some("https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz"),
+        _ => None,
+    }
+}
+
+/// The state of the encoder download: None when idle, else megabytes so far or the outcome.
+pub enum FfmpegDownload {
+    Running(f32),
+    Failed(String),
+}
+static FFMPEG_DOWNLOAD: std::sync::Mutex<Option<FfmpegDownload>> = std::sync::Mutex::new(None);
+
+pub fn ffmpeg_download_state<R>(f: impl FnOnce(&Option<FfmpegDownload>) -> R) -> R {
+    f(&FFMPEG_DOWNLOAD.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Download the encoder into the tools folder and check it runs (blocking; see
+/// `start_ffmpeg_download` for the window).
+pub fn install_ffmpeg() -> Result<PathBuf, String> {
+    if let Some(p) = ffmpeg_path() {
+        return Ok(p);
+    }
+    let url = ffmpeg_download_url().ok_or("there is no ready-made ffmpeg for this kind of machine; install ffmpeg and put it on the PATH")?;
+    let dest = own_ffmpeg().ok_or("no data folder to keep the encoder in")?;
+    let set = |s: Option<FfmpegDownload>| *FFMPEG_DOWNLOAD.lock().unwrap_or_else(|e| e.into_inner()) = s;
+    set(Some(FfmpegDownload::Running(0.0)));
+    let r = aurafx_ai::fetch_to_file(url, &dest, &|done, _| set(Some(FfmpegDownload::Running(done as f32 / 1.0e6))))
+        .map_err(|e| format!("downloading the video encoder failed: {e:#}"))
+        .and_then(|_| {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+            }
+            if runs(&dest) {
+                Ok(dest.clone())
+            } else {
+                let _ = std::fs::remove_file(&dest);
+                Err("the downloaded encoder does not run on this machine; install ffmpeg and put it on the PATH".to_string())
+            }
+        });
+    set(r.as_ref().err().map(|e| FfmpegDownload::Failed(e.clone())));
+    r
+}
+
+/// Start the download in the background (the Animation window shows its progress).
+pub fn start_ffmpeg_download(ctx: egui::Context) {
+    if ffmpeg_download_state(|s| matches!(s, Some(FfmpegDownload::Running(_)))) {
+        return;
+    }
+    *FFMPEG_DOWNLOAD.lock().unwrap_or_else(|e| e.into_inner()) = Some(FfmpegDownload::Running(0.0));
+    std::thread::spawn(move || {
+        let _ = install_ffmpeg();
+        ctx.request_repaint();
+    });
 }
 
 impl State {
@@ -83,17 +208,36 @@ impl State {
             None if keyframed => AnimMode::Keyframes,
             None => AnimMode::Time,
         };
-        self.start_animation_mode(out, fps, mode, orbit.unwrap_or(72));
+        let views = self.session.lock().animation_views.take();
+        let layout = match views.as_deref().map(crate::capture::Views::parse) {
+            None => None,
+            Some(Some(v)) => Some(v),
+            Some(None) => {
+                self.toast("save_animation: views must be 'all', 'charts', '3d', 'chart N' or 'view N'", true);
+                return;
+            }
+        };
+        let picture = self.session.lock().animation_picture.take();
+        self.start_animation_mode(out, fps, mode, orbit.unwrap_or(72), layout, picture);
     }
 
-    pub fn start_animation_mode(&mut self, out: PathBuf, fps: f32, mode: AnimMode, orbit_frames: usize) {
+    pub fn start_animation_mode(
+        &mut self,
+        out: PathBuf,
+        fps: f32,
+        mode: AnimMode,
+        orbit_frames: usize,
+        layout: Option<crate::capture::Views>,
+        picture: Option<(Option<(u32, u32)>, Option<aurafx_pipeline::session::PictureBackground>)>,
+    ) {
         let format = match out.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) {
             Some(e) if e == "mp4" => AnimFormat::Mp4,
+            Some(e) if e == "webm" => AnimFormat::Webm,
             Some(e) if e == "png" => AnimFormat::Png,
             _ => AnimFormat::Gif,
         };
-        if format == AnimFormat::Mp4 && !ffmpeg_available() {
-            self.toast("MP4 needs ffmpeg on the PATH; choose GIF or PNG frames instead", true);
+        if matches!(format, AnimFormat::Mp4 | AnimFormat::Webm) && !ffmpeg_available() {
+            self.toast("MP4 and WebM need the video encoder (ffmpeg): File > Animation offers to download it, or afx.install_ffmpeg(); GIF and PNG frames need nothing", true);
             return;
         }
         let ntimes = self.session.lock().times.len();
@@ -120,7 +264,23 @@ impl State {
             AnimMode::Orbit => {}
         }
         self.playing = false;
-        self.anim_job = Some(AnimJob { out, dir, format, fps: fps.max(0.5), mode, total, frame: 0, settle: 3, start_time_index, start_camera, start_params });
+        self.anim_job = Some(AnimJob {
+            out,
+            dir,
+            format,
+            fps: fps.max(0.5),
+            mode,
+            total,
+            frame: 0,
+            settle: 3,
+            start_time_index,
+            start_camera,
+            start_params,
+            picture: if layout.is_some() { None } else { picture.filter(|p| p.0.is_some() || p.1.is_some()) },
+            layout,
+            capturing: false,
+            frame_id: 0,
+        });
         self.status = format!("Recording {total} frames…");
     }
 
@@ -151,11 +311,75 @@ impl State {
             return;
         }
         let path = job.dir.join(format!("frame_{:05}.png", job.frame));
-        if let Err(e) = self.viewport.save_current_png(&path) {
+        if let Some(views) = job.layout.clone() {
+            // Several views: a picture of the window's frame, taken by `capture`, then the next frame.
+            if !job.capturing {
+                job.capturing = true;
+                self.capture.animation_result = None;
+                self.capture.request(crate::capture::Request {
+                    path,
+                    views,
+                    transparent: false,
+                    controls: false,
+                    done: crate::capture::Done::Animation,
+                    background: self.anim_dialog.options.gap_color(),
+                });
+                return;
+            }
+            match self.capture.animation_result.take() {
+                None => return,
+                Some(Err(e)) => {
+                    self.toast(format!("Frame capture failed: {e}"), true);
+                    self.anim_job = None;
+                    return;
+                }
+                Some(Ok(())) => {
+                    let job = self.anim_job.as_mut().unwrap();
+                    job.capturing = false;
+                }
+            }
+        } else if let Some((size, background)) = job.picture {
+            // Drawn once more at the asked size or background, through the screenshot path.
+            if !job.capturing {
+                let id = {
+                    let mut s = self.session.lock();
+                    s.next_screenshot_id += 1;
+                    s.next_screenshot_id
+                };
+                job.capturing = true;
+                job.frame_id = id;
+                self.viewport.request_screenshot(aurafx_pipeline::session::ScreenshotRequest {
+                    size,
+                    id,
+                    background,
+                    quiet: true,
+                    ..aurafx_pipeline::session::ScreenshotRequest::new(path)
+                });
+                return;
+            }
+            let id = job.frame_id;
+            let got = {
+                let mut s = self.session.lock();
+                s.screenshot_results.iter().position(|r| r.0 == id).map(|i| s.screenshot_results.remove(i).1)
+            };
+            match got {
+                None => return,
+                Some(Err(e)) => {
+                    self.toast(format!("Frame capture failed: {e}"), true);
+                    self.anim_job = None;
+                    return;
+                }
+                Some(Ok(())) => {
+                    let job = self.anim_job.as_mut().unwrap();
+                    job.capturing = false;
+                }
+            }
+        } else if let Err(e) = self.viewport.save_current_png(&path) {
             self.toast(format!("Frame capture failed: {e:#}"), true);
             self.anim_job = None;
             return;
         }
+        let job = self.anim_job.as_mut().unwrap();
         job.frame += 1;
         if job.frame >= job.total {
             let job = self.anim_job.take().unwrap();
@@ -199,8 +423,9 @@ impl State {
     fn encode_for_script(&mut self, req: aurafx_pipeline::session::EncodeRequest) {
         let session = self.session.clone();
         self.status = "Encoding the animation…".into();
+        let poster = self.session.lock().animation_poster.take();
         std::thread::spawn(move || {
-            let r = encode_frames(&req.dir, req.frames, &req.out, req.fps);
+            let r = encode_frames(&req.dir, req.frames, &req.out, req.fps).and_then(|_| write_poster(&req.dir, poster.as_deref()));
             let _ = std::fs::remove_dir_all(&req.dir);
             session.lock().screenshot_results.push((req.id, r));
         });
@@ -212,12 +437,20 @@ impl State {
             AnimFormat::Png => {
                 self.toast(format!("Saved {} frames to {}", job.total, job.dir.display()), false);
             }
-            AnimFormat::Gif | AnimFormat::Mp4 => {
+            AnimFormat::Gif | AnimFormat::Mp4 | AnimFormat::Webm => {
                 let tx = self.anim_done_tx.clone();
                 let fps = job.fps;
-                self.status = format!("Encoding {}…", if job.format == AnimFormat::Mp4 { "MP4" } else { "GIF" });
+                self.status = format!(
+                    "Encoding {}…",
+                    match job.format {
+                        AnimFormat::Mp4 => "MP4",
+                        AnimFormat::Webm => "WebM",
+                        _ => "GIF",
+                    }
+                );
+                let poster = self.session.lock().animation_poster.take();
                 std::thread::spawn(move || {
-                    let r = encode_frames(&job.dir, job.total, &out, fps);
+                    let r = encode_frames(&job.dir, job.total, &out, fps).and_then(|_| write_poster(&job.dir, poster.as_deref()));
                     let _ = std::fs::remove_dir_all(&job.dir);
                     let _ = tx.send(r.map(|_| out));
                 });
@@ -240,23 +473,54 @@ impl State {
         if let Some(r) = enc {
             self.encode_for_script(r);
         }
+        let tool = self.session.lock().ffmpeg_install_request.take();
+        if let Some(id) = tool {
+            let session = self.session.clone();
+            self.status = "Downloading the video encoder…".into();
+            std::thread::spawn(move || {
+                let r = install_ffmpeg().map(|_| ());
+                session.lock().screenshot_results.push((id, r));
+            });
+        }
     }
 }
 
-/// Encode `dir/frame_00000.png`... into `out` (GIF, or MP4 with ffmpeg).
+/// The first frame of `dir` as a picture (the still shown before a video plays); the format
+/// follows the extension.
+fn write_poster(dir: &std::path::Path, poster: Option<&std::path::Path>) -> Result<(), String> {
+    let Some(poster) = poster else { return Ok(()) };
+    let img = image::open(dir.join("frame_00000.png")).map_err(|e| format!("poster: {e}"))?;
+    let jpeg = matches!(poster.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("jpg" | "jpeg"));
+    let r = if jpeg { img.to_rgb8().save(poster) } else { img.save(poster) };
+    r.map_err(|e| format!("poster {}: {e}", poster.display()))
+}
+
+/// The ffmpeg arguments that encode a video of this extension (MP4: H.264; WebM: VP9).
+pub fn video_codec_args(ext: &str) -> Option<Vec<&'static str>> {
+    match ext.to_ascii_lowercase().as_str() {
+        "mp4" => Some(vec!["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p"]),
+        "webm" => Some(vec!["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-pix_fmt", "yuv420p"]),
+        _ => None,
+    }
+}
+
+/// Encode `dir/frame_00000.png`... into `out` (GIF, or MP4 or WebM with ffmpeg).
 pub fn encode_frames(dir: &std::path::Path, total: usize, out: &std::path::Path, fps: f32) -> Result<(), String> {
-    let mp4 = out.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("mp4"));
-    if !mp4 {
+    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+    let Some(codec) = video_codec_args(&ext) else {
         let frames: Vec<PathBuf> = (0..total).map(|i| dir.join(format!("frame_{i:05}.png"))).collect();
         return encode_gif(&frames, out, fps).map_err(|e| format!("{e:#}"));
-    }
-    if !ffmpeg_available() {
-        return Err("MP4 needs ffmpeg on the PATH".into());
-    }
-    let st = std::process::Command::new("ffmpeg")
+    };
+    let Some(ffmpeg) = ffmpeg_path() else {
+        return Err(format!(
+            "{} needs the video encoder (ffmpeg): afx.install_ffmpeg() or File > Animation downloads it, or put ffmpeg on the PATH",
+            ext.to_uppercase()
+        ));
+    };
+    let st = std::process::Command::new(ffmpeg)
         .args(["-y", "-loglevel", "error", "-framerate", &fps.to_string(), "-i"])
         .arg(dir.join("frame_%05d.png"))
-        .args(["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .args(codec)
         .arg(out)
         .status();
     match st {
@@ -286,13 +550,17 @@ fn encode_gif(frames: &[PathBuf], out: &std::path::Path, fps: f32) -> anyhow::Re
 }
 
 pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
-    if !state.anim_dialog.open {
+    // Hidden while the views are recorded as laid out: it would be in the pictures.
+    if !state.anim_dialog.open || state.anim_job.as_ref().is_some_and(|j| j.layout.is_some()) {
         return;
     }
     let mut open = true;
     let mut start: Option<(PathBuf, f32, AnimMode, usize)> = None;
+    let view = state.viewport.size();
+    let n_views = state.capture.pane_rects.iter().filter(|(p, _)| crate::capture::is_view(*p)).count();
+    let n_3d = state.views.len() + 1;
     let ntimes = state.session.lock().times.len();
-    egui::Window::new("Animation").open(&mut open).collapsible(false).resizable(false).default_width(420.0).show(ctx, |ui| {
+    egui::Window::new("Animation").open(&mut open).collapsible(false).resizable(false).default_width(420.0).show_fit(ctx, |ui| {
         {
             let d = &mut state.anim_dialog;
             if ntimes < 2 && d.mode == AnimMode::Time {
@@ -327,17 +595,71 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
                 ui.radio_value(&mut d.format, AnimFormat::Gif, "GIF");
                 let ff = ffmpeg_available();
                 ui.add_enabled_ui(ff, |ui| {
-                    ui.radio_value(&mut d.format, AnimFormat::Mp4, "MP4").on_disabled_hover_text("Install ffmpeg to export MP4");
+                    ui.radio_value(&mut d.format, AnimFormat::Mp4, "MP4").on_disabled_hover_text("Needs the video encoder: see the line below");
+                    ui.radio_value(&mut d.format, AnimFormat::Webm, "WebM").on_disabled_hover_text("Needs the video encoder: see the line below");
                 });
                 ui.radio_value(&mut d.format, AnimFormat::Png, "PNG frames");
             });
             ui.end_row();
+            if !ffmpeg_available() {
+                ui.label("");
+                ui.vertical(|ui| {
+                    let running = ffmpeg_download_state(|s| match s {
+                        Some(FfmpegDownload::Running(mb)) => Some(*mb),
+                        _ => None,
+                    });
+                    if let Some(mb) = running {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(format!("Downloading the video encoder… {mb:.0} MB"));
+                        });
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+                    } else if ffmpeg_download_url().is_some() {
+                        if ui
+                            .button("Download the video encoder")
+                            .on_hover_text(
+                                "MP4 and WebM are written by ffmpeg, a separate free program (GPL) that auraFX runs. This fetches a ready-made copy (about 30 MB, from github.com/eugeneware/ffmpeg-static) into auraFX's own data folder; nothing else on the machine changes. An ffmpeg already on the PATH is used instead when there is one.",
+                            )
+                            .clicked()
+                        {
+                            start_ffmpeg_download(ui.ctx().clone());
+                        }
+                    } else {
+                        ui.label(RichText::new("MP4 and WebM need ffmpeg on the PATH").weak().small());
+                    }
+                    if let Some(e) = ffmpeg_download_state(|s| match s {
+                        Some(FfmpegDownload::Failed(e)) => Some(e.clone()),
+                        _ => None,
+                    }) {
+                        ui.colored_label(crate::theme::ERROR, e);
+                    }
+                });
+                ui.end_row();
+            }
         });
-        ui.label(RichText::new("Frames are captured at the current 3D view size.").weak().small());
+        ui.separator();
+        ui.set_min_width(480.0);
+        ui.label("Record");
+        crate::screenshot_ui::which_views_ui(ui, &mut d.views, &mut d.view_no, n_views, n_3d);
+        d.options.reset_size(view);
+        egui::Grid::new("anim picture").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+            if d.views == 0 {
+                d.options.size_rows(ui, view);
+            }
+            ui.label("Background");
+            d.options.background_ui(ui, false, d.views != 0);
+            ui.end_row();
+        });
+        if d.views != 0 {
+            ui.label(RichText::new("Frames are cut out of the window, with every view where it is laid out; this window is hidden while recording.").weak().small());
+        } else if d.format == AnimFormat::Gif && d.options.width > 960 {
+            ui.label(RichText::new("GIF frames are scaled down to 960 pixels wide; MP4, WebM and PNG frames keep the size.").weak().small());
+        }
         if ui.button(RichText::new(format!("{} Save…", crate::icons::FLOPPY_DISK)).strong()).clicked() {
             let (ext, label) = match d.format {
                 AnimFormat::Gif => ("gif", "Animated GIF"),
                 AnimFormat::Mp4 => ("mp4", "MP4 video"),
+                AnimFormat::Webm => ("webm", "WebM video (VP9, for web pages)"),
                 AnimFormat::Png => ("png", "PNG frames (a folder is created)"),
             };
             if let Some(p) = crate::dialogs::FileDialog::new().add_filter(label, &[ext]).set_file_name(format!("animation.{ext}")).save_file() {
@@ -351,7 +673,10 @@ pub fn dialog_ui(state: &mut State, ctx: &egui::Context) {
         state.anim_dialog.preview = None;
     }
     if let Some((p, fps, mode, frames)) = start {
-        state.start_animation_mode(p, fps, mode, frames);
+        let d = &state.anim_dialog;
+        let layout = crate::screenshot_ui::layout_of(d.views, d.view_no);
+        let picture = Some((d.options.size(view), d.options.background()));
+        state.start_animation_mode(p, fps, mode, frames, layout, picture);
     }
 }
 
@@ -420,7 +745,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
     for (i, k) in anim.camera.iter().enumerate() {
         ui.horizontal(|ui| {
             ui.add_space(16.0);
-            if ui.small_button(pct(k.t)).on_hover_text("Jump here").clicked() {
+            if crate::touch::small_button(ui, pct(k.t)).on_hover_text("Jump here").clicked() {
                 state.anim_dialog.t = k.t;
                 state.apply_animation_time(k.t);
             }
@@ -430,7 +755,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     changed.camera[i].interp = interp;
                 }
             }
-            if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this keyframe").clicked() {
+            if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Delete this keyframe").clicked() {
                 remove_cam = Some(i);
             }
         });
@@ -515,7 +840,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     }
                     _ => String::new(),
                 };
-                let b = ui.small_button(format!("{} = {txt}", pct(k.t))).on_hover_text("Jump here; right-click to delete this keyframe");
+                let b = crate::touch::small_button(ui, format!("{} = {txt}", pct(k.t))).on_hover_text("Jump here; right-click to delete this keyframe");
                 if b.clicked() {
                     state.anim_dialog.t = k.t;
                     state.apply_animation_time(k.t);
@@ -533,7 +858,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
                     }
                 }
             }
-            if ui.small_button(crate::icons::TRASH).on_hover_text("Delete this track").clicked() {
+            if crate::touch::small_button(ui, crate::icons::TRASH).on_hover_text("Delete this track").clicked() {
                 remove_track = Some(ti);
             }
         });
@@ -554,7 +879,7 @@ fn keyframe_editor(state: &mut State, ui: &mut egui::Ui, ntimes: usize) {
         ui.label("Frames");
         ui.add(egui::DragValue::new(&mut changed.frames).range(2..=3600));
     });
-    if !anim.is_empty() && ui.small_button("Clear all keyframes").clicked() {
+    if !anim.is_empty() && crate::touch::small_button(ui, "Clear all keyframes").clicked() {
         changed.camera.clear();
         changed.tracks.clear();
     }

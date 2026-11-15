@@ -6,15 +6,20 @@
 //!   per block, read by `PropertyReadFile`; `grains.tex` for `EulerAngleFileReader`), the slip
 //!   systems and a crystal-plasticity input file pulling the mesh along an axis.
 //! - SPPARKS grain growth: a microstructure volume as a site file and a Potts-model input.
+//! - DAMASK, an FFT texture file and LAMMPS atoms of a polycrystal, from a microstructure volume:
+//!   see `cases_micro.rs`.
 //! - PINNACLE crystal plasticity: the grain mesh as an Exodus file, an orientation point file
 //!   (element centres with their grain and Euler angles) and an input deck.
+//! - JAX-FEM polycrystal: the grain mesh as plain text (nodes, elements, each element's grain),
+//!   the crystal axes of every grain and a Python script for the JAX-FEM library that pulls the
+//!   mesh along an axis with each grain's cubic elastic stiffness (`cases_jaxfem.py`).
 
 use anyhow::{anyhow, bail, Result};
 use aurafx_data::*;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-pub const SOLVERS: [&str; 3] = ["moose", "spparks", "pinnacle"];
+pub const SOLVERS: [&str; 7] = ["moose", "spparks", "pinnacle", "damask", "fft", "lammps", "jaxfem"];
 
 #[derive(Debug, Clone)]
 pub struct CaseOptions {
@@ -34,6 +39,10 @@ pub struct CaseOptions {
     pub temperature: f64,
     pub dump_every: f64,
     pub seed: u64,
+    /// LAMMPS polycrystal: the lattice constant in Å (0: from the material's Burgers vector) and the
+    /// Å per unit of the volume's coordinates (0: its longest side holds about 40 lattice cells).
+    pub lattice_constant: f64,
+    pub angstrom_per_unit: f64,
 }
 
 impl Default for CaseOptions {
@@ -50,6 +59,8 @@ impl Default for CaseOptions {
             temperature: 0.0,
             dump_every: 10.0,
             seed: 12345,
+            lattice_constant: 0.0,
+            angstrom_per_unit: 0.0,
         }
     }
 }
@@ -66,7 +77,7 @@ pub struct Case {
     pub outputs: String,
 }
 
-fn material(name: &str) -> Result<&'static aurafx_crystal::mechanics::Material> {
+pub(crate) fn material(name: &str) -> Result<&'static aurafx_crystal::mechanics::Material> {
     aurafx_crystal::mechanics::MATERIALS
         .iter()
         .find(|m| m.name.eq_ignore_ascii_case(name) || m.name.to_ascii_lowercase().starts_with(&name.to_ascii_lowercase()))
@@ -122,7 +133,9 @@ fn set_names(ug: &UnstructuredGrid, kind: &str) -> Vec<String> {
 /// The set named `want`, or the one whose name ends with the axis face (`x-`, `x+`).
 fn pick_set(names: &[String], want: &str, face: &str) -> Option<String> {
     if !want.is_empty() {
-        return names.iter().find(|n| n.as_str() == want || n.replace('_', " ") == want).cloned();
+        // Set names lose their spaces on the way to the solver's files: compare without them.
+        let plain = |s: &str| s.replace('_', " ");
+        return names.iter().find(|n| n.as_str() == want || plain(n) == plain(want)).cloned();
     }
     names.iter().find(|n| n.as_str() == face).or_else(|| names.iter().find(|n| n.ends_with(&format!("_{face}")))).cloned()
 }
@@ -161,7 +174,7 @@ fn write(folder: &Path, name: &str, text: &str, files: &mut Vec<PathBuf>) -> Res
     Ok(())
 }
 
-/// Write the case for `solver` ("moose", "spparks" or "pinnacle") from `ds` into `folder`.
+/// Write the case for `solver` ("moose", "spparks", "pinnacle", "damask", "fft", "lammps" or "jaxfem") from `ds` into `folder`.
 pub fn write_case(ds: &DataSet, solver: &str, folder: &Path, o: &CaseOptions) -> Result<Case> {
     std::fs::create_dir_all(folder)?;
     let mut files = Vec::new();
@@ -367,6 +380,71 @@ run             {steps}\n",
                 outputs: "solver/fields.pvd".into(),
             })
         }
-        s => bail!("unknown solver {s}: one of moose, spparks, pinnacle"),
+        "jaxfem" | "jax-fem" | "jax_fem" => {
+            let m = material(&o.material)?;
+            if !matches!(m.lattice, aurafx_crystal::mechanics::Lattice::Fcc | aurafx_crystal::mechanics::Lattice::Bcc) {
+                bail!("{}: the JAX-FEM case covers cubic (FCC, BCC) materials", m.name);
+            }
+            let (ug, gid) = grain_mesh(ds)?;
+            let mesh = DataSet::UnstructuredGrid(ug.clone());
+            let rows = aurafx_io::writers::grain_euler_rows(&mesh)?;
+            // One kind of element, of the two whose node order is the same everywhere.
+            let kind = ug.cells.iter().next().map(|c| c.0).unwrap();
+            let (ele, nodes_per) = match kind {
+                CellType::Hexahedron => ("HEX8", 8),
+                CellType::Tetra => ("TET4", 4),
+                k => bail!("the JAX-FEM case takes linear hexahedra or tetrahedra; this mesh has {k:?} cells (Convert Elements changes them)"),
+            };
+            if ug.cells.iter().any(|c| c.0 != kind) {
+                bail!("the JAX-FEM case takes a mesh of one kind of element; this one mixes several (Convert Elements makes them alike)");
+            }
+            let mut t = String::new();
+            for i in 0..ug.points.len() {
+                let x = ug.points.get(i);
+                writeln!(t, "{:.9e} {:.9e} {:.9e}", x[0], x[1], x[2])?;
+            }
+            write(folder, "nodes.txt", &t, &mut files)?;
+            let mut t = String::new();
+            for (_, ids) in ug.cells.iter() {
+                writeln!(t, "{}", ids[..nodes_per].iter().map(|i| i.to_string()).collect::<Vec<_>>().join(" "))?;
+            }
+            write(folder, "elements.txt", &t, &mut files)?;
+            let mut t = String::new();
+            for g in &gid {
+                writeln!(t, "{g}")?;
+            }
+            write(folder, "element_grains.txt", &t, &mut files)?;
+            // Row g - 1: the three cubic axes of grain g in the sample frame, one after another.
+            let mut t = String::new();
+            for e in &rows {
+                let g = aurafx_crystal::euler_to_matrix([e[0].to_radians(), e[1].to_radians(), e[2].to_radians()]);
+                writeln!(t, "{}", g.iter().flatten().map(|x| format!("{x:.9}")).collect::<Vec<_>>().join(" "))?;
+            }
+            write(folder, "grain_axes.txt", &t, &mut files)?;
+            let script = include_str!("cases_jaxfem.py")
+                .replace("@GRAINS@", &rows.len().to_string())
+                .replace("@ELEMENTS@", &ug.cells.len().to_string())
+                .replace("@MATERIAL@", m.name)
+                .replace("@ELE_TYPE@", ele)
+                .replace("@AXIS@", &o.axis.min(2).to_string())
+                .replace("@STRAIN@", &format!("{:?}", o.strain))
+                .replace("@STEPS@", &o.steps.clamp(1, 1000).to_string())
+                .replace("@C11@", &format!("{:?}", m.elastic[0] * 1000.0))
+                .replace("@C12@", &format!("{:?}", m.elastic[1] * 1000.0))
+                .replace("@C44@", &format!("{:?}", m.elastic[2] * 1000.0));
+            write(folder, "run_jaxfem.py", &script, &mut files)?;
+            Ok(Case {
+                folder: folder.into(),
+                files,
+                template: "jaxfem",
+                input: "run_jaxfem.py".into(),
+                command: "{exe} run_jaxfem.py".into(),
+                outputs: "results/u.pvd".into(),
+            })
+        }
+        "damask" => super::cases_micro::write_damask(ds, folder, material(&o.material)?, o),
+        "fft" => super::cases_micro::write_fft(ds, folder),
+        "lammps" | "lammps_polycrystal" => super::cases_micro::write_lammps(ds, folder, material(&o.material)?, o),
+        s => bail!("unknown solver {s}: one of moose, spparks, pinnacle, damask, fft, lammps, jaxfem"),
     }
 }

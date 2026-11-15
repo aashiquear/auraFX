@@ -162,6 +162,11 @@ impl FilterDef {
         if label == q {
             return 1000;
         }
+        // A keyword that is exactly the query (Contour lists "iso") beats a label that only starts
+        // with it (Iso Volume).
+        if self.keywords.iter().any(|k| *k == q) {
+            return 600;
+        }
         if label.starts_with(&q) {
             return 500;
         }
@@ -199,6 +204,20 @@ fn arr_param(key: &str, label: &str) -> ParamSpec {
         ParamValue::Array { assoc: Association::Points, name: String::new() },
     )
 }
+/// A synthetic source's `gradient` setting: above 0, the Orientation Gradient filter's default
+/// model at that rate.
+fn with_gradient(ds: DataSet, p: &Params) -> anyhow::Result<DataSet> {
+    let rate = p.f64("gradient", 0.0);
+    let across = p.f64("in_plane_gradient", 0.0);
+    if rate > 0.0 || across > 0.0 {
+        let model =
+            crate::orient_gradient::GradientParams { in_plane_rate: across, ..crate::orient_gradient::GradientParams::model(rate, p.i64("seed", 1) as u64) };
+        crate::orient_gradient::orientation_gradient(&ds, "", "FeatureIds", &model)
+    } else {
+        Ok(ds)
+    }
+}
+
 fn cell_arr(key: &str, label: &str) -> ParamSpec {
     ParamSpec::new(
         key,
@@ -207,6 +226,56 @@ fn cell_arr(key: &str, label: &str) -> ParamSpec {
         ParamValue::Array { assoc: Association::Cells, name: String::new() },
     )
 }
+/// An annotation output with the filter's place and size.
+fn annot_text(p: &Params, text: String) -> DataSet {
+    let corner = p.str("corner");
+    crate::annotate::text_table(text, if corner.is_empty() { "upper left" } else { &corner }, p.f64("size", 16.0))
+}
+
+fn annot_global(ds: &DataSet, p: &Params, step: usize, n_steps: usize) -> Result<DataSet> {
+    let name = p.str("array");
+    let name = if name.is_empty() {
+        ds.field_data()
+            .iter()
+            .find(|a| a.scalar_type() != ScalarType::String)
+            .map(|a| a.name.clone())
+            .ok_or_else(|| anyhow!("the data has no field (global) arrays"))?
+    } else {
+        name
+    };
+    let v = crate::annotate::global_value(ds, &name, p.i64("component", 0).max(0) as usize, step, n_steps)?;
+    let fmt = p.str("format");
+    let fmt = if fmt.is_empty() { format!("{name} = {{:.4g}}") } else { fmt };
+    Ok(annot_text(p, crate::annotate::format_value(&fmt, v)))
+}
+
+fn annot_python(ds: &DataSet, p: &Params, time: f64, step: usize) -> Result<DataSet> {
+    let expr = p.str("expression");
+    let out = crate::python::run_python(crate::python::PyTask::Text { expression: &expr, input: ds, time, step })?;
+    let text = match &out {
+        DataSet::Table(t) => match t.columns.get("Text").map(|a| &a.data) {
+            Some(ArrayData::String(v)) => v.first().cloned(),
+            _ => None,
+        },
+        _ => None,
+    };
+    Ok(annot_text(p, text.unwrap_or_default()))
+}
+
+/// Points or cells, for the statistics filters.
+fn stat_assoc(p: &Params) -> Association {
+    if p.str("data") == "Cells" {
+        Association::Cells
+    } else {
+        Association::Points
+    }
+}
+
+/// The variables of the statistics filters, from a comma-separated list.
+fn stat_vars(p: &Params) -> Vec<String> {
+    p.str("variables").split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect()
+}
+
 fn vec_param(key: &str, label: &str) -> ParamSpec {
     ParamSpec::new(
         key,
@@ -218,7 +287,7 @@ fn vec_param(key: &str, label: &str) -> ParamSpec {
 fn f(key: &str, label: &str, default: f64, min: f64, max: f64) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Float { min, max, log: false }, ParamValue::Float(default))
 }
-fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> ParamSpec {
+pub(crate) fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Int { min, max }, ParamValue::Int(default))
 }
 fn v3(key: &str, label: &str, default: [f64; 3]) -> ParamSpec {
@@ -230,7 +299,7 @@ fn b(key: &str, label: &str, default: bool) -> ParamSpec {
 fn choice(key: &str, label: &str, opts: &[&str], default: &str) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Choice(opts.iter().map(|s| s.to_string()).collect()), ParamValue::Str(default.into()))
 }
-fn s(key: &str, label: &str, default: &str) -> ParamSpec {
+pub(crate) fn s(key: &str, label: &str, default: &str) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Str, ParamValue::Str(default.into()))
 }
 
@@ -407,7 +476,7 @@ fn array_or_default(ds: &DataSet, p: &Params, key: &str, vector: bool) -> Result
 /// Run `f` on every leaf. A leaf it fails on (e.g. one without the array, like the atoms next
 /// to a density volume) is left empty, as ParaView does; the error is reported only when every
 /// leaf fails.
-fn per_leaf(ds: &DataSet, f: &dyn Fn(&DataSet) -> Result<DataSet>) -> Result<DataSet> {
+pub fn per_leaf(ds: &DataSet, f: &dyn Fn(&DataSet) -> Result<DataSet>) -> Result<DataSet> {
     match ds {
         DataSet::MultiBlock(mb) => {
             let mut out = MultiBlock { field_data: mb.field_data.clone(), ..Default::default() };
@@ -675,6 +744,110 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "iso_volume",
+            label: "Iso Volume",
+            category: "Data",
+            description: "The part of the data where a point scalar lies between two values, cut through the cells at those values (so the result's outer faces follow the value surfaces, not the cells).",
+            keywords: &["isovolume", "band", "range", "between", "value range", "clip by scalar", "interval"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Scalars"),
+                s("component", "Component", ""),
+                f("lower", "Lower", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).help("Empty: a quarter of the way up the range"),
+                f("upper", "Upper", f64::NAN, f64::NEG_INFINITY, f64::INFINITY).help("Empty: three quarters of the way up the range"),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (a, n) = array_or_default(d, p, "array", false)?;
+                    let attrs = if a == Association::Points { d.point_data() } else { d.cell_data() };
+                    let arr = attrs.and_then(|x| x.get(&n)).ok_or_else(|| anyhow!("no array {n}"))?;
+                    let (lo0, hi0) = whole_range(arr, comp(p), a, p);
+                    let lo = Some(p.f64("lower", f64::NAN)).filter(|v| !v.is_nan()).unwrap_or(lo0 + 0.25 * (hi0 - lo0));
+                    let hi = Some(p.f64("upper", f64::NAN)).filter(|v| !v.is_nan()).unwrap_or(lo0 + 0.75 * (hi0 - lo0));
+                    Ok(DataSet::UnstructuredGrid(crate::extract::iso_volume(d, a, &n, comp(p), lo, hi)?))
+                })
+            },
+        },
+        FilterDef {
+            id: "extract_cells_by_region",
+            label: "Extract Cells By Region",
+            category: "Data",
+            description: "Whole cells inside a half-space (the side a plane's normal points to), a box or a sphere: those with all their points inside, or those the region's boundary crosses too. Cells are kept whole, not cut.",
+            keywords: &["region", "box", "sphere", "half space", "select cells", "crop", "subset", "inside"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("region", "Region", &["Box", "Sphere", "Plane"], "Box"),
+                choice("mode", "Cells kept", &["All points inside", "Crossing the boundary too"], "All points inside"),
+                v3("origin", "Center / plane point", [f64::NAN; 3]),
+                v3("normal", "Plane normal", [1.0, 0.0, 0.0]),
+                f("radius", "Sphere radius", f64::NAN, 0.0, f64::INFINITY).help("Empty: a quarter of the data's size"),
+                v3("box_min", "Box min", [f64::NAN; 3]),
+                v3("box_max", "Box max", [f64::NAN; 3]),
+                b("invert", "Outside instead", false),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let bb = whole_bounds(ds, p);
+                let origin = p.vec3("origin", [f64::NAN; 3]);
+                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center_p(ds, p) } else { origin };
+                let region = match p.str("region").as_str() {
+                    "Sphere" => crate::extract::Region::Sphere { center: origin, radius: Some(p.f64("radius", f64::NAN)).filter(|r| !r.is_nan()).unwrap_or(0.25 * bb.diagonal()) },
+                    "Plane" => crate::extract::Region::Plane { origin, normal: p.vec3("normal", [1.0, 0.0, 0.0]) },
+                    _ => {
+                        let (mut lo, mut hi) = (p.vec3("box_min", [f64::NAN; 3]), p.vec3("box_max", [f64::NAN; 3]));
+                        if lo.iter().chain(hi.iter()).any(|v| v.is_nan()) {
+                            let (c, sz) = (bb.center(), bb.size());
+                            lo = std::array::from_fn(|k| c[k] - 0.25 * sz[k]);
+                            hi = std::array::from_fn(|k| c[k] + 0.25 * sz[k]);
+                        }
+                        crate::extract::Region::Box { min: lo, max: hi }
+                    }
+                };
+                let mode = if p.str("mode").starts_with("Crossing") { crate::extract::RegionMode::Intersecting } else { crate::extract::RegionMode::AllInside };
+                per_leaf(ds, &|d| Ok(DataSet::UnstructuredGrid(crate::extract::cells_by_region(d, &region, mode, p.bool("invert", false))?)))
+            },
+        },
+        FilterDef {
+            id: "extract_cells_by_type",
+            label: "Extract Cells By Type",
+            category: "Data",
+            description: "Whole cells of the types named (Tetra, Hexahedron, Wedge, Pyramid, Triangle, Quad, Line, Vertex, quadratic types…) or of a dimension (3D, 2D, 1D, 0D).",
+            keywords: &["cell type", "element type", "hexahedra", "tetrahedra", "surface cells", "volume cells", "filter cells"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("types", "Types", "3D").help("Names or dimensions, separated by commas: Hexahedron, Tetra or 3D, 2D"),
+                b("invert", "All but these", false),
+            ],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::extract::cells_by_type(d, &p.str("types"), p.bool("invert", false))?))),
+        },
+        FilterDef {
+            id: "clip_closed_surface",
+            label: "Clip Closed Surface",
+            category: "Geometry",
+            description: "Cut a closed surface with a plane and close the cut with a flat cap, so the result is still a closed surface (watertight; holes in the cut, such as the inside of a ring, stay open in the cap).",
+            keywords: &["capped clip", "cap", "close", "watertight", "cut solid", "section"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![v3("origin", "Plane point", [f64::NAN; 3]), v3("normal", "Normal (the side kept)", [1.0, 0.0, 0.0]), b("invert", "Keep the other side", false)],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let origin = p.vec3("origin", [f64::NAN; 3]);
+                let origin = if origin.iter().any(|v| v.is_nan()) { bounds_center_p(ds, p) } else { origin };
+                per_leaf(ds, &|d| Ok(DataSet::PolyData(crate::extract::clip_closed_surface(d, origin, p.vec3("normal", [1.0, 0.0, 0.0]), p.bool("invert", false))?)))
+            },
+        },
+        FilterDef {
             id: "calculator",
             label: "Calculator",
             category: "Common",
@@ -893,6 +1066,131 @@ fn build() -> Vec<FilterDef> {
             apply: |input, _| Ok(DataSet::Table(crate::analysis::descriptive_statistics(input.unwrap())?)),
         },
         FilterDef {
+            id: "k_means",
+            label: "K-Means",
+            category: "Data",
+            description: "Group the points (or cells, or table rows) into K clusters by the values of chosen arrays (k-means, started with k-means++): adds ClusterId and ClusterDistance, with the centers, their sizes and the within-cluster sum of squares as field data.",
+            keywords: &["clustering", "kmeans", "k means", "classify", "group", "segmentation", "unsupervised"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("data", "Data", &["Points", "Cells"], "Points"),
+                s("variables", "Variables (empty: every array with one value)", "").help("Array names separated by commas; V is the magnitude of a vector, V[1] its second component."),
+                i("k", "Clusters (K)", 3, 1, 10_000),
+                i("max_iterations", "Iterations", 100, 1, 100_000),
+                b("standardize", "Standardize the variables", true).help("Divide each variable by its standard deviation first, so variables in large units do not dominate."),
+                i("seed", "Random seed", 1, 0, i64::MAX),
+            ],
+            apply: |input, p| {
+                crate::stats::kmeans_filter(input.unwrap(), stat_assoc(p), &stat_vars(p), p.i64("k", 3).max(1) as usize, p.i64("max_iterations", 100).max(1) as usize, p.bool("standardize", true), p.i64("seed", 1) as u64)
+            },
+        },
+        FilterDef {
+            id: "principal_component_analysis",
+            label: "Principal Component Analysis",
+            category: "Data",
+            description: "The principal components of chosen arrays: the projections PCA 0, PCA 1, ... on the data (largest variance first) and, as field data, the eigenvalues, the fraction of the variance each explains and the components.",
+            keywords: &["pca", "principal components", "eigen", "dimension reduction", "variance", "correlation structure"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("data", "Data", &["Points", "Cells"], "Points"),
+                s("variables", "Variables (empty: every array with one value)", "").help("Array names separated by commas; V is the magnitude of a vector, V[1] its second component."),
+                i("keep", "Components kept (0 = all)", 0, 0, 10_000),
+                b("standardize", "Standardize the variables", false),
+            ],
+            apply: |input, p| crate::stats::pca_filter(input.unwrap(), stat_assoc(p), &stat_vars(p), p.i64("keep", 0).max(0) as usize, p.bool("standardize", false)),
+        },
+        FilterDef {
+            id: "multicorrelative_statistics",
+            label: "Multicorrelative Statistics",
+            category: "Data",
+            description: "Means, the covariance matrix and the correlation matrix (Pearson) of chosen arrays, as a table with a row per variable.",
+            keywords: &["covariance", "correlation", "pearson", "correlation matrix", "joint statistics"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("data", "Data", &["Points", "Cells"], "Points"),
+                s("variables", "Variables (empty: every array with one value)", "").help("Array names separated by commas; V is the magnitude of a vector, V[1] its second component."),
+            ],
+            apply: |input, p| Ok(DataSet::Table(crate::stats::multicorrelative(input.unwrap(), stat_assoc(p), &stat_vars(p))?)),
+        },
+        FilterDef {
+            id: "contingency_statistics",
+            label: "Contingency Statistics",
+            category: "Data",
+            description: "How often each pair of values of two arrays occurs (real values are put in bins first): a table of counts and joint and conditional probabilities, with chi-square, its degrees of freedom and the mutual information as field data.",
+            keywords: &["contingency table", "cross tabulation", "chi square", "mutual information", "categories", "joint distribution"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("data", "Data", &["Points", "Cells"], "Points"),
+                s("x", "First array", ""),
+                s("y", "Second array", ""),
+                i("bins", "Bins for real values", 10, 1, 100_000),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (x, y) = (p.str("x"), p.str("y"));
+                let (x, y) = if x.is_empty() || y.is_empty() {
+                    let (v, _) = crate::stats::variables(ds, stat_assoc(p), &[])?;
+                    (if x.is_empty() { v.first().cloned().unwrap_or_default() } else { x }, if y.is_empty() { v.get(1).or(v.first()).cloned().unwrap_or_default() } else { y })
+                } else {
+                    (x, y)
+                };
+                Ok(DataSet::Table(crate::stats::contingency(ds, stat_assoc(p), &x, &y, p.i64("bins", 10).max(1) as usize)?))
+            },
+        },
+        FilterDef {
+            id: "compute_quartiles",
+            label: "Compute Quartiles",
+            category: "Data",
+            description: "Minimum, first quartile, median, third quartile and maximum of chosen arrays, with the interquartile range and the whisker ends of a box plot (a row per variable).",
+            keywords: &["quartiles", "box plot", "median", "percentiles", "iqr", "whiskers", "five number summary"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("data", "Data", &["Points", "Cells"], "Points"),
+                s("variables", "Variables (empty: every array with one value)", "").help("Array names separated by commas; V is the magnitude of a vector, V[1] its second component."),
+            ],
+            apply: |input, p| Ok(DataSet::Table(crate::stats::quartiles(input.unwrap(), stat_assoc(p), &stat_vars(p))?)),
+        },
+        FilterDef {
+            id: "random_attributes",
+            label: "Random Attributes",
+            category: "Data",
+            description: "A random array on the points or cells (uniform between two values; scalars or vectors), for testing filters and color maps.",
+            keywords: &["random", "noise", "test data", "random vectors", "random scalars"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("data", "Data", &["Points", "Cells"], "Points"),
+                s("name", "Name", "RandomValues"),
+                i("components", "Components (1 scalars, 3 vectors)", 1, 1, 9),
+                f("minimum", "Minimum", 0.0, f64::NEG_INFINITY, f64::INFINITY),
+                f("maximum", "Maximum", 1.0, f64::NEG_INFINITY, f64::INFINITY),
+                i("seed", "Random seed", 1, 0, i64::MAX),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let name = p.str("name");
+                    crate::stats::random_attributes(d, stat_assoc(p), if name.is_empty() { "RandomValues" } else { &name }, p.i64("components", 1).max(1) as usize, p.f64("minimum", 0.0), p.f64("maximum", 1.0), p.i64("seed", 1) as u64)
+                })
+            },
+        },
+        FilterDef {
             id: "integrate_variables",
             label: "Integrate Variables",
             category: "Data",
@@ -927,6 +1225,246 @@ fn build() -> Vec<FilterDef> {
                     crate::analysis::gradient(d, &n)
                 })
             },
+        },
+        FilterDef {
+            id: "compute_derivatives",
+            label: "Compute Derivatives",
+            category: "Data",
+            description: "Derivatives of a vector field at the points: its gradient (dv_i/dx_j, 9 components), strain rate, vorticity (curl), divergence, and the vortex criteria Q (positive where rotation beats strain) and lambda2 (negative in a vortex core).",
+            keywords: &["vorticity", "curl", "strain rate", "divergence", "jacobian", "velocity gradient", "q criterion", "lambda2", "vortex cores"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![ParamSpec::new("array", "Vectors", ParamKind::Array { scalar_only: false, vector_only: true }, ParamValue::Array { assoc: Association::Points, name: String::new() })],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", true)?;
+                    crate::tensors::compute_derivatives(d, &n)
+                })
+            },
+        },
+        FilterDef {
+            id: "tensor_principal_invariants",
+            label: "Tensor Principal Invariants",
+            category: "Data",
+            description: "Principal values (largest first), principal directions and the invariants I1, I2, I3, J2, J3 of a symmetric tensor array (6 components XX YY ZZ XY YZ XZ, or 9).",
+            keywords: &["eigenvalues", "principal stress", "principal strain", "eigenvectors", "invariants", "stress tensor"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Tensor")],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (a, n) = array_or_default(d, p, "array", false)?;
+                    crate::tensors::principal_invariants(d, a, &n)
+                })
+            },
+        },
+        FilterDef {
+            id: "yield_criteria",
+            label: "Yield Criteria",
+            category: "Data",
+            description: "From a stress tensor array (6 or 9 components): von Mises and Tresca equivalent stresses, the largest principal stress, the pressure and the stress triaxiality.",
+            keywords: &["von mises", "tresca", "equivalent stress", "principal stress", "triaxiality", "pressure", "failure"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Stress tensor")],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (a, n) = array_or_default(d, p, "array", false)?;
+                    crate::tensors::yield_criteria(d, a, &n)
+                })
+            },
+        },
+        FilterDef {
+            id: "tensor_glyph",
+            label: "Tensor Glyph",
+            category: "Geometry",
+            description: "An ellipsoid at points of a tensor field, its axes along the principal directions and as long as the principal values (absolute) times a scale; colored by the largest principal value.",
+            keywords: &["tensor", "ellipsoid", "stress glyph", "principal directions", "glyph"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Tensor"),
+                f("scale", "Scale", 1.0, 0.0, 1e12),
+                i("stride", "Every n-th point", 1, 1, 1_000_000),
+                i("resolution", "Ellipsoid resolution", 16, 6, 128).advanced(),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", false)?;
+                    Ok(DataSet::PolyData(crate::tensors::tensor_glyph(d, &n, p.f64("scale", 1.0), p.i64("stride", 1) as usize, p.i64("resolution", 16) as usize)?))
+                })
+            },
+        },
+        FilterDef {
+            id: "surface_vectors",
+            label: "Surface Vectors",
+            category: "Data",
+            description: "A vector field on a surface made tangent to it (its normal part removed), or only its normal part kept.",
+            keywords: &["tangent", "project vectors", "normal component", "surface flow lines"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                ParamSpec::new("array", "Vectors", ParamKind::Array { scalar_only: false, vector_only: true }, ParamValue::Array { assoc: Association::Points, name: String::new() }),
+                choice("keep", "Keep", &["Tangent part", "Normal part"], "Tangent part"),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", true)?;
+                    crate::tensors::surface_vectors(d, &n, p.str("keep") == "Normal part")
+                })
+            },
+        },
+        FilterDef {
+            id: "surface_flow",
+            label: "Surface Flow",
+            category: "Data",
+            description: "The flux of a vector field through a surface (the integral of v·n over its area), as a one-row table with the flow and the area.",
+            keywords: &["flux", "flow rate", "integral", "surface integral", "mass flow"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![ParamSpec::new("array", "Vectors", ParamKind::Array { scalar_only: false, vector_only: true }, ParamValue::Array { assoc: Association::Points, name: String::new() })],
+            apply: |input, p| {
+                let d = input.unwrap();
+                let (_, n) = array_or_default(d, p, "array", true)?;
+                Ok(DataSet::Table(crate::tensors::surface_flow(d, &n)?))
+            },
+        },
+        FilterDef {
+            id: "table_to_points",
+            label: "Table To Points",
+            category: "Data",
+            description: "The rows of a table as points: three columns give x, y and z (by default the columns named x, y, z, else the first three numeric ones); every column becomes point data.",
+            keywords: &["csv to points", "point cloud", "table", "spreadsheet", "xyz"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("x", "X column", ""), s("y", "Y column", ""), s("z", "Z column", ""), b("two_d", "2D (z = 0)", false)],
+            apply: |input, p| {
+                let (x, y, z) = (p.str("x"), p.str("y"), p.str("z"));
+                Ok(DataSet::PolyData(crate::tables::table_to_points(input.unwrap(), [&x, &y, &z], p.bool("two_d", false))?))
+            },
+        },
+        FilterDef {
+            id: "table_to_structured_grid",
+            label: "Table To Structured Grid",
+            category: "Data",
+            description: "The rows of a table as the points of a structured grid of the given dimensions (x fastest), positions from three columns.",
+            keywords: &["csv to grid", "table", "structured", "curvilinear"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![ParamSpec::new("dims", "Dimensions", ParamKind::Floats, ParamValue::Floats(vec![1.0, 1.0, 1.0])), s("x", "X column", ""), s("y", "Y column", ""), s("z", "Z column", "")],
+            apply: |input, p| {
+                let d = p.floats("dims");
+                let dims = [0, 1, 2].map(|k| d.get(k).copied().unwrap_or(1.0).max(1.0) as usize);
+                let (x, y, z) = (p.str("x"), p.str("y"), p.str("z"));
+                Ok(DataSet::StructuredGrid(crate::tables::table_to_structured_grid(input.unwrap(), [&x, &y, &z], dims)?))
+            },
+        },
+        FilterDef {
+            id: "transpose_table",
+            label: "Transpose Table",
+            category: "Data",
+            description: "Rows become columns: each numeric column becomes a row, named in the column Column.",
+            keywords: &["transpose", "table", "swap rows columns", "pivot"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| Ok(DataSet::Table(crate::tables::transpose(input.unwrap())?)),
+        },
+        FilterDef {
+            id: "table_fft",
+            label: "Table FFT",
+            category: "Data",
+            description: "The discrete Fourier transform of every numeric column of a table (complex, and its magnitude), with the frequency of each row when a time step is given.",
+            keywords: &["fft", "fourier", "spectrum", "frequency", "signal"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("dt", "Time step (0: no frequency column)", 0.0, 0.0, 1e12)],
+            apply: |input, p| Ok(DataSet::Table(crate::tables::table_fft(input.unwrap(), p.f64("dt", 0.0))?)),
+        },
+        FilterDef {
+            id: "merge_vector_components",
+            label: "Merge Vector Components",
+            category: "Data",
+            description: "Three scalar arrays (points, cells or table columns) combined into one vector array.",
+            keywords: &["combine", "vector", "components", "xyz arrays", "join arrays"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("attribute", "Attribute", &["Points", "Cells"], "Points"),
+                s("x", "X array", ""),
+                s("y", "Y array", ""),
+                s("z", "Z array", ""),
+                s("result", "Result", "vector"),
+            ],
+            apply: |input, p| {
+                let assoc = if p.str("attribute") == "Cells" { Association::Cells } else { Association::Points };
+                let (x, y, z) = (p.str("x"), p.str("y"), p.str("z"));
+                if x.is_empty() || y.is_empty() || z.is_empty() {
+                    anyhow::bail!("name the three scalar arrays to merge");
+                }
+                per_leaf(input.unwrap(), &|d| crate::tables::merge_vector_components(d, assoc, [&x, &y, &z], &p.str("result")))
+            },
+        },
+        FilterDef {
+            id: "point_and_cell_ids",
+            label: "Point And Cell Ids",
+            category: "Data",
+            description: "Adds PointIds and CellIds: the index of every point and cell.",
+            keywords: &["ids", "index", "numbering", "element number", "node number"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &crate::tables::point_and_cell_ids),
+        },
+        FilterDef {
+            id: "generate_global_ids",
+            label: "Generate Global Ids",
+            category: "Data",
+            description: "Adds GlobalPointIds and GlobalCellIds, unique over every block of a multiblock; points that coincide share one id.",
+            keywords: &["global ids", "unique ids", "numbering", "blocks"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| crate::tables::global_ids(input.unwrap()),
+        },
+        FilterDef {
+            id: "coordinates",
+            label: "Coordinates",
+            category: "Data",
+            description: "Adds the point positions as a 3-component point array Coordinates (to color or compute by position).",
+            keywords: &["positions", "xyz", "points as array", "coordinates"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| per_leaf(input.unwrap(), &crate::tables::coordinates),
         },
         FilterDef {
             id: "extract_selection",
@@ -1166,6 +1704,358 @@ fn build() -> Vec<FilterDef> {
             params: vec![b("pass_point_arrays", "Keep destination point arrays", false), b("pass_cell_arrays", "Keep destination cell arrays", false)],
             apply: |_, _| Err(anyhow!("Resample With Dataset needs a destination mesh; choose it in Properties")),
         },
+        FilterDef {
+            id: "evenly_spaced_streamlines_2d",
+            label: "Evenly Spaced Streamlines 2D",
+            category: "Data",
+            description: "Streamlines of a vector field in the XY plane, spread evenly: each new line starts at the separation from the lines already drawn and stops where it comes too close to another, until the plane is filled (a picture of a 2-D flow without seeds to place).",
+            keywords: &["streamlines", "even spacing", "flow lines", "2d flow", "planar flow", "uniform density streamlines"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                vec_param("vectors", "Vectors"),
+                v3("start", "First seed", [f64::NAN; 3]).help("Unset: the center of the data."),
+                f("separation", "Separation (0 = 1/30 of the data's size)", 0.0, 0.0, f64::INFINITY),
+                f("test_ratio", "Stop at this fraction of the separation", 0.5, 0.01, 1.0),
+                f("step_ratio", "Step as a fraction of the separation", 0.1, 0.01, 1.0).advanced(),
+                i("max_steps", "Steps per line, each way", 2000, 1, 10_000_000).advanced(),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (_, v) = array_or_default(ds, p, "vectors", true)?;
+                Ok(DataSet::PolyData(crate::streamlines::evenly_spaced_2d(
+                    ds,
+                    &v,
+                    p.vec3("start", [f64::NAN; 3]),
+                    p.f64("separation", 0.0),
+                    p.f64("test_ratio", 0.5),
+                    p.f64("step_ratio", 0.1),
+                    p.i64("max_steps", 2000).max(1) as usize,
+                )?))
+            },
+        },
+        FilterDef {
+            id: "halo_finder",
+            label: "Halo Finder",
+            category: "Data",
+            description: "Find halos in particles: particles closer than a linking length (a fraction of the mean spacing) are friends, friends of friends are one halo. Adds HaloId to the particles (-1 outside halos), or gives a table of halos with their count, mass, centre of mass, mean velocity, and the radius and mass within which the mean density is an overdensity (200) times the box's mean density.",
+            keywords: &["friends of friends", "fof", "halo", "sod", "spherical overdensity", "cosmology", "dark matter", "clusters of particles", "subhalo"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("linking", "Linking length (fraction of the mean spacing)", 0.2, 1e-6, 10.0),
+                i("min_members", "Smallest halo (particles)", 10, 1, i64::MAX),
+                s("mass", "Mass array (empty: 1 each)", ""),
+                s("velocity", "Velocity array (empty: none)", ""),
+                f("overdensity", "Overdensity", 200.0, 1.0, 1e9),
+                choice("output", "Output", &["Particles", "Halos"], "Particles"),
+            ],
+            apply: |input, p| {
+                let opt = crate::cosmology::HaloOptions {
+                    linking: p.f64("linking", 0.2),
+                    min_members: p.i64("min_members", 10).max(1) as usize,
+                    mass: p.str("mass"),
+                    velocity: p.str("velocity"),
+                    overdensity: p.f64("overdensity", 200.0),
+                };
+                let (parts, table) = crate::cosmology::friends_of_friends(input.unwrap(), &opt)?;
+                Ok(if p.str("output") == "Halos" { DataSet::Table(table) } else { parts })
+            },
+        },
+        FilterDef {
+            id: "minkowski_functionals",
+            label: "Minkowski Functionals",
+            category: "Data",
+            description: "Shape measures of the region where an array is above a threshold, from its boundary surface: volume, surface area, integrated mean curvature, Euler characteristic (1 for a ball, 0 for a torus, minus the number of tunnels plus the number of pieces and cavities), and the normalised W0 to W3.",
+            keywords: &["minkowski", "topology", "euler characteristic", "genus", "mean curvature", "porosity", "morphology", "surface area", "minkowski filter"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), f("threshold", "Threshold", 0.0, f64::NEG_INFINITY, f64::INFINITY)],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (a, n) = array_or_default(ds, p, "array", false)?;
+                Ok(DataSet::Table(crate::cosmology::minkowski(ds, a, &n, p.f64("threshold", 0.0))?))
+            },
+        },
+        FilterDef {
+            id: "kernel_smoothing",
+            label: "Kernel Smoothing",
+            category: "Data",
+            description: "A smooth estimate of an array's distribution (a Gaussian kernel density, bandwidth by Scott's rule unless given): a table of value and density for the Charts panel, a smooth histogram that integrates to one.",
+            keywords: &["kernel density", "kde", "distribution", "pdf", "smooth histogram", "density estimate"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), f("bandwidth", "Bandwidth (0 = automatic)", 0.0, 0.0, f64::INFINITY), i("samples", "Samples", 256, 2, 100_000)],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (a, n) = array_or_default(ds, p, "array", false)?;
+                let (_, cols) = crate::stats::variables(ds, a, &[n.clone()])?;
+                let (xs, ys) = crate::cosmology::kde_1d(&cols[0], p.f64("bandwidth", 0.0), p.i64("samples", 256).max(2) as usize);
+                let mut t = Table::default();
+                t.columns.insert(Array::scalars_f64(n.clone(), xs));
+                t.columns.insert(Array::scalars_f64("Density", ys));
+                Ok(DataSet::Table(t))
+            },
+        },
+        FilterDef {
+            id: "density_map",
+            label: "Density Map",
+            category: "Data",
+            description: "Where pairs of values of two arrays gather: a Gaussian kernel density on an image (x across, y up), with the density levels holding 50, 90 and 99 % of the samples as field data (contour the image at them).",
+            keywords: &["2d density", "joint distribution", "kde", "scatter density", "heat map", "density estimate"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![choice("data", "Data", &["Points", "Cells"], "Points"), s("x", "X array", ""), s("y", "Y array", ""), i("resolution", "Resolution", 128, 2, 4096)],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (x, y) = (p.str("x"), p.str("y"));
+                let (names, cols) = if x.is_empty() || y.is_empty() { crate::stats::variables(ds, stat_assoc(p), &[])? } else { crate::stats::variables(ds, stat_assoc(p), &[x, y])? };
+                if cols.len() < 2 {
+                    return Err(anyhow!("choose two arrays (the data has {})", names.len()));
+                }
+                Ok(DataSet::ImageData(crate::cosmology::density_map(&cols[0], &cols[1], p.i64("resolution", 128).max(2) as usize)?))
+            },
+        },
+        FilterDef {
+            id: "material_interface",
+            label: "Material Interface",
+            category: "Data",
+            description: "Rebuild the interfaces between materials from cell arrays of volume fractions (0 to 1): in every mixed cell a plane facing down the fraction's gradient, placed so that the cell's material side holds exactly its fraction (Youngs' method). One block of interface polygons per material (lines on surface meshes), with the material's volume as field data.",
+            keywords: &["volume fraction", "youngs", "interface reconstruction", "vof", "material boundary", "multimaterial", "plic"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("arrays", "Volume-fraction cell arrays (empty: all with one value)", "").help("Names separated by commas, one per material."),
+                f("tolerance", "Fractions this close to 0 or 1 count as pure", 1e-6, 0.0, 0.5),
+            ],
+            apply: |input, p| {
+                let arrays: Vec<String> = p.str("arrays").split(',').map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
+                crate::materials::youngs(input.unwrap(), &arrays, p.f64("tolerance", 1e-6))
+            },
+        },
+        FilterDef {
+            id: "fragment_integration",
+            label: "Fragment Integration",
+            category: "Data",
+            description: "Find the fragments of a material: cells whose volume fraction (or any cell array) is at least a threshold, joined into connected regions through shared faces (across AMR levels through touching boxes). Gives a table with each fragment's cell count, volume (fraction x cell volume), centroid and the volume integrals of the other cell arrays, or the fragment cells with FragmentId.",
+            keywords: &["fragments", "connected regions", "droplets", "particles", "volume fraction", "amr fragments", "fragment volume", "debris"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Volume fraction (cell array)"),
+                f("threshold", "Threshold", 0.5, f64::NEG_INFINITY, f64::INFINITY),
+                choice("output", "Output", &["Table", "Cells"], "Table"),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (_, n) = array_or_default(ds, p, "array", false)?;
+                crate::materials::fragments(ds, &n, p.f64("threshold", 0.5), p.str("output") == "Cells")
+            },
+        },
+        FilterDef {
+            id: "amr_dual_clip",
+            label: "AMR Dual Clip",
+            category: "Data",
+            description: "Clip AMR data by a cell array without cracks between levels: the levels' cell centres are joined into one stitched mesh (the dual grid) and the part where the array is above a value is kept.",
+            keywords: &["amr clip", "dual clip", "crack free", "volume fraction clip", "adaptive mesh"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Cell array"), f("value", "Keep above", 0.5, f64::NEG_INFINITY, f64::INFINITY), b("invert", "Keep below instead", false)],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (_, n) = array_or_default(ds, p, "array", false)?;
+                let dual = DataSet::UnstructuredGrid(crate::amr::dual_grid(ds)?);
+                Ok(DataSet::UnstructuredGrid(crate::clip::clip_scalar(&dual, Association::Points, &n, None, p.f64("value", 0.5), p.bool("invert", false))?))
+            },
+        },
+        FilterDef {
+            id: "redistribute_dataset",
+            label: "Redistribute DataSet",
+            category: "Data",
+            description: "Split a mesh into partitions of nearly equal cell counts by cutting it in halves along its longest side, again and again (one block per partition), with layers of ghost cells if asked: work in pieces, or check how a mesh would be shared between processes.",
+            keywords: &["partition", "decompose", "split mesh", "domain decomposition", "d3", "balance", "pieces", "parallel"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("partitions", "Partitions", 4, 1, 100_000), i("ghost_layers", "Ghost layers", 0, 0, 16)],
+            apply: |input, p| crate::partitions::redistribute(input.unwrap(), p.i64("partitions", 4).max(1) as usize, p.i64("ghost_layers", 0).max(0) as usize),
+        },
+        FilterDef {
+            id: "ghost_cells",
+            label: "Ghost Cells",
+            category: "Data",
+            description: "Give each partition of partitioned data (the blocks of a multi-block, e.g. a .pvtu read as partitions) layers of the neighbouring partitions' cells that touch it, marked as ghosts in vtkGhostType, so that filters looking at neighbours give the same answer at partition borders.",
+            keywords: &["ghost cells", "halo", "overlap", "partition border", "ghost cells generator", "ghost layers"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("layers", "Layers", 1, 1, 16)],
+            apply: |input, p| crate::partitions::ghost_cells(input.unwrap(), p.i64("layers", 1).max(1) as usize),
+        },
+        FilterDef {
+            id: "remove_ghost_information",
+            label: "Remove Ghost Information",
+            category: "Data",
+            description: "Drop the ghost cells (vtkGhostType 1) and the ghost arrays.",
+            keywords: &["ghost cells", "remove ghosts", "strip halo"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| crate::partitions::remove_ghosts(input.unwrap()),
+        },
+        FilterDef {
+            id: "validate_cells",
+            label: "Validate Cells",
+            category: "Data",
+            description: "Check every cell: ValidityState is 0 for a good cell, otherwise the sum of 1 wrong number of points, 2 degenerate (no volume, area or length), 4 inverted (turned inside out), 8 non-planar face, 16 non-convex polygon, 32 repeated points; field data counts each problem.",
+            keywords: &["check mesh", "bad cells", "inverted", "degenerate", "negative jacobian", "mesh errors", "cell validator"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("tolerance", "Tolerance (fraction of the cell's size)", 1e-9, 0.0, 1.0)],
+            apply: |input, p| crate::cellcheck::validate_cells(input.unwrap(), p.f64("tolerance", 1e-9)),
+        },
+        FilterDef {
+            id: "overlapping_cells_detector",
+            label: "Overlapping Cells Detector",
+            category: "Data",
+            description: "Count, for every cell, how many other cells share volume with it (or area, for surface cells in one plane): NumberOfOverlapsPerCell. Cells that only touch do not count.",
+            keywords: &["overlap", "intersecting cells", "duplicate cells", "mesh check", "interpenetration"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("tolerance", "Smallest overlap seen (fraction of a cell)", 0.05, 0.0, 0.5)],
+            apply: |input, p| crate::cellcheck::overlapping_cells(input.unwrap(), p.f64("tolerance", 0.05)),
+        },
+        FilterDef {
+            id: "resample_to_line",
+            label: "Resample To Line",
+            category: "Data",
+            description: "Sample the data along a straight line: at evenly spaced points, at the points where the line enters and leaves each cell, or once in the middle of each cell it crosses. Gives arc_length and the arrays there (for the Charts panel).",
+            keywords: &["line probe", "sample line", "cell boundaries", "cell centers", "profile", "plot over line"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("point1", "Point 1", [f64::NAN; 3]).help("Unset: from the minimum corner of the data bounds."),
+                v3("point2", "Point 2", [f64::NAN; 3]).help("Unset: to the maximum corner of the data bounds."),
+                choice("sampling", "Samples", &["Uniform", "Cell boundaries", "Cell centers"], "Uniform"),
+                i("resolution", "Resolution (uniform)", 1000, 1, 1_000_000),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let b = ds.bounds();
+                let p1 = p.vec3("point1", [f64::NAN; 3]);
+                let p2 = p.vec3("point2", [f64::NAN; 3]);
+                let p1 = if p1.iter().all(|v| v.is_finite()) { p1 } else { b.min };
+                let p2 = if p2.iter().all(|v| v.is_finite()) { p2 } else { b.max };
+                let sampling = match p.str("sampling").as_str() {
+                    "Cell boundaries" => crate::lines::Sampling::CellBoundaries,
+                    "Cell centers" => crate::lines::Sampling::CellCenters,
+                    _ => crate::lines::Sampling::Uniform,
+                };
+                Ok(DataSet::PolyData(crate::lines::resample_to_line(ds, p1, p2, p.i64("resolution", 1000) as usize, sampling)?))
+            },
+        },
+        FilterDef {
+            id: "plot_on_sorted_lines",
+            label: "Plot On Sorted Lines",
+            category: "Data",
+            description: "Join line segments (from Slice, Contour on a surface, Feature Edges...) into curves ordered from one end to the other, each with arc_length, one block per curve: the Charts panel draws one line per curve.",
+            keywords: &["sort lines", "order points", "polyline", "arc length", "curve plot", "contour line plot"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| crate::lines::sort_lines(input.unwrap()),
+        },
+        FilterDef {
+            id: "plot_on_intersection_curves",
+            label: "Plot On Intersection Curves",
+            category: "Data",
+            description: "The curves where a plane cuts a surface, each ordered along its length with arc_length and the surface's arrays, one block per curve (for the Charts panel): a profile around a section of a body.",
+            keywords: &["intersection", "section curve", "profile", "cut surface", "wall plot", "pressure around"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("origin", "Origin", [f64::NAN; 3]).help("Unset: the center of the data."),
+                v3("normal", "Normal", [1.0, 0.0, 0.0]),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let origin = p.vec3("origin", [f64::NAN; 3]);
+                let origin = if origin.iter().any(|v| v.is_nan()) { ds.bounds().center() } else { origin };
+                let surf;
+                // A volume is cut on its outer surface.
+                let src = if matches!(ds, DataSet::PolyData(_)) {
+                    ds
+                } else {
+                    surf = per_leaf(ds, &|d| Ok(DataSet::PolyData(crate::surface::extract_surface_level(d, 1)?)))?;
+                    &surf
+                };
+                crate::lines::intersection_curves(src, origin, crate::slice::normalize(p.vec3("normal", [1.0, 0.0, 0.0])))
+            },
+        },
+        FilterDef {
+            id: "point_interpolator",
+            label: "Point Interpolator",
+            category: "Data",
+            description: "Carry the point arrays of scattered points (particles, measurements, a point cloud) onto a volume, a plane, a line or the points of a second input, through a kernel over the nearest points: Shepard (inverse distance), Gaussian, linear (an average), nearest point, or SPH (cubic spline or Wendland, with mass and density arrays when given). Adds vtkValidPointMask (0 where no point was near).",
+            keywords: &["interpolate points", "scattered data", "kriging", "shepard", "inverse distance", "gaussian kernel", "sph", "smoothed particle", "point cloud to grid", "voronoi", "point volume interpolator", "point line interpolator", "point plane interpolator", "point dataset interpolator", "sph interpolator"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: Some(MultiInput { label: "Destination (optional)", min: 1, max: Some(2), apply: |inputs, p| crate::pointinterp::run(inputs, p) }),
+            params: vec![
+                choice("kernel", "Kernel", &["Shepard", "Gaussian", "Linear", "Nearest point", "SPH cubic", "SPH quintic"], "Shepard"),
+                choice("neighbours", "Neighbours", &["N closest", "Radius"], "N closest").help("SPH kernels use every point within twice the smoothing length."),
+                i("n_closest", "N closest", 8, 1, 10_000),
+                f("radius", "Radius (0 = from the spacing)", 0.0, 0.0, f64::INFINITY),
+                f("power", "Shepard power", 2.0, 0.0, 20.0),
+                f("sharpness", "Gaussian sharpness", 2.0, 0.0, 100.0),
+                f("smoothing_length", "SPH smoothing length (0 = from the spacing)", 0.0, 0.0, f64::INFINITY),
+                s("density", "SPH density array", "").advanced(),
+                s("mass", "SPH mass array", "").advanced(),
+                choice("null", "Where no point is near", &["Value", "Nearest point"], "Value"),
+                f("null_value", "Value", 0.0, f64::NEG_INFINITY, f64::INFINITY),
+                choice("output", "Output (without a second input)", &["Volume", "Plane", "Line"], "Volume"),
+                i("nx", "X samples", 50, 1, 4096),
+                i("ny", "Y samples", 50, 1, 4096),
+                i("nz", "Z samples", 50, 1, 4096),
+                choice("axis", "Plane normal", &["X", "Y", "Z"], "Z"),
+                f("at", "Plane position (0 to 1 across the bounds)", 0.5, 0.0, 1.0),
+                v3("point1", "Line start", [f64::NAN; 3]).help("Unset: from the minimum corner of the bounds."),
+                v3("point2", "Line end", [f64::NAN; 3]).help("Unset: to the maximum corner of the bounds."),
+                i("resolution", "Line resolution", 200, 1, 1_000_000),
+            ],
+            apply: |input, p| crate::pointinterp::run(&[input.unwrap()], p),
+        },
         // ---------------- Temporal ----------------
         FilterDef {
             id: "temporal_interpolator",
@@ -1181,6 +2071,244 @@ fn build() -> Vec<FilterDef> {
             }),
             multi: None,
             params: vec![f("interval", "Time step spacing (0 = input steps)", 0.0, 0.0, f64::INFINITY)],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "annotate_time_filter",
+            label: "Annotate Time Filter",
+            category: "Annotation",
+            description: "Show the time in a corner of the 3D views, formatted as you like (Time: {:.3} s), optionally scaled and shifted (time x scale + shift).",
+            keywords: &["time label", "time text", "clock", "annotation", "simulation time"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, p| Ok(annot_text(p, crate::annotate::format_value(&p.str("format"), ctx.time * p.f64("scale", 1.0) + p.f64("shift", 0.0)))),
+                output_times: |_, t| t.to_vec(),
+            }),
+            multi: None,
+            params: vec![
+                s("format", "Format", "Time: {:.3}").help("{} is the value; {:.3} three decimals, {:.2e} an exponent, {:.4g} four significant digits."),
+                f("scale", "Scale", 1.0, f64::NEG_INFINITY, f64::INFINITY),
+                f("shift", "Shift", 0.0, f64::NEG_INFINITY, f64::INFINITY),
+                choice("corner", "Place", &["upper left", "upper right", "lower left", "lower right", "upper center", "lower center"], "upper left"),
+                f("size", "Text size", 16.0, 6.0, 96.0),
+            ],
+            apply: |_, p| Ok(annot_text(p, crate::annotate::format_value(&p.str("format"), p.f64("shift", 0.0)))),
+        },
+        FilterDef {
+            id: "annotate_global_data",
+            label: "Annotate Global Data",
+            category: "Annotation",
+            description: "Show a global (field) value of the data in a corner of the 3D views, such as the kinetic energy of a simulation; a global with one value per time step shows the current step's.",
+            keywords: &["global variable", "field data", "energy", "annotation", "value label"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, p| {
+                    let d = (ctx.fetch)(ctx.time)?;
+                    let step = ctx.step_at(ctx.time);
+                    annot_global(&d, p, step, ctx.input_times.len())
+                },
+                output_times: |_, t| t.to_vec(),
+            }),
+            multi: None,
+            params: vec![
+                s("array", "Field array", ""),
+                i("component", "Component", 0, 0, 1000),
+                s("format", "Format (empty: name = value)", ""),
+                choice("corner", "Place", &["upper left", "upper right", "lower left", "lower right", "upper center", "lower center"], "upper left"),
+                f("size", "Text size", 16.0, 6.0, 96.0),
+            ],
+            apply: |input, p| annot_global(input.unwrap(), p, 0, 1),
+        },
+        FilterDef {
+            id: "annotate_attribute_data",
+            label: "Annotate Attribute Data",
+            category: "Annotation",
+            description: "Show the value of an array at one point or cell (by its number) in a corner of the 3D views: a probe that follows the time steps.",
+            keywords: &["value at point", "probe label", "annotation", "point value", "cell value"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("data", "Data", &["Points", "Cells"], "Points"),
+                s("array", "Array", ""),
+                i("id", "Point or cell number", 0, 0, i64::MAX),
+                s("format", "Format (empty: name = value)", ""),
+                choice("corner", "Place", &["upper left", "upper right", "lower left", "lower right", "upper center", "lower center"], "upper left"),
+                f("size", "Text size", 16.0, 6.0, 96.0),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let assoc = stat_assoc(p);
+                let name = p.str("array");
+                let name = if name.is_empty() { crate::stats::variables(ds, assoc, &[])?.0.first().cloned().ok_or_else(|| anyhow!("no array to show"))? } else { name };
+                let v = crate::annotate::attribute_value(ds, assoc, &name, p.i64("id", 0).max(0) as usize, None)?;
+                let fmt = p.str("format");
+                let fmt = if fmt.is_empty() { format!("{name} = {{:.4g}}") } else { fmt };
+                Ok(annot_text(p, crate::annotate::format_value(&fmt, v)))
+            },
+        },
+        FilterDef {
+            id: "annotate_selection",
+            label: "Annotate Selection",
+            category: "Annotation",
+            description: "List selected points in a corner of the 3D views: how many, and the first ones with their numbers and values. Apply it to the output of Extract Selection.",
+            keywords: &["selection label", "selected points", "annotation", "list selection"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("arrays", "Arrays (empty: the first three)", ""),
+                i("rows", "Points listed", 5, 0, 1000),
+                choice("corner", "Place", &["upper left", "upper right", "lower left", "lower right", "upper center", "lower center"], "lower left"),
+                f("size", "Text size", 16.0, 6.0, 96.0),
+            ],
+            apply: |input, p| {
+                let arrays: Vec<String> = p.str("arrays").split(',').map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
+                Ok(annot_text(p, crate::annotate::selection_text(input.unwrap(), &arrays, p.i64("rows", 5).max(0) as usize)))
+            },
+        },
+        FilterDef {
+            id: "environment_annotation",
+            label: "Environment Annotation",
+            category: "Annotation",
+            description: "Show the date and time, the user, the machine, the operating system and the auraFX version in a corner of the 3D views (for pictures that record how they were made).",
+            keywords: &["date", "user name", "host", "machine", "version", "annotation", "stamp"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                b("date", "Date and time", true),
+                b("user", "User", true),
+                b("machine", "Machine", true),
+                b("system", "Operating system", false),
+                b("version", "auraFX version", false),
+                choice("corner", "Place", &["upper left", "upper right", "lower left", "lower right", "upper center", "lower center"], "lower right"),
+                f("size", "Text size", 16.0, 6.0, 96.0),
+            ],
+            apply: |_, p| {
+                Ok(annot_text(p, crate::annotate::environment_text(p.bool("date", true), p.bool("user", true), p.bool("machine", true), p.bool("system", false), p.bool("version", false))))
+            },
+        },
+        FilterDef {
+            id: "python_annotation",
+            label: "Python Annotation",
+            category: "Annotation",
+            description: "Show the result of a Python expression in a corner of the 3D views: the point and cell arrays are NumPy arrays by name (the blocks of a multi-block joined), with points, inputs, t (the time) and step (the time step), e.g. f'max T = {T.max():.1f} K'.",
+            keywords: &["python", "expression", "annotation", "numpy", "custom text", "programmable annotation"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, p| {
+                    let d = (ctx.fetch)(ctx.time)?;
+                    annot_python(&d, p, ctx.time, ctx.step_at(ctx.time))
+                },
+                output_times: |_, t| t.to_vec(),
+            }),
+            multi: None,
+            params: vec![
+                s("expression", "Expression", "f'{len(points)} points'"),
+                choice("corner", "Place", &["upper left", "upper right", "lower left", "lower right", "upper center", "lower center"], "upper left"),
+                f("size", "Text size", 16.0, 6.0, 96.0),
+            ],
+            apply: |input, p| annot_python(input.unwrap(), p, 0.0, 0),
+        },
+        FilterDef {
+            id: "extract_time_steps",
+            label: "Extract Time Steps",
+            category: "Temporal",
+            description: "Keep some time steps of the data: a list such as 0, 3, 5-8, 10:20:2 (step numbers from 0), or every N-th step from a first one.",
+            keywords: &["choose steps", "subset of time", "every nth step", "skip steps", "time stride"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, _| Ok((*(ctx.fetch)(ctx.time)?).clone()),
+                output_times: |p, t| crate::temporal_util::extract_times(&p.str("steps"), p.i64("first", 0).max(0) as usize, p.i64("stride", 1).max(1) as usize, t),
+            }),
+            multi: None,
+            params: vec![
+                s("steps", "Steps (empty: every N-th)", "").help("Step numbers from 0: 0, 3, 5-8 (inclusive), 10:20:2 (start:stop:stride, stop left out)."),
+                i("first", "First step", 0, 0, 10_000_000),
+                i("stride", "Every N-th step", 1, 1, 10_000_000),
+            ],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "generate_time_steps",
+            label: "Generate Time Steps",
+            category: "Temporal",
+            description: "Give the data a new set of time values (evenly spaced from a start to an end): each is shown with the data at that time, or at the step before it for data with steps; static data gets a time axis to animate filters against.",
+            keywords: &["time values", "add time steps", "resample time", "time axis"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, _| Ok((*(ctx.fetch)(ctx.time)?).clone()),
+                output_times: |p, t| crate::temporal_util::generate_times(p.f64("start", f64::NAN), p.f64("end", f64::NAN), p.i64("count", 10).max(0) as usize, t),
+            }),
+            multi: None,
+            params: vec![
+                f("start", "Start time (unset: the first step)", f64::NAN, f64::NEG_INFINITY, f64::INFINITY),
+                f("end", "End time (unset: the last step)", f64::NAN, f64::NEG_INFINITY, f64::INFINITY),
+                i("count", "Number of time steps", 10, 0, 1_000_000),
+            ],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "force_time",
+            label: "Force Time",
+            category: "Temporal",
+            description: "Always show the data at one time, whatever time the window is at: compare a step with the animation beside it.",
+            keywords: &["freeze time", "fixed time step", "hold time", "pin time", "ignore time"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, p| {
+                    let t = p.f64("time", 0.0);
+                    let t = if p.str("pick") == "Step number" {
+                        let k = (p.i64("step", 0).max(0) as usize).min(ctx.input_times.len().saturating_sub(1));
+                        ctx.input_times.get(k).copied().unwrap_or(t)
+                    } else {
+                        t
+                    };
+                    Ok((*(ctx.fetch)(t)?).clone())
+                },
+                output_times: |_, _| Vec::new(),
+            }),
+            multi: None,
+            params: vec![choice("pick", "Choose by", &["Step number", "Time value"], "Step number"), i("step", "Step number", 0, 0, 10_000_000), f("time", "Time value", 0.0, f64::NEG_INFINITY, f64::INFINITY)],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "temporal_snap_to_time_step",
+            label: "Temporal Snap to Time Step",
+            category: "Temporal",
+            description: "Show the data at one of its own time steps when the window is at a time in between (set by other data or by Temporal Interpolator): the nearest step, the one before or the one after.",
+            keywords: &["snap time", "nearest step", "no interpolation", "time step rounding"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal {
+                apply: |ctx, p| Ok((*(ctx.fetch)(crate::temporal_util::snap(ctx.time, ctx.input_times, &p.str("mode")))?).clone()),
+                output_times: |_, t| t.to_vec(),
+            }),
+            multi: None,
+            params: vec![choice("mode", "Snap to", &["Nearest", "Previous", "Next"], "Nearest")],
+            apply: |input, _| Ok(input.unwrap().clone()),
+        },
+        FilterDef {
+            id: "temporal_cache",
+            label: "Temporal Cache",
+            category: "Temporal",
+            description: "Keep the last time steps that were shown in memory, so stepping back and forth or replaying a loop does not read and filter them again.",
+            keywords: &["cache time steps", "memory", "faster playback", "keep steps"],
+            is_source: false,
+            ext: None,
+            temporal: Some(Temporal { apply: |ctx, p| crate::temporal_util::cached(ctx, p.i64("size", 8).max(1) as usize), output_times: |_, t| t.to_vec() }),
+            multi: None,
+            params: vec![i("size", "Steps kept", 8, 1, 100_000)],
             apply: |input, _| Ok(input.unwrap().clone()),
         },
         FilterDef {
@@ -2134,6 +3262,151 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "reverse_sense",
+            label: "Reverse Sense",
+            category: "Geometry",
+            description: "Turn a surface inside out: every polygon's vertex order is reversed (so its faces look the other way) and, optionally, the sign of its normals.",
+            keywords: &["flip", "invert normals", "orientation", "inside out", "winding", "reverse normals"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![b("normals", "Flip the normals arrays too", true)],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::reverse_sense(d, p.bool("normals", true))?))),
+        },
+        FilterDef {
+            id: "linear_extrusion",
+            label: "Linear Extrusion",
+            category: "Geometry",
+            description: "Sweep lines into strips of quads, or polygons into closed prisms, along a vector.",
+            keywords: &["extrude", "sweep", "prism", "thicken", "2d to 3d"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("vector", "Vector", [0.0, 0.0, 1.0]).help("The direction and length of the sweep."),
+                f("scale", "Scale factor", 1.0, -1e9, 1e9).help("Multiplies the vector."),
+                b("capping", "Cap the ends (polygons)", true),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::linear_extrusion(d, p.vec3("vector", [0.0, 0.0, 1.0]), p.f64("scale", 1.0), p.bool("capping", true))?)))
+            },
+        },
+        FilterDef {
+            id: "rotational_extrusion",
+            label: "Rotational Extrusion",
+            category: "Geometry",
+            description: "Sweep lines (or the boundary of polygons) round an axis: a surface of revolution, a screw or a spiral.",
+            keywords: &["revolve", "lathe", "surface of revolution", "spin", "sweep", "helix"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("angle", "Angle (degrees)", 360.0, -3600.0, 3600.0),
+                i("resolution", "Steps", 36, 1, 10_000),
+                v3("axis", "Axis", [0.0, 0.0, 1.0]),
+                v3("origin", "A point on the axis", [0.0, 0.0, 0.0]),
+                f("translation", "Translation along the axis", 0.0, -1e9, 1e9).help("How far the sweep moves along the axis over the whole angle (a screw)."),
+                f("delta_radius", "Change of radius per turn", 0.0, -1e3, 1e3).help("The radius grows by this fraction per turn (a spiral)."),
+            ],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    Ok(DataSet::PolyData(crate::surface_ops::rotational_extrusion(
+                        d,
+                        p.f64("angle", 360.0),
+                        p.i64("resolution", 36).max(1) as usize,
+                        p.vec3("axis", [0.0, 0.0, 1.0]),
+                        p.vec3("origin", [0.0; 3]),
+                        p.f64("translation", 0.0),
+                        p.f64("delta_radius", 0.0),
+                    )?))
+                })
+            },
+        },
+        FilterDef {
+            id: "ribbon",
+            label: "Ribbon",
+            category: "Geometry",
+            description: "Make a strip of the given width along every polyline, facing a chosen direction.",
+            keywords: &["strip", "band", "streamline ribbon", "flat tube"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("width", "Width", 0.1, 0.0, 1e9), v3("normal", "Faces toward", [0.0, 0.0, 1.0])],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::ribbon(d, p.f64("width", 0.1), p.vec3("normal", [0.0, 0.0, 1.0]))?))),
+        },
+        FilterDef {
+            id: "subdivide",
+            label: "Subdivide",
+            category: "Geometry",
+            description: "Split every triangle of a surface into four, again and again. Linear keeps the shape; Loop rounds it to a smooth surface.",
+            keywords: &["loop subdivision", "refine surface", "smooth surface", "linear subdivision", "finer surface"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![choice("scheme", "Scheme", &["Linear", "Loop"], "Linear"), i("levels", "Levels", 1, 0, 6)],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::subdivide(d, p.i64("levels", 1).max(0) as usize, p.str("scheme") == "Loop")?))),
+        },
+        FilterDef {
+            id: "decimate",
+            label: "Decimate",
+            category: "Geometry",
+            description: "Reduce the triangles of a surface by collapsing the edges that change its shape least (quadric error), keeping its outline and volume.",
+            keywords: &["simplify", "reduce triangles", "quadric decimation", "lod", "mesh simplification", "fewer triangles"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("reduction", "Reduction", 0.5, 0.0, 0.99).help("The fraction of the triangles to remove."),
+                b("preserve_boundary", "Keep the open edges", true),
+            ],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::decimate(d, p.f64("reduction", 0.5), p.bool("preserve_boundary", true))?))),
+        },
+        FilterDef {
+            id: "curvature",
+            label: "Curvature",
+            category: "Data",
+            description: "Gaussian or mean curvature of a triangle surface at its points (1/length², 1/length). Mean is positive where the surface is convex.",
+            keywords: &["gaussian curvature", "mean curvature", "bending", "principal curvature", "surface analysis"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![choice("kind", "Curvature", &["Gaussian", "Mean"], "Gaussian")],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::curvature(d, p.str("kind") == "Mean")?))),
+        },
+        FilterDef {
+            id: "delaunay_2d",
+            label: "Delaunay 2D",
+            category: "Geometry",
+            description: "Triangulate points seen from above (their x and y) so that no point lies inside another triangle's circle. An alpha value drops long thin triangles, leaving holes and concavities.",
+            keywords: &["triangulate points", "tin", "mesh from points", "point cloud to surface", "alpha shape"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("alpha", "Alpha (0: none)", 0.0, 0.0, 1e9).help("Drops triangles whose circumcircle is larger than this radius.")],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::PolyData(crate::surface_ops::delaunay_2d(d, p.f64("alpha", 0.0))?))),
+        },
+        FilterDef {
+            id: "delaunay_3d",
+            label: "Delaunay 3D",
+            category: "Geometry",
+            description: "Join points into tetrahedra so that no point lies inside the sphere through another tetrahedron's corners, filling their convex hull. An alpha value drops the large tetrahedra, leaving concavities and gaps.",
+            keywords: &["tetrahedralize points", "tet mesh from points", "point cloud to volume", "alpha shape", "convex hull"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("alpha", "Alpha (0: none)", 0.0, 0.0, 1e12).help("Drops tetrahedra whose sphere has a larger radius than this.")],
+            apply: |input, p| per_leaf(input.unwrap(), &|d| Ok(DataSet::UnstructuredGrid(crate::delaunay3d::delaunay_3d(d, p.f64("alpha", 0.0))?))),
+        },
+        FilterDef {
             id: "triangulate",
             label: "Triangulate",
             category: "Geometry",
@@ -2209,6 +3482,24 @@ fn build() -> Vec<FilterDef> {
                 per_leaf(input.unwrap(), &|d| {
                     let (_, n) = array_or_default(d, p, "array", false)?;
                     crate::geometry::rename_array(d, &n, &p.str("new_name"))
+                })
+            },
+        },
+        FilterDef {
+            id: "set_units",
+            label: "Set Units",
+            category: "Data",
+            description: "Say what units an array's values are in (K, m/s, MPa). The color legend, the Information panel and the spreadsheet show them; empty clears them.",
+            keywords: &["units", "unit", "dimension", "physical", "label", "legend"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), s("units", "Units", "")],
+            apply: |input, p| {
+                per_leaf(input.unwrap(), &|d| {
+                    let (_, n) = array_or_default(d, p, "array", false)?;
+                    crate::geometry::set_units(d, &n, &p.str("units"))
                 })
             },
         },
@@ -2420,7 +3711,7 @@ fn build() -> Vec<FilterDef> {
         },
         FilterDef {
             id: "spatio_temporal_harmonics_grid",
-            label: "Spatio Temporal Harmonics",
+            label: "Spatio Temporal Harmonics Grid",
             category: "Sources",
             description: "Image volume of travelling sine waves with its own time steps (animated test data).",
             keywords: &["waves", "sine", "harmonics", "synthetic", "test data", "animation", "time steps", "uniform grid"],
@@ -2758,6 +4049,496 @@ fn build() -> Vec<FilterDef> {
                 let mask = p.array("mask").map(|x| x.1);
                 let phases = p.array("phases").map(|x| x.1);
                 crate::features::segment(input.unwrap(), &p.str("method"), p.f64("tolerance", 5.0), mask.as_deref(), p.array("orientations"), &p.str("structure"), phases.as_deref(), p.array("scalar"), p.bool("shuffle", false).then_some(1))
+            },
+        },
+        FilterDef {
+            id: "rotate_sample_reference_frame",
+            label: "Rotate Sample Reference Frame",
+            category: "Grains",
+            description: "Turn the sample (its grid and every cell array, not the crystal orientations) by an angle about an axis: a new grid around the turned sample, each cell taking the values under its centre; turns by multiples of 90 degrees are exact.",
+            keywords: &["rotate sample", "sample frame", "turn volume", "reorient", "reference frame"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![v3("axis", "Axis", [0.0, 0.0, 1.0]), f("angle", "Angle (degrees)", 90.0, -360.0, 360.0)],
+            apply: |input, p| crate::cleanup::rotate_sample(input.unwrap(), p.vec3("axis", [0.0, 0.0, 1.0]), p.f64("angle", 90.0)),
+        },
+        FilterDef {
+            id: "apply_transformation_to_geometry",
+            label: "Apply Transformation to Geometry",
+            category: "Grains",
+            description: "Scale, turn and move the grid of a volume: without a turn only the origin and spacing change; with one, the cells are resampled onto a grid around the turned sample (nearest cell).",
+            keywords: &["transform", "translate", "scale", "rotate", "geometry", "move grid"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                v3("translation", "Translation", [0.0; 3]),
+                v3("axis", "Rotation axis", [0.0, 0.0, 1.0]),
+                f("angle", "Rotation angle (degrees)", 0.0, -360.0, 360.0),
+                v3("scale", "Scale", [1.0; 3]),
+                ParamSpec::new("matrix", "4 x 4 matrix (row by row; empty: the values above)", ParamKind::Floats, ParamValue::Floats(Vec::new())).advanced(),
+            ],
+            apply: |input, p| {
+                let m = p.floats("matrix");
+                if m.len() == 16 {
+                    return crate::cleanup::apply_matrix(input.unwrap(), [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]], [m[3], m[7], m[11]]);
+                }
+                crate::cleanup::apply_transformation(input.unwrap(), p.vec3("translation", [0.0; 3]), p.vec3("axis", [0.0, 0.0, 1.0]), p.f64("angle", 0.0), p.vec3("scale", [1.0; 3]))
+            },
+        },
+        FilterDef {
+            id: "identify_sample",
+            label: "Identify Sample",
+            category: "Grains",
+            description: "Find the sample among the scanned cells: the largest connected region of good cells (the mask) is kept and every other good cell marked bad; with fill holes, bad regions enclosed by the sample become good.",
+            keywords: &["sample", "mask", "largest region", "background", "fill holes", "ebsd clean up"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("mask", "Mask (good cells)", "Mask"), b("fill_holes", "Fill holes", false)],
+            apply: |input, p| crate::cleanup::identify_sample(input.unwrap(), &p.str("mask"), p.bool("fill_holes", false)),
+        },
+        FilterDef {
+            id: "isolate_largest_feature",
+            label: "Isolate Largest Feature",
+            category: "Grains",
+            description: "Keep only the feature with the most cells (feature 1); every other cell gets feature 0.",
+            keywords: &["largest grain", "keep one feature", "isolate"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::cleanup::isolate_largest_feature(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "erode_dilate_bad_data",
+            label: "Erode Dilate Bad Data",
+            category: "Grains",
+            description: "Grow the bad cells (feature 0) into the features (dilate) or the features into the bad cells (erode: each bad cell next to a feature takes, with every cell array, the values of a neighbour of the most common feature), a number of times, along the axes switched on.",
+            keywords: &["erode", "dilate", "bad data", "clean up", "morphology", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![choice("operation", "Operation", &["Erode", "Dilate"], "Erode"), i("iterations", "Iterations", 2, 1, 1000), b("x", "Along x", true), b("y", "Along y", true), b("z", "Along z", true), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::cleanup::erode_dilate_bad(input.unwrap(), &p.str("feature_ids"), p.str("operation") != "Dilate", p.i64("iterations", 2).max(1) as usize, [p.bool("x", true), p.bool("y", true), p.bool("z", true)]),
+        },
+        FilterDef {
+            id: "erode_dilate_coordination_number",
+            label: "Erode Dilate Coordination Number",
+            category: "Grains",
+            description: "Smooth feature boundaries: a cell with at least the coordination number of face neighbours in one other feature joins it (taking its values), repeated until nothing changes if asked.",
+            keywords: &["coordination number", "smooth boundaries", "clean up", "jagged", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("coordination", "Coordination number", 6, 1, 6), b("repeat", "Repeat until nothing changes", false), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::cleanup::coordination_number(input.unwrap(), &p.str("feature_ids"), p.i64("coordination", 6).clamp(1, 6) as usize, p.bool("repeat", false)),
+        },
+        FilterDef {
+            id: "replace_element_attributes_with_neighbor",
+            label: "Replace Element Attributes with Neighbor",
+            category: "Grains",
+            description: "Neighbour confidence correlation: every cell whose confidence array is below a minimum (or above, if asked) takes every cell array of its neighbour with the best confidence; repeated until nothing changes if asked.",
+            keywords: &["confidence index", "neighbor ci correlation", "clean up", "low confidence", "replace", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("confidence", "Confidence array", "Confidence Index"), f("min", "Minimum", 0.1, f64::NEG_INFINITY, f64::INFINITY), b("greater", "Replace values above instead", false), b("repeat", "Repeat until nothing changes", true)],
+            apply: |input, p| crate::cleanup::replace_with_neighbor(input.unwrap(), &p.str("confidence"), p.f64("min", 0.1), p.bool("greater", false), p.bool("repeat", true)),
+        },
+        FilterDef {
+            id: "neighbor_orientation_correlation",
+            label: "Neighbor Orientation Correlation",
+            category: "Grains",
+            description: "A cell whose confidence is below a minimum takes the values of the neighbour that most other neighbours agree with in orientation (misorientation below a tolerance), when enough of them agree; from 6 agreeing neighbours down to 6 minus the level.",
+            keywords: &["orientation correlation", "clean up", "noise", "low confidence", "ebsd", "misorientation"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("confidence", "Confidence array", "Confidence Index"), f("min_confidence", "Minimum confidence", 0.2, f64::NEG_INFINITY, f64::INFINITY), f("tolerance", "Misorientation tolerance (degrees)", 5.0, 0.0, 180.0), i("level", "Cleanup level", 2, 0, 6), choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced()],
+            apply: |input, p| crate::cleanup::neighbor_orientation_correlation(input.unwrap(), &p.str("confidence"), p.f64("min_confidence", 0.2), p.f64("tolerance", 5.0), p.i64("level", 2).clamp(0, 6) as usize, &p.str("structure")),
+        },
+        FilterDef {
+            id: "bad_data_neighbor_orientation_check",
+            label: "Bad Data Neighbor Orientation Check",
+            category: "Grains",
+            description: "A bad cell (mask off) with enough good neighbours of nearly its own orientation becomes good; from 6 neighbours down to the number given.",
+            keywords: &["bad data", "mask", "orientation check", "clean up", "ebsd"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("mask", "Mask (good cells)", "Mask"), f("tolerance", "Misorientation tolerance (degrees)", 5.0, 0.0, 180.0), i("neighbors", "Required neighbours", 4, 1, 6), choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced()],
+            apply: |input, p| crate::cleanup::bad_data_neighbor_check(input.unwrap(), &p.str("mask"), p.f64("tolerance", 5.0), p.i64("neighbors", 4).clamp(1, 6) as usize, &p.str("structure")),
+        },
+        FilterDef {
+            id: "resample_rectilinear_to_image",
+            label: "Resample Rectilinear To Image",
+            category: "Grains",
+            description: "Put a rectilinear grid (unevenly spaced lines) on an evenly spaced image: cells of the smallest spacing along each axis (or a given one), each taking the values of the cell it falls in.",
+            keywords: &["rectilinear", "uniform grid", "resample", "image data", "regular grid"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![v3("spacing", "Spacing (0 = the smallest step)", [0.0; 3])],
+            apply: |input, p| crate::cleanup::rectilinear_to_image(input.unwrap(), p.vec3("spacing", [0.0; 3])),
+        },
+        FilterDef {
+            id: "find_neighborhoods",
+            label: "Find Neighborhoods",
+            category: "Grains",
+            description: "For every feature, how many other features have their centre within some multiple of the mean equivalent diameter of its centre (field array Neighborhoods).",
+            keywords: &["neighborhood", "neighbours", "clustering", "feature density"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("multiples", "Multiples of the mean diameter", 1.0, 0.0, 100.0), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::feature_metrics::neighborhoods(input.unwrap(), &p.str("feature_ids"), p.f64("multiples", 1.0)),
+        },
+        FilterDef {
+            id: "find_largest_cross_sections",
+            label: "Find Largest Cross Sections",
+            category: "Grains",
+            description: "The largest area each feature covers in one slice normal to an axis (field array LargestCrossSections).",
+            keywords: &["cross section", "area", "slice area", "grain size"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![choice("axis", "Slices normal to", &["X", "Y", "Z"], "Z"), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::feature_metrics::largest_cross_sections(input.unwrap(), &p.str("feature_ids"), match p.str("axis").as_str() { "X" => 0, "Y" => 1, _ => 2 }),
+        },
+        FilterDef {
+            id: "find_feature_clustering",
+            label: "Find Feature Clustering",
+            category: "Grains",
+            description: "The radial distribution function of feature centres (of one phase, or all): how many centres lie at each distance from each other, over what a random arrangement of the same density gives. A table of r and RDF for the Charts panel.",
+            keywords: &["rdf", "radial distribution", "clustering", "precipitates", "pair correlation"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("bins", "Bins", 40, 1, 10000), f("max_distance", "Largest distance (0 = half the smallest side)", 0.0, 0.0, f64::INFINITY), i("phase", "Phase (0 = all)", 0, 0, 1000), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| Ok(DataSet::Table(crate::feature_metrics::clustering(input.unwrap(), &p.str("feature_ids"), p.i64("bins", 40).max(1) as usize, p.f64("max_distance", 0.0), p.i64("phase", 0) as i32)?)),
+        },
+        FilterDef {
+            id: "find_boundary_strengths",
+            label: "Find Boundary Strengths",
+            category: "Grains",
+            description: "Slip transmission across every boundary between two grains for a load direction: m' (|cos psi cos kappa|, plane normals and slip directions) of the two systems with the highest Schmid factors, the largest m' of any pair (F1), m' weighted by both Schmid factors (F1spt) and the best slip direction alignment (F7); a table with a row per grain pair.",
+            keywords: &["slip transmission", "m prime", "luster morris", "boundary strength", "f1", "f7", "schmid"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![v3("direction", "Load direction", [0.0, 0.0, 1.0]), choice("lattice", "Slip systems", &["Auto", "BCC"], "Auto"), s("feature_ids", "Feature ids", "FeatureIds").advanced(), choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced()],
+            apply: |input, p| Ok(DataSet::Table(crate::feature_metrics::boundary_strengths(input.unwrap(), &p.str("feature_ids"), p.vec3("direction", [0.0, 0.0, 1.0]), &p.str("lattice").to_uppercase(), &p.str("structure"))?)),
+        },
+        FilterDef {
+            id: "find_twin_boundary_schmid_factors",
+            label: "Find Twin Boundary Schmid Factors",
+            category: "Grains",
+            description: "For every twin boundary between cubic grains (60 degrees about a shared <111>), the Schmid factors of the three <110> slip directions in the twin plane, in each grain, for a load direction.",
+            keywords: &["twin", "schmid factor", "annealing twin", "sigma 3"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![v3("direction", "Load direction", [0.0, 0.0, 1.0]), f("axis_tolerance", "Axis tolerance (degrees)", 3.0, 0.0, 45.0), f("angle_tolerance", "Angle tolerance (degrees)", 3.0, 0.0, 45.0), s("feature_ids", "Feature ids", "FeatureIds").advanced(), choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced()],
+            apply: |input, p| Ok(DataSet::Table(crate::feature_metrics::twin_boundary_schmid(input.unwrap(), &p.str("feature_ids"), p.vec3("direction", [0.0, 0.0, 1.0]), p.f64("axis_tolerance", 3.0), p.f64("angle_tolerance", 3.0), &p.str("structure"))?)),
+        },
+        FilterDef {
+            id: "find_c_axis_locations",
+            label: "Find C-Axis Locations",
+            category: "Grains",
+            description: "The c axis of every hexagonal cell in the sample frame (cell array CAxisLocation, unit vectors in the upper hemisphere).",
+            keywords: &["c axis", "hexagonal", "titanium", "hcp", "basal pole"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced()],
+            apply: |input, p| crate::feature_metrics::c_axis_locations(input.unwrap(), &p.str("structure")),
+        },
+        FilterDef {
+            id: "find_feature_reference_c_axis_misorientations",
+            label: "Find Feature Reference C-Axis Misorientations",
+            category: "Grains",
+            description: "The angle between each hexagonal cell's c axis and its feature's mean c axis (cell array, degrees), and its mean per feature.",
+            keywords: &["c axis", "misorientation", "hexagonal", "hcp", "intragranular"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced(), choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced()],
+            apply: |input, p| crate::feature_metrics::reference_c_axis(input.unwrap(), &p.str("feature_ids"), &p.str("structure")),
+        },
+        FilterDef {
+            id: "identify_micro_texture_regions",
+            label: "Identify Micro-Texture Regions",
+            category: "Grains",
+            description: "Join neighbouring hexagonal features whose mean c axes line up (within a tolerance) into micro-texture regions: MTRIds per cell, ParentIds per feature, IsMTR for regions of at least a number of features.",
+            keywords: &["micro texture", "mtr", "macrozone", "c axis", "titanium", "hcp"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("tolerance", "C-axis tolerance (degrees)", 15.0, 0.0, 90.0), i("min_features", "Fewest features in a region", 2, 2, 100000), s("feature_ids", "Feature ids", "FeatureIds").advanced(), choice("structure", "Crystal structure", &crate::crystal::structure_choices(), crate::crystal::FROM_PHASES).advanced()],
+            apply: |input, p| crate::feature_metrics::micro_texture_regions(input.unwrap(), &p.str("feature_ids"), p.f64("tolerance", 15.0), p.i64("min_features", 2).max(2) as usize, &p.str("structure")),
+        },
+        FilterDef {
+            id: "median_image",
+            label: "Median Image",
+            category: "Data",
+            description: "Replace each value of a volume (or picture) by the median of the values in a box around it (a radius of cells along each axis): removes speckle noise and keeps edges.",
+            keywords: &["median", "denoise", "speckle", "smooth image", "salt and pepper"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), v3("radius", "Radius (cells)", [1.0, 1.0, 1.0]), s("result", "Result name", "Median")],
+            apply: |input, p| { let ds = input.unwrap(); let (a, n) = array_or_default(ds, p, "array", false)?; let r = p.str("result"); crate::image_filters::run(ds, a, &n, &r, &|d, v| { let r = p.vec3("radius", [1.0; 3]); Ok((ArrayData::F64(crate::image_filters::median(d, v, [r[0] as usize, r[1] as usize, r[2] as usize])), None)) }) },
+        },
+        FilterDef {
+            id: "gaussian_image",
+            label: "Gaussian Smooth Image",
+            category: "Data",
+            description: "Smooth a volume (or picture) with a Gaussian of a standard deviation in cells along each axis (cut at 4 standard deviations; edges repeat the outer values).",
+            keywords: &["gaussian", "blur", "smooth image", "denoise", "low pass"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), v3("sigma", "Standard deviation (cells)", [1.0, 1.0, 1.0]), s("result", "Result name", "Gaussian")],
+            apply: |input, p| { let ds = input.unwrap(); let (a, n) = array_or_default(ds, p, "array", false)?; let r = p.str("result"); crate::image_filters::run(ds, a, &n, &r, &|d, v| Ok((ArrayData::F64(crate::image_filters::gaussian(d, v, p.vec3("sigma", [1.0; 3]))), None))) },
+        },
+        FilterDef {
+            id: "otsu_threshold",
+            label: "Otsu Threshold",
+            category: "Data",
+            description: "Split the values of a volume into classes by the thresholds that best separate its histogram (largest between-class variance): a label array (0 below the first threshold, 1 above it...) and the thresholds as field data.",
+            keywords: &["otsu", "threshold", "segmentation", "binarize", "automatic threshold", "multiple thresholds"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), i("thresholds", "Thresholds", 1, 1, 4), i("bins", "Histogram bins", 128, 2, 4096), s("result", "Result name", "Otsu")],
+            apply: |input, p| { let ds = input.unwrap(); let (a, n) = array_or_default(ds, p, "array", false)?; let r = p.str("result"); crate::image_filters::run(ds, a, &n, &r, &|d, v| { let t = crate::image_filters::otsu(v, p.i64("thresholds", 1).clamp(1, 4) as usize, p.i64("bins", 128).max(2) as usize); let lab: Vec<u8> = v.iter().map(|x| t.iter().filter(|th| x >= *th).count() as u8).collect(); let _ = d; Ok((ArrayData::U8(lab), Some(Array::scalars_f64("OtsuThresholds", t)))) }) },
+        },
+        FilterDef {
+            id: "binary_morphology",
+            label: "Binary Morphology",
+            category: "Data",
+            description: "Erode, dilate, open (erode then dilate) or close (dilate then erode) the non-zero cells of an array of a volume with a ball of a radius in cells (radius 1: the six face neighbours); the edges of the grid are not eaten.",
+            keywords: &["erode", "dilate", "opening", "closing", "morphology", "mask", "binary"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![arr_param("array", "Array"), choice("operation", "Operation", &["Erode", "Dilate", "Open", "Close"], "Open"), i("radius", "Radius (cells)", 1, 1, 50), s("result", "Result name", "Morphology")],
+            apply: |input, p| { let ds = input.unwrap(); let (a, n) = array_or_default(ds, p, "array", false)?; let r = p.str("result"); crate::image_filters::run(ds, a, &n, &r, &|d, v| Ok((ArrayData::F64(crate::image_filters::morphology(d, v, &p.str("operation"), p.i64("radius", 1).max(1) as usize)?), None))) },
+        },
+        FilterDef {
+            id: "set_origin_spacing",
+            label: "Set Origin and Spacing",
+            category: "Grains",
+            description: "Give image data a new origin (the corner of its first cell) and spacing; the cells keep their values.",
+            keywords: &["origin", "spacing", "resolution", "voxel size", "calibrate"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![b("change_origin", "Change the origin", true), v3("origin", "Origin", [0.0; 3]), b("change_spacing", "Change the spacing", true), v3("spacing", "Spacing", [1.0; 3])],
+            apply: |input, p| crate::image_filters::set_origin_spacing(input.unwrap(), p.bool("change_origin", true).then(|| p.vec3("origin", [0.0; 3])), p.bool("change_spacing", true).then(|| p.vec3("spacing", [1.0; 3]))),
+        },
+        FilterDef {
+            id: "copy_feature_array_to_cells",
+            label: "Copy Feature Array to Cells",
+            category: "Grains",
+            description: "Give every cell the value its feature has in a per-feature (field) array, such as each grain's equivalent diameter, to color the cells by it.",
+            keywords: &["feature to cell", "per grain", "field to cell", "copy", "grain size map"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("array", "Feature array", "EquivalentDiameters"), s("result", "Result name (empty: the same)", ""), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::image_filters::copy_feature_array(input.unwrap(), &p.str("feature_ids"), &p.str("array"), &p.str("result")),
+        },
+        FilterDef {
+            id: "point_sample_surface",
+            label: "Point Sample Triangle Geometry",
+            category: "Geometry",
+            description: "Points spread over a surface at random, each triangle getting points in proportion to its area (seeded): a point cloud of a surface, for Iterative Closest Point or comparisons.",
+            keywords: &["sample surface", "point cloud", "random points", "surface points", "sampling"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("samples", "Points", 10000, 1, 100_000_000), i("seed", "Random seed", 1, 0, i64::MAX)],
+            apply: |input, p| Ok(DataSet::PolyData(crate::point_ops::sample_surface(input.unwrap(), p.i64("samples", 10000).max(1) as usize, p.i64("seed", 1) as u64)?)),
+        },
+        FilterDef {
+            id: "crop_points",
+            label: "Crop Points",
+            category: "Geometry",
+            description: "Keep the points inside a box (with their point arrays), as vertices.",
+            keywords: &["crop", "box", "points", "point cloud", "vertex geometry"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![v3("min", "Box minimum", [f64::NEG_INFINITY; 3]), v3("max", "Box maximum", [f64::INFINITY; 3])],
+            apply: |input, p| Ok(DataSet::PolyData(crate::point_ops::crop_points(input.unwrap(), p.vec3("min", [f64::NEG_INFINITY; 3]), p.vec3("max", [f64::INFINITY; 3]))?)),
+        },
+        FilterDef {
+            id: "iterative_closest_point",
+            label: "Iterative Closest Point",
+            category: "Geometry",
+            description: "Move a point set (this input) rigidly onto another (the second input): each round pairs every point with its nearest target point and finds the best rotation and translation, until it stops improving. Gives the moved points with the 4 x 4 transform and the RMS distance as field data.",
+            keywords: &["icp", "registration", "align", "rigid", "point cloud", "match"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: Some(MultiInput { label: "Target", min: 2, max: Some(2), apply: |inputs, p| crate::point_ops::icp(inputs[0], inputs[1], p.i64("iterations", 100).max(1) as usize) }),
+            params: vec![i("iterations", "Iterations", 100, 1, 100_000)],
+            apply: |_, _| Err(anyhow!("Iterative Closest Point needs the target points: choose them in Properties")),
+        },
+        FilterDef {
+            id: "insert_transformation_phases",
+            label: "Insert Transformation Phases",
+            category: "Grains",
+            description: "Put plates (such as annealing twins) into grains: in a fraction of the grains of a parent phase, a plate of a given thickness through the grain, on one of its {111} planes, becomes a new feature of a new phase, turned from its parent by an angle about the plane's normal (60 degrees: a twin).",
+            keywords: &["twins", "plates", "transformation", "lamellae", "synthetic", "annealing twins"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("parent_phase", "Parent phase (0 = all)", 1, 0, 1000), i("new_phase", "New phase", 2, 1, 1000), f("fraction", "Fraction of grains", 0.5, 0.0, 1.0), f("thickness", "Thickness (cells)", 2.0, 0.5, 1000.0), f("angle", "Turn about the plane normal (degrees)", 60.0, -180.0, 180.0), i("seed", "Random seed", 1, 0, i64::MAX), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::micro_extra::insert_transformation_phases(input.unwrap(), &p.str("feature_ids"), p.i64("parent_phase", 1) as i32, p.i64("new_phase", 2) as i32, p.f64("fraction", 0.5), p.f64("thickness", 2.0), p.f64("angle", 60.0), p.i64("seed", 1) as u64),
+        },
+        FilterDef {
+            id: "adjust_volume",
+            label: "Adjust Volume",
+            category: "Grains",
+            description: "Move cells on feature boundaries between neighbouring features so that each feature's size comes closer to a target: a per-feature field array of target cell counts or equivalent diameters (scaled to the volume).",
+            keywords: &["adjust volume", "target size", "grain size distribution", "synthetic", "packing"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("target", "Target array (per feature)", "GoalEquivalentDiameters"), i("sweeps", "Sweeps", 20, 1, 10000), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::micro_extra::adjust_volume(input.unwrap(), &p.str("feature_ids"), &p.str("target"), p.i64("sweeps", 20).max(1) as usize),
+        },
+        FilterDef {
+            id: "precipitate_statistics",
+            label: "Generate Precipitate Statistics",
+            category: "Grains",
+            description: "Statistics of the features of one phase (precipitates): count, volume fraction, number density, the lognormal fit of their equivalent diameters and the mean distance to the nearest other precipitate, as a table.",
+            keywords: &["precipitates", "second phase", "statistics", "volume fraction", "number density", "particles"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![i("phase", "Phase", 2, 0, 1000), s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| Ok(DataSet::Table(crate::micro_extra::precipitate_statistics(input.unwrap(), &p.str("feature_ids"), p.i64("phase", 2) as i32)?)),
+        },
+        FilterDef {
+            id: "find_surface_area_to_volume",
+            label: "Find Surface Area to Volume",
+            category: "Grains",
+            description: "Each feature's surface area (its cell faces against other features and the outside), its ratio to the volume and its sphericity, as per-feature field arrays.",
+            keywords: &["surface area", "volume", "sphericity", "shape", "ratio"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("feature_ids", "Feature ids", "FeatureIds").advanced()],
+            apply: |input, p| crate::micro_extra::surface_area_to_volume(input.unwrap(), &p.str("feature_ids")),
+        },
+        FilterDef {
+            id: "triangle_angles",
+            label: "Find Triangle Angles",
+            category: "Grains",
+            description: "The smallest and largest interior angle of each triangle of a surface mesh and the largest dihedral angle with its neighbours on the same boundary (cell arrays, degrees): mesh quality of grain surfaces.",
+            keywords: &["triangle quality", "minimum angle", "dihedral angle", "surface mesh"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| crate::micro_extra::triangle_angles(input.unwrap()),
+        },
+        FilterDef {
+            id: "feature_face_curvature",
+            label: "Find Feature Face Curvature",
+            category: "Grains",
+            description: "The mean and Gaussian curvature of every grain boundary of a surface mesh (made by Quick Surface Mesh), each boundary measured on its own, per triangle.",
+            keywords: &["curvature", "grain boundary", "mean curvature", "gaussian curvature", "surface mesh"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![],
+            apply: |input, _| crate::micro_extra::feature_face_curvature(input.unwrap()),
+        },
+        FilterDef {
+            id: "find_outliers",
+            label: "Find Outliers",
+            category: "Data",
+            description: "Points or cells whose value stands out from the rest of the array (a vector by its length): a robust z-score from the median and the median absolute deviation, a z-score, or the interquartile fences. Gives OutlierScore and Outlier (1 or 0), and the count as field data; Threshold on Outlier keeps them.",
+            keywords: &["outliers", "anomaly", "anomalies", "spikes", "bad values", "z-score", "mad", "iqr", "detect"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                arr_param("array", "Array"),
+                choice("method", "Method", &[crate::anomaly::ROBUST, crate::anomaly::ZSCORE, crate::anomaly::IQR], crate::anomaly::ROBUST),
+                f("threshold", "Threshold", 3.5, 0.0, 1000.0).help("Robust z-score and z-score: how many deviations away (3.5 is usual); fences: how many IQRs past the quartiles (1.5 mild, 3 extreme)."),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let (assoc, name) = array_or_default(ds, p, "array", false)?;
+                crate::anomaly::find_outliers(ds, assoc, &name, &p.str("method"), p.f64("threshold", 3.5))
+            },
+        },
+        FilterDef {
+            id: "find_change_points",
+            label: "Find Change Points",
+            category: "Data",
+            description: "Where a table column (a value over time, along a line) changes its level: splits that lower the squared error by more than Penalty times the noise variance. Adds ChangePoint (1 on the first row of each new level) and SegmentMean columns, and the change rows (and x values) as field data.",
+            keywords: &["change point", "change points", "step", "jump", "regime change", "time series", "segmentation", "anomaly"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("column", "Column", ""),
+                s("x_column", "x column (for the field data)", "Time"),
+                f("penalty", "Penalty", 25.0, 0.0, 1e9).help("Higher finds fewer changes; about 2 ln(n) to 10 ln(n) for n rows."),
+                i("min_size", "Shortest segment (rows)", 3, 1, 1_000_000),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let mut col = p.str("column");
+                if col.is_empty() {
+                    // The first numeric column after the x column.
+                    if let DataSet::Table(t) = ds {
+                        col = t.columns.iter().find(|a| a.name != p.str("x_column") && a.ncomp == 1).map(|a| a.name.clone()).unwrap_or_default();
+                    }
+                }
+                crate::anomaly::find_change_points(ds, &col, &p.str("x_column"), p.f64("penalty", 25.0), p.i64("min_size", 3).max(1) as usize)
             },
         },
         FilterDef {
@@ -3184,6 +4965,93 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "orientation_gradient",
+            label: "Orientation Gradient",
+            category: "Grains",
+            description: "Give every grain an orientation that changes smoothly inside it, as in additively manufactured material: a steady turn along a direction (the build direction), a steady turn across the grain (in plane), a smooth random spread and, optionally, sub-grain cells with low-angle boundaries.",
+            keywords: &["intragranular misorientation", "lattice rotation", "orientation spread", "srod", "grod", "kam", "sub-grain", "cells", "low-angle boundaries", "additive manufacturing", "synthetic", "gradient"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("rate", "Gradient (degrees per unit length)", 0.05, 0.0, 90.0).help("How fast each grain turns along the direction. Measured additively manufactured nickel alloys turn by about 0.02 to 0.1 degrees per micrometre. 0: no steady turn."),
+                v3("direction", "Direction", [0.0, 0.0, 1.0]).help("The turn grows along this direction (the build direction, z by default)."),
+                f("in_plane_rate", "In-plane gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("How fast each grain turns across itself, perpendicular to the direction: along a direction of its own in that plane, about an axis of its own (or the fixed axis), from its centroid. A turn by height alone leaves the orientation uniform within a layer; measured additively manufactured grains are not. 0: no turn across the grain."),
+                f("rate_spread", "Spread between grains (log sigma)", 0.5, 0.0, 3.0).help("Each grain gets its own rates, lognormal about the two gradients. 0: every grain alike."),
+                choice("axis", "Rotation axis", &[crate::orient_gradient::AXIS_RANDOM, crate::orient_gradient::AXIS_PERPENDICULAR, crate::orient_gradient::AXIS_FIXED], crate::orient_gradient::AXIS_RANDOM)
+                    .help("The axis each grain turns about: its own random one, a random one perpendicular to the direction, or the fixed axis below for all grains."),
+                choice("reference", "Unturned at", &[crate::orient_gradient::REF_CENTROID, crate::orient_gradient::REF_LOWEST], crate::orient_gradient::REF_CENTROID)
+                    .help("Where a grain keeps the orientation it had: its centroid, or its lowest point along the direction (a grain that grew from the layer below)."),
+                f("amplitude", "Smooth spread (degrees)", 0.5, 0.0, 45.0).help("Root-mean-square angle of a smooth random turn added inside each grain. 0: none."),
+                f("correlation_length", "Spread correlation length", 0.0, 0.0, f64::INFINITY).help("The distance over which the smooth spread changes. 0: half of each grain's diameter."),
+                f("cell_size", "Sub-grain cell size", 0.0, 0.0, f64::INFINITY).help("Divide every grain into cells of about this size, each turned a little differently. 0: no cells."),
+                f("cell_angle", "Misorientation between cells (degrees)", 1.0, 0.0, 15.0).help("Mean misorientation across a cell boundary. Keep it well under the Segment Features tolerance if the grains are to stay whole."),
+                f("size_exponent", "Grows with grain size (exponent)", 0.0, 0.0, 3.0).help("Gradient, spread and cell misorientation are multiplied by (grain diameter / median diameter) to this power. 0: no dependence; 0.5 to 1: larger grains turn more.").advanced(),
+                f("cap", "Largest turn (degrees)", 0.0, 0.0, 180.0).help("No cell turns further than this from the orientation its grain had; the turn levels off smoothly towards it. 0: no limit.").advanced(),
+                v3("fixed_axis", "Fixed axis", [1.0, 0.0, 0.0]).advanced(),
+                cell_arr("orientations", "Orientations").help("Empty: EulerAngles, Quats or OrientationMatrix.").advanced(),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
+            ],
+            apply: |input, p| {
+                let name = p.array("orientations").map(|x| x.1).unwrap_or_default();
+                let g = crate::orient_gradient::GradientParams {
+                    rate: p.f64("rate", 0.05),
+                    direction: p.vec3("direction", [0.0, 0.0, 1.0]),
+                    rate_spread: p.f64("rate_spread", 0.5),
+                    in_plane_rate: p.f64("in_plane_rate", 0.0),
+                    axis: p.str("axis"),
+                    fixed_axis: p.vec3("fixed_axis", [1.0, 0.0, 0.0]),
+                    reference: p.str("reference"),
+                    amplitude: p.f64("amplitude", 0.5),
+                    correlation_length: p.f64("correlation_length", 0.0),
+                    cell_size: p.f64("cell_size", 0.0),
+                    cell_angle: p.f64("cell_angle", 1.0),
+                    size_exponent: p.f64("size_exponent", 0.0),
+                    cap: p.f64("cap", 0.0),
+                    seed: p.i64("seed", 1) as u64,
+                };
+                crate::orient_gradient::orientation_gradient(input.unwrap(), &name, &p.str("feature_ids"), &g)
+            },
+        },
+        FilterDef {
+            id: "realistic_grains",
+            label: "Grain Realism",
+            category: "Grains",
+            description: "Make tessellated grains look grown: relax the boundaries so that faces curve and junctions open to equal angles, remove the smallest grains and make the boundaries wavy. Orientations and every other cell array follow the cells.",
+            keywords: &["grain growth", "relax boundaries", "curvature", "triple junctions", "120 degrees", "coarsening", "boundary roughness", "wavy boundaries", "voronoi", "synthetic", "smooth labels"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                i("relax", "Relaxation sweeps", 4, 0, 100).help("Each sweep gives every cell near a boundary to the grain with the largest weighted share of the cells around it. 3 to 5 sweeps settle the junctions; more changes little."),
+                f("width", "Relaxation width (cells)", 1.5, 0.5, 8.0).help("How far a sweep looks (standard deviation of its weights). About an eighth of the grain size in cells rounds whole grains; smaller values only round corners. Wider is slower."),
+                f("coarsen", "Remove smallest grains (fraction)", 0.0, 0.0, 0.95).help("This share of the grains, smallest first, is given to the neighbours before relaxing."),
+                f("roughness", "Boundary roughness", 0.0, 0.0, f64::INFINITY).help("Typical distance (in the volume's length unit) by which boundaries are pushed out of place by a smooth random field. 0: none."),
+                f("roughness_length", "Roughness wavelength", 0.0, 0.0, f64::INFINITY).help("The distance over which the push changes. 0: four times the roughness."),
+                b("periodic", "Periodic", false).help("Treat opposite faces of the volume as neighbours."),
+                s("feature_ids", "Feature ids", "FeatureIds").advanced(),
+                i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
+            ],
+            apply: |input, p| {
+                crate::grain_realism::realistic_grains(
+                    input.unwrap(),
+                    &p.str("feature_ids"),
+                    &crate::grain_realism::RealismParams {
+                        relax: p.i64("relax", 4).max(0) as usize,
+                        width: p.f64("width", 1.5),
+                        roughness: p.f64("roughness", 0.0),
+                        roughness_length: p.f64("roughness_length", 0.0),
+                        coarsen: p.f64("coarsen", 0.0),
+                        periodic: [p.bool("periodic", false); 3],
+                        seed: p.i64("seed", 1) as u64,
+                    },
+                )
+            },
+        },
+        FilterDef {
             id: "ensemble_statistics",
             label: "Generate Ensemble Statistics",
             category: "Grains",
@@ -3518,6 +5386,8 @@ fn build() -> Vec<FilterDef> {
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
                 b("calibrate", "Match the goal sizes and shapes", true).help("Space-filling grains measure more irregular than the shapes drawn: repack with corrected goals until the measured statistics match (slower)."),
                 i("moves", "Placement moves per grain", 20, 0, 100_000).advanced(),
+                f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                f("in_plane_gradient", "In-plane orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain."),
                 i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
             ],
             apply: |_, p| {
@@ -3527,7 +5397,7 @@ fn build() -> Vec<FilterDef> {
                     let v = p.floats(k);
                     (v.first().copied().unwrap_or(12.0), v.get(1).copied().unwrap_or(4.0))
                 };
-                crate::synthetic::pack_grains(
+                let packed = crate::synthetic::pack_grains(
                     &crate::synthetic::PackParams {
                         cells: n,
                         spacing: p.f64("spacing", 1.0),
@@ -3550,7 +5420,8 @@ fn build() -> Vec<FilterDef> {
                         calibrate: p.bool("calibrate", true),
                     },
                     None,
-                )
+                )?;
+                with_gradient(packed, p)
             },
         },
         FilterDef {
@@ -3572,22 +5443,44 @@ fn build() -> Vec<FilterDef> {
                 choice("orientations", "Orientations", &[crate::synthetic::ORIENT_RANDOM, crate::synthetic::ORIENT_FIBER100, crate::synthetic::ORIENT_FIBER111], crate::synthetic::ORIENT_RANDOM),
                 f("spread", "Fibre spread (degrees)", 10.0, 0.0, 90.0),
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
+                f("realism", "Realism", 0.0, 0.0, 1.0).help("0: the plain tessellation. Towards 1 the grains look more as if they had grown: sizes spread (when Size spread is 0), the smallest grains removed, boundaries a little wavy and relaxed so that junctions open to equal angles. The settings below override what Realism chooses; Grain Realism is the same as a filter."),
+                f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                f("in_plane_gradient", "In-plane orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain."),
+                i("relax", "Relaxation sweeps", -1, -1, 100).help("-1: 5 x Realism.").advanced(),
+                f("roughness", "Boundary roughness (fraction of the grain size)", f64::NAN, 0.0, 0.5).help("Empty: 0.06 x Realism.").advanced(),
+                f("coarsen", "Remove smallest grains (fraction)", f64::NAN, 0.0, 0.95).help("Empty: 0.1 x Realism.").advanced(),
                 i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
             ],
             apply: |_, p| {
                 let c = p.floats("cells");
                 let n = [0, 1, 2].map(|k| c.get(k).copied().unwrap_or(64.0).max(1.0) as usize);
-                crate::synthetic::tessellation(&crate::synthetic::TessellationParams {
+                let spacing = p.f64("spacing", 1.0);
+                let grains = p.i64("grains", 100).max(1) as usize;
+                let realism = p.f64("realism", 0.0).clamp(0.0, 1.0);
+                let or = |key: &str, auto: f64| Some(p.f64(key, f64::NAN)).filter(|x| x.is_finite()).unwrap_or(auto);
+                // The mean grain size, in length units and in cells.
+                let axes = n.iter().filter(|x| **x > 1).count().max(1) as f64;
+                let size = spacing * (n.iter().map(|x| *x as f64).product::<f64>() / grains as f64).powf(1.0 / axes);
+                let relax = p.i64("relax", -1);
+                let roughness = or("roughness", 0.06 * realism) * size;
+                let size_sigma = p.f64("size_sigma", 0.0);
+                let ds = crate::synthetic::tessellation(&crate::synthetic::TessellationParams {
                     cells: n,
-                    spacing: p.f64("spacing", 1.0),
-                    grains: p.i64("grains", 100).max(1) as usize,
-                    size_sigma: p.f64("size_sigma", 0.0),
+                    spacing,
+                    grains,
+                    size_sigma: if size_sigma <= 0.0 { 0.3 * realism } else { size_sigma },
                     periodic: p.bool("periodic", false),
                     orientations: p.str("orientations"),
                     spread_deg: p.f64("spread", 10.0),
                     structure: p.str("structure"),
                     seed: p.i64("seed", 1) as u64,
-                })
+                    relax: if relax < 0 { (5.0 * realism).round() as usize } else { relax as usize },
+                    relax_width: (size / spacing / 8.0).clamp(1.0, 3.0),
+                    roughness,
+                    roughness_length: 0.5 * size,
+                    coarsen: or("coarsen", 0.1 * realism),
+                })?;
+                with_gradient(ds, p)
             },
         },
         FilterDef {
@@ -3612,11 +5505,36 @@ fn build() -> Vec<FilterDef> {
                 choice("orientations", "Orientations", &[crate::synthetic::ORIENT_RANDOM, crate::synthetic::ORIENT_FIBER100, crate::synthetic::ORIENT_FIBER111], crate::synthetic::ORIENT_FIBER100),
                 f("spread", "Fibre spread (degrees)", 10.0, 0.0, 90.0),
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
+                f("realism", "Realism", 0.0, 0.0, 1.0).help("0: the plain columns. Towards 1 the build looks more like a real one: columns whose <100> lies near Z outgrow their neighbours, so grains widen and thin out with height; some columns stop at each layer and new grains start there; the columns lean one way and the other in alternate layers; fine grains appear at the layer boundaries; the boundaries are wavy and relaxed. The settings below override what Realism chooses."),
+                f("gradient", "Orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain."),
+                f("in_plane_gradient", "In-plane orientation gradient (degrees per unit length)", 0.0, 0.0, 90.0).help("Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain."),
+                f("layer", "Layer thickness", 40.0, 0.0, f64::INFINITY).help("Height of a build layer, for the layer effects of Realism (0: no layers).").advanced(),
+                f("competitive", "Competitive growth", f64::NAN, 0.0, 1.0).help("How strongly columns with <100> near Z outgrow the others (1: an overgrown column is never replaced). Empty: Realism.").advanced(),
+                f("epitaxial", "Columns continuing through a layer (fraction)", f64::NAN, 0.0, 1.0).help("The others end at the layer boundary and a new grain starts in their place. Empty: 1 - 0.3 x Realism.").advanced(),
+                f("scan_tilt", "Lean with the scan (degrees)", f64::NAN, 0.0, 45.0).help("The columns lean by this much along X, one way in even layers and back in odd ones. Empty: 10 x Realism.").advanced(),
+                f("equiaxed", "Fine grains at layer boundaries", f64::NAN, 0.0, 2.0).help("How densely small equiaxed grains sit on each layer boundary (1: about one per 0.4 grain widths each way). Empty: 0.15 x Realism.").advanced(),
+                i("relax", "Relaxation sweeps", -1, -1, 100).help("-1: 4 x Realism.").advanced(),
+                f("roughness", "Boundary roughness (fraction of the grain width)", f64::NAN, 0.0, 0.5).help("Empty: 0.05 x Realism.").advanced(),
                 i("seed", "Random seed", 1, 0, i64::MAX).advanced(),
             ],
             apply: |_, p| {
                 let s = p.vec3("size", [300.0, 300.0, 450.0]);
-                crate::synthetic::columnar_grains(
+                let realism = p.f64("realism", 0.0).clamp(0.0, 1.0);
+                let or = |key: &str, auto: f64| Some(p.f64(key, f64::NAN)).filter(|x| x.is_finite()).unwrap_or(auto);
+                let (voxel, width) = (p.f64("voxel", 5.0), p.f64("width", 50.0));
+                let relax = p.i64("relax", -1);
+                let extras = crate::synthetic::ColumnExtras {
+                    competitive: or("competitive", realism),
+                    layer: p.f64("layer", 40.0),
+                    epitaxial: or("epitaxial", 1.0 - 0.3 * realism),
+                    scan_tilt_deg: or("scan_tilt", 10.0 * realism),
+                    equiaxed: or("equiaxed", 0.15 * realism),
+                    relax: if relax < 0 { (4.0 * realism).round() as usize } else { relax as usize },
+                    relax_width: (width / voxel / 8.0).clamp(1.0, 3.0),
+                    roughness: or("roughness", 0.05 * realism) * width,
+                    roughness_length: 0.75 * width,
+                };
+                let ds = crate::synthetic::columnar_grains_with(
                     &crate::synthetic::ColumnParams {
                         size: s,
                         voxel: p.f64("voxel", 5.0),
@@ -3631,7 +5549,9 @@ fn build() -> Vec<FilterDef> {
                     p.f64("spread", 10.0),
                     &p.str("structure"),
                     p.i64("seed", 1) as u64,
-                )
+                    &extras,
+                )?;
+                with_gradient(ds, p)
             },
         },
         FilterDef {
@@ -3669,6 +5589,32 @@ fn build() -> Vec<FilterDef> {
                 b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface.").advanced(),
             ],
             apply: |_, p| crate::geometry_model::geometry(&p.str("commands"), p.i64("resolution", 64).max(2) as usize, &p.str("output"), p.bool("project", true)),
+        },
+        FilterDef {
+            id: "cad_model",
+            label: "CAD Model",
+            category: "Sources",
+            description: "A parametric part: sketches, features and parameters that rebuild the solid when a dimension changes, with named faces. Change a dimension from Properties or Python without opening the CAD environment.",
+            keywords: &["cad", "parametric", "part", "sketch", "feature", "extrude", "revolve", "fillet", "hole", "solid model", "step", "dimension", "design"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                ParamSpec::new("document", "Document", ParamKind::Code, ParamValue::Str(crate::cad::default_document_json()))
+                    .help("The part as an .afxcad document (JSON). Edit it with the CAD environment or with node.cad in Python."),
+                ParamSpec::new("parameters", "Parameter overrides", ParamKind::Str, ParamValue::Str(String::new()))
+                    .help("A JSON object of parameter name to expression that replaces the document's own values, for example {\"width\": \"50 mm\"}."),
+                ParamSpec::new("configuration", "Configuration", ParamKind::Str, ParamValue::Str(String::new()))
+                    .help("The name of a configuration of the document (a named set of parameter values); empty: the document's own."),
+                i("resolution", "Resolution", 64, 8, 1024).help("Cells along the longest side of the part when drawing its surface."),
+                choice("output", "Output", &[crate::cad::OUT_SURFACE, crate::cad::OUT_DISTANCE], crate::cad::OUT_SURFACE)
+                    .help("Surface: the part's surface with BodyId and FaceId and the face names. Distance field: the signed distance to the part on a grid."),
+                choice("kernel", "Kernel", &["Auto", "Implicit", "B-rep"], "Auto")
+                    .help("B-rep: exact faces and edges (what STEP export writes); Implicit: signed distance fields, builds every feature. Auto: B-rep when it can build the part, else Implicit."),
+                b("project", "Snap to the surface", true).help("Move the drawn points onto the exact surface (Implicit kernel).").advanced(),
+            ],
+            apply: |_, p| crate::cad::cad_model(&p.str("document"), &p.str("parameters"), &p.str("configuration"), p.i64("resolution", 64).max(8) as usize, &p.str("output"), p.bool("project", true), &p.str("kernel")),
         },
         FilterDef {
             id: "signed_distance",
@@ -3847,6 +5793,114 @@ fn build() -> Vec<FilterDef> {
             },
         },
         FilterDef {
+            id: "face_mesh",
+            label: "Face Mesh",
+            category: "Sources",
+            description: "A planar face drawn with outline commands (an outer outline with holes) meshed at a size with triangles or all quadrilaterals, finer near the holes if asked: sweep the quadrilaterals into hexahedra with Sweep Quads.",
+            keywords: &["pave", "paving", "quad mesh", "2d mesh", "triangulate", "planar face", "hole", "plate", "unstructured quads", "sizing"],
+            is_source: true,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                s("commands", "Outline commands", "outline 1 rectangle x 4 y 2 center 2 1\noutline 2 circle radius 0.5 center 2 1")
+                    .help("The geometry language's outline commands: polyline, rectangle, circle, ellipse, spline, regular, add line/arc, fillet."),
+                i("outer", "Outer outline", 1, 1, 100_000),
+                s("holes", "Holes (outline numbers)", "2"),
+                f("size", "Size", 0.2, 1e-9, f64::INFINITY),
+                choice("element", "Elements", &[crate::mesh_gen::FACE_QUADS, crate::mesh_gen::FACE_TRIANGLES], crate::mesh_gen::FACE_QUADS),
+                f("near", "Size at the holes (0 = the size)", 0.0, 0.0, f64::INFINITY),
+                f("growth", "Growth away from the holes", 0.2, 0.0, 10.0).help("How fast the size grows with the distance from the holes (per unit length)."),
+                s("intervals", "Pieces per outline (0 = from the size)", "").help("One number per outline, outer first: the outline is divided into that many pieces.").advanced(),
+                f("min", "Smallest size", 0.0, 0.0, f64::INFINITY).advanced(),
+                f("max", "Largest size (0 = no limit)", 0.0, 0.0, f64::INFINITY).advanced(),
+            ],
+            apply: |_, p| {
+                let nums = |k: &str| -> Vec<f64> { p.str(k).split([' ', ',', ';']).filter_map(|t| t.trim().parse::<f64>().ok()).collect() };
+                let holes: Vec<u32> = nums("holes").into_iter().map(|x| x as u32).collect();
+                let iv: Vec<usize> = nums("intervals").into_iter().map(|x| x.max(0.0) as usize).collect();
+                let sz = crate::mesh_gen::SurfaceSizing { size: p.f64("size", 0.2), min: p.f64("min", 0.0), max: p.f64("max", 0.0), near: Vec::new(), field: None, tolerance: 0.0 };
+                crate::mesh_gen::face_mesh(&p.str("commands"), p.i64("outer", 1) as u32, &holes, &sz, p.f64("near", 0.0), p.f64("growth", 0.2), &iv, &p.str("element"))
+            },
+        },
+        FilterDef {
+            id: "remesh_surface",
+            label: "Remesh Surface",
+            category: "Mesh",
+            description: "Mesh any surface again at a size: triangles or all quadrilaterals, the size fixed, from a point array (the size at each point), or following the curvature (a chord tolerance); sharp edges and open boundaries are kept.",
+            keywords: &["remesh", "surface mesh", "isotropic", "triangle mesh", "quad mesh", "sizing", "curvature", "resample surface", "pave"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                f("size", "Size (0 = the input's mean edge)", 0.0, 0.0, f64::INFINITY),
+                choice("element", "Elements", &[crate::mesh_gen::FACE_TRIANGLES, crate::mesh_gen::FACE_QUADS], crate::mesh_gen::FACE_TRIANGLES),
+                s("size_array", "Size from a point array", "").help("A point array whose value is the size wanted there (empty: none)."),
+                f("tolerance", "Curvature: chord tolerance (0 = off)", 0.0, 0.0, f64::INFINITY).help("Where the surface curves, the size keeps the gap between the mesh and a circle of the local curvature below this."),
+                f("feature_angle", "Sharp edge angle (degrees)", 30.0, 0.0, 180.0),
+                f("min", "Smallest size", 0.0, 0.0, f64::INFINITY).advanced(),
+                f("max", "Largest size (0 = no limit)", 0.0, 0.0, f64::INFINITY).advanced(),
+                i("iterations", "Iterations", 4, 1, 50).advanced(),
+            ],
+            apply: |input, p| {
+                let ds = input.unwrap();
+                let arr = p.str("size_array");
+                let sz = crate::mesh_gen::SurfaceSizing {
+                    size: p.f64("size", 0.0),
+                    min: p.f64("min", 0.0),
+                    max: p.f64("max", 0.0),
+                    near: Vec::new(),
+                    field: (!arr.is_empty()).then_some((ds, arr)),
+                    tolerance: p.f64("tolerance", 0.0),
+                };
+                crate::mesh_gen::remesh(ds, &sz, p.f64("feature_angle", 30.0), &p.str("element"), p.i64("iterations", 4).max(1) as usize)
+            },
+        },
+        FilterDef {
+            id: "define_mesh_set",
+            label: "Define Mesh Set",
+            category: "Mesh",
+            description: "Add a node set (the nodes where an expression of the coordinates holds) or a side set (the boundary faces whose nodes all satisfy it) to a mesh, for boundary conditions; written with the mesh to Exodus, Abaqus, Gmsh and the other mesh files.",
+            keywords: &["node set", "side set", "boundary condition", "nodeset", "sideset", "by location", "expression", "group"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![
+                choice("kind", "Set", &[crate::mesh_sets::SET_SIDES, crate::mesh_sets::SET_NODES], crate::mesh_sets::SET_SIDES),
+                s("name", "Name", "selected"),
+                s("expression", "Where (expression)", "coordsX < 1e-6").help("Of coordsX, coordsY, coordsZ and the point arrays, like the Calculator: abs(coordsZ - 1) < 1e-6, coordsX*coordsX + coordsY*coordsY < 0.25."),
+            ],
+            apply: |input, p| crate::mesh_sets::define_set(input.unwrap(), &p.str("kind"), &p.str("name"), &p.str("expression")),
+        },
+        FilterDef {
+            id: "merge_nodes",
+            label: "Merge Nodes",
+            category: "Mesh",
+            description: "Merge mesh nodes closer than a tolerance (meshes made separately that touch), renumbering the cells and node sets; field data MergedNodes gives how many went.",
+            keywords: &["equivalence", "merge nodes", "duplicate nodes", "tolerance", "join meshes", "clean"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![f("tolerance", "Tolerance", 1e-6, 0.0, f64::INFINITY)],
+            apply: |input, p| crate::mesh_sets::merge_nodes(input.unwrap(), p.f64("tolerance", 1e-6)),
+        },
+        FilterDef {
+            id: "hex_to_tets",
+            label: "Tetrahedra in a Region",
+            category: "Mesh",
+            description: "Turn the hexahedra where an expression holds into tetrahedra, with pyramids where they meet the hexahedra that stay, so the mixed mesh is conforming; cell arrays and side sets follow.",
+            keywords: &["pyramid", "transition", "hex to tet", "mixed mesh", "tetrahedra", "region", "conforming"],
+            is_source: false,
+            ext: None,
+            temporal: None,
+            multi: None,
+            params: vec![s("expression", "Where (expression)", "coordsX < 0.5").help("Hexahedra all of whose nodes satisfy it are converted.")],
+            apply: |input, p| crate::mesh_sets::hex_to_tets(input.unwrap(), &p.str("expression")),
+        },
+        FilterDef {
             id: "sweep_quads",
             label: "Sweep Quads",
             category: "Mesh",
@@ -3941,7 +5995,7 @@ fn build() -> Vec<FilterDef> {
             temporal: None,
             multi: None,
             params: vec![
-                choice("scheme", "Scheme", &[aurafx_mesh::improve::SMOOTH_SMART, aurafx_mesh::improve::SMOOTH_LAPLACIAN, aurafx_mesh::improve::SMOOTH_CONDITION], aurafx_mesh::improve::SMOOTH_SMART),
+                choice("scheme", "Scheme", &[aurafx_mesh::improve::SMOOTH_SMART, aurafx_mesh::improve::SMOOTH_LAPLACIAN, aurafx_mesh::improve::SMOOTH_CONDITION, aurafx_mesh::improve::SMOOTH_WINSLOW], aurafx_mesh::improve::SMOOTH_SMART),
                 i("iterations", "Iterations", 10, 1, 1000),
                 s("fixed", "Also hold the node set", "").advanced(),
             ],
@@ -4078,7 +6132,12 @@ fn openfoam_patches(input: &DataSet, names: &str) -> Result<DataSet> {
 static REGISTRY: OnceLock<RwLock<Arc<Vec<Arc<FilterDef>>>>> = OnceLock::new();
 
 fn table() -> &'static RwLock<Arc<Vec<Arc<FilterDef>>>> {
-    REGISTRY.get_or_init(|| RwLock::new(Arc::new(build().into_iter().map(Arc::new).collect())))
+    REGISTRY.get_or_init(|| {
+        // The CAD readers (STEP, IGES, 3MF, .sc, .afxcad) join aurafx-io's reader table, so
+        // `import 'part.step'` in geometry commands and every other reader caller reads them.
+        crate::cad::register_readers();
+        RwLock::new(Arc::new(build().into_iter().map(Arc::new).collect()))
+    })
 }
 
 /// Every filter and source: the built-in ones, then those added by plugins.
@@ -4113,7 +6172,14 @@ pub fn unregister_plugin(plugin: &str) -> Vec<String> {
 
 pub fn find(id: &str) -> Option<Arc<FilterDef>> {
     let idl = id.to_ascii_lowercase().replace([' ', '-'], "_");
-    registry().iter().find(|f| f.id == idl || f.label.eq_ignore_ascii_case(id)).cloned()
+    registry().iter().find(|f| f.id == idl || f.label.eq_ignore_ascii_case(id)).cloned().or_else(|| internal().iter().find(|f| f.id == idl).cloned())
+}
+
+/// Filters used inside auraFX (by the processes of a parallel server): found by id, never
+/// listed.
+fn internal() -> &'static Vec<Arc<FilterDef>> {
+    static T: std::sync::OnceLock<Vec<Arc<FilterDef>>> = std::sync::OnceLock::new();
+    T.get_or_init(|| crate::ghost_exchange::internal_defs().into_iter().map(Arc::new).collect())
 }
 
 /// Search filters and sources, best match first.

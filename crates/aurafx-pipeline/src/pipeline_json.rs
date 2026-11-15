@@ -398,6 +398,179 @@ fn map_step(name: &str, s: &Map<String, Value>) -> Step {
             put("smooth_outer", num("SurfacePointLambda").map(|x| json!(x > 0.0)));
             "smooth_boundaries"
         }
+        "RotateSampleRefFrame" => {
+            put("axis", vec3("RotationAxis"));
+            put("angle", num("RotationAngle").map(|a| json!(a)));
+            "rotate_sample_reference_frame"
+        }
+        "ApplyTransformationToGeometry" => {
+            // 2 manual matrix, 3 rotation, 4 translation, 5 scale (1 = a matrix another step computed).
+            match num("TransformationMatrixType").map(|x| x as i64) {
+                Some(3) => {
+                    put("axis", vec3("RotationAxis"));
+                    put("angle", num("RotationAngle").map(|a| json!(a)));
+                }
+                Some(4) => put("translation", vec3("Translation")),
+                Some(5) => put("scale", vec3("Scale")),
+                Some(2) => {
+                    let m = s.get("ManualTransformationMatrix").and_then(|t| t.get("Table Data")).and_then(|t| t.as_array()).cloned().unwrap_or_default();
+                    let at = |r: usize, c: usize| m.get(r).and_then(|row| row.get(c)).and_then(|v| v.as_f64()).unwrap_or(if r == c { 1.0 } else { 0.0 });
+                    put("matrix", Some(json!((0..4).flat_map(|r| (0..4).map(move |c| (r, c))).map(|(r, c)| at(r, c)).collect::<Vec<_>>())));
+                }
+                _ => return Step::Skip("the transformation comes from another step (Iterative Closest Point)".into()),
+            }
+            "apply_transformation_to_geometry"
+        }
+        "SetOriginResolutionImageGeom" => {
+            put("change_origin", flag("ChangeOrigin").map(|b| json!(b)));
+            put("origin", vec3("Origin"));
+            put("change_spacing", flag("ChangeResolution").map(|b| json!(b)));
+            put("spacing", vec3("Spacing").or_else(|| vec3("Resolution")));
+            "set_origin_spacing"
+        }
+        "IdentifySample" => {
+            put("mask", array("GoodVoxelsArrayPath").map(Value::String));
+            put("fill_holes", flag("FillHoles").map(|b| json!(b)));
+            "identify_sample"
+        }
+        "ErodeDilateBadData" => {
+            put("operation", num("Direction").map(|d| json!(if d == 0.0 { "Dilate" } else { "Erode" })));
+            put("iterations", num("NumIterations").map(|x| json!(x as i64)));
+            put("x", flag("XDirOn").map(|b| json!(b)));
+            put("y", flag("YDirOn").map(|b| json!(b)));
+            put("z", flag("ZDirOn").map(|b| json!(b)));
+            put("feature_ids", fids);
+            "erode_dilate_bad_data"
+        }
+        "ErodeDilateCoordinationNumber" => {
+            put("coordination", num("CoordinationNumber").map(|x| json!(x as i64)));
+            put("repeat", flag("Loop").map(|b| json!(b)));
+            put("feature_ids", fids);
+            "erode_dilate_coordination_number"
+        }
+        "ReplaceElementAttributesWithNeighborValues" => {
+            put("confidence", array("ConfidenceIndexArrayPath").map(Value::String));
+            put("min", num("MinConfidence").map(|x| json!(x)));
+            put("greater", num("SelectedComparison").map(|x| json!(x != 0.0)));
+            put("repeat", flag("Loop").map(|b| json!(b)));
+            "replace_element_attributes_with_neighbor"
+        }
+        "NeighborOrientationCorrelation" => {
+            put("confidence", array("ConfidenceIndexArrayPath").map(Value::String));
+            put("min_confidence", num("MinConfidence").map(|x| json!(x)));
+            put("tolerance", num("MisorientationTolerance").map(|x| json!(x)));
+            put("level", num("Level").map(|x| json!(x as i64)));
+            "neighbor_orientation_correlation"
+        }
+        "BadDataNeighborOrientationCheck" => {
+            put("mask", array("GoodVoxelsArrayPath").map(Value::String));
+            put("tolerance", num("MisorientationTolerance").map(|x| json!(x)));
+            put("neighbors", num("NumberOfNeighbors").map(|x| json!(x as i64)));
+            "bad_data_neighbor_orientation_check"
+        }
+        "FindNeighborhoods" => {
+            put("multiples", num("MultiplesOfAverage").map(|x| json!(x)));
+            put("feature_ids", fids);
+            "find_neighborhoods"
+        }
+        "FindLargestCrossSections" => {
+            // Plane 0 XY, 1 XZ, 2 YZ.
+            put(
+                "axis",
+                num("Plane").map(|x| {
+                    json!(match x as i64 {
+                        1 => "Y",
+                        2 => "X",
+                        _ => "Z",
+                    })
+                }),
+            );
+            put("feature_ids", fids);
+            "find_largest_cross_sections"
+        }
+        "FindFeatureClustering" => {
+            put("bins", num("NumberOfBins").map(|x| json!(x as i64)));
+            put("phase", num("PhaseNumber").map(|x| json!(x as i64)));
+            put("feature_ids", fids);
+            "find_feature_clustering"
+        }
+        "FindBoundaryStrengths" | "FindSlipTransmissionMetrics" => {
+            put("direction", vec3("Loading"));
+            put("feature_ids", fids);
+            "find_boundary_strengths"
+        }
+        "FindTwinBoundarySchmidFactors" => {
+            put("direction", vec3("LoadingDir"));
+            put("feature_ids", fids);
+            "find_twin_boundary_schmid_factors"
+        }
+        "FindCAxisLocations" => "find_c_axis_locations",
+        "FindFeatureReferenceCAxisMisorientations" => {
+            put("feature_ids", fids);
+            "find_feature_reference_c_axis_misorientations"
+        }
+        "IdentifyMicroTextureRegions" => {
+            put("tolerance", num("CAxisTolerance").map(|x| json!(x)));
+            put("min_features", num("MinMTRSize").map(|x| json!((x as i64).max(2))));
+            put("feature_ids", fids);
+            "identify_micro_texture_regions"
+        }
+        "CopyFeatureArrayToElementArray" => {
+            put("array", array("SelectedFeatureArrayPath").map(Value::String));
+            put("result", s.get("CreatedArrayName").cloned());
+            put("feature_ids", fids);
+            "copy_feature_array_to_cells"
+        }
+        "ITKMedianImage" => {
+            put("array", array("SelectedCellArrayPath").map(cells));
+            put("radius", vec3("Radius"));
+            put("result", s.get("NewCellArrayName").cloned());
+            "median_image"
+        }
+        "ITKOtsuMultipleThresholdsImage" => {
+            put("array", array("SelectedCellArrayPath").map(cells));
+            put("thresholds", num("NumberOfThresholds").map(|x| json!(x as i64)));
+            put("bins", num("NumberOfHistogramBins").map(|x| json!(x as i64)));
+            put("result", s.get("NewCellArrayName").cloned());
+            "otsu_threshold"
+        }
+        "ITKDiscreteGaussianImage" | "ITKSmoothingRecursiveGaussianImage" => {
+            put("array", array("SelectedCellArrayPath").map(cells));
+            put(
+                "sigma",
+                vec3("Variance")
+                    .map(|v| json!(v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap_or(1.0).sqrt()).collect::<Vec<_>>()))
+                    .or_else(|| vec3("Sigma")),
+            );
+            put("result", s.get("NewCellArrayName").cloned());
+            "gaussian_image"
+        }
+        "ITKBinaryErodeImage" | "ITKBinaryDilateImage" | "ITKBinaryOpeningByReconstructionImage" | "ITKBinaryClosingByReconstructionImage" => {
+            put("array", array("SelectedCellArrayPath").map(cells));
+            put(
+                "operation",
+                Some(json!(match name {
+                    "ITKBinaryErodeImage" => "Erode",
+                    "ITKBinaryDilateImage" => "Dilate",
+                    "ITKBinaryOpeningByReconstructionImage" => "Open",
+                    _ => "Close",
+                })),
+            );
+            put("radius", s.get("KernelRadius").and_then(|v| v.get("x")).and_then(|v| v.as_f64()).map(|x| json!(x as i64)));
+            put("result", s.get("NewCellArrayName").cloned());
+            "binary_morphology"
+        }
+        "TriangleAreaFilter" => "triangle_geometry",
+        "PointSampleTriangleGeometry" => {
+            put("samples", num("NumberOfSamples").map(|x| json!(x as i64)));
+            "point_sample_surface"
+        }
+        "CropVertexGeometry" => {
+            put("min", Some(json!([num("XMin").unwrap_or(f64::MIN), num("YMin").unwrap_or(f64::MIN), num("ZMin").unwrap_or(f64::MIN)])));
+            put("max", Some(json!([num("XMax").unwrap_or(f64::MAX), num("YMax").unwrap_or(f64::MAX), num("ZMax").unwrap_or(f64::MAX)])));
+            "crop_points"
+        }
+        "IterativeClosestPoint" => return Step::Skip("aligns two point sets of different data: add Iterative Closest Point with both inputs".into()),
         _ => return Step::Skip("no auraFX filter does this step".into()),
     };
     Step::Filter(id, p)

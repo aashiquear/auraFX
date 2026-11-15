@@ -14,7 +14,13 @@ fn ssh_server_matches_local() {
     };
     let dir = std::env::var("AURAFX_TEST_SSH_DIR").unwrap_or_else(|_| ".".into());
     let setup = std::env::var("AURAFX_TEST_SSH_SERVER").map(|s| format!("export AURAFX_SERVER={s}")).unwrap_or_default();
-    let host = Host { name: target.clone(), kind: HostKind::Ssh { target, port: None, identity: None, jump: None }, setup, server_processes: 0 };
+    let host = Host {
+        name: target.clone(),
+        kind: HostKind::Ssh { target, port: None, identity: None, jump: None },
+        setup,
+        server_processes: 0,
+        launcher: String::new(),
+    };
     let td = |n: &str| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata").join(n).display().to_string();
 
     let t0 = std::time::Instant::now();

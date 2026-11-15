@@ -18,7 +18,9 @@ cd "$ROOT"
 ABIS="${ANDROID_ABIS:-arm64-v8a x86_64}"
 TARGETS=""
 for a in $ABIS; do TARGETS="$TARGETS -t $a"; done
-cargo ndk $TARGETS -o "$WORK/libs" build -p aurafx-android --release
+# Kept in target/android-libs: scripts/package/android_studio.sh reuses them.
+LIBS="$ROOT/target/android-libs"
+cargo ndk $TARGETS -o "$LIBS" build -p aurafx-android --release
 
 # Resources: launcher icons.
 for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
@@ -39,7 +41,7 @@ sed -e "s/@VERSION_CODE@/$CODE/" -e "s/@VERSION_NAME@/$VERSION/" "$ROOT/packagin
 # Add the native library.
 for a in $ABIS; do
   mkdir -p "$WORK/apk/lib/$a"
-  cp "$WORK/libs/$a/libaurafx.so" "$WORK/apk/lib/$a/"
+  cp "$LIBS/$a/libaurafx.so" "$WORK/apk/lib/$a/"
 done
 python3 - "$WORK/base.apk" "$WORK/apk" <<'PY'
 import os, sys, zipfile

@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d8ec7292.js";
+            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1384fa24.js"></script>
+        <script src="toc-8b305462.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -184,18 +184,72 @@ chat with a language model that knows the app and your data. Ask in plain words:
 through the middle and color by temperature”, “what arrays does this file have?”, “plot the
 maximum stress over time”, “why does my contour look cracked?”. The assistant answers and,
 when something should happen in the app, writes Python using the <code>afx</code> API.</p>
+<h2 id="conversations"><a class="header" href="#conversations">Conversations</a></h2>
+<p>Every message, yours and the assistant’s, has a <strong>copy</strong> button beside its name; each block of
+code has <strong>Copy code</strong> and <strong>Copy to console</strong> next to <strong>Run code</strong>.</p>
+<p>The buttons at the top of the panel, after the model:</p>
+<ul>
+<li><strong>+</strong> starts a new conversation. The one on screen stays in the history.</li>
+<li>the <strong>clock</strong> lists the previous conversations, newest first, by the start of their first
+question. Click one to open it and carry on; the bin beside each deletes it.</li>
+<li>the <strong>bin</strong> deletes the conversation on screen.</li>
+</ul>
+<p>A conversation is saved when the assistant has replied (pictures sent with messages are not
+kept), as one JSON file in <code>conversations/</code> in auraFX’s data folder (on Linux
+<code>~/.local/share/aurafx/conversations</code>). Code in a conversation opened from the history is
+not run again by itself. <code>afx.conversation("file.json")</code> shows such a file in the panel, and
+<code>afx.conversation()</code> starts a new one.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/assistant_conversation.png" alt="A conversation in the Assistant panel: copy buttons beside each message, and the new, history and delete buttons at the top"><span class="img-wrapper"><img src="images/assistant_conversation.png" alt="A conversation in the Assistant panel: copy buttons beside each message, and the new, history and delete buttons at the top"></span></label></p>
 <h2 id="what-the-assistant-sees"><a class="header" href="#what-the-assistant-sees">What the assistant sees</a></h2>
 <p>A text description of your pipeline: the objects, their filters and parameters, array names
 with ranges, bounds, cell types and time steps, plus the last error. It never receives the
 data itself. The description is rebuilt for every message.</p>
 <h2 id="running-the-code-it-writes"><a class="header" href="#running-the-code-it-writes">Running the code it writes</a></h2>
 <p>Code appears in a block with a <strong>Run code</strong> button; nothing runs until you press it, unless
-<strong>auto-run code</strong> is ticked. With <strong>agent mode</strong> on, the assistant runs its code itself, looks
+<strong>auto-run code</strong> is ticked. With <strong>agent mode</strong> on (the default), the assistant runs its code itself, looks
 at the result (values, errors, the pipeline) and keeps going until the task is done, so
 “find where the plate yields and plot it” becomes several steps without you in between.</p>
 <pre><code class="language-python">afx.ask("make an isosurface at the mean temperature")
 afx.ask("find where the plate yields and plot the max stress over time", agent=True)
 </code></pre>
+<p><strong>Showing it the view.</strong> Tick the camera box next to <strong>Send</strong> and a picture of the 3D view goes with
+the message, for models that see images (Claude, GPT-4o, and Ollama models such as llava, gemma or
+qwen-vl): ask “what stands out in this picture?” or “is this mesh refined enough near the hole?”.
+From Python: <code>afx.ask("describe the view", view=True)</code>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/assistant_view.png" alt="The assistant with the camera box ticked: the question is sent with a picture of the 3D view"><span class="img-wrapper"><img src="images/assistant_view.png" alt="The assistant with the camera box ticked: the question is sent with a picture of the 3D view"></span></label></p>
+<p><strong>Describe a filter.</strong> <strong>Filters › Describe a filter…</strong> (also in the command palette) takes a
+sentence about what you want to see in the selected object, such as “regions where the von Mises
+stress is above 300 MPa” or “the vortex cores of the flow”; the assistant adds the filters that show
+it (in agent mode, so it looks at the arrays and ranges first), and its steps appear in the
+Assistant panel.</p>
+<p><strong>Privacy.</strong> In the assistant’s settings: <strong>Local only</strong> sends nothing off your network (only an
+Ollama server at a local or private address, and no cloud models; anything else is refused with the
+reason), and <strong>Hide file paths</strong> replaces your home folder with <code>~</code> and full paths with file names
+in what is sent. The data itself is never sent, only the pipeline’s description (names, arrays,
+ranges) and the results of code the assistant runs.</p>
+<p>A script can wait for the assistant and read what it said: <code>afx.assistant_status()</code> returns
+<code>{"busy", "agent", "messages", "last", "error"}</code> (an answer is arriving, agent mode is iterating,
+the number of messages, the last answer, the last error).</p>
+<h2 id="modelling-parts"><a class="header" href="#modelling-parts">Modelling parts</a></h2>
+<p>The assistant knows the CAD modeler (see <a href="cad.html">CAD modeling</a>). Ask it to <strong>start</strong> a part
+(“a base plate 60 by 40 by 8 mm; name the dimensions width, depth and thickness”), to <strong>build</strong>
+it (“add a wall along the back edge, two 6 mm holes, round the corner”), and to <strong>change</strong> it
+(“make the plate 80 mm wide and the holes 8 mm”). It names dimensions, uses the part’s faces by
+name, checks the volume against numbers it worked out, and can open the part in the CAD
+environment, edit the working copy, and apply it; when applying would break a node below the
+part, it is asked for the fixes. It also places parts side by side (assemblies) and uses the
+face operations (patterns on a face, draft, mirror).</p>
+<h2 id="prompts-and-skills"><a class="header" href="#prompts-and-skills">Prompts and skills</a></h2>
+<p><strong>Prompts</strong> beside the model list offers saved prompts: one click puts it in the box, with
+<code>{object}</code> replaced by the selected object’s name (<em>Describe</em>, <em>Find problems</em>, <em>Slice and color</em>
+and <em>Plot over time</em> come with auraFX). <strong>Save the message as a prompt</strong> keeps what you typed.
+Edit, add or remove them in <strong>Settings › AI assistant › Prompts</strong>.</p>
+<p><strong>Skills</strong> are Markdown files in the <code>skills</code> folder beside the settings
+(<code>~/.config/aurafx/skills</code> on Linux; <strong>Open</strong> in Settings › AI assistant › Skills shows it): the
+text of every ticked one goes with each request, for house rules (“lengths are in micrometres”,
+“color temperatures with Inferno”), a lab’s usual steps or naming conventions. Untick a skill to
+leave it out.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/assistant_prompts.png" alt="The assistant with a saved prompt put in the box for the selected object"><span class="img-wrapper"><img src="images/assistant_prompts.png" alt="The assistant with a saved prompt put in the box for the selected object"></span></label></p>
 <h2 id="providers"><a class="header" href="#providers">Providers</a></h2>
 <p>Choose the provider and model in the panel’s drop-downs or in <strong>Settings</strong>:</p>
 <div class="table-wrapper">
@@ -204,12 +258,21 @@ afx.ask("find where the plate yields and plot the max stress over time", agent=T
 <tr><th>Provider</th><th>Setup</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Ollama</strong> (local or cloud models)</td><td>the server URL from <code>OLLAMA_HOST</code> or Settings; the model list comes from the server</td></tr>
+<tr><td><strong>Ollama</strong> (local or cloud models)</td><td>the server URL from <code>OLLAMA_HOST</code> or Settings; the model list comes from the server. An Ollama server on your own machine speaks <code>http://</code>; when the address says <code>https://</code> for such a server (or the reverse), auraFX tries the other one</td></tr>
 <tr><td><strong>Anthropic</strong></td><td>set <code>ANTHROPIC_API_KEY</code> or paste a key in Settings</td></tr>
 <tr><td><strong>OpenAI-compatible</strong> (OpenAI, OpenRouter, Groq, vLLM, LM Studio…)</td><td>the base URL and key in Settings</td></tr>
 </tbody>
 </table>
 </div>
+<p>No model is chosen at first: the model list beside the provider shows <code>&lt;no model&gt;</code> until you
+pick one, and the choice is kept for the next start. With <code>&lt;no model&gt;</code>, messages are not sent:
+pick a model first.</p>
+<p><strong>Models that reason first.</strong> Some Ollama models reason before they answer, and the reasoning
+counts against the tokens of a reply: on a long request such a model can spend the whole reply
+reasoning and never answer. auraFX therefore asks for the answer directly. <strong>Settings › AI
+assistant › Let the model reason before it answers</strong> turns reasoning on (the reply then gets
+four times <strong>Max tokens</strong>); while the model reasons, the panel shows the end of its reasoning.
+A reply that ends without an answer says so instead of waiting.</p>
 <p>Answers stream as they are produced. The suggestion buttons under the welcome text are good
 first questions for a new file.</p>
 

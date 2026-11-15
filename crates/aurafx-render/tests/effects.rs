@@ -27,6 +27,7 @@ fn dump(name: &str, img: &[u8], w: u32, h: u32) {
 
 #[test]
 fn lights_shadows_occlusion_and_final_pass() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (240u32, 200u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");
@@ -96,6 +97,7 @@ fn lights_shadows_occlusion_and_final_pass() {
 
 #[test]
 fn transparent_background() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (120u32, 100u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");
@@ -136,6 +138,7 @@ fn transparent_background() {
 /// Cells with NaN values are drawn in the NaN color (grey), not the low end of the map.
 #[test]
 fn nan_cells_are_grey() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (80u32, 60u32);
     let Ok(mut r) = headless(w, h) else { return };
     let mut pd = aurafx_filters::sources::plane([-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [-1.0, 1.0, 0.0], 2, 1);

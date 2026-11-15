@@ -1,0 +1,17 @@
+[package]
+name = "aurafx-ios"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "iOS entry point for auraFX as a library an Xcode project links (viewer build: no embedded Python)"
+publish = false
+
+# Built as a static library for the Xcode project by scripts/package/ios_xcode.sh
+# (`cargo rustc --crate-type staticlib`); a plain library everywhere else, so the workspace
+# does not write a large archive on every build.
+[lib]
+name = "aurafx_ios"
+path = "src/lib.rs"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+aurafx-app = { path = "../aurafx-app", default-features = false }

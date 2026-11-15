@@ -9,6 +9,7 @@ description = "Pipeline graph, session state and execution for auraFX"
 aurafx-data.workspace = true
 aurafx-io.workspace = true
 aurafx-filters.workspace = true
+aurafx-cad.workspace = true
 anyhow.workspace = true
 indexmap.workspace = true
 serde.workspace = true
@@ -18,5 +19,9 @@ parking_lot.workspace = true
 glam.workspace = true
 aurafx-jobs.workspace = true
 aurafx-crystal.workspace = true
+rayon.workspace = true
 postcard = { version = "1.1", features = ["use-std"] }
 lz4_flex = "0.14"
+
+[dev-dependencies]
+aurafx-mesh.workspace = true

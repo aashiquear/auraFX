@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d8ec7292.js";
+            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1384fa24.js"></script>
+        <script src="toc-8b305462.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -195,16 +195,26 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
 <tr><td>macOS 11 or newer (Apple silicon, Intel)</td><td><code>auraFX-&lt;version&gt;-macos-&lt;arch&gt;.dmg</code></td><td>drag the app to Applications, or use the installer line; the app is signed ad hoc, so the first start is <strong>right-click › Open</strong></td></tr>
 <tr><td>Windows 10/11 (x64)</td><td><code>auraFX-&lt;version&gt;-windows-x64-setup.exe</code>, <code>auraFX-&lt;version&gt;-windows-x64.zip</code></td><td>the installer adds a Start-menu entry and file associations; the zip is portable (unpack anywhere and run <code>aurafx.exe</code>)</td></tr>
 <tr><td>Android 8 or newer</td><td><code>auraFX-&lt;version&gt;-android.apk</code></td><td>a viewer build (files, filters, rendering; no Python console, no simulations); allow the install from the browser or file manager</td></tr>
-<tr><td>iOS / iPadOS 15 or newer</td><td><code>auraFX-&lt;version&gt;-ios-unsigned.ipa</code></td><td>a viewer build; sign and install it with Xcode, AltStore or Sideloadly using your own Apple ID</td></tr>
+<tr><td>iOS / iPadOS 15 or newer</td><td><code>auraFX-&lt;version&gt;-ios-unsigned.ipa</code></td><td>a viewer build; sign and install it with Xcode, AltStore, Sideloadly or <code>xtool install</code> (on Linux or Windows too) using your own Apple ID</td></tr>
 </tbody>
 </table>
 </div>
+<p>For signing and store uploads the releases also carry the two mobile apps as projects:
+<code>auraFX-&lt;version&gt;-ios-xcode.zip</code> opens in Xcode (choose your team under <em>Signing &amp; Capabilities</em>,
+then Run or Archive; <code>ios_sign.sh</code> inside signs the unsigned <code>.ipa</code> instead), and
+<code>auraFX-&lt;version&gt;-android-studio.zip</code> opens in Android Studio (<code>./gradlew bundleRelease</code> builds
+the app bundle for the Play Console, signed with the key named in <code>keystore.properties</code>, with
+the version name and code in <code>version.properties</code>). Both hold the app prebuilt, so neither
+needs Rust; each has a README with the steps.</p>
 <p>Desktop packages bundle Python 3.12 with NumPy, so the Python console works without setup;
 the packages carry <code>aurafx-server</code> as well, for reading data on another machine (see <a href="client-server.html">Data on
 another machine</a>: <strong>File › Open on Server… › Install server</strong> copies it to a
-host over SSH). On Linux the installer also sets up the <code>.desktop</code> entry
-(<code>scripts/install-desktop.sh</code> does only that, for a build from source).</p>
-<p>To build from source you need Rust 1.85 or newer, Python 3.10+ with development headers, and a
+host over SSH). On Linux the installer also sets up the <code>.desktop</code> entry, which is where the
+taskbar takes the icon from. A copy started on its own (an AppImage, an unpacked archive, a
+build from source) writes that entry for your user at its first start when none is installed
+(<code>~/.local/share/applications/aurafx.desktop</code> and an icon beside it; set
+<code>AURAFX_NO_DESKTOP_ENTRY=1</code> to prevent it), so the icon appears from the next start on.</p>
+<p>To build from source you need Rust 1.95 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:</p>
 <pre><code class="language-bash">cargo build --release
 ./target/release/aurafx                   # start
@@ -233,6 +243,8 @@ dragged to another place.</p>
 Warp), the camera buttons (Reset, +X, +Y, +Z, Iso) and, for the selected object, its
 representation, the array it is colored by and the color map. The status bar at the bottom
 names the GPU in use and counts the visible points and cells.</p>
+<p>On an iPad, an iPhone or an Android device the same program has an interface made for fingers
+and for the size of the screen: see <a href="touch.html">Tablets and phones</a>.</p>
 <h2 id="opening-a-file"><a class="header" href="#opening-a-file">Opening a file</a></h2>
 <ul>
 <li><strong>File › Open…</strong> (Ctrl+O), or drop a file onto the window, or start the app with the file
@@ -254,25 +266,96 @@ palette (<strong>Ctrl+K</strong>, type part of its name). The filter runs at onc
 slice through the center, a contour at the middle value) and appears below its input in the
 Pipeline. Change its parameters in Properties; they apply as you type. <strong>Re-run</strong> forces a
 recomputation and <strong>Reset to defaults</strong> restores the defaults.</p>
+<p>When a filter is added, every object above it in the Pipeline is <strong>hidden</strong>, so the view shows
+the new result alone; click an object’s eye to show it again. Filters whose result is a table or a
+chart (Histogram, Plot Over Line, the statistics) leave their input shown.</p>
+<h3 id="what-fits-this-data"><a class="header" href="#what-fits-this-data">What fits this data</a></h3>
+<p>auraFX looks at the selected object (what kind of data it is, its cells and its arrays) and
+puts the filters that make sense for it first:</p>
+<ul>
+<li><strong>Right-click</strong> an object in the Pipeline, or right-click it in the 3D view, for a short list
+<em>Suggested for this data</em>: Slice, Contour and Threshold for a volume with values, Stream
+Tracer and Glyph when there are vectors, Surface Normals and Decimate for a surface, Table To
+Points and Histogram for a table, Orientation Colors for an EBSD map. Hover over one to read
+why it is offered. <em>All filters</em> below has the rest.</li>
+<li>In the 3D view the menu is about the point you clicked: <strong>Slice here</strong> and <strong>Clip here</strong> put
+the cut through that point, <strong>Turn the view about this point</strong> moves the center of rotation,
+and <em>Draw as</em> and <em>Color by</em> change how the object looks. (Dragging with the right button
+still zooms; the menu opens on a click.)</li>
+<li>The <strong>Filters</strong> menu and the command palette show the same suggestions first. A filter that
+is unlikely to work on this data is faded and says what it needs (“needs a vector array”,
+“needs a table”); you can still choose it. The toolbar’s buttons fade the same way.</li>
+</ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/suggestions_palette.png" alt="The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason"><span class="img-wrapper"><img src="images/suggestions_palette.png" alt="The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason"></span></label></p>
 <p>Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.</p>
+<h2 id="adding-a-source"><a class="header" href="#adding-a-source">Adding a source</a></h2>
+<p>The <strong>Sources</strong> menu makes data without a file: shapes, synthetic fields, meshes, CAD parts.
+Picking one opens a small window that lists its standard settings (a sphere’s radius and
+resolution, a mesh’s sizes, a CAD Model’s 40 × 30 × 8 mm plate) with two choices:</p>
+<ul>
+<li><strong>Insert with these settings</strong> adds it as it is.</li>
+<li><strong>Change settings first…</strong> shows its basic settings to edit before it is added (for a CAD
+Model, the starter part, a template or the plate with its width, depth and thickness). The other
+settings are in Properties afterwards.</li>
+</ul>
+<p>Tick <strong>Don’t ask again</strong> to insert sources straight away; <strong>Settings › Ask before adding a
+source</strong> turns the window back on. Sources added from Python (<code>afx.sphere(radius=2)</code>) never ask.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Columnar Mesh, and the button to change them first"><span class="img-wrapper"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Columnar Mesh, and the button to change them first"></span></label></p>
 <h2 id="saving-your-work"><a class="header" href="#saving-your-work">Saving your work</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/file_new.png" alt="File › New asking about work that is not saved"><span class="img-wrapper"><img src="images/file_new.png" alt="File › New asking about work that is not saved"></span></label></p>
 <ul>
 <li><strong>File › Save State</strong> (Ctrl+S) writes an <code>.afx</code> file holding the pipeline, every parameter,
 the display settings, the camera and any keyframes. <strong>File › Open</strong> reopens it, including
 objects that live on a remote server.</li>
-<li>On the next start, <strong>Restore last session</strong> in the empty view brings back the last state.</li>
+<li><strong>File › New</strong> clears the workspace for a new piece of work: every object, the charts and
+the name of the state file (settings and the window layout stay). When the current work
+is not saved it asks first: <strong>Save…</strong> saves the state and then clears, <strong>Do not save</strong>
+clears at once, <strong>Cancel</strong> goes back. <code>afx.new()</code> does it from a script without asking.</li>
+<li>On the next start, <strong>Restore last session</strong> in the empty view (or in the File menu) brings
+back the last state. The state is also saved every half minute while you work, so little is
+lost if the computer or the program stops.</li>
+<li>If auraFX ever closes on an internal error, the next start says so and shows where the
+<strong>crash report</strong> was written (a text file under <code>~/.cache/aurafx/crashes</code>, with what failed
+and where). Nothing is sent anywhere; attach the file to a bug report. The same window offers
+to restore the last session.</li>
 <li>Right-click an object › <strong>Save data…</strong> writes its output to a file (see
 <a href="file-formats.html">File formats</a>).</li>
 <li><strong>Edit › Undo / Redo</strong> cover every change to the pipeline and display settings.</li>
 </ul>
 <h2 id="getting-help"><a class="header" href="#getting-help">Getting help</a></h2>
 <ul>
+<li>The <strong>Welcome</strong> window opens at the first start (and from <strong>Help › Welcome</strong>): one button into
+each kind of work (view and analyze results from solvers or experiments, build or model a part,
+build a mesh, synthesize a crystal microstructure, work on big or remote data, run and automate) and a few
+things worth knowing. Untick <em>Show at start</em> when you no longer need it.</li>
+<li><strong>Help › User guide</strong> opens this guide in your browser: the copy installed with the program
+when there is one, otherwise the one published at
+<a href="https://aashiquear.github.io/auraFX/docs/userguide/book/">https://aashiquear.github.io/auraFX/docs/userguide/book/</a> (always that one on a tablet or
+a phone, where the guide does not come with the app; it needs a network connection).</li>
+<li>The <strong>Model</strong> menu starts a CAD part or a Geometry source and lists the meshing filters.</li>
 <li><strong>Help › Keyboard shortcuts</strong> and <strong>Help › Python API cheat sheet</strong> open inside the app.</li>
+<li>Hover over anything for what it does; right-click an object for what can be done with it.</li>
 <li>The command palette (Ctrl+K) finds filters, sources and actions by name.</li>
+<li>Menus with many entries (the Sources menu, a category of filters) scroll with the mouse wheel
+when they are taller than the window. Each filter appears once, under its category; the
+Pipeline’s right-click <strong>All filters</strong> has the same categories.</li>
 <li>The AI assistant answers questions about the loaded data and the app (see
 <a href="ai-assistant.html">AI assistant</a>).</li>
 </ul>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"><span class="img-wrapper"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"></span></label></p>
+<h2 id="open-source-software-in-aurafx"><a class="header" href="#open-source-software-in-aurafx">Open-source software in auraFX</a></h2>
+<p><strong>Help › About auraFX</strong> shows the version, the graphics card in use and the Python version,
+with links to the project’s page (<a href="https://aashiquear.github.io/auraFX/">https://aashiquear.github.io/auraFX/</a>) and to its repository
+(<a href="https://github.com/aashiquear/auraFX">https://github.com/aashiquear/auraFX</a>); a click opens them in the browser.
+auraFX includes open-source software: the CAD environment’s B-rep kernel and its CAD file formats
+come from the SolidCraft and solidcore projects (see the README’s Credits), and the program is
+built from several hundred open-source Rust libraries. <strong>Third-party licences…</strong> in the About
+window lists each of them with its licence, followed by the copyright notices and licence texts
+they ask to be passed on. Type in <strong>Find</strong> to show only the lines with a library’s name or a
+licence (for example <code>Apache-2.0</code>). The same text is the file <code>THIRD-PARTY-NOTICES.txt</code> next to
+the program in every package.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/about_licences.png" alt="The About window and its third-party licences, found by a library name"><span class="img-wrapper"><img src="images/about_licences.png" alt="The About window and its third-party licences, found by a library name"></span></label></p>
 
                     </main>
 

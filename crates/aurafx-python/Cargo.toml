@@ -11,6 +11,7 @@ aurafx-io.workspace = true
 aurafx-filters.workspace = true
 aurafx-mesh.workspace = true
 aurafx-pipeline.workspace = true
+aurafx-cad.workspace = true
 aurafx-jobs.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true

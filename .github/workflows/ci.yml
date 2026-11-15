@@ -32,6 +32,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgtk-3-dev mesa-vulkan-drivers
       - name: Format
         run: cargo fmt --all -- --check
+      - name: Licences
+        if: runner.os == 'Linux'
+        run: scripts/licences.sh --check
       - name: Build
         run: cargo build --workspace --all-targets
       - name: Test

@@ -1,0 +1,23 @@
+[package]
+name = "aurafx-cad"
+description = "auraFX's parametric CAD document: feature timeline, constrained sketches, parameters and expressions, with an implicit kernel and a B-rep kernel through SolidCraft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Stage C6 adds the B-rep kernel: the SolidCraft and solidcore crates carried in vendor/ as
+# path dependencies (docs/design/cad-environment.md section 3.3), always built.
+
+[dependencies]
+aurafx-data.workspace = true
+aurafx-mesh.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+glam = { workspace = true, features = ["serde"] }
+rayon.workspace = true
+base64 = "0.22"
+solidcraft-engine = { path = "../../vendor/solidcraft/crates/engine" }

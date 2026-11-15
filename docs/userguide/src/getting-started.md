@@ -17,15 +17,26 @@ irm https://raw.githubusercontent.com/aashiquear/auraFX/main/scripts/install.ps1
 | macOS 11 or newer (Apple silicon, Intel) | `auraFX-<version>-macos-<arch>.dmg` | drag the app to Applications, or use the installer line; the app is signed ad hoc, so the first start is **right-click › Open** |
 | Windows 10/11 (x64) | `auraFX-<version>-windows-x64-setup.exe`, `auraFX-<version>-windows-x64.zip` | the installer adds a Start-menu entry and file associations; the zip is portable (unpack anywhere and run `aurafx.exe`) |
 | Android 8 or newer | `auraFX-<version>-android.apk` | a viewer build (files, filters, rendering; no Python console, no simulations); allow the install from the browser or file manager |
-| iOS / iPadOS 15 or newer | `auraFX-<version>-ios-unsigned.ipa` | a viewer build; sign and install it with Xcode, AltStore or Sideloadly using your own Apple ID |
+| iOS / iPadOS 15 or newer | `auraFX-<version>-ios-unsigned.ipa` | a viewer build; sign and install it with Xcode, AltStore, Sideloadly or `xtool install` (on Linux or Windows too) using your own Apple ID |
+
+For signing and store uploads the releases also carry the two mobile apps as projects:
+`auraFX-<version>-ios-xcode.zip` opens in Xcode (choose your team under *Signing & Capabilities*,
+then Run or Archive; `ios_sign.sh` inside signs the unsigned `.ipa` instead), and
+`auraFX-<version>-android-studio.zip` opens in Android Studio (`./gradlew bundleRelease` builds
+the app bundle for the Play Console, signed with the key named in `keystore.properties`, with
+the version name and code in `version.properties`). Both hold the app prebuilt, so neither
+needs Rust; each has a README with the steps.
 
 Desktop packages bundle Python 3.12 with NumPy, so the Python console works without setup;
 the packages carry `aurafx-server` as well, for reading data on another machine (see [Data on
 another machine](client-server.md): **File › Open on Server… › Install server** copies it to a
-host over SSH). On Linux the installer also sets up the `.desktop` entry
-(`scripts/install-desktop.sh` does only that, for a build from source).
+host over SSH). On Linux the installer also sets up the `.desktop` entry, which is where the
+taskbar takes the icon from. A copy started on its own (an AppImage, an unpacked archive, a
+build from source) writes that entry for your user at its first start when none is installed
+(`~/.local/share/applications/aurafx.desktop` and an icon beside it; set
+`AURAFX_NO_DESKTOP_ENTRY=1` to prevent it), so the icon appears from the next start on.
 
-To build from source you need Rust 1.85 or newer, Python 3.10+ with development headers, and a
+To build from source you need Rust 1.95 or newer, Python 3.10+ with development headers, and a
 Vulkan (Linux, Windows) or Metal (macOS) GPU driver:
 
 ```bash
@@ -55,6 +66,9 @@ Warp), the camera buttons (Reset, +X, +Y, +Z, Iso) and, for the selected object,
 representation, the array it is colored by and the color map. The status bar at the bottom
 names the GPU in use and counts the visible points and cells.
 
+On an iPad, an iPhone or an Android device the same program has an interface made for fingers
+and for the size of the screen: see [Tablets and phones](touch.md).
+
 ## Opening a file
 
 - **File › Open…** (Ctrl+O), or drop a file onto the window, or start the app with the file
@@ -81,22 +95,104 @@ slice through the center, a contour at the middle value) and appears below its i
 Pipeline. Change its parameters in Properties; they apply as you type. **Re-run** forces a
 recomputation and **Reset to defaults** restores the defaults.
 
+When a filter is added, every object above it in the Pipeline is **hidden**, so the view shows
+the new result alone; click an object's eye to show it again. Filters whose result is a table or a
+chart (Histogram, Plot Over Line, the statistics) leave their input shown.
+
+### What fits this data
+
+auraFX looks at the selected object (what kind of data it is, its cells and its arrays) and
+puts the filters that make sense for it first:
+
+- **Right-click** an object in the Pipeline, or right-click it in the 3D view, for a short list
+  *Suggested for this data*: Slice, Contour and Threshold for a volume with values, Stream
+  Tracer and Glyph when there are vectors, Surface Normals and Decimate for a surface, Table To
+  Points and Histogram for a table, Orientation Colors for an EBSD map. Hover over one to read
+  why it is offered. *All filters* below has the rest.
+- In the 3D view the menu is about the point you clicked: **Slice here** and **Clip here** put
+  the cut through that point, **Turn the view about this point** moves the center of rotation,
+  and *Draw as* and *Color by* change how the object looks. (Dragging with the right button
+  still zooms; the menu opens on a click.)
+- The **Filters** menu and the command palette show the same suggestions first. A filter that
+  is unlikely to work on this data is faded and says what it needs ("needs a vector array",
+  "needs a table"); you can still choose it. The toolbar's buttons fade the same way.
+
+![The command palette on a volume with values, before anything is typed: the suggested filters come first, each with its reason](images/suggestions_palette.png)
+
 Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.
 
+## Adding a source
+
+The **Sources** menu makes data without a file: shapes, synthetic fields, meshes, CAD parts.
+Picking one opens a small window that lists its standard settings (a sphere's radius and
+resolution, a mesh's sizes, a CAD Model's 40 × 30 × 8 mm plate) with two choices:
+
+- **Insert with these settings** adds it as it is.
+- **Change settings first…** shows its basic settings to edit before it is added (for a CAD
+  Model, the starter part, a template or the plate with its width, depth and thickness). The other
+  settings are in Properties afterwards.
+
+Tick **Don't ask again** to insert sources straight away; **Settings › Ask before adding a
+source** turns the window back on. Sources added from Python (`afx.sphere(radius=2)`) never ask.
+
+![Adding a source: the standard settings of a Columnar Mesh, and the button to change them first](images/source_dialog.png)
+
 ## Saving your work
+
+![File › New asking about work that is not saved](images/file_new.png)
 
 - **File › Save State** (Ctrl+S) writes an `.afx` file holding the pipeline, every parameter,
   the display settings, the camera and any keyframes. **File › Open** reopens it, including
   objects that live on a remote server.
-- On the next start, **Restore last session** in the empty view brings back the last state.
+- **File › New** clears the workspace for a new piece of work: every object, the charts and
+  the name of the state file (settings and the window layout stay). When the current work
+  is not saved it asks first: **Save…** saves the state and then clears, **Do not save**
+  clears at once, **Cancel** goes back. `afx.new()` does it from a script without asking.
+- On the next start, **Restore last session** in the empty view (or in the File menu) brings
+  back the last state. The state is also saved every half minute while you work, so little is
+  lost if the computer or the program stops.
+- If auraFX ever closes on an internal error, the next start says so and shows where the
+  **crash report** was written (a text file under `~/.cache/aurafx/crashes`, with what failed
+  and where). Nothing is sent anywhere; attach the file to a bug report. The same window offers
+  to restore the last session.
 - Right-click an object › **Save data…** writes its output to a file (see
   [File formats](file-formats.md)).
 - **Edit › Undo / Redo** cover every change to the pipeline and display settings.
 
 ## Getting help
 
+- The **Welcome** window opens at the first start (and from **Help › Welcome**): one button into
+  each kind of work (view and analyze results from solvers or experiments, build or model a part,
+  build a mesh, synthesize a crystal microstructure, work on big or remote data, run and automate) and a few
+  things worth knowing. Untick *Show at start* when you no longer need it.
+- **Help › User guide** opens this guide in your browser: the copy installed with the program
+  when there is one, otherwise the one published at
+  <https://aashiquear.github.io/auraFX/docs/userguide/book/> (always that one on a tablet or
+  a phone, where the guide does not come with the app; it needs a network connection).
+- The **Model** menu starts a CAD part or a Geometry source and lists the meshing filters.
 - **Help › Keyboard shortcuts** and **Help › Python API cheat sheet** open inside the app.
+- Hover over anything for what it does; right-click an object for what can be done with it.
 - The command palette (Ctrl+K) finds filters, sources and actions by name.
+- Menus with many entries (the Sources menu, a category of filters) scroll with the mouse wheel
+  when they are taller than the window. Each filter appears once, under its category; the
+  Pipeline's right-click **All filters** has the same categories.
 - The AI assistant answers questions about the loaded data and the app (see
   [AI assistant](ai-assistant.md)).
+
+![The Welcome window: where to start, and a few things worth knowing](images/welcome.png)
+
+## Open-source software in auraFX
+
+**Help › About auraFX** shows the version, the graphics card in use and the Python version,
+with links to the project's page (<https://aashiquear.github.io/auraFX/>) and to its repository
+(<https://github.com/aashiquear/auraFX>); a click opens them in the browser.
+auraFX includes open-source software: the CAD environment's B-rep kernel and its CAD file formats
+come from the SolidCraft and solidcore projects (see the README's Credits), and the program is
+built from several hundred open-source Rust libraries. **Third-party licences…** in the About
+window lists each of them with its licence, followed by the copyright notices and licence texts
+they ask to be passed on. Type in **Find** to show only the lines with a library's name or a
+licence (for example `Apache-2.0`). The same text is the file `THIRD-PARTY-NOTICES.txt` next to
+the program in every package.
+
+![The About window and its third-party licences, found by a library name](images/about_licences.png)

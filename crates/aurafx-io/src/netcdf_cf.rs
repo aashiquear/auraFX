@@ -251,7 +251,7 @@ fn read_grid(path: &Path, step: usize) -> Result<DataSet> {
     for name in &g.vars {
         let Some(v) = vars.iter().find(|v| v.name() == name) else { continue };
         let vals = values(&f, v, g.time_dim.as_deref(), step).with_context(|| format!("variable {name}"))?;
-        let arr = Array::scalars_f64(name.clone(), vals);
+        let arr = Array::scalars_f64(name.clone(), vals).with_units(text(v, "units").unwrap_or_default());
         if cells {
             cell_data.insert(arr);
         } else {

@@ -1,0 +1,15 @@
+import aurafx as afx
+# The time, a global value and a Python expression over an impact simulation.
+c = afx.load(ROOT + "/testdata/can.ex2")
+c.set(color_by="EQPS")
+c.annotate_time_filter(format="t = {:.2e} s", corner="upper left", size=18)
+c.show()
+c.annotate_global_data(corner="upper left")
+c.show()
+c.python_annotation(expression="f'max EQPS {EQPS.max():.3f}'", corner="lower right", size=20)
+c.show()
+c.environment_annotation(corner="lower center", user=False, machine=False, version=True)
+c.show()
+afx.time(30)
+afx.view("iso"); afx.reset_camera()
+afx.screenshot(OUT)

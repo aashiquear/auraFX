@@ -130,7 +130,7 @@ pub fn merge(pieces: Vec<DataSet>) -> DataSet {
     let same = |f: fn(&DataSet) -> bool| nonempty.iter().all(|p| f(p));
     if same(|p| matches!(p, DataSet::MultiBlock(_))) {
         let mbs: Vec<&MultiBlock> = nonempty.iter().filter_map(|p| if let DataSet::MultiBlock(m) = p { Some(m) } else { None }).collect();
-        return DataSet::MultiBlock(merge_blocks(&mbs));
+        return DataSet::MultiBlock(merge_blocks_with(&mbs, merge));
     }
     if same(|p| matches!(p, DataSet::ImageData(_))) {
         if let Some(d) = merge_images(&nonempty) {
@@ -193,6 +193,74 @@ pub fn merge(pieces: Vec<DataSet>) -> DataSet {
     out.point_data = concat_attrs(&grids.iter().map(|g| &g.point_data).collect::<Vec<_>>());
     out.cell_data = concat_attrs(&grids.iter().map(|g| &g.cell_data).collect::<Vec<_>>());
     DataSet::UnstructuredGrid(out)
+}
+
+/// [`merge`] for work that looks at how cells are connected (outer surfaces, connected
+/// regions): a point that two pieces of an explicit mesh share (at exactly the same position)
+/// appears once, with the values of the first piece, so cells of neighbouring pieces are
+/// connected as they are in the whole. Points repeated inside one piece stay as they are.
+pub fn merge_connected(pieces: Vec<DataSet>) -> DataSet {
+    let nonempty: Vec<&DataSet> = pieces.iter().filter(|p| !is_empty(p)).collect();
+    if nonempty.len() < 2 {
+        return merge(pieces);
+    }
+    if nonempty.iter().all(|p| matches!(p, DataSet::MultiBlock(_))) {
+        let mbs: Vec<&MultiBlock> = nonempty.iter().filter_map(|p| if let DataSet::MultiBlock(m) = p { Some(m) } else { None }).collect();
+        return DataSet::MultiBlock(merge_blocks_with(&mbs, merge_connected));
+    }
+    // Where each piece's points start when the pieces are appended.
+    let mut starts = vec![0usize];
+    for p in &nonempty {
+        starts.push(starts.last().unwrap() + p.n_points());
+    }
+    let total = *starts.last().unwrap();
+    match merge(pieces) {
+        DataSet::UnstructuredGrid(mut u) if u.points.len() == total && u.cells.polyhedron_faces.is_none() => {
+            if let Some((keep, map)) = shared_points(&u.points, &starts) {
+                u.points = u.points.gather(&keep);
+                u.point_data = u.point_data.gather(&keep);
+                u.cells.connectivity.iter_mut().for_each(|c| *c = map[*c as usize]);
+            }
+            DataSet::UnstructuredGrid(u)
+        }
+        DataSet::PolyData(mut p) if p.points.len() == total => {
+            if let Some((keep, map)) = shared_points(&p.points, &starts) {
+                p.points = p.points.gather(&keep);
+                p.point_data = p.point_data.gather(&keep);
+                for c in [&mut p.verts, &mut p.lines, &mut p.polys, &mut p.strips] {
+                    c.connectivity.iter_mut().for_each(|c| *c = map[*c as usize]);
+                }
+            }
+            DataSet::PolyData(p)
+        }
+        other => other,
+    }
+}
+
+/// Points of appended pieces (piece `k` holds points `starts[k]..starts[k + 1]`) that repeat a
+/// point of an earlier piece: (the points to keep, old index -> new index), or None when no
+/// point is shared.
+fn shared_points(points: &Points, starts: &[usize]) -> Option<(Vec<usize>, Vec<u32>)> {
+    let n = points.len();
+    let mut first: std::collections::HashMap<[u64; 3], (u32, usize)> = std::collections::HashMap::with_capacity(n);
+    let mut keep = Vec::with_capacity(n);
+    let mut map = vec![0u32; n];
+    for piece in 0..starts.len().saturating_sub(1) {
+        for i in starts[piece]..starts[piece + 1].min(n) {
+            // (Adding zero makes -0.0 and 0.0 the same position.)
+            let key = points.get(i).map(|v| (v + 0.0).to_bits());
+            match first.get(&key) {
+                Some(&(id, from)) if from != piece => map[i] = id,
+                _ => {
+                    let id = keep.len() as u32;
+                    keep.push(i);
+                    map[i] = id;
+                    first.entry(key).or_insert((id, piece));
+                }
+            }
+        }
+    }
+    (keep.len() < n).then_some((keep, map))
 }
 
 fn is_empty(ds: &DataSet) -> bool {
@@ -322,7 +390,7 @@ fn split_blocks(mb: &MultiBlock, k: usize, n: usize, by_block: bool, counter: &m
     MultiBlock { blocks, field_data: mb.field_data.clone() }
 }
 
-fn merge_blocks(mbs: &[&MultiBlock]) -> MultiBlock {
+fn merge_blocks_with(mbs: &[&MultiBlock], merge: fn(Vec<DataSet>) -> DataSet) -> MultiBlock {
     let first = mbs[0];
     let blocks = (0..first.blocks.len())
         .map(|i| {
@@ -352,17 +420,27 @@ fn gather_from(sets: &[&Attributes], order: &[(usize, usize)]) -> Attributes {
         let all: Option<Vec<&Array>> = sets.iter().map(|s| s.get(&arr.name).filter(|a| a.ncomp == arr.ncomp)).collect();
         let Some(all) = all else { continue };
         let nc = arr.ncomp;
-        if arr.scalar_type() == ScalarType::String {
-            continue;
-        }
-        let mut v = Vec::with_capacity(order.len() * nc);
-        for &(s, i) in order {
-            for c in 0..nc {
-                v.push(all[s].get(i, c));
+        let data = if arr.scalar_type() == ScalarType::String {
+            // Text is copied as it is (pieces holding another type under this name: skipped).
+            let Some(text) = all.iter().map(|a| a.as_slice::<String>()).collect::<Option<Vec<_>>>() else { continue };
+            let mut v = Vec::with_capacity(order.len() * nc);
+            for &(s, i) in order {
+                v.extend_from_slice(&text[s][i * nc..(i + 1) * nc]);
             }
-        }
-        let mut a = Array::new(arr.name.clone(), nc, ArrayData::from_f64(arr.scalar_type(), &v));
+            ArrayData::String(v)
+        } else {
+            let mut v = Vec::with_capacity(order.len() * nc);
+            for &(s, i) in order {
+                for c in 0..nc {
+                    v.push(all[s].get(i, c));
+                }
+            }
+            ArrayData::from_f64(arr.scalar_type(), &v)
+        };
+        let mut a = Array::new(arr.name.clone(), nc, data);
         a.component_names = arr.component_names.clone();
+        // The units of the first piece that states them.
+        a.units = all.iter().find_map(|a| a.units.clone());
         out.insert(a);
     }
     out.active = first.active.clone();
@@ -482,6 +560,29 @@ mod tests {
         DataSet::ImageData(img)
     }
 
+    /// Units and text arrays survive splitting and putting the pieces back together.
+    #[test]
+    fn merge_keeps_units_and_text() {
+        let DataSet::ImageData(mut img) = image() else { panic!() };
+        let p = img.point_data.get("p").unwrap().clone().with_units("K");
+        img.point_data.insert(p);
+        let c = img.cell_data.get("c").unwrap().clone().with_units("m/s");
+        img.cell_data.insert(c);
+        let n = img.n_points();
+        img.point_data.insert(Array::new("label", 1, ArrayData::String((0..n).map(|i| format!("p{i}")).collect())));
+        let img = DataSet::ImageData(img);
+        let ug = DataSet::UnstructuredGrid(img.to_unstructured().unwrap());
+        for whole in [&img, &ug] {
+            let m = merge((0..3).map(|k| split(whole, k, 3)).collect());
+            assert_eq!(m.point_data().unwrap().get("p").unwrap().units.as_deref(), Some("K"));
+            assert_eq!(m.cell_data().unwrap().get("c").unwrap().units.as_deref(), Some("m/s"));
+            let text = m.point_data().unwrap().get("label").expect("the text array is kept");
+            assert_eq!(text.len(), m.n_points());
+            assert!(text.as_slice::<String>().unwrap().iter().all(|t| t.starts_with('p')));
+        }
+        assert_eq!(merge((0..3).map(|k| split(&img, k, 3)).collect()), img, "an image is reassembled exactly");
+    }
+
     #[test]
     fn split_and_merge_round_trip() {
         let img = image();
@@ -494,7 +595,12 @@ mod tests {
         let ug = DataSet::UnstructuredGrid(img.to_unstructured().unwrap());
         let pieces: Vec<DataSet> = (0..3).map(|k| split(&ug, k, 3)).collect();
         assert_eq!(pieces.iter().map(|p| p.n_cells()).sum::<usize>(), ug.n_cells());
+        // Appended, the points on the borders between pieces repeat; connected, they do not.
+        let c = merge_connected(pieces.clone());
+        assert_eq!((c.n_points(), c.n_cells()), (ug.n_points(), ug.n_cells()));
+        assert_eq!(c.bounds(), ug.bounds());
         let m = merge(pieces);
+        assert!(m.n_points() > ug.n_points());
         assert_eq!(m.n_cells(), ug.n_cells());
         assert_eq!(m.cell_data().unwrap().get("c").unwrap(), ug.cell_data().unwrap().get("c").unwrap());
         assert_eq!(m.bounds(), ug.bounds());

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 #[test]
 fn line_width_sets_pixels_across() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let mut r = match headless_with_samples(200, 200, 1) {
         Ok(r) => r,
         Err(e) => {

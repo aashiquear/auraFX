@@ -35,6 +35,7 @@ fn roughness(img: &[u8], w: u32, h: u32) -> (f64, f64) {
 
 #[test]
 fn streaks_follow_the_field() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (240u32, 240u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");

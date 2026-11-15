@@ -1,0 +1,10 @@
+NRRD0004
+type: double
+dimension: 4
+sizes: 3 4 3 2
+kinds: 3-vector domain domain domain
+spacings: nan 1 1 1
+endian: little
+encoding: raw
+data file: vector.raw
+

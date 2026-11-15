@@ -214,6 +214,86 @@ pub fn pole_figures(ds: &DataSet, sel: &Selection, families: &str, projection: &
 }
 
 /// The sample directions of an Inverse Pole Figure choice.
+/// Pole figures of every phase as pictures: for each phase with indexed points and each family,
+/// a `size` x `size` RGB image (sample x to the right, y up; MRD from 0 to the largest value of
+/// that phase's figures on a blue-to-red ramp, white outside the disk), named by phase and family.
+pub fn pole_figure_images(
+    ds: &DataSet,
+    sel: &Selection,
+    families: &str,
+    projection: &str,
+    sigma_deg: f64,
+    bin_deg: f64,
+    size: usize,
+) -> Result<Vec<(i64, String, ImageData, f64)>> {
+    let fams = parse_families(families)?;
+    let size = size.clamp(16, 4096);
+    // The phases present.
+    let pname = sel.phases.filter(|p| !p.is_empty()).unwrap_or("Phases");
+    let attrs = ds.cell_data().filter(|c| c.get(pname).is_some()).or(ds.point_data());
+    let mut phases: Vec<i64> =
+        attrs.and_then(|a| a.get(pname)).map(|a| (0..a.len()).map(|i| a.get(i, 0) as i64).filter(|&p| p > 0).collect()).unwrap_or_else(|| vec![1]);
+    phases.sort_unstable();
+    phases.dedup();
+    if sel.phase > 0 {
+        phases.retain(|&p| p == sel.phase);
+    }
+    // The direction of each pixel inside the disk.
+    let mut at = Vec::new();
+    let mut inside = Vec::new();
+    for y in 0..size {
+        for x in 0..size {
+            let (u, v) = (2.0 * (x as f64 + 0.5) / size as f64 - 1.0, 2.0 * (y as f64 + 0.5) / size as f64 - 1.0);
+            let r = (u * u + v * v).sqrt();
+            if r <= 1.0 {
+                let t = polar_angle(r, projection);
+                let p = v.atan2(u);
+                at.push([t.sin() * p.cos(), t.sin() * p.sin(), t.cos()]);
+                inside.push(Some(at.len() - 1));
+            } else {
+                inside.push(None);
+            }
+        }
+    }
+    let ramp = |f: f64| -> [u8; 3] {
+        let stops = [[48.0, 18.0, 59.0], [40.0, 120.0, 230.0], [30.0, 200.0, 170.0], [170.0, 230.0, 50.0], [250.0, 170.0, 30.0], [180.0, 20.0, 10.0]];
+        let x = f.clamp(0.0, 1.0) * (stops.len() - 1) as f64;
+        let (k, w) = ((x.floor() as usize).min(stops.len() - 2), x - x.floor().min((stops.len() - 2) as f64));
+        std::array::from_fn(|c| (stops[k][c] + (stops[k + 1][c] - stops[k][c]) * w).round() as u8)
+    };
+    let mut out = Vec::new();
+    for ph in phases {
+        let one = Selection {
+            orientations: sel.orientations.clone(),
+            structure: sel.structure,
+            phases: sel.phases,
+            phase: ph,
+            mask: sel.mask,
+            max: sel.max,
+            seed: sel.seed,
+        };
+        let Ok(s) = sample(ds, &one) else { continue };
+        let figs: Vec<Vec<f64>> = fams.iter().map(|(_, hkl)| tx::pole_figure(&s.q, None, *hkl, s.laue, &at, sigma_deg.to_radians(), bin_deg)).collect();
+        let hi = figs.iter().flatten().copied().fold(0.0, f64::max).max(1e-12);
+        for ((name, _), v) in fams.iter().zip(&figs) {
+            let mut rgb = Vec::with_capacity(size * size * 3);
+            for k in &inside {
+                rgb.extend_from_slice(&match k {
+                    Some(i) => ramp(v[*i] / hi),
+                    None => [255, 255, 255],
+                });
+            }
+            let mut im = ImageData { extent: [0, size as i64, 0, size as i64, 0, 1], spacing: [1.0; 3], ..Default::default() };
+            im.cell_data.insert(Array::new("Color", 3, ArrayData::U8(rgb)));
+            out.push((ph, name.replace(' ', ""), im, hi));
+        }
+    }
+    if out.is_empty() {
+        bail!("no phase has indexed orientations");
+    }
+    Ok(out)
+}
+
 pub fn ipf_directions(choice: &str) -> Vec<(&'static str, [f64; 3])> {
     let all = [("X", [1.0, 0.0, 0.0]), ("Y", [0.0, 1.0, 0.0]), ("Z", [0.0, 0.0, 1.0])];
     match choice {

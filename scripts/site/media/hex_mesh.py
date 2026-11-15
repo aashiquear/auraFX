@@ -8,4 +8,4 @@ for name in ("x-", "y+", "z-"):
     w = m.extract_set(set=name)
     w.set(color_by=None, solid_color=(0.78, 0.8, 0.84), representation="Surface With Edges", edge_color=(0.35, 0.37, 0.42))
 afx.view([1.0, -0.7, 0.6], up=[0, 0, 1]); afx.reset_camera()
-afx.save_animation(OUT, fps=20, orbit=80)
+afx.save_animation(OUT, poster=OUT[:-4] + '.jpg', fps=20, orbit=80)

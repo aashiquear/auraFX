@@ -16,6 +16,11 @@ The small toolbar inside the view switches the mouse mode: navigate (**Esc**), p
 ruler (**M**), select cells (**S**) and select points (**D**); see
 [Selection, picking and widgets](selection-widgets.md).
 
+The next four buttons act on the view itself: **Fit** shows everything visible (as a
+double-click in the view or **R** does), **Zoom in** and **Zoom out** step closer and farther,
+and the **hand** makes a plain drag move the view sideways instead of turning it (Shift+drag
+then turns; press the hand again to go back).
+
 ```python
 afx.view("iso"); afx.view("+x"); afx.view([1, 0.5, 0.3])   # a direction from the data to the camera
 afx.reset_camera()
@@ -57,6 +62,7 @@ layout presets:
 | **Script** | the view with a tall Python console |
 | **Simulate** | the simulations panel, the log and the view |
 
+**Compact (tabs only)** puts every panel in one group of tabs.
 **Reset layout** returns to the default. Panels can be dragged by their tabs into new
 positions or into tabs of each other; the arrangement is remembered between sessions.
 
@@ -64,6 +70,26 @@ positions or into tabs of each other; the arrangement is remembered between sess
 afx.layout("analyze")
 afx.show_panel("Charts"); afx.hide_panel("Log")
 ```
+
+### Layouts by window shape
+
+Below the presets, the **Windows** menu has the layouts that go by the shape of the window
+rather than by the task:
+
+| Entry | Layout | Python |
+|---|---|---|
+| **Automatic** | follows the window: wide, the full workbench; taller than wide, the view on top and two tab groups below; small (a side under 600 points), the view and one tab group. The layout is rebuilt when the window changes from one shape to another, keeping which panels are open | `afx.layout("automatic")` |
+| **Wide (view left, tabs right)** | the 3D view on the left, every panel as a tab on the right | `afx.layout("wide")` |
+| **Tall (view on top, tabs below)** | the 3D view on top, every panel as a tab below | `afx.layout("tall")` |
+| **Tall, two tab groups** | the 3D view on top, two groups of tabs side by side below | `afx.layout("tall2")` |
+
+![The layout for a tall window: the view on top, two tab groups below](images/layout_tall.png)
+
+**Automatic** is a choice like the others in the Desktop interface: it stays on (the dot
+beside it) until a preset or one of the other layouts is chosen, and it is off unless you
+turn it on. On a tablet or a phone it is on from the start, so the layout follows how the
+device is held (see [Tablets and phones](touch.md)). The one-tab-group layouts leave out the
+Simulations panel and the Python console, which want more room; **Windows** opens them.
 
 ## Theme and scale
 
@@ -76,6 +102,9 @@ theme (and can be set per theme). **UI scale** enlarges the whole interface. Fro
 **Ctrl+K** (or Ctrl+Space, or the **Search** button) opens the palette: type a few letters of
 a filter, a source, a panel or an action (open, save screenshot, reset camera, undo, light
 theme, ask the AI…) and press Enter. It is the fastest way to reach anything in the app.
+Before you type, the list starts with the filters suggested for the selected object, each with
+the reason; a result that is unlikely to work on that object is lower and says what it needs.
+While a CAD part is being edited, Ctrl+K searches the CAD commands instead.
 
 ## Undo, redo and state
 

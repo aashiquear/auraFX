@@ -59,6 +59,9 @@ pub struct RunOutput {
     pub error: Option<String>,
     /// repr() of the last expression value, if the code was an expression.
     pub value: Option<String>,
+    /// Pictures and other rich output the code asked to show (`afx.display`, `afx.snapshot`):
+    /// (MIME type, bytes), for a notebook.
+    pub displays: Vec<(String, Vec<u8>)>,
 }
 
 pub struct PythonRuntime {
@@ -144,8 +147,31 @@ impl PythonRuntime {
             }
             out.stdout = so.call_method0("getvalue").and_then(|v| v.extract()).unwrap_or_default();
             out.stderr = se.call_method0("getvalue").and_then(|v| v.extract()).unwrap_or_default();
+            // What afx.display() collected during the run.
+            if let Ok(m) = py.import("aurafx") {
+                if let Ok(list) = m.getattr("_displays") {
+                    if let Ok(items) = list.extract::<Vec<(String, Vec<u8>)>>() {
+                        out.displays = items;
+                    }
+                    let _ = list.call_method0("clear");
+                }
+            }
             out
         })
+    }
+
+    /// Run a plugin panel's function (`@afx.panel`) for an event (JSON; empty: just draw it);
+    /// returns `{"items": [...], "error": ...}` as JSON.
+    pub fn panel(&self, title: &str, event: &str) -> String {
+        Python::attach(|py| {
+            let r = py.import("aurafx").and_then(|m| m.getattr("_render_panel")?.call1((title, event))?.extract::<String>());
+            r.unwrap_or_else(|e| serde_json::json!({"items": [], "error": e.to_string()}).to_string())
+        })
+    }
+
+    /// The titles of the plugin panels.
+    pub fn panel_titles(&self) -> Vec<String> {
+        Python::attach(|py| py.import("aurafx").and_then(|m| m.getattr("_panel_titles")?.call0()?.extract::<Vec<String>>()).unwrap_or_default())
     }
 
     /// Names in the global namespace (for completion).

@@ -419,6 +419,14 @@ pub fn _register_reader(func: Py<PyAny>, extensions: Vec<String>, label: String)
 #[pyfunction]
 pub fn load_plugin(py: Python<'_>, path: PathBuf) -> PyResult<Vec<String>> {
     let path = path.canonicalize().unwrap_or(path);
+    // A Rust plugin (a shared library built with the aurafx-plugin crate).
+    if aurafx_filters::rust_plugins::is_library(&path) {
+        let ids = py.detach(|| aurafx_filters::rust_plugins::load(&path)).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:#}")))?;
+        if !crate::data::in_pipeline() {
+            crate::session().lock().refresh_filter_defs(&ids);
+        }
+        return Ok(ids);
+    }
     let (info, changed) = py.detach(|| load(&path));
     if let Some(e) = info.error {
         return Err(pyo3::exceptions::PyRuntimeError::new_err(e));

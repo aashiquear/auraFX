@@ -8,5 +8,5 @@ Icon=aurafx
 Terminal=false
 Categories=Science;Education;Graphics;Physics;DataVisualization;
 MimeType=application/x-vtk;application/x-exodus;
-Keywords=paraview;vtk;exodus;lammps;simulation;visualization;
+Keywords=visualization;vtk;exodus;lammps;simulation;mesh;cad;grains;
 StartupWMClass=aurafx

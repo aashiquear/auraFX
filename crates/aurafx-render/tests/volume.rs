@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 #[test]
 fn volume_renders_offscreen() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let img = aurafx_filters::sources::wavelet([-10, 10, -10, 10, -10, 10], 255.0, 0.5);
     let ds = aurafx_data::DataSet::ImageData(img);
     let mut d = DisplayProps::default();
@@ -32,6 +33,7 @@ fn volume_renders_offscreen() {
 
 #[test]
 fn volume_stops_at_opaque_geometry() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     // An opaque plane through the middle of the volume, seen face-on: the volume half behind it
     // must not show through, so the image equals plane + front half only.
     let img = aurafx_filters::sources::wavelet([-10, 10, -10, 10, -10, 10], 255.0, 0.5);
@@ -83,6 +85,7 @@ fn volume_stops_at_opaque_geometry() {
 
 #[test]
 fn id_pass_returns_visible_cells_only() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     // Wavelet image seen from +Z: only the top layer of cells (z in [4, 5]) is visible.
     let img = aurafx_filters::sources::wavelet([-5, 5, -5, 5, -5, 5], 255.0, 0.5);
     let ds = aurafx_data::DataSet::ImageData(img);

@@ -38,12 +38,8 @@ jobs:
       - name: Build
         run: cargo build --workspace --all-targets
       - name: Test
-        run: cargo test --workspace --no-fail-fast --exclude aurafx-render --exclude aurafx-gpu
-      - name: Test (GPU crates)
-        # GPU tests skip themselves when no adapter is available. One at a time: a runner's
-        # software GPU driver can crash when several devices draw at once in one process.
-        if: ${{ !cancelled() }}
-        run: cargo test -p aurafx-render -p aurafx-gpu --no-fail-fast -- --test-threads=1
+        # GPU tests skip themselves when no adapter is available.
+        run: cargo test --workspace --no-fail-fast
       - name: Clippy
         run: cargo clippy --workspace --all-targets
         continue-on-error: true

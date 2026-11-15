@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 #[test]
 fn image_follows_texture_coordinates() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (200u32, 200u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");
@@ -73,6 +74,7 @@ fn image_follows_texture_coordinates() {
 /// a new mesh is uploaded even when it reuses a dropped mesh's memory.
 #[test]
 fn edges_use_the_edge_color() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (160u32, 160u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");
@@ -105,6 +107,7 @@ fn edges_use_the_edge_color() {
 /// The Molecule representation: spheres and cylinders colored by element (Jmol colors).
 #[test]
 fn molecules_in_element_colors() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (240u32, 240u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");

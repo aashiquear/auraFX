@@ -27,6 +27,7 @@ fn draws() -> Vec<NodeDraw> {
 
 #[test]
 fn glb_and_obj() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let draws = draws();
     let objects: Vec<ExportObject> = draws.iter().zip(["sphere", "box"]).map(|(d, n)| ExportObject { name: n.into(), draw: d }).collect();
     let dir = std::env::temp_dir().join(format!("aurafx_export_{}", std::process::id()));
@@ -95,6 +96,7 @@ fn glb_and_obj() {
 /// (a picture that is not one flat color, and the script reports the counts it loaded).
 #[test]
 fn html_page_holds_the_scene_and_draws() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     use base64::Engine;
     let draws = draws();
     let objects: Vec<ExportObject> = draws.iter().zip(["sphere", "box"]).map(|(d, n)| ExportObject { name: n.into(), draw: d }).collect();

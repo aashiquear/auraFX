@@ -15,6 +15,7 @@ fn shut_down(s: Session) {
 
 #[test]
 fn server_drawn_objects_match_local_drawing() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let Some(hook) = ServerRenderer::new() else {
         eprintln!("no GPU adapter");
         return;
@@ -121,6 +122,7 @@ fn server_drawn_objects_match_local_drawing() {
 /// by depth ("sort-last"), which looks like drawing the whole here.
 #[test]
 fn parallel_server_composites_pieces_by_depth() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     use aurafx_pipeline::remote::ServeOptions;
     if ServerRenderer::new().is_none() {
         eprintln!("no GPU adapter");

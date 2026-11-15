@@ -2588,6 +2588,14 @@ fn srgb_to_linear(c: f32) -> f64 {
     }
 }
 
+/// For tests that draw: hold the returned guard for the whole test, so the tests of one program
+/// draw one at a time. A software GPU driver (as on a build machine without a GPU) can crash when
+/// several devices draw at once in one process.
+pub fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Create a renderer on a headless device (no window), for batch rendering and tests.
 pub fn headless(width: u32, height: u32) -> Result<Renderer> {
     headless_with_samples(width, height, MSAA)

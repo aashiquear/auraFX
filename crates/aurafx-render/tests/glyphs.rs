@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 #[test]
 fn glyphs_are_drawn_per_point() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     // Five points in a row along x, vectors pointing up (+y), sizes 1..5: cones growing to the right.
     let n = 5;
     let pts: Vec<f64> = (0..n).flat_map(|i| [i as f64 * 2.0, 0.0, 0.0]).collect();
@@ -94,6 +95,7 @@ fn points_with(sizes: &[f64], vectors: &[[f64; 3]], x0: f64) -> DataSet {
 /// block. Points whose vector or size is not a number get no glyph.
 #[test]
 fn blocks_share_one_scale() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let up = [0.0, 1.0, 0.0];
     let mut mb = MultiBlock::default();
     mb.blocks.push(("small".into(), Some(points_with(&[1.0, 2.0], &[up, up], 0.0))));
@@ -110,6 +112,7 @@ fn blocks_share_one_scale() {
 /// More points than glyphs are drawn for: every n-th point gets one, evenly over the blocks.
 #[test]
 fn glyphs_are_capped() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let per_block = tessellate::MAX_GLYPHS * 5 / 8;
     let block = |x0: f64| {
         let pd = PolyData { points: Points::new_f32((0..per_block).flat_map(|i| [x0 as f32 + i as f32 * 1e-3, 0.0, 0.0]).collect()), ..Default::default() };
@@ -133,6 +136,7 @@ fn glyphs_are_capped() {
 
 #[test]
 fn glyph_memory_compared_with_geometry() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     // A million arrows: instances are 32 bytes each, the shape is drawn from one copy.
     let shape = tessellate::glyph_shape(GlyphShape::Arrow);
     let per_copy = shape.len() * std::mem::size_of::<tessellate::Vertex>();
@@ -146,6 +150,7 @@ fn glyph_memory_compared_with_geometry() {
 #[test]
 #[ignore]
 fn big_surface_frame_times() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let src = aurafx_filters::find("wavelet").unwrap();
     let mut p = src.default_params();
     p.0.insert("half_size".into(), aurafx_filters::ParamValue::Int(220));

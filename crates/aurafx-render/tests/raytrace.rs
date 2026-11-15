@@ -19,6 +19,7 @@ fn lum(img: &[u8], i: usize) -> f64 {
 
 #[test]
 fn path_tracer() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (160u32, 120u32);
     let floor = DataSet::PolyData(aurafx_filters::sources::plane([-1.5, -1.5, 0.0], [1.5, -1.5, 0.0], [-1.5, 1.5, 0.0], 4, 4));
     let ball = DataSet::PolyData(aurafx_filters::sources::sphere([0.0, 0.0, 0.45], 0.4, 48, 24));
@@ -93,6 +94,7 @@ fn path_tracer() {
 /// The GPU tracer gives the same picture as the CPU one (up to noise) and the same depth.
 #[test]
 fn gpu_matches_cpu() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (160u32, 120u32);
     let Ok(r) = headless(w, h) else {
         eprintln!("no GPU adapter");
@@ -165,6 +167,7 @@ fn gpu_matches_cpu() {
 #[test]
 #[ignore]
 fn gpu_speed() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (800u32, 600u32);
     let Ok(r) = headless(w, h) else { return };
     let ball = DataSet::PolyData(aurafx_filters::sources::sphere([0.0, 0.0, 0.0], 1.0, 600, 300));

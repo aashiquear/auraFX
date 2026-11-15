@@ -18,6 +18,7 @@ fn px(img: &[u8], w: u32, x: u32, y: u32) -> [i32; 3] {
 
 #[test]
 fn environment_and_materials() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let (w, h) = (160u32, 160u32);
     let Ok(mut r) = headless(w, h) else {
         eprintln!("no GPU adapter");

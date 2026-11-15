@@ -35,6 +35,7 @@ fn both<T>(f: impl Fn() -> T) -> (T, T, f64, f64) {
 
 #[test]
 fn gpu_results_equal_the_cpu() {
+    let _one_at_a_time = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let Some(name) = aurafx_gpu::install() else {
         eprintln!("no GPU: skipped");
         return;
@@ -58,6 +59,7 @@ fn gpu_results_equal_the_cpu() {
 /// and an image that does not start at the origin with unequal spacing: still exactly the CPU.
 #[test]
 fn far_values_and_placed_images_equal_the_cpu() {
+    let _one_at_a_time = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let Some(name) = aurafx_gpu::install() else {
         eprintln!("no GPU: skipped");
         return;
@@ -95,9 +97,13 @@ fn far_values_and_placed_images_equal_the_cpu() {
 #[test]
 #[ignore]
 fn timings() {
+    let _one_at_a_time = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let half: i64 = std::env::var("AFX_GPU_HALF").ok().and_then(|v| v.parse().ok()).unwrap_or(150);
     let Some(name) = aurafx_gpu::install() else { return };
     for (n, c, g) in aurafx_filters::gpu::benchmark(half) {
         eprintln!("{name} {half}: {n} CPU {c:.3} s, GPU {g:.3} s");
     }
 }
+
+/// A software GPU driver can crash when several devices work at once in one process.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());

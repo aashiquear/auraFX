@@ -21,6 +21,7 @@ fn best(n: usize, mut f: impl FnMut() -> f64) -> f64 {
 #[test]
 #[ignore]
 fn benchmarks() {
+    let _one_at_a_time = aurafx_render::one_at_a_time();
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut rows: Vec<(String, String, f64)> = Vec::new();
     // Reading files.

@@ -24,6 +24,26 @@ pub fn open_guide(ctx: &egui::Context, page: &str) {
 
 /// Open an address or a file with the system's default program (the browser for a page).
 pub fn open_in_browser(url: &str) {
+    // A tablet or a phone has no program to start: the system is asked to show the address.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        if let Err(e) = webbrowser::open(url) {
+            tracing::warn!("could not open {url}: {e}");
+        }
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    open_with_the_system(url);
+}
+
+/// A link that opens in the browser (the address is what is shown).
+pub fn link(ui: &mut egui::Ui, url: &str) {
+    if ui.link(url).on_hover_text("Open in the browser").clicked() {
+        open_in_browser(url);
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn open_with_the_system(url: &str) {
     let mut c = if cfg!(target_os = "windows") {
         let mut c = std::process::Command::new("rundll32");
         c.args(["url.dll,FileProtocolHandler", url]);

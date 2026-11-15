@@ -70,3 +70,7 @@ toml = "1"
 image = { version = "0.25", default-features = false, features = ["png", "gif", "jpeg", "bmp", "tiff"] }
 base64 = "0.22"
 bytes = "1"
+
+# Opening the user guide and the project's pages on a tablet or a phone (the system shows them).
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+webbrowser = "1"

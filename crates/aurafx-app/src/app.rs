@@ -2256,7 +2256,8 @@ impl State {
                     ui.label("Scientific visualization, analysis and simulation workbench written in Rust.");
                     ui.label(format!("Renderer: {}", self.viewport.adapter_name()));
                     ui.label(format!("Python: {}", self.python.version.lock()));
-                    ui.hyperlink("https://github.com/aashiquear/auraFX");
+                    crate::welcome::link(ui, "https://aashiquear.github.io/auraFX/");
+                    crate::welcome::link(ui, "https://github.com/aashiquear/auraFX");
                     ui.add_space(6.0);
                     ui.label("auraFX includes open-source software. The B-rep CAD kernel and the CAD file formats come from SolidCraft and solidcore.");
                     if ui.button(format!("{} Third-party licences...", crate::icons::FILE_TEXT)).clicked() {

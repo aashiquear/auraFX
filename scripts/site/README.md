@@ -8,6 +8,9 @@ around it: `scripts/site/media.sh` runs every `scripts/site/media/<name>.py` in 
 each script writes `site/media/<name>.mp4` and its poster `site/media/<name>.jpg` with one call,
 `afx.save_animation(OUT, poster=...)`, the same call anyone can use; always in the light theme.
 auraFX encodes MP4 with `ffmpeg`, which must be on the PATH (GIF and PNG frames need nothing).
+Each poster is also copied to `docs/userguide/src/images/sample_<name>.jpg`: the guide's chapter
+*Sample pipelines* walks through every clip, step by step in the window and in Python, so a
+change to a script here belongs in that chapter too.
 
 The scripts only use files committed under `testdata/`, sources that need no file, and the
 series written by the examples (`examples/phase_field/cahn_hilliard.py`,

@@ -23,6 +23,7 @@
 - [AI assistant](ai-assistant.md)
 - [Plugins](plugins.md)
 - [Tutorials and examples](tutorials.md)
+- [Sample pipelines](sample-pipelines.md)
 
 # Data
 

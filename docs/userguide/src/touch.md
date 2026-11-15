@@ -116,6 +116,8 @@ Desktop interface (see [Layouts by window shape](views.md#layouts-by-window-shap
 - The simulation runner starts programs on the machine or over SSH, which a tablet's or a
   phone's system does not allow; it is left out of the automatic layouts there.
 - Files are opened with the app's own file browser, from the app's documents folder.
+- The user guide is not inside the app: **Help › User guide** and the guide buttons open the
+  published guide in the device's browser, which needs a network connection.
 - On Android the keyboard types plain characters; word suggestions and input methods that
   compose characters (accents by long press, Chinese, Japanese, Korean) are not passed to the app.
 

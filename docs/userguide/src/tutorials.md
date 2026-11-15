@@ -4,7 +4,8 @@ The `examples/` folder of the repository holds small, complete workflows. The si
 plain Python with NumPy that write a VTK file every few steps; run them from the Simulations
 panel (template **Python pipeline**, see [Running simulations](simulations.md)) or with
 `afx.submit`, and auraFX opens the files when the run ends. The tutorials are auraFX scripts:
-`aurafx --script <file>`, or paste them into the Python console.
+`aurafx --script <file>`, or paste them into the Python console. The next chapter,
+[Sample pipelines](sample-pipelines.md), goes through thirteen finished renders step by step.
 
 | Folder | What it shows |
 |---|---|

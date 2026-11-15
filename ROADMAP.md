@@ -194,7 +194,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 - [x] Keyboard-first: fully rebindable shortcuts, vim-style view navigation optional. (Settings › Keyboard, `afx.set_shortcut`.)
 - [x] Themes: dark/light/high-contrast, scalable UI (HiDPI), font size. 
 - [x] Session recovery after crash, autosave of state. (Last session restored on start; saved every half minute, offered after a crash.)
-- [x] File › New (asks about unsaved work), the system clipboard in every text box, view buttons (fit, zoom, pan) in the 3D view, an All filters menu, filters suggested for the selected data, a Welcome window.
+- [x] File › New (asks about unsaved work), the system clipboard in every text box, view buttons (fit, zoom, pan) in the 3D view, an All filters menu, filters suggested for the selected data, a Welcome window; Help › User guide opens the installed guide or the published one (always the published one on a tablet or a phone), and About links to the project page and the repository.
 - [x] Touch interface for tablets and phones: Desktop, Tablet and Phone interfaces chosen by the device, safe areas, touch-sized controls, two-finger pan, pinch and twist, layouts that follow the screen's turning.
 - [x] Accessibility: screen-reader labels, keyboard navigation, color-blind color maps by default. (AccessKit, a high-contrast theme, Viridis as the default color map.)
 - [ ] Localization framework.
@@ -269,7 +269,7 @@ with cancel), everything searchable, every action scriptable, every panel option
 
 - [~] Golden-image render tests, filter regression tests against VTK outputs, reader conformance suite with sample files for every format.
 - [x] Benchmarks (load time, filter time, frame rate) published in docs. (The guide's Benchmarks page, written by an ignored release-mode test.)
-- [~] User guide (done: Markdown, HTML book and PDF, a picture per feature), tutorials and examples; filter reference auto-generated from property metadata (kept current by a test), Python API reference generated from the module's docstrings (kept current by a test).
+- [~] User guide (done: Markdown, HTML book and PDF, a picture per feature, a Sample pipelines chapter that goes through every clip of the project page step by step in the window and in Python), tutorials and examples; filter reference auto-generated from property metadata (kept current by a test), Python API reference generated from the module's docstrings (kept current by a test).
 - [~] Contributing guide (done), code of conduct, issue templates, plugin cookbook (done: `docs/plugins.md`).
 
 ---
@@ -409,7 +409,7 @@ to auraFX's users. Each row says how it is checked. Priority: **P1** first, **P2
 
 ## Status
 
-The state of the repository at release 0.9.0. The catalog above says what is planned; this
+The state of the repository at release 0.9.1. The catalog above says what is planned; this
 section says what works, what is open and what is known to be limited. How each reader, writer,
 filter and mesher was checked is in `docs/reference/verification.md`.
 
@@ -494,7 +494,8 @@ than memory streamed in pieces through one process. A guided window for setting 
 
 **Documentation (section 10).** The user guide as Markdown, an HTML book and a PDF with a
 generated picture per feature; a filter reference and a Python API reference generated from the
-code and kept current by tests; a benchmarks page; examples and tutorials; the project page.
+code and kept current by tests; a benchmarks page; examples, tutorials and a Sample pipelines chapter
+that goes through every clip of the project page step by step; the project page.
 
 **Grain workbench (section 11), geometry and meshing (section 12), CAD (section 13).** Complete
 as listed in those sections, including orientation gradients along the build direction and in
@@ -531,7 +532,13 @@ plane, and realistic synthetic grains.
 - The MOOSE polycrystal deck is checked against the solid mechanics module's sources and tests;
   MOOSE itself was not run. The JAX-FEM script was not run against an installed JAX-FEM. The
   PINNACLE case was run and read back; the DAMASK case is loaded by DAMASK's own Python package.
-- Dragging tabs with a finger was not tried on a device.
+- On devices: dragging tabs with a finger, the direction of the twist gesture, the iPad picture
+  filling the screen (touches landing where they are made) and opening the published guide and
+  the project's pages from the Android and iOS apps were built and checked in code, not yet
+  confirmed on a tablet or a phone by the author of the change.
+- Pasting from another program into a text box, and the CAD environment's plane preview under
+  a real pointer, its dark theme and the Show part toggle switched off, were checked through
+  scripted states and pictures only.
 - The independent STEP reader check runs only when `AURAFX_OCP_PYTHON` names a Python with
   OpenCASCADE's bindings.
 - The assistant's CAD modelling check (`scripts/cad/assistant_check.sh`) depends on the model:
@@ -561,4 +568,8 @@ plane, and realistic synthetic grains.
 - **CAD sketches and assemblies:** a sweep's path is one open chain in one sketch; a loft is
   straight between parallel sections; mate angles run from 0 to 180 degrees; a part started
   from triangles has one face per imported body.
-- **Mobile builds** are viewers: no embedded Python and no simulation runner.
+- **Mobile builds** are viewers: no embedded Python and no simulation runner; the user guide is
+  not inside the app (Help › User guide opens the published one, which needs a network).
+- **Sketches from the part:** an edge taken into a sketch is a copy that does not follow later
+  changes of the part; a round edge seen at a slant becomes a polyline; the part's outlines under
+  a sketch are jagged while the part is drawn by the implicit kernel.

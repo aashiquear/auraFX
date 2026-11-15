@@ -166,7 +166,10 @@ source** turns the window back on. Sources added from Python (`afx.sphere(radius
   each kind of work (view and analyze results from solvers or experiments, build or model a part,
   build a mesh, synthesize a crystal microstructure, work on big or remote data, run and automate) and a few
   things worth knowing. Untick *Show at start* when you no longer need it.
-- **Help › User guide** opens this guide in your browser.
+- **Help › User guide** opens this guide in your browser: the copy installed with the program
+  when there is one, otherwise the one published at
+  <https://aashiquear.github.io/auraFX/docs/userguide/book/> (always that one on a tablet or
+  a phone, where the guide does not come with the app; it needs a network connection).
 - The **Model** menu starts a CAD part or a Geometry source and lists the meshing filters.
 - **Help › Keyboard shortcuts** and **Help › Python API cheat sheet** open inside the app.
 - Hover over anything for what it does; right-click an object for what can be done with it.
@@ -181,7 +184,9 @@ source** turns the window back on. Sources added from Python (`afx.sphere(radius
 
 ## Open-source software in auraFX
 
-**Help › About auraFX** shows the version, the graphics card in use and the Python version.
+**Help › About auraFX** shows the version, the graphics card in use and the Python version,
+with links to the project's page (<https://aashiquear.github.io/auraFX/>) and to its repository
+(<https://github.com/aashiquear/auraFX>); a click opens them in the browser.
 auraFX includes open-source software: the CAD environment's B-rep kernel and its CAD file formats
 come from the SolidCraft and solidcore projects (see the README's Credits), and the program is
 built from several hundred open-source Rust libraries. **Third-party licences…** in the About

@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-3800441f.js";
+            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-f1c4f5ea.js"></script>
+        <script src="toc-8b305462.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -367,7 +367,10 @@ to restore the last session.</li>
 each kind of work (view and analyze results from solvers or experiments, build or model a part,
 build a mesh, synthesize a crystal microstructure, work on big or remote data, run and automate) and a few
 things worth knowing. Untick <em>Show at start</em> when you no longer need it.</li>
-<li><strong>Help › User guide</strong> opens this guide in your browser.</li>
+<li><strong>Help › User guide</strong> opens this guide in your browser: the copy installed with the program
+when there is one, otherwise the one published at
+<a href="https://aashiquear.github.io/auraFX/docs/userguide/book/">https://aashiquear.github.io/auraFX/docs/userguide/book/</a> (always that one on a tablet or
+a phone, where the guide does not come with the app; it needs a network connection).</li>
 <li>The <strong>Model</strong> menu starts a CAD part or a Geometry source and lists the meshing filters.</li>
 <li><strong>Help › Keyboard shortcuts</strong> and <strong>Help › Python API cheat sheet</strong> open inside the app.</li>
 <li>Hover over anything for what it does; right-click an object for what can be done with it.</li>
@@ -380,7 +383,9 @@ Pipeline’s right-click <strong>All filters</strong> has the same categories.</
 </ul>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"><span class="img-wrapper"><img src="images/welcome.png" alt="The Welcome window: where to start, and a few things worth knowing"></span></label></p>
 <h2 id="open-source-software-in-aurafx"><a class="header" href="#open-source-software-in-aurafx">Open-source software in auraFX</a></h2>
-<p><strong>Help › About auraFX</strong> shows the version, the graphics card in use and the Python version.
+<p><strong>Help › About auraFX</strong> shows the version, the graphics card in use and the Python version,
+with links to the project’s page (<a href="https://aashiquear.github.io/auraFX/">https://aashiquear.github.io/auraFX/</a>) and to its repository
+(<a href="https://github.com/aashiquear/auraFX">https://github.com/aashiquear/auraFX</a>); a click opens them in the browser.
 auraFX includes open-source software: the CAD environment’s B-rep kernel and its CAD file formats
 come from the SolidCraft and solidcore projects (see the README’s Credits), and the program is
 built from several hundred open-source Rust libraries. <strong>Third-party licences…</strong> in the About
@@ -1144,6 +1149,8 @@ spreadsheet, the CAD environment and the assistant are.</li>
 <li>The simulation runner starts programs on the machine or over SSH, which a tablet’s or a
 phone’s system does not allow; it is left out of the automatic layouts there.</li>
 <li>Files are opened with the app’s own file browser, from the app’s documents folder.</li>
+<li>The user guide is not inside the app: <strong>Help › User guide</strong> and the guide buttons open the
+published guide in the device’s browser, which needs a network connection.</li>
 <li>On Android the keyboard types plain characters; word suggestions and input methods that
 compose characters (accents by long press, Chinese, Japanese, Korean) are not passed to the app.</li>
 </ul>
@@ -1888,7 +1895,8 @@ with a message that says so.</li>
 plain Python with NumPy that write a VTK file every few steps; run them from the Simulations
 panel (template <strong>Python pipeline</strong>, see <a href="#running-simulations">Running simulations</a>) or with
 <code>afx.submit</code>, and auraFX opens the files when the run ends. The tutorials are auraFX scripts:
-<code>aurafx --script &lt;file&gt;</code>, or paste them into the Python console.</p>
+<code>aurafx --script &lt;file&gt;</code>, or paste them into the Python console. The next chapter,
+<a href="#sample-pipelines">Sample pipelines</a>, goes through thirteen finished renders step by step.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -1926,6 +1934,342 @@ step; with a solver installed, <code>afx.run_case</code> runs the case and opens
 cleans the grains, measures them, colors them by the inverse pole figure key, draws the
 pole figures in a second view and writes the grain table as <code>grains.csv</code>
 (<a href="#grains-and-crystals">Grains and crystals</a>).</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="sample-pipelines"><a class="header" href="#sample-pipelines">Sample pipelines</a></h1>
+<p>The short clips on the <a href="https://aashiquear.github.io/auraFX/">project page</a> are ordinary auraFX
+pipelines, recorded with the same command anyone can use. This chapter goes through every one
+of them from the file (or the source) to the finished clip, twice: once as the steps in the
+window, with the menu each one is in, and once as the Python that does the same. Type the
+Python into the console (the <strong>Python</strong> panel), or save it as a file and run
+<code>aurafx --script file.py</code>.</p>
+<p>The data files are in the repository’s <code>testdata/</code> and <code>examples/</code> folders
+(<a href="https://github.com/aashiquear/auraFX">https://github.com/aashiquear/auraFX</a>); four examples need no file at all. The scripts
+that made the clips on the page are in <code>scripts/site/media/</code>, one per clip.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_pipeline.png" alt="The crystal-plasticity example built in the window: the result, the points with the grains, Assign Grains, Warp By Vector and the grain boundaries in the Pipeline, the plate colored by plastic strain in the 3D view"><span class="img-wrapper"><img src="images/sample_pipeline.png" alt="The crystal-plasticity example built in the window: the result, the points with the grains, Assign Grains, Warp By Vector and the grain boundaries in the Pipeline, the plate colored by plastic strain in the 3D view"></span></label></p>
+<h2 id="what-every-example-uses"><a class="header" href="#what-every-example-uses">What every example uses</a></h2>
+<p><strong>Opening and adding.</strong> <strong>File › Open…</strong> (Ctrl+O) opens a file; a file with time steps shows
+the time toolbar. A filter is added to the object selected in the Pipeline from <strong>Filters ›</strong>
+<em>its menu</em>, or by typing its name after Ctrl+K. Sources (data made without a file) are in the
+<strong>Sources</strong> menu.</p>
+<p><strong>Showing and hiding.</strong> A new filter hides the object it was made from and shows its own
+result. The eye beside each object in the Pipeline shows or hides it (<code>node.hide()</code>,
+<code>node.show()</code>); the examples say when an eye has to be closed or opened by hand.</p>
+<p><strong>Coloring and drawing.</strong> With an object selected, <strong>Properties</strong> has <strong>Color by</strong> (the array),
+the color map beside it, <strong>Range</strong> (type two values to fix it over all time steps),
+<strong>Representation</strong> (Surface, Surface With Edges, Wireframe, Points, Volume) and <strong>Opacity</strong>.
+See <a href="#coloring-and-color-maps">Coloring and color maps</a> and
+<a href="#volumes-point-clouds-and-curved-cells">Volumes, point clouds and curved cells</a>.</p>
+<p><strong>The camera.</strong> <strong>+X</strong>, <strong>+Y</strong>, <strong>+Z</strong> and <strong>Iso</strong> in the toolbar look along an axis; drag to
+turn, and <strong>Fit</strong> in the 3D view’s own toolbar (or the R key) shows everything. From Python,
+<code>afx.view(direction, up=...)</code> then <code>afx.reset_camera()</code>.</p>
+<p><strong>Recording.</strong> <strong>File › Animation…</strong> records the clip. Choose the mode (<strong>Time steps</strong>,
+<strong>Orbit 360°</strong> or <strong>Keyframes</strong>), the frame rate, the size and the format, then <strong>Save…</strong>.
+MP4 and WebM need the video encoder, which the Animation window offers to fetch when the
+machine has none (<a href="#the-video-encoder">Time, charts and animation</a>). The
+clips on the page are 720 pixels wide; for a figure or a talk raise the size, for example
+1920 × 1080.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind of clip</th><th>In the window</th><th>In Python</th></tr>
+</thead>
+<tbody>
+<tr><td>A turntable</td><td>mode <strong>Orbit 360°</strong>, 80 frames, 20 frames a second</td><td><code>afx.save_animation("clip.mp4", fps=20, orbit=80)</code></td></tr>
+<tr><td>The data’s time steps</td><td>mode <strong>Time steps</strong></td><td><code>afx.save_animation("clip.mp4", fps=12)</code></td></tr>
+<tr><td>A value that changes</td><td><strong>Keyframes</strong> tab: select the value, <strong>Key value at</strong> 0 % and at 100 %</td><td><code>afx.save_animation("clip.mp4", frames=45, cue=f)</code> with a function <code>f(t)</code>, t from 0 to 1</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>poster="clip.jpg"</code> in <code>afx.save_animation</code> also writes the first frame as a picture.</p>
+<h2 id="crystal-plasticity-a-polycrystal-plate-under-tension"><a class="header" href="#crystal-plasticity-a-polycrystal-plate-under-tension">Crystal plasticity: a polycrystal plate under tension</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_plate_cp.jpg" alt="A plate of 30 grains with a hole, pulled to 2 % strain, colored by the equivalent plastic strain with the grain boundaries drawn in white"><span class="img-wrapper"><img src="images/sample_plate_cp.jpg" alt="A plate of 30 grains with a hole, pulled to 2 % strain, colored by the equivalent plastic strain with the grain boundaries drawn in white"></span></label></p>
+<p>This one starts before the data exists: the plate is meshed, given grains, run in a
+crystal-plasticity solver and read back. It needs the PINNACLE solver on the machine (or on a
+remote one, see <a href="#running-simulations">Running simulations</a>); to skip the run, open the result kept
+in <code>testdata/solver/pinnacle_plate_fine/</code> and go to step 5.</p>
+<p><strong>Build and run</strong></p>
+<ol>
+<li><strong>Sources › Plate Mesh.</strong> In Properties leave <strong>Width, height, thickness</strong> at 100, 50, 1,
+<strong>Hole</strong> at <em>Circle</em> with <strong>Semi-axis a (radius)</strong> 2.5, and set <strong>Cell size</strong> to 1. The plate is one element thick, with its faces
+named <code>x-</code>, <code>x+</code> and so on.</li>
+<li>With the plate selected, <strong>Filters › Mesh › Assign Grains.</strong> <strong>Grains from</strong> <em>Voronoi</em>,
+<strong>Grains (Voronoi)</strong> 30, <strong>Random seed</strong> 1, and tick <strong>One block per grain</strong>. Color by <code>grain_id</code> to
+see them.</li>
+<li><strong>Simulate › Run a simulation…</strong> opens the Simulations panel. <strong>Template</strong> <em>PINNACLE crystal
+plasticity</em>; the grain mesh selected in the Pipeline shows under <strong>Case from</strong>. Set a
+<strong>Working directory</strong>, <strong>Material</strong> <em>Aluminium</em>, <strong>Pull along</strong> x, <strong>strain</strong> 0.02 and
+<strong>steps</strong> 40.</li>
+<li><strong>Run.</strong> The panel writes <code>mesh.e</code>, <code>orientations_points.csv</code> and <code>case.i</code> into the
+folder and starts the solver; the job’s log follows each load step. On a laptop this mesh
+(about 5 000 elements) takes around half an hour. With <strong>open when done</strong> ticked, the
+result (<code>solver/fields.pvd</code>) opens when the run ends.</li>
+</ol>
+<pre><code class="language-python">import aurafx as afx
+plate = afx.plate_mesh(size=(100, 50, 1), cell=1.0, hole="Circle", a=2.5)
+poly = plate.assign_grains(grains=30, seed=1, blocks=True)
+afx.run_case(poly, "pinnacle", "~/runs/plate", material="Aluminium", axis="x",
+             strain=0.02, steps=40, wait=True)
+</code></pre>
+<p><strong>From the result to the clip</strong></p>
+<ol start="5">
+<li><strong>File › Open…</strong> the final state of the run (<code>solver/fields.vtk</code> in the working directory;
+in the repository, <code>testdata/solver/pinnacle_plate_fine/fields_final.vtu</code>) and the case’s
+<code>orientations_points.csv</code>. The result has the displacement, the stress and
+the equivalent plastic strain, but not the grains: the point file has them, one point at
+every element’s centre.</li>
+<li>Select the result, <strong>Filters › Mesh › Assign Grains.</strong> <strong>Grains from</strong> <em>Nearest point</em>,
+choose the point file as the second input, and tick <strong>Side set on grain boundaries</strong>. Every
+element has its grain again, and the faces between grains are a set named
+<code>grain boundaries</code>.</li>
+<li><strong>Filters › Common › Warp By Vector</strong>, <strong>Vectors</strong> <code>displacement</code>. Set <strong>Scale factor</strong> to
+0 for now: the keyframes will raise it. <strong>Color by</strong> <code>equivalent_plastic_strain</code>, color
+map <em>Inferno</em>.</li>
+<li>With the warped plate selected, <strong>Filters › Mesh › Extract Set</strong>, <strong>Set name</strong>
+<code>grain boundaries</code>. In Properties: <strong>Solid color</strong> a light grey, <strong>Representation</strong>
+<em>Wireframe</em>, <strong>Line width</strong> 2. The new filter hid the plate: open the plate’s eye again in
+the Pipeline.</li>
+<li><strong>+Z</strong> in the toolbar, then <strong>Fit</strong>.</li>
+<li><strong>File › Animation…</strong>, <strong>Keyframes</strong> tab: select the Warp By Vector’s <em>Scale factor</em>, set
+it to 0 and press <strong>Key value at 0 %</strong>; move the slider to 100 %, set it to 9, press
+<strong>Key value at 100 %</strong>. 45 frames at 15 a second, 720 × 400, <strong>Save…</strong>.</li>
+</ol>
+<pre><code class="language-python">d = "testdata/solver/pinnacle_plate_fine/"
+res = afx.load(d + "fields_final.vtu"); res.hide()
+pts = afx.load(d + "orientations_points.csv"); pts.hide()
+g = res.assign_grains(pts, method="Nearest point", boundaries=True); g.hide()
+w = g.warp_by_vector(vectors="displacement", scale=0.0)
+w.set(color_by="equivalent_plastic_strain", cmap="Inferno")
+b = w.extract_set(set="grain boundaries"); w.show()     # a new filter hides its input
+b.set(color_by=None, representation="Wireframe", solid_color=(0.92, 0.92, 0.92), line_width=2)
+afx.view([0, 0, 1], up=[0, 1, 0]); afx.reset_camera()
+afx.save_animation("plate_cp.mp4", fps=15, frames=45, width=720, height=400,
+                   cue=lambda t: w.set(scale=9.0 * t))
+</code></pre>
+<p>The displacements are drawn nine times larger than they are, so that 2 % strain can be seen.
+Statistics per grain (mean stress, mean plastic strain) come from the same <code>grain_id</code> array:
+see <a href="#simulation-cases-from-the-pipeline">Grains on the results</a>.</p>
+<h2 id="cad-modeling-a-flange-that-follows-its-dimensions"><a class="header" href="#cad-modeling-a-flange-that-follows-its-dimensions">CAD modeling: a flange that follows its dimensions</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_cad_model.jpg" alt="A flange colored by face"><span class="img-wrapper"><img src="images/sample_cad_model.jpg" alt="A flange colored by face"></span></label></p>
+<p>No file. A part from the templates is rebuilt while three of its dimensions change.</p>
+<ol>
+<li><strong>Model › New CAD part</strong> opens the CAD environment. On the ribbon’s <em>Files</em> tab choose
+<strong>New from template</strong> › <em>flange</em>, then <strong>Apply</strong> to return to the pipeline with the part.</li>
+<li><strong>Color by</strong> <code>FaceId</code>, color map <em>Turbo</em>: every named face has its own color.</li>
+<li><strong>Kernel</strong> <em>B-rep</em> in the part’s Properties, for exact edges on every frame.</li>
+<li>Look from a direction above and to the side, <strong>Fit</strong>.</li>
+<li>The dimensions are in Properties under <strong>Dimensions</strong>: <code>od</code> (outside diameter),
+<code>bolt_circle</code> and <code>holes</code>. Type a new value and the part is rebuilt with the same face
+names. The clip changes all three between frames with a function, which keeps the bolt
+circle at three quarters of the diameter and adds bolt holes as the flange grows; that part
+is Python.</li>
+</ol>
+<pre><code class="language-python">import math
+m = afx.cad_model(template="flange")
+m.set(color_by="FaceId", cmap="Turbo", kernel="B-rep")
+afx.view([0.7, -1.0, 0.9], up=[0, 0, 1]); afx.reset_camera()
+
+def cue(t):
+    s = 0.5 - 0.5 * math.cos(2 * math.pi * t)          # 0 → 1 → 0
+    od = 90 + 40 * s
+    m.set(od=od, bolt_circle=round(od * 0.75, 1), holes=int(6 + round(4 * s)))
+
+afx.save_animation("cad_model.mp4", fps=14, frames=48, width=720, height=450, cue=cue)
+</code></pre>
+<p>More in <a href="#cad-modeling">CAD modeling</a>.</p>
+<h2 id="mechanics-explicit-dynamics-from-an-exodus-file"><a class="header" href="#mechanics-explicit-dynamics-from-an-exodus-file">Mechanics: explicit dynamics from an Exodus file</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_can_crash.jpg" alt="A crushed can colored by plastic strain"><span class="img-wrapper"><img src="images/sample_can_crash.jpg" alt="A crushed can colored by plastic strain"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/can.ex2</code> (44 time steps).</li>
+<li><strong>Color by</strong> <code>EQPS</code>, color map <em>Turbo</em>. Type the <strong>Range</strong> 0 to 1.5, so the colors mean the
+same at every step (the last step reaches about 1.8).</li>
+<li>Move the time slider to the middle step before framing, so both the plate and the can
+stay in the picture; look from the side and <strong>Fit</strong>.</li>
+<li><strong>File › Animation…</strong>, mode <strong>Time steps</strong>, 14 frames a second.</li>
+</ol>
+<pre><code class="language-python">c = afx.load("testdata/can.ex2")
+c.set(color_by="EQPS", cmap="Turbo", range=(0.0, 1.5))
+n = afx.time()[1]                       # the number of time steps
+afx.time(n // 2)
+afx.view([1.0, -0.75, 0.12], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("can_crash.mp4", fps=14, frames=n, width=720, height=450,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<h2 id="flow-and-heat-streamlines-over-a-temperature-surface"><a class="header" href="#flow-and-heat-streamlines-over-a-temperature-surface">Flow and heat: streamlines over a temperature surface</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_flow.jpg" alt="Streamlines as tubes colored by temperature over a translucent surface"><span class="img-wrapper"><img src="images/sample_flow.jpg" alt="Streamlines as tubes colored by temperature over a translucent surface"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/disk_out_ref.ex2</code>; close its eye.</li>
+<li>Select the file, <strong>Filters › Common › Contour</strong>: <strong>Contour by</strong> <code>Temp</code>, <strong>Values</strong> 400.
+<strong>Color by</strong> <code>Temp</code>, <strong>Opacity</strong> 0.35.</li>
+<li>Select the file again, <strong>Filters › Common › Stream Tracer</strong>, <strong>Number of seeds</strong> 60. Close its eye:
+the lines are drawn by the next filter.</li>
+<li>With the Stream Tracer selected, <strong>Filters › Geometry › Tube</strong>, <strong>Radius</strong> 0.12.
+<strong>Color by</strong> <code>Temp</code>, color map <em>Inferno</em>.</li>
+<li>The Contour and the Tube now show together (their eyes are open in the Pipeline). Frame,
+then <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>, 80 frames.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/disk_out_ref.ex2"); d.hide()
+c = d.contour(array="Temp", values=[400.0]); c.set(color_by="Temp", opacity=0.35)
+s = d.stream_tracer(seeds=60); s.hide()
+t = s.tube(radius=0.12); t.set(color_by="Temp", cmap="Inferno")
+afx.view([0.7, -1.0, 0.5], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("flow.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="phase-field-spinodal-decomposition"><a class="header" href="#phase-field-spinodal-decomposition">Phase field: spinodal decomposition</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_spinodal.jpg" alt="Two phases separating"><span class="img-wrapper"><img src="images/sample_spinodal.jpg" alt="Two phases separating"></span></label></p>
+<p>The data comes from a small solver in the repository, run from auraFX.</p>
+<ol>
+<li><strong>Simulate › Run a simulation…</strong>, <strong>Template</strong> <em>Python pipeline</em>, <strong>Working directory</strong>
+<code>examples/phase_field</code>, <strong>Input</strong> <code>cahn_hilliard.py</code>, <strong>Result files</strong> <code>ch_*.vtk</code>, <strong>Run</strong>
+(about ten seconds). The series opens when it ends; or open <code>ch_00000.vtk</code> afterwards, which
+brings the whole series.</li>
+<li><strong>Color by</strong> <code>concentration</code>, color map <em>Viridis</em>, <strong>Range</strong> 0 to 1.</li>
+<li><strong>+Z</strong>, <strong>Fit</strong>. <strong>File › Animation…</strong>, <strong>Time steps</strong>, 12 frames a second, 560 × 560.</li>
+</ol>
+<pre><code class="language-python">afx.submit("python3 -u cahn_hilliard.py", workdir="examples/phase_field",
+           outputs="ch_*.vtk", wait=True)
+d = afx.load("examples/phase_field/ch_00000.vtk")
+d.set(color_by="concentration", cmap="Viridis", range=(0, 1))
+afx.view([0, 0, 1], up=[0, 1, 0]); afx.reset_camera()
+n = afx.time()[1]
+afx.save_animation("spinodal.mp4", fps=12, frames=n, width=560, height=560,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<h2 id="grain-growth-a-potts-model-run"><a class="header" href="#grain-growth-a-potts-model-run">Grain growth: a Potts-model run</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_grain_growth.jpg" alt="Grains coarsening"><span class="img-wrapper"><img src="images/sample_grain_growth.jpg" alt="Grains coarsening"></span></label></p>
+<p>The same as the phase-field example with <code>examples/grain_growth/potts.py</code> (result files
+<code>grains_*.vtk</code>): color by <code>grain_id</code> with <em>Turbo</em>, record the time steps.</p>
+<pre><code class="language-python">afx.submit("python3 -u potts.py", workdir="examples/grain_growth", outputs="grains_*.vtk", wait=True)
+d = afx.load("examples/grain_growth/grains_0000.vtk")
+d.set(color_by="grain_id", cmap="Turbo")
+afx.view([0, 0, 1], up=[0, 1, 0]); afx.reset_camera()
+n = afx.time()[1]
+afx.save_animation("grain_growth.mp4", fps=12, frames=n, width=560, height=560,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<p><strong>Filters › Grains › Segment Features</strong> on a step (<strong>Group by</strong> <em>Scalar</em>, <strong>Tolerance</strong> 0) gives feature
+ids that the grain filters measure.</p>
+<h2 id="particles-a-melting-crystal"><a class="header" href="#particles-a-melting-crystal">Particles: a melting crystal</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_particles.jpg" alt="Atoms colored by their potential energy"><span class="img-wrapper"><img src="images/sample_particles.jpg" alt="Atoms colored by their potential energy"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/fcc_melt.dump</code> (a LAMMPS dump, 20 frames).</li>
+<li><strong>Representation</strong> <em>Points</em>, <strong>Point size</strong> 5. <strong>Color by</strong> <code>c_pe</code>, color map <em>Plasma</em>.</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Time steps</strong>, 8 frames a second.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/fcc_melt.dump")
+d.set(representation="Points", point_size=5, color_by="c_pe", cmap="Plasma")
+afx.view([0.5, -1.0, 0.6], up=[0, 0, 1]); afx.reset_camera()
+n = afx.time()[1]
+afx.save_animation("particles.mp4", fps=8, frames=n, width=720, height=450,
+                   cue=lambda t: afx.time(round(t * (n - 1))))
+</code></pre>
+<h2 id="chemistry-a-molecule"><a class="header" href="#chemistry-a-molecule">Chemistry: a molecule</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_molecule.jpg" alt="A molecule as balls and sticks"><span class="img-wrapper"><img src="images/sample_molecule.jpg" alt="A molecule as balls and sticks"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/molecules/test.cml</code>. It opens as balls and sticks.</li>
+<li><strong>Atom size</strong> 0.22 in Properties.</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">m = afx.load("testdata/molecules/test.cml")
+m.set(atom_scale=0.22)
+afx.view([0.15, -0.35, 1.0], up=[0, 1, 0]); afx.reset_camera()
+afx.save_animation("molecule.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="geoscience-ocean-temperature-on-the-globe"><a class="header" href="#geoscience-ocean-temperature-on-the-globe">Geoscience: ocean temperature on the globe</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_ocean.jpg" alt="Sea temperature on a sphere"><span class="img-wrapper"><img src="images/sample_ocean.jpg" alt="Sea temperature on a sphere"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/netcdf/mpas_ocean.nc</code>. The cells are placed on the sphere as the
+file says.</li>
+<li><strong>Color by</strong> <code>temperature</code>, color map <em>Cool to Warm</em>.</li>
+<li>Move the time slider to step 2. Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/netcdf/mpas_ocean.nc")
+d.set(color_by="temperature", cmap="Cool to Warm")
+afx.time(2)
+afx.view([-0.3, -1.0, 0.25], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("ocean.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="geoscience-terrain-from-an-elevation-model"><a class="header" href="#geoscience-terrain-from-an-elevation-model">Geoscience: terrain from an elevation model</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_terrain.jpg" alt="Terrain raised from a raster"><span class="img-wrapper"><img src="images/sample_terrain.jpg" alt="Terrain raised from a raster"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/rasters/dem.tif</code>. A raster has one value per cell.</li>
+<li><strong>Filters › Data › Cell Data to Point Data</strong>: Warp By Scalar moves points, so the
+elevation has to be on the points.</li>
+<li><strong>Filters › Common › Warp By Scalar</strong>: <strong>Scalars</strong> <code>Elevation</code>, <strong>Scale factor</strong> 2.
+<strong>Color by</strong> <code>Elevation</code>, color map <em>Viridis</em>.</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">d = afx.load("testdata/rasters/dem.tif"); d.hide()
+p = d.cell_data_to_point_data(); p.hide()
+w = p.warp_by_scalar(array="Elevation", scale=2.0)
+w.set(color_by="Elevation", cmap="Viridis")
+afx.view([0.55, -1.0, 0.75], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("terrain.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="microstructure-grain-boundary-surfaces"><a class="header" href="#microstructure-grain-boundary-surfaces">Microstructure: grain boundary surfaces</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_grains_orbit.jpg" alt="Smoothed grain boundaries colored by the boundary plane"><span class="img-wrapper"><img src="images/sample_grains_orbit.jpg" alt="Smoothed grain boundaries colored by the boundary plane"></span></label></p>
+<p>No file. The same chain works on a 3D EBSD volume in place of the synthetic grains.</p>
+<ol>
+<li><strong>Sources › Voronoi Grains</strong>: <strong>Cells</strong> 40 × 40 × 40, <strong>Grains</strong> 60.</li>
+<li><strong>Filters › Grains › Quick Surface Mesh</strong> makes triangles on every face between two grains.</li>
+<li><strong>Filters › Grains › Smooth Boundaries</strong>, <strong>Iterations</strong> 20, takes the stair steps out.</li>
+<li><strong>Filters › Grains › Face Orientation Colors</strong> colors each triangle by the crystal direction
+of its boundary plane. <strong>Color by</strong> <code>FaceIPFColors</code> (drawn with its own colors).</li>
+<li>Frame, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">v = afx.voronoi_grains(cells=[40, 40, 40], grains=60); v.hide()
+s = v.quick_surface_mesh(); s.hide()
+m = s.smooth_boundaries(iterations=20); m.hide()
+c = m.face_orientation_colors()
+c.set(color_by="FaceIPFColors")
+afx.view([0.6, -1.0, 0.8], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("grains_orbit.mp4", fps=20, orbit=80)
+</code></pre>
+<p>More in <a href="#grain-boundary-surfaces">Grain boundary surfaces</a>.</p>
+<h2 id="meshing-conforming-hexahedra-around-inclusions"><a class="header" href="#meshing-conforming-hexahedra-around-inclusions">Meshing: conforming hexahedra around inclusions</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"><span class="img-wrapper"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"></span></label></p>
+<p>No file.</p>
+<ol>
+<li><strong>Sources › Inclusion Mesh</strong>: <strong>Inclusions</strong> 8, <strong>Radius</strong> 0.075, <strong>Cells along the
+shortest side</strong> 24, <strong>Seed</strong> 7. Close its eye: the next steps show parts of it.</li>
+<li>Select the mesh, <strong>Filters › Common › Threshold</strong>: <strong>Scalars</strong> <code>ElementBlock</code>, <strong>Lower</strong> 50.
+This keeps the inclusions’ blocks. <strong>Solid color</strong> a red, <strong>Representation</strong> <em>Surface With
+Edges</em>.</li>
+<li>Select the mesh again, <strong>Filters › Mesh › Extract Set</strong>, <strong>Set name</strong> <code>x-</code>; grey, <em>Surface With
+Edges</em>. Do the same for <code>y+</code> and <code>z-</code>: three walls of the box.</li>
+<li>The inclusions and the three walls show together. Frame, <strong>File › Animation…</strong>, <strong>Orbit
+360°</strong>.</li>
+</ol>
+<pre><code class="language-python">m = afx.inclusion_mesh(count=8, radius=0.075, cells=24, seed=7); m.hide()
+incl = m.threshold(array="ElementBlock", lower=50)
+incl.set(color_by=None, solid_color=(0.85, 0.35, 0.25),
+         representation="Surface With Edges", edge_color=(0.15, 0.05, 0.05))
+for name in ("x-", "y+", "z-"):
+    w = m.extract_set(set=name)
+    w.set(color_by=None, solid_color=(0.78, 0.8, 0.84),
+          representation="Surface With Edges", edge_color=(0.35, 0.37, 0.42))
+afx.view([1.0, -0.7, 0.6], up=[0, 0, 1]); afx.reset_camera()
+afx.save_animation("hex_mesh.mp4", fps=20, orbit=80)
+</code></pre>
+<p>More in <a href="#inclusion-mesh">Geometry and meshing</a>.</p>
+<h2 id="rendering-a-volume"><a class="header" href="#rendering-a-volume">Rendering: a volume</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_volume.jpg" alt="A volume drawn with the Inferno color map"><span class="img-wrapper"><img src="images/sample_volume.jpg" alt="A volume drawn with the Inferno color map"></span></label></p>
+<ol>
+<li><strong>File › Open…</strong> <code>testdata/wavelet.vti</code>.</li>
+<li><strong>Representation</strong> <em>Volume</em>, <strong>Color by</strong> <code>RTData</code>, color map <em>Inferno</em>. Set <strong>Transparent
+below</strong> to 0.45 so the low values are clear.</li>
+<li><strong>Iso</strong>, <strong>Fit</strong>, <strong>File › Animation…</strong>, <strong>Orbit 360°</strong>.</li>
+</ol>
+<pre><code class="language-python">w = afx.load("testdata/wavelet.vti")
+w.set(representation="Volume", color_by="RTData", cmap="Inferno", volume_threshold=0.45)
+afx.view("iso"); afx.reset_camera()
+afx.save_animation("volume.mp4", fps=20, orbit=80)
+</code></pre>
+<h2 id="making-all-of-them-again"><a class="header" href="#making-all-of-them-again">Making all of them again</a></h2>
+<p>In a checkout of the repository with the release program built, <code>scripts/site/media.sh</code> runs
+every script in <code>scripts/site/media/</code> and writes the clips and their first frames into
+<code>site/media/</code>; <code>scripts/site/media.sh flow</code> makes one. The two examples that run a solver first
+(<code>examples/phase_field/cahn_hilliard.py</code>, <code>examples/grain_growth/potts.py</code>) take a few seconds
+each with plain Python and NumPy.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="file-formats"><a class="header" href="#file-formats">File formats</a></h1>
 <p>Every reader was checked against a reference implementation: the same points, cells, bounds

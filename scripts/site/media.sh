@@ -25,6 +25,8 @@ for name in "${names[@]}"; do
   for i in $(seq 1 "${MEDIA_WAIT:-600}"); do [ -f "$mp4" ] && break; sleep 1; done
   sleep 2; pkill -x aurafx 2>/dev/null; sleep 0.5
   if [ -f "$mp4" ]; then
+    # The first frame is also the picture of this example in the guide's Sample pipelines chapter.
+    [ -f "$out/$name.jpg" ] && cp "$out/$name.jpg" "$root/docs/userguide/src/images/sample_$name.jpg"
     echo "$name: $(du -h "$mp4" | cut -f1)"
   else
     echo "$name: FAILED"; tail -5 "$tmp/$name.log"

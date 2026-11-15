@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-ai"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "flate2",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-android"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "aurafx-app",
  "eframe",
@@ -471,7 +471,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-app"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-ai",
@@ -509,6 +509,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "webbrowser",
  "wgpu",
  "winresource",
  "zeromq",
@@ -516,7 +517,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-cad"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-data",
@@ -532,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-crystal"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "rayon",
  "serde_json",
@@ -540,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-data"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "half",
@@ -553,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-filters"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-cad",
@@ -573,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-gpu"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-data",
@@ -585,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-io"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-crystal",
@@ -613,14 +614,14 @@ dependencies = [
 
 [[package]]
 name = "aurafx-ios"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "aurafx-app",
 ]
 
 [[package]]
 name = "aurafx-jobs"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "parking_lot",
@@ -631,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-mesh"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-data",
@@ -643,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-pipeline"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-cad",
@@ -666,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-plugin"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "aurafx-data",
  "postcard",
@@ -676,14 +677,14 @@ dependencies = [
 
 [[package]]
 name = "aurafx-plugin-example"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "aurafx-plugin",
 ]
 
 [[package]]
 name = "aurafx-python"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-cad",
@@ -703,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-render"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-data",
@@ -725,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "aurafx-server"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "aurafx-data",
@@ -6113,6 +6114,22 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webbrowser"
+version = "1.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73e91ccd4698f2647d6137e8eb17a3f1dcfd63810be9029fb2398f507279b95b"
+dependencies = [
+ "jni",
+ "log",
+ "ndk-context",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "url",
+ "web-sys",
 ]
 
 [[package]]

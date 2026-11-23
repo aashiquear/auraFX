@@ -579,9 +579,14 @@ EBSD reader gives: `FeatureIds`, `Phases` and `EulerAngles` per cell, and
 `CrystalStructures`. Every filter in this chapter therefore works on them, and Overlay Mesh
 turns them into a mesh. A fixed **Random seed** gives the same microstructure every time.
 
+They are types of **Sources › Synthetic Microstructure**: the window lists them under *Grains
+and polycrystals*, beside grains by nucleation and growth, dead leaves mosaics and the
+particle, fibre, foam and lattice types of [Synthetic microstructures](synthetic-microstructures.md).
+Choosing a type shows its standard settings; see [The window](synthetic-microstructures.md#the-window).
+
 ### Voronoi Grains
 
-**Sources › Voronoi Grains** places **Grains** seeds at random in a grid of **Cells** and
+**Sources › Synthetic Microstructure**, type **Voronoi Grains**, places **Grains** seeds at random in a grid of **Cells** and
 gives every cell to its nearest seed.
 - **Size spread** above 0 makes Laguerre grains: each seed gets a radius drawn from a
   lognormal distribution with that log-sigma, and a cell goes to the seed with the
@@ -605,7 +610,7 @@ grown = afx.voronoi_grains(cells=[64, 64, 64], grains=300, realism=0.8)
 
 ### Columnar Grains
 
-**Sources › Columnar Grains** grows the columnar grains of an additive build along Z:
+**Sources › Synthetic Microstructure**, type **Columnar Grains**, grows the columnar grains of an additive build along Z:
 - **Columns.** As many columns as fit one **Grain width** apart are alive at every height.
   Each is tilted at random (**Column tilt**) and grows to a lognormal height (**Median
   grain height**, **Height spread**).
@@ -825,7 +830,7 @@ print(st.array("ESD sigma", "field"))
 
 ### Pack Grains
 
-**Sources › Pack Grains** builds a microstructure from goal statistics.
+**Sources › Synthetic Microstructure**, type **Pack Grains**, builds a microstructure from goal statistics.
 - **Size.** Equivalent diameters are lognormal: **Size mu** and **Size sigma** describe their
   logarithms. The advanced cut-offs limit the draws to a few sigmas either side.
 - **Shape.** The aspect ratios follow beta distributions: **b/a** and **c/a**, each given as

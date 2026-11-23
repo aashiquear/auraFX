@@ -2,6 +2,10 @@
 //! lets the user insert it as it is, or change its basic settings first (sizes, counts, resolution;
 //! for a CAD Model, the starter part and its dimensions). "Don't ask again" in the window (or in
 //! Settings) inserts sources straight away.
+//!
+//! Synthetic Microstructure is the same window with a list of types at its top (grains,
+//! particles, fibres, random fields, lattices and foams, growths, bio-inspired structures):
+//! choosing a type shows its standard settings.
 
 use crate::app::State;
 use crate::touch::FitScreen;
@@ -21,6 +25,22 @@ pub struct SourceDialog {
     pub cad_start: String,
     pub cad_dims: [f64; 3],
     pub dont_ask: bool,
+    /// Opened as Synthetic Microstructure: the window lists the types to choose from.
+    pub group: bool,
+}
+
+/// The entry of the Sources menu that opens the window with the list of microstructure types.
+pub const MICROSTRUCTURE: &str = "synthetic_microstructure";
+
+/// Open Synthetic Microstructure on a type (the first of the list when none is given).
+pub fn open_microstructure(state: &mut State, id: Option<&str>) {
+    let first = aurafx_filters::morphology::FAMILIES[0].1[0];
+    let id = id.filter(|i| aurafx_filters::morphology::is_microstructure(i)).unwrap_or(first);
+    let Some(def) = aurafx_filters::find(id) else { return };
+    state.source_dialog = SourceDialog::new(def.id).map(|mut d| {
+        d.group = true;
+        d
+    });
 }
 
 impl SourceDialog {
@@ -32,7 +52,7 @@ impl SourceDialog {
             .filter(|p| !p.advanced && !NOT_BASIC.contains(&p.key.as_str()) && !matches!(p.kind, ParamKind::Code | ParamKind::Expression))
             .map(|p| (p.clone(), p.default.clone()))
             .collect();
-        Some(Self { id, customize: false, values, cad_start: String::new(), cad_dims: [40.0, 30.0, 8.0], dont_ask: false })
+        Some(Self { id, customize: false, values, cad_start: String::new(), cad_dims: [40.0, 30.0, 8.0], dont_ask: false, group: false })
     }
 
     /// The settings that differ from the standard ones, ready for `set_param`.
@@ -70,6 +90,11 @@ fn show(v: &ParamValue) -> String {
 
 /// Open the window for a source, or insert it at once when the user asked not to be asked.
 pub fn insert_source(state: &mut State, id: &'static str) {
+    if id == MICROSTRUCTURE {
+        // A type has to be chosen: this window opens whatever the setting says.
+        open_microstructure(state, None);
+        return;
+    }
     if state.settings.ask_source_settings {
         if let Some(d) = SourceDialog::new(id) {
             state.source_dialog = Some(d);
@@ -104,13 +129,34 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
     };
     let mut open = true;
     let (mut insert, mut cancel) = (false, false);
-    egui::Window::new(format!("Add {}", def.label))
+    let group = d.group;
+    let mut chosen: Option<&'static str> = None;
+    egui::Window::new(if group { "Synthetic Microstructure".to_string() } else { format!("Add {}", def.label) })
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show_fit(ctx, |ui| {
             ui.set_max_width(420.0);
+            if group {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Type").strong());
+                    egui::ComboBox::from_id_salt("microstructure type").selected_text(def.label).width(300.0).height(420.0).show_ui(ui, |ui| {
+                        for (family, ids) in aurafx_filters::morphology::FAMILIES {
+                            ui.label(RichText::new(*family).weak().small());
+                            for id in *ids {
+                                if let Some(t) = aurafx_filters::find(id) {
+                                    if ui.selectable_label(t.id == def.id, t.label).on_hover_text(t.description).clicked() && t.id != def.id {
+                                        chosen = Some(t.id);
+                                    }
+                                }
+                            }
+                            ui.add_space(4.0);
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+            }
             ui.label(def.description);
             ui.add_space(6.0);
             let customize = state.source_dialog.as_ref().unwrap().customize;
@@ -192,6 +238,7 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                         let id = state.source_dialog.as_ref().unwrap().id;
                         state.source_dialog = SourceDialog::new(id).map(|mut d| {
                             d.customize = true;
+                            d.group = group;
                             d
                         });
                     }
@@ -199,7 +246,7 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
             }
             ui.separator();
             ui.horizontal(|ui| {
-                if let Some(d) = state.source_dialog.as_mut() {
+                if let Some(d) = state.source_dialog.as_mut().filter(|_| !group) {
                     ui.checkbox(&mut d.dont_ask, "Don't ask again (insert sources straight away)")
                         .on_hover_text("Turn it back on in Settings › General › Ask before adding a source");
                 }
@@ -208,6 +255,16 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                 }
             });
         });
+    if let Some(id) = chosen {
+        // Another type: its standard settings, in the same view (summary or settings).
+        let customize = state.source_dialog.as_ref().is_some_and(|d| d.customize);
+        state.source_dialog = SourceDialog::new(id).map(|mut d| {
+            d.group = true;
+            d.customize = customize;
+            d
+        });
+        return;
+    }
     if insert {
         let d = state.source_dialog.take().unwrap();
         if d.dont_ask {

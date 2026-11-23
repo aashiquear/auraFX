@@ -347,6 +347,20 @@ Boundaries against a brute-force distance.
   `generate_columns` (testdata/synthetic/columns_reference.json) and gives the same label
   volume voxel for voxel on two builds (34 and 56 grains, 76 800 voxels each), with the same
   grain bases.
+- The morphological models of Synthetic Microstructure are checked against what each model
+  gives in closed form (`crates/aurafx-filters/tests/morphology.rs`): overlapping spheres, discs,
+  cylinders and fibres on Poisson lines take the fraction 1 - exp(-n V) within 0.02 to 0.035 over
+  four seeds; hard spheres keep their least gap, and the dense packing reaches 0.58 without
+  overlap; penetrable spheres without a core take 1 - exp(-density); a cubic lattice of struts
+  of radius 0.15 cells takes 3 pi r^2 - 8 sqrt(2) r^3 within 0.006; the Menger sponge, the
+  Vicsek fractal and the Cantor dust take (20/27)^3, (7/27)^3 and (8/27)^3 exactly; a
+  hierarchical lattice has 1296 tubes per cell; a Delaunay network of 400 random points has
+  15.54 fibres per node within 0.5; random foam cells have 13.5 struts each within 0.6;
+  nucleation and growth stopped early follows the Johnson-Mehl-Avrami-Kolmogorov fraction
+  within 0.04, for nuclei at the start and at a constant rate; the four phases of Haversian
+  bone take the fractions of the dead leaves model within 0.02; brick nacre and hexagonal and
+  square honeycombs take their geometric fractions; the reconstruction lowers its energy fifty
+  times and matches its target two-point probability within 0.01.
 - Voronoi Grains (200 periodic grains on 60³ cells) has 15.0 neighbours per grain on average
   against 15.5 for the exact Poisson-Voronoi tessellation (the voxels hide the smallest
   faces), and a log-sigma of the diameters of 0.14 (volume coefficient of variation 0.42).

@@ -284,7 +284,7 @@ fn vec_param(key: &str, label: &str) -> ParamSpec {
         ParamValue::Array { assoc: Association::Points, name: String::new() },
     )
 }
-fn f(key: &str, label: &str, default: f64, min: f64, max: f64) -> ParamSpec {
+pub(crate) fn f(key: &str, label: &str, default: f64, min: f64, max: f64) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Float { min, max, log: false }, ParamValue::Float(default))
 }
 pub(crate) fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> ParamSpec {
@@ -293,10 +293,10 @@ pub(crate) fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> Par
 fn v3(key: &str, label: &str, default: [f64; 3]) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Vec3, ParamValue::Vec3(default))
 }
-fn b(key: &str, label: &str, default: bool) -> ParamSpec {
+pub(crate) fn b(key: &str, label: &str, default: bool) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Bool, ParamValue::Bool(default))
 }
-fn choice(key: &str, label: &str, opts: &[&str], default: &str) -> ParamSpec {
+pub(crate) fn choice(key: &str, label: &str, opts: &[&str], default: &str) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Choice(opts.iter().map(|s| s.to_string()).collect()), ParamValue::Str(default.into()))
 }
 pub(crate) fn s(key: &str, label: &str, default: &str) -> ParamSpec {
@@ -6136,7 +6136,7 @@ fn table() -> &'static RwLock<Arc<Vec<Arc<FilterDef>>>> {
         // The CAD readers (STEP, IGES, 3MF, .sc, .afxcad) join aurafx-io's reader table, so
         // `import 'part.step'` in geometry commands and every other reader caller reads them.
         crate::cad::register_readers();
-        RwLock::new(Arc::new(build().into_iter().map(Arc::new).collect()))
+        RwLock::new(Arc::new(build().into_iter().chain(crate::morphology::defs::defs()).map(Arc::new).collect()))
     })
 }
 

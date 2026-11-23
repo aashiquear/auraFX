@@ -320,7 +320,7 @@ afx.save_animation("terrain.mp4", fps=20, orbit=80)
 
 No file. The same chain works on a 3D EBSD volume in place of the synthetic grains.
 
-1. **Sources › Voronoi Grains**: **Cells** 40 × 40 × 40, **Grains** 60.
+1. **Sources › Synthetic Microstructure**, type **Voronoi Grains**, **Change settings first…**: **Cells** 40 × 40 × 40, **Grains** 60.
 2. **Filters › Grains › Quick Surface Mesh** makes triangles on every face between two grains.
 3. **Filters › Grains › Smooth Boundaries**, **Iterations** 20, takes the stair steps out.
 4. **Filters › Grains › Face Orientation Colors** colors each triangle by the crystal direction

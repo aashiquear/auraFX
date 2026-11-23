@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
+            window.path_to_searchindex_js = "searchindex-2b08cded.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8b305462.js"></script>
+        <script src="toc-ec50e088.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -677,8 +677,12 @@ print(ch.array("MeanChordX", "field"))
 EBSD reader gives: <code>FeatureIds</code>, <code>Phases</code> and <code>EulerAngles</code> per cell, and
 <code>CrystalStructures</code>. Every filter in this chapter therefore works on them, and Overlay Mesh
 turns them into a mesh. A fixed <strong>Random seed</strong> gives the same microstructure every time.</p>
+<p>They are types of <strong>Sources › Synthetic Microstructure</strong>: the window lists them under <em>Grains
+and polycrystals</em>, beside grains by nucleation and growth, dead leaves mosaics and the
+particle, fibre, foam and lattice types of <a href="synthetic-microstructures.html">Synthetic microstructures</a>.
+Choosing a type shows its standard settings; see <a href="synthetic-microstructures.html#the-window">The window</a>.</p>
 <h3 id="voronoi-grains"><a class="header" href="#voronoi-grains">Voronoi Grains</a></h3>
-<p><strong>Sources › Voronoi Grains</strong> places <strong>Grains</strong> seeds at random in a grid of <strong>Cells</strong> and
+<p><strong>Sources › Synthetic Microstructure</strong>, type <strong>Voronoi Grains</strong>, places <strong>Grains</strong> seeds at random in a grid of <strong>Cells</strong> and
 gives every cell to its nearest seed.</p>
 <ul>
 <li><strong>Size spread</strong> above 0 makes Laguerre grains: each seed gets a radius drawn from a
@@ -699,7 +703,7 @@ grown = afx.voronoi_grains(cells=[64, 64, 64], grains=300, realism=0.8)
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/voronoi_grains.png" alt="Laguerre grains colored by the inverse pole figure key"><span class="img-wrapper"><img src="images/voronoi_grains.png" alt="Laguerre grains colored by the inverse pole figure key"></span></label></p>
 <h3 id="columnar-grains"><a class="header" href="#columnar-grains">Columnar Grains</a></h3>
-<p><strong>Sources › Columnar Grains</strong> grows the columnar grains of an additive build along Z:</p>
+<p><strong>Sources › Synthetic Microstructure</strong>, type <strong>Columnar Grains</strong>, grows the columnar grains of an additive build along Z:</p>
 <ul>
 <li><strong>Columns.</strong> As many columns as fit one <strong>Grain width</strong> apart are alive at every height.
 Each is tilted at random (<strong>Column tilt</strong>) and grows to a lognormal height (<strong>Median
@@ -892,7 +896,7 @@ table.</p>
 print(st.array("ESD sigma", "field"))
 </code></pre>
 <h3 id="pack-grains"><a class="header" href="#pack-grains">Pack Grains</a></h3>
-<p><strong>Sources › Pack Grains</strong> builds a microstructure from goal statistics.</p>
+<p><strong>Sources › Synthetic Microstructure</strong>, type <strong>Pack Grains</strong>, builds a microstructure from goal statistics.</p>
 <ul>
 <li><strong>Size.</strong> Equivalent diameters are lognormal: <strong>Size mu</strong> and <strong>Size sigma</strong> describe their
 logarithms. The advanced cut-offs limit the draws to a few sigmas either side.</li>
@@ -1189,7 +1193,7 @@ source tree) list the comparisons.</li>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="geometry.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="synthetic-microstructures.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -1203,7 +1207,7 @@ source tree) list the comparisons.</li>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="geometry.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="synthetic-microstructures.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

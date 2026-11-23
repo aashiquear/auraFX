@@ -5,6 +5,7 @@ pub mod interp;
 pub mod mesh_sets;
 pub mod micro_extra;
 pub mod molecule;
+pub mod morphology;
 pub mod params;
 pub mod registry;
 pub mod simplex;

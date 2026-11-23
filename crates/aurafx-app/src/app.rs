@@ -2780,8 +2780,18 @@ impl eframe::App for AuraApp {
                     self.state.server.open = true;
                 }
                 // "source_dialog <id>": the window that adds a source (its standard or changed settings).
+                // "source_dialog synthetic_microstructure [id] [settings]": the same window with the
+                // list of microstructure types, on a type, showing its settings to change.
                 "source_dialog" => {
-                    if let Some(def) = aurafx_filters::find(arg.trim()).filter(|d| d.is_source) {
+                    let mut words = arg.split_whitespace();
+                    let first = words.next().unwrap_or("");
+                    if first == crate::source_dialog::MICROSTRUCTURE {
+                        let rest: Vec<&str> = words.collect();
+                        crate::source_dialog::open_microstructure(&mut self.state, rest.iter().copied().find(|w| *w != "settings"));
+                        if let Some(d) = self.state.source_dialog.as_mut() {
+                            d.customize = rest.contains(&"settings");
+                        }
+                    } else if let Some(def) = aurafx_filters::find(first).filter(|d| d.is_source) {
                         self.state.source_dialog = crate::source_dialog::SourceDialog::new(def.id);
                     }
                 }

@@ -290,6 +290,7 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
   - [x] G4a: Voronoi/Laguerre grains, columnar AM grains, Add Orientation Noise, Jumble Orientations, Generate Ensemble Statistics.
   - [x] G4b: Pack Grains (goal statistics, four shapes, matrix phase, calibration), Pack Like, Insert Precipitates, Match Crystallography.
   - [x] G4c: Orientation Gradient (a turn along the build direction, a smooth spread and sub-grain cells inside each grain) and Grain Realism (boundary relaxation, coarsening, roughness; competitive growth, layers and fine grains for columnar grains), as filters and as settings of the synthetic sources; the gradient also in plane (every grain turned across itself).
+  - [x] G4d: Synthetic Microstructure, one entry of the Sources menu whose window lists every synthetic type with its standard settings: the three grain sources and 35 morphological models (grains by nucleation and growth, dead leaves; overlapping, penetrable, hard and clustered spheres; overlapping, endless, curved, hard, bending and cross-linked fibres, Delaunay networks, laminates; Gaussian fields, transparent leaves, reconstruction from a two-point statistic; triply periodic surfaces, strut lattices, disordered and hierarchical lattices, fractal sponges, open-cell and level-set foams, scale-rich networks; cellular automata, activator-inhibitor and reaction-diffusion patterns, aggregation, pipe networks, branching trees; nacre, twisted plywood, honeycombs and wood, Haversian bone), with the filters Coat Phase and Combine Microstructures.
 - [x] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [x] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
 - [x] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
@@ -499,7 +500,10 @@ that goes through every clip of the project page step by step; the project page.
 
 **Grain workbench (section 11), geometry and meshing (section 12), CAD (section 13).** Complete
 as listed in those sections, including orientation gradients along the build direction and in
-plane, and realistic synthetic grains.
+plane, and realistic synthetic grains. Sources › Synthetic Microstructure gathers every
+synthetic type in one window: the grain sources and 35 morphological models of particles,
+fibres, random fields, lattices, foams, growths and bio-inspired structures, each starting from
+standard settings.
 
 ### Open
 
@@ -523,6 +527,12 @@ plane, and realistic synthetic grains.
 - **Synthetic grains:** boundaries are all alike (no dependence on misorientation), a grain cut
   in two keeps one id, the layer model has no melt-pool shape, and Pack Grains has no realism
   setting of its own (the Grain Realism filter works on its output).
+- **Synthetic microstructures:** the models are images of cells (no exact description of the
+  spheres, fibres and cells to mesh from at another resolution); automata and reaction-diffusion
+  run on the cubic grid only (no hexagonal or quasi-periodic tilings); the scale-rich networks
+  have no polarized or graded nucleation; the reconstruction matches the two-point probability
+  of a model medium, not yet the statistics of a measured image; planar Delaunay networks,
+  stealthy hyperuniform seeds for the tessellations and polarized tile assemblies are not there.
 - **Touch:** the real keyboard height on iOS (a share of the screen is kept free instead) and
   composed text input on Android.
 

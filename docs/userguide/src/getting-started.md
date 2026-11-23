@@ -136,7 +136,12 @@ resolution, a mesh's sizes, a CAD Model's 40 × 30 × 8 mm plate) with two choic
 Tick **Don't ask again** to insert sources straight away; **Settings › Ask before adding a
 source** turns the window back on. Sources added from Python (`afx.sphere(radius=2)`) never ask.
 
-![Adding a source: the standard settings of a Columnar Mesh, and the button to change them first](images/source_dialog.png)
+![Adding a source: the standard settings of a Box Mesh, and the button to change them first](images/source_dialog.png)
+
+One entry of the menu stands for many sources: **Synthetic Microstructure…** opens the same
+window with a **Type** list at its top (grains, particles, fibres, foams, lattices and more).
+Choosing a type shows its standard settings; see
+[Synthetic microstructures](synthetic-microstructures.md).
 
 ## Saving your work
 

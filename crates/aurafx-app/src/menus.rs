@@ -122,11 +122,27 @@ pub fn filter_menu_for(ui: &mut Ui, info: Option<&aurafx_data::DataSetInfo>, kee
     picked
 }
 
-/// The sources, each once, in registry order. Returns the id of the one clicked.
+/// The sources, each once, in registry order. Returns the id of the one clicked. The synthetic
+/// microstructures (grains, particles, fibres, foams, lattices...) are one entry, Synthetic
+/// Microstructure, where the first of them stands: it returns
+/// [`crate::source_dialog::MICROSTRUCTURE`], and the window it opens lists the types.
 pub fn source_menu(ui: &mut Ui) -> Option<&'static str> {
     let defs = aurafx_filters::registry();
     let mut picked = None;
+    let mut grouped = false;
     for f in defs.iter().filter(|f| f.is_source) {
+        if aurafx_filters::morphology::is_microstructure(f.id) {
+            if !grouped {
+                grouped = true;
+                let types: usize = aurafx_filters::morphology::FAMILIES.iter().map(|(_, ids)| ids.len()).sum();
+                let hint = format!("Grains, particles, fibres, random fields, lattices, foams, growths and bio-inspired structures: {types} types to choose from, each with its standard settings.");
+                if ui.button("Synthetic Microstructure…").on_hover_text(hint).clicked() {
+                    ui.close();
+                    picked = Some(crate::source_dialog::MICROSTRUCTURE);
+                }
+            }
+            continue;
+        }
         if ui.button(format!("{}…", f.label)).on_hover_text(f.description).clicked() {
             ui.close();
             picked = Some(f.id);
@@ -138,6 +154,22 @@ pub fn source_menu(ui: &mut Ui) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_microstructure_type_is_a_source_with_its_own_label() {
+        let mut labels = Vec::new();
+        for (_, ids) in aurafx_filters::morphology::FAMILIES {
+            for id in *ids {
+                let def = aurafx_filters::find(id).unwrap_or_else(|| panic!("no source {id}"));
+                assert!(def.is_source, "{id}");
+                labels.push(def.label);
+            }
+        }
+        let n = labels.len();
+        labels.sort();
+        labels.dedup();
+        assert_eq!(labels.len(), n);
+    }
 
     #[test]
     fn every_category_and_every_filter_appears_once() {

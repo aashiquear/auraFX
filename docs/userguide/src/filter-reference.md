@@ -1684,6 +1684,33 @@ Python: `chord_lengths` · also found by: chord length, linear intercept, grain 
 | Phases | `phases` | array | (the active array) | *advanced* Empty: Phases. |
 | Mask | `mask` | array | (the active array) | *advanced* Points where this array is 0 are left out. |
 
+### Coat Phase
+
+A layer of a new phase around a phase of a microstructure, or just inside it: coatings and interphases around particles and fibres, hollow spheres, tubes and struts.
+
+Python: `coat_phase` · also found by: coating, interphase, shell, core-shell, hollow, dilate phase, layer around particles
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Phases | `phases` | array | (the active array) | *advanced* Empty: Phases. |
+| Phase to coat | `phase` | whole number 0 to 1000000 | 2 |  |
+| Thickness | `thickness` | number 0 to ∞ | 2 |  |
+| Side | `side` | Outside / Inside | `Outside` | Outside: a coating around the phase. Inside: a shell, the outer layer of the phase itself. |
+| Number of the new phase (0: the next free one) | `new_phase` | whole number 0 to 1000000 | 0 | *advanced* |
+| Through periodic faces | `periodic` | on/off | off | On when the microstructure was made periodic. |
+
+### Combine Microstructures
+
+Two microstructures on the same grid combined through a phase of each: union, intersection, difference, the second as inclusions over the first, or the second inside the phase of the first.
+
+Python: `combine_microstructures` · also found by: union, intersection, difference, nested, inclusions in a matrix, boolean operation, combine phases, multiscale
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Operation | `operation` | Union / Intersection / Difference / Inclusions over the first / Second inside the first | `Union` |  |
+| Phase of the first | `phase` | whole number 0 to 1000000 | 2 |  |
+| Phase of the second | `second_phase` | whole number 0 to 1000000 | 2 |  |
+
 ### Convert Orientations
 
 Convert orientations between Euler angles, quaternions, orientation matrices, axis-angle, Rodrigues and homochoric vectors, optionally reduced to the fundamental zone.
@@ -2734,6 +2761,62 @@ Python: `amr_gaussian_pulse` · also found by: amr, adaptive mesh refinement, le
 | Pulse width | `pulse_width` | x, y, z | (0.5, 0.5, 0.5) |  |
 | Pulse amplitude | `pulse_amplitude` | number -∞ to ∞ | 0.5 |  |
 
+### Activator-Inhibitor Pattern
+
+Spots, stripes and labyrinths from short-range activation and longer-range inhibition between cells; the volume fraction chooses between them.
+
+Python: `activator_inhibitor_pattern` · also found by: turing pattern, activator inhibitor, spots, stripes, labyrinth, morphogenesis, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Activation radius | `activation` | number 0.000000001 to ∞ | 3 |  |
+| Inhibition radius | `inhibition` | number 0.000000001 to ∞ | 7 |  |
+| Volume fraction | `fraction` | number 0 to 1 | 0.35 | Low: spots. Near one half: stripes and labyrinths. |
+| Steps | `steps` | whole number 0 to 10000 | 15 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Aggregation Cluster
+
+Aggregates grown one cell at a time: diffusion-limited (branched, fractal), Eden (compact with a rough surface) or ballistic (porous deposits); from seeds in the box or as a deposit on its base.
+
+Python: `aggregation_cluster` · also found by: dla, diffusion-limited aggregation, eden, ballistic deposition, fractal cluster, soot, colloid, deposit, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Process | `process` | Diffusion-limited / Eden growth / Ballistic | `Diffusion-limited` |  |
+| Grown from | `geometry` | Clusters / Deposit on the base | `Clusters` |  |
+| Seeds | `seeds` | whole number 1 to 1000000 | 20 |  |
+| Volume fraction | `fraction` | number 0 to 1 | 0.08 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Bending Fibres
+
+Long bending fibres packed without overlap to high volume fractions: each fibre is a random walk that keeps near its main direction, and the fibres push one another apart until they no longer overlap.
+
+Python: `bending_fibres` · also found by: random walk, von mises-fisher, force-biased packing, glass fibre, fibers, dense fibre packing, contact, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 2 |  |
+| Length along the fibre | `length` | number 0 to ∞ | 40 |  |
+| Directions | `directions` | Isotropic / Along Z / In the XY plane / Beta law about Z / Girdle about the XY plane | `Isotropic` |  |
+| Beta, or girdle spread (degrees) | `direction_shape` | number 0 to 1000 | 1 | *advanced* For the beta law: 1 is isotropic, towards 0 the fibres line up with Z, large values lay them in the XY plane. For the girdle: the spread of the angle from the XY plane, in degrees. |
+| Hold to the main direction | `kappa_main` | number 0 to 10000 | 10 | How closely each step of the walk follows the main direction of its fibre (0: not at all). |
+| Hold to the previous step | `kappa_step` | number 0 to 10000 | 100 | How closely each step follows the one before: high values give smooth, stiff fibres. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.25 |  |
+| Packing sweeps at most | `sweeps` | whole number 0 to 100000 | 400 | *advanced* |
+| Draw into contact within | `contact_distance` | number 0 to ∞ | 0 | *advanced* Above 0, fibres nearer than this to one another are pulled until they touch. |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### Box
 
 An axis-aligned box.
@@ -2760,6 +2843,26 @@ Python: `box_mesh` · also found by: hex mesh, structured mesh, block, brick mes
 | Small intervals at | `cluster` | Start / End / Both | `Start` |  |
 | Element | `element` | HEX8 / HEX20 / HEX27 | `HEX8` |  |
 
+### Branching Network
+
+A branching tree grown towards points scattered in the box (vessels, roots, corals), its radii thickening from the tips to the root. The radius of each branch is kept as an array.
+
+Python: `branching_network` · also found by: space colonization, vascular tree, murray's law, roots, coral, dendritic, blood vessels, tree, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Points to reach | `attractors` | whole number 1 to 2000000 | 3000 |  |
+| Segment length | `step` | number 0.000000001 to ∞ | 1.5 |  |
+| Reach of a point (0: any distance) | `influence` | number 0 to ∞ | 0 | *advanced* |
+| A point is reached within (0: two segments) | `kill` | number 0 to ∞ | 0 | *advanced* |
+| Roots | `roots` | whole number 1 to 1000 | 1 |  |
+| First root at | `root` | Middle of the base / Centre of the box | `Middle of the base` |  |
+| Radius at the tips | `tip_radius` | number 0.000000001 to ∞ | 0.6 |  |
+| Branching exponent | `exponent` | number 0.5 to 10 | 3 | The radius r of a branch and those of its children: r^n is the sum of theirs. 3 for vessels (least work of the flow), 2 for plants (the area is kept). |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### CAD Model
 
 A parametric part: sketches, features and parameters that rebuild the solid when a dimension changes, with named faces. Change a dimension from Properties or Python without opening the CAD environment.
@@ -2785,6 +2888,45 @@ Python: `cell_grid` · also found by: cell grid, dg, discontinuous galerkin, hcu
 | Setting | Python | Takes | Default | |
 |---|---|---|---|---|
 | Cell type | `cell_type` | Hexahedron / Tetrahedron / Pyramid / Wedge / Quadrilateral / Triangle / Edge / Vertex | `Hexahedron` |  |
+
+### Cellular Automaton Structure
+
+A two-phase structure grown by a cellular automaton from random cells: annealing coarsens the noise into two interwoven phases; majority rules and any rule of births and survivals are there too.
+
+Python: `cellular_automaton_structure` · also found by: cellular automaton, vichniac, annealing rule, majority rule, life-like, bicontinuous, coarsening, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Rule | `rule` | Annealing / Majority / Majority at a constant fraction / Births and survivals | `Annealing` |  |
+| Neighbours | `neighbours` | Faces, edges and corners / Faces | `Faces, edges and corners` |  |
+| Steps | `steps` | whole number 0 to 100000 | 40 |  |
+| Live cells at the start (fraction) | `initial_fraction` | number 0 to 1 | 0.5 |  |
+| Births (live neighbours) | `births` | text | `14-26` | *advanced* For the rule of births and survivals: a dead cell comes alive with this many live neighbours (5-8, or 4, 6, 7). |
+| Survivals (live neighbours) | `survivals` | text | `13-26` | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Clustered Spheres
+
+Small particles gathered in aggregates: the aggregates are overlapping spheres, and the particles fall inside them (fillers in a rubber, particles in agglomerates). The aggregates can be a phase of their own.
+
+Python: `clustered_spheres` · also found by: cox process, aggregates, agglomerates, nanocomposite, carbon black, clusters, fillers, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Aggregate radius | `aggregate_radius` | number 0.000000001 to ∞ | 12 |  |
+| Aggregate volume fraction | `aggregate_fraction` | number 0 to 0.99 | 0.25 |  |
+| Particle radius | `radius` | number 0.000000001 to ∞ | 2.5 |  |
+| Particle fraction inside the aggregates | `local_fraction` | number 0 to 0.99 | 0.35 |  |
+| Particle fraction outside | `outside_fraction` | number 0 to 0.99 | 0 | *advanced* |
+| Particles do not overlap | `hard` | on/off | on |  |
+| Aggregates as a third phase | `aggregate_phase` | on/off | on |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Columnar Grains
 
@@ -2831,6 +2973,52 @@ Python: `cone` · also found by: shape
 | Radius | `radius` | number 0 to ∞ | 0.5 |  |
 | Resolution | `resolution` | whole number 3 to 1024 | 32 |  |
 
+### Cross-Linked Fibres
+
+Entangled straight fibres bonded where they touch: a fraction of the contacts carries a cross-link, a ball of a third phase (moulded fibre networks bonded by a resin).
+
+Python: `cross_linked_fibres` · also found by: entangled, cross-links, contacts, bonded fibres, epoxy, fibers, network, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | off | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 1.5 |  |
+| Length (0: fibres without ends) | `length` | number 0 to ∞ | 0 | 0: the fibres cross the whole box, which is then not periodic. |
+| Directions | `directions` | Isotropic / Along Z / In the XY plane / Beta law about Z / Girdle about the XY plane | `Girdle about the XY plane` |  |
+| Beta, or girdle spread (degrees) | `direction_shape` | number 0 to 1000 | 20 | *advanced* For the beta law: 1 is isotropic, towards 0 the fibres line up with Z, large values lay them in the XY plane. For the girdle: the spread of the angle from the XY plane, in degrees. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.085 |  |
+| Contacts with a cross-link (fraction) | `bonded` | number 0 to 1 | 0.5 |  |
+| Cross-link radius | `link_radius` | number 0 to ∞ | 3 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Curved Fibres
+
+Curved fibres: chains that forget their direction along their length, arcs of circles or helices; overlapping, or placed one after another without overlap; solid or hollow.
+
+Python: `curved_fibres` · also found by: worm-like chain, persistence length, arcs, helix, crimp, nonwoven, entangled, fibers, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Shape | `shape` | Worm-like chain / Arc / Helix | `Worm-like chain` |  |
+| Radius | `radius` | number 0.000000001 to ∞ | 1.5 |  |
+| Length along the fibre | `length` | number 0 to ∞ | 60 |  |
+| Persistence length (chains) | `persistence` | number 0.000000001 to ∞ | 30 | The length over which a chain forgets its direction: short for tangled fibres, long for nearly straight ones. |
+| Radius of curvature (arcs), helix radius | `curvature_radius` | number 0 to ∞ | 30 |  |
+| Pitch (helices) | `pitch` | number 0 to ∞ | 20 | *advanced* |
+| Straight pieces per fibre | `segments` | whole number 1 to 2000 | 16 | *advanced* |
+| Directions | `directions` | Isotropic / Along Z / In the XY plane / Beta law about Z / Girdle about the XY plane | `Isotropic` |  |
+| Beta, or girdle spread (degrees) | `direction_shape` | number 0 to 1000 | 1 | *advanced* For the beta law: 1 is isotropic, towards 0 the fibres line up with Z, large values lay them in the XY plane. For the girdle: the spread of the angle from the XY plane, in degrees. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.1 |  |
+| Fibres may overlap | `overlap` | on/off | on |  |
+| Least gap (without overlap) | `gap` | number 0 to ∞ | 0.5 | *advanced* |
+| Hollow (inner radius over the radius) | `lumen` | number 0 to 0.95 | 0 | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### Cylinder
 
 A capped cylinder along Y.
@@ -2843,6 +3031,65 @@ Python: `cylinder` · also found by: tube, shape
 | Height | `height` | number 0 to ∞ | 1 |  |
 | Radius | `radius` | number 0 to ∞ | 0.5 |  |
 | Resolution | `resolution` | whole number 3 to 1024 | 32 |  |
+
+### Dead Leaves Mosaic
+
+A mosaic of grains that are not convex: spheres or spheroids fall one after another and hide what lies under them. One or several phases, an orientation for every grain, or a finite number of leaves over a background.
+
+Python: `dead_leaves_mosaic` · also found by: dead leaves, mosaic, random tessellation, non-convex grains, multiphase, synthetic microstructure, sequential
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 8 |  |
+| Radius spread (log sigma) | `radius_sigma` | number 0 to 3 | 0.3 |  |
+| Aspect ratio | `aspect` | number 0.05 to 20 | 1 | 1: spheres. Above 1 elongated spheroids, below 1 flat ones, turned at random. |
+| Phase fractions | `phase_fractions` | list of numbers | [0.5, 0.5] | The volume fraction of each phase of leaves (they are scaled to sum to 1). |
+| Radius of each phase | `phase_radii` | list of numbers | [] | *advanced* Empty: Radius for every phase. |
+| Coverage (0: until full) | `coverage` | number 0 to 50 | 0 | Above 0: as many leaves as cover a point this many times on average; the cells no leaf reached are a background, the last feature. |
+| Orientations | `orientations` | Random / <100> along Z / <111> along Z | `Random` |  |
+| Fibre spread (degrees) | `spread` | number 0 to 90 | 10 | *advanced* |
+| Crystal structure | `structure` | Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `Cubic m-3m` |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Delaunay Fibre Network
+
+A network of fibres on the edges of the Delaunay triangulation of random points, joined at every point (gels, biological networks).
+
+Python: `delaunay_fibre_network` · also found by: delaunay, network, cross-linked network, gel, collagen, fibers, beams, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Points | `points` | whole number 8 to 200000 | 200 |  |
+| Fibre radius | `radius` | number 0.000000001 to ∞ | 1.2 |  |
+| Volume fraction (0: use the radius) | `fraction` | number 0 to 0.95 | 0 |  |
+| Regularity of the points | `regularity` | number 0 to 1 | 0 | 0: points at random. Towards 1 the points keep apart, and the fibres are of more even lengths. |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Disordered Strut Lattice
+
+A lattice of struts with struts missing and nodes moved at random: how a lattice loses its stiffness with its connectivity. The mean number of struts per node and Maxwell's count are kept with the result.
+
+Python: `disordered_strut_lattice` · also found by: random lattice, missing struts, defects, rigidity, maxwell, coordination, truss, perturbed lattice, metamaterial
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Cell | `cell` | Cubic / Body-centred cubic / Face-centred cubic / Octet / Kelvin / Diamond | `Octet` |  |
+| Cell size of the lattice | `cell_size` | number 0.000000001 to ∞ | 16 | The lattice is periodic when the box holds a whole number of cells. |
+| Volume fraction (0: use the radius) | `fraction` | number 0 to 0.95 | 0 |  |
+| Strut radius | `radius` | number 0.000000001 to ∞ | 1.2 |  |
+| Wall thickness (0: solid struts) | `wall` | number 0 to ∞ | 0 |  |
+| Struts per node (0: all) | `coordination` | number 0 to 100 | 7 | Struts are removed at random until a node keeps this many on average. |
+| Node displacement (fraction of the cell) | `perturbation` | number 0 to 0.5 | 0.1 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Dog-bone Mesh
 
@@ -2883,6 +3130,36 @@ Python: `face_mesh` · also found by: pave, paving, quad mesh, 2d mesh, triangul
 | Smallest size | `min` | number 0 to ∞ | 0 | *advanced* |
 | Largest size (0 = no limit) | `max` | number 0 to ∞ | 0 | *advanced* |
 
+### Fractal Sponge
+
+A fractal on a cubic grid: the Menger sponge, the Vicsek fractal or the Cantor dust, to a number of levels. The solid fraction and the fractal dimension are kept with the result.
+
+Python: `fractal_sponge` · also found by: menger, vicsek, cantor dust, fractal, self-similar, iterated function system, sierpinski
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [81.0, 81.0, 81.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Pattern | `pattern` | Menger sponge / Vicsek fractal / Cantor dust | `Menger sponge` |  |
+| Levels | `level` | whole number 0 to 12 | 3 |  |
+| Size of the fractal | `cell_size` | number 0.000000001 to ∞ | 81 | The edge of the cube that is cut; the grid shows it best with 3 to the power of the levels cells (or a multiple) along it. |
+
+### Gaussian Field Medium
+
+A smooth random field cut at a level: two interwoven phases with rounded shapes (porous media, phase-separated blends). The level follows from the volume fraction.
+
+Python: `gaussian_field_medium` · also found by: gaussian random field, excursion set, level cut, bicontinuous, spinodal, porous medium, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Correlation length | `length` | number 0.000000001 to ∞ | 8 | The distance over which the field loses its memory: the size of the features. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.4 |  |
+| Solid | `kind` | One side of a level / Between two levels | `One side of a level` | Between two levels: sheets that follow the mean level of the field. |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### Geometry
 
 Solids built from geometry commands (primitives, booleans, extruded, revolved or swept outlines, imported surfaces), with named faces.
@@ -2895,6 +3172,102 @@ Python: `geometry` · also found by: cad, csg, solid, brick, cylinder, boolean, 
 | Resolution | `resolution` | whole number 8 to 1024 | 64 | Cells along the longest side of each body when drawing its surface. |
 | Output | `output` | Surface / Distance field / Hex mesh / Tet mesh | `Surface` | Surface: the bodies' surfaces with BodyId and FaceId. Distance field: the signed distance to the nearest body on a grid. Hex mesh: the hexahedral mesh of the bodies named by 'mesh body' commands. Tet mesh: their tetrahedral mesh. |
 | Snap to the surface | `project` | on/off | on | *advanced* Move the drawn points onto the exact surface. |
+
+### Hard Fibres
+
+Straight fibres with round ends that do not overlap, placed one after another at random with a least gap between them: short-fibre composites.
+
+Python: `hard_fibres` · also found by: random sequential addition, rsa, spherocylinders, short fibre composite, fibers, non-overlapping, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 2 |  |
+| Length of the straight part | `length` | number 0 to ∞ | 24 |  |
+| Directions | `directions` | Isotropic / Along Z / In the XY plane / Beta law about Z / Girdle about the XY plane | `Isotropic` |  |
+| Beta, or girdle spread (degrees) | `direction_shape` | number 0 to 1000 | 1 | *advanced* For the beta law: 1 is isotropic, towards 0 the fibres line up with Z, large values lay them in the XY plane. For the girdle: the spread of the angle from the XY plane, in degrees. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.12 |  |
+| Least gap | `gap` | number 0 to ∞ | 0.5 |  |
+| Hollow (inner radius over the radius) | `lumen` | number 0 to 0.95 | 0 | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Hard Spheres
+
+Spheres that do not overlap: placed one after another at random (up to a fraction near 0.38), or packed densely by growing them while pushing them apart (up to about 0.6).
+
+Python: `hard_spheres` · also found by: random sequential addition, rsa, packing, dense random packing, inclusions, composite, synthetic microstructure, particles, non-overlapping
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 6 |  |
+| Radius spread (log sigma) | `radius_sigma` | number 0 to 3 | 0 |  |
+| Volume fraction | `fraction` | number 0 to 1 | 0.3 |  |
+| Least gap | `gap` | number 0 to ∞ | 0.5 | No two spheres come nearer than this. |
+| Method | `method` | Random sequential addition / Dense packing | `Random sequential addition` |  |
+| Growth per step (dense packing) | `growth_rate` | number 0.0001 to 0.2 | 0.01 | *advanced* Slower growth packs denser (and takes longer). |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Haversian Bone
+
+The cross-section of cortical bone: osteons with a canal on their axis and a cement line around them, each laid over the older ones, with interstitial bone between them. The fractions the model gives exactly are kept with the result.
+
+Python: `haversian_bone` · also found by: osteons, cortical bone, haversian canal, cement line, bone remodelling, dead leaves, bio-inspired, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [192.0, 192.0, 4.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Osteon radius | `radius` | number 0.000000001 to ∞ | 20 |  |
+| Radius standard deviation | `radius_sd` | number 0 to ∞ | 3 |  |
+| Area covered by osteons | `coverage` | number 0 to 0.999 | 0.65 |  |
+| Canal radius over the osteon radius | `canal` | number 0 to 0.9 | 0.2 |  |
+| Cement line thickness | `cement` | number 0 to ∞ | 1.5 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Hierarchical Lattice
+
+A lattice whose struts are themselves frames: columns of octahedra made of tubes, solid or hollow, on the octet truss (and the cube edges), over one or two generations.
+
+Python: `hierarchical_lattice` · also found by: hierarchical, frames of frames, octahedra, hollow tubes, ultralight, truss, metamaterial, octet
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [128.0, 128.0, 128.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Cell size of the lattice | `cell_size` | number 0.000000001 to ∞ | 128 |  |
+| Generations | `generations` | whole number 0 to 2 | 1 | 0: plain struts. 1: every strut a frame of octahedra. 2: the members of those frames are frames too (needs a fine grid). |
+| Octahedra per frame | `octahedra` | whole number 1 to 20 | 3 |  |
+| Tube radius | `radius` | number 0.000000001 to ∞ | 2 |  |
+| Wall thickness (0: solid tubes) | `wall` | number 0 to ∞ | 0 |  |
+| Frames on the cube edges too | `cube_edges` | on/off | on |  |
+
+### Honeycomb
+
+Prismatic cells along Z with thin walls: hexagons, squares, random cells, or wood (rows of cells whose size and walls change through the growth rings, with rays between the rows).
+
+Python: `honeycomb` · also found by: honeycomb, hexagonal cells, prismatic, wood, softwood, growth rings, tracheids, rays, cellular solid, bio-inspired
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Cells | `arrangement` | Hexagons / Squares / Random cells / Wood | `Hexagons` |  |
+| Cell size | `cell` | number 0.000000001 to ∞ | 16 |  |
+| Wall thickness | `wall` | number 0.000000001 to ∞ | 2 |  |
+| Wood: width of a growth ring | `ring` | number 0.000000001 to ∞ | 64 | *advanced* |
+| Wood: latewood share of a ring | `latewood` | number 0 to 0.95 | 0.3 | *advanced* |
+| Wood: latewood cell size over earlywood | `latewood_size` | number 0.05 to 1 | 0.4 | *advanced* |
+| Wood: latewood wall over earlywood | `latewood_wall` | number 0.1 to 10 | 2 | *advanced* |
+| Wood: rays (volume fraction) | `rays` | number 0 to 0.9 | 0.05 | *advanced* |
+| Wood: height of a ray | `ray_height` | number 0 to ∞ | 12 | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Hyper Tree Grid
 
@@ -2957,6 +3330,27 @@ Python: `inclusion_mesh` · also found by: particles, composite, rve, inclusions
 | Core roundness | `core_roundness` | number 0 to 1 | 0.35 | *advanced* |
 | Surface spacing blend | `patch_blend` | number 0 to 1 | 0.6 | *advanced* |
 
+### Level-Set Foam
+
+A foam drawn from the distances to packed seeds: struts with three-sided sections that thicken towards the nodes, their sides hollow or bulging, in open cells or cells closed by walls; the seeds can be elongated.
+
+Python: `level_set_foam` · also found by: foam, plateau borders, level set, distance field, packed ellipsoids, closed cells, open cells, metal foam, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Seed radius (from, to) | `seed_radius` | list of numbers | [6.0, 9.0] | The short half-axis of the seeds, drawn evenly between the two values. |
+| Seed shape (Y and Z over X) | `aspect` | list of numbers | [1.0, 1.5] |  |
+| Packing of the seeds | `packing` | number 0.05 to 0.64 | 0.55 | *advanced* |
+| Volume fraction | `fraction` | number 0 to 1 | 0.2 |  |
+| Curvature of the strut sides | `curvature` | number -5 to 0.99 | -0.7 | Between 0 and 1: hollow sides, as in a drained liquid foam. Below 0: bulging sides. |
+| Thickening towards the nodes (c1) | `c1` | number 0 to 1000 | 50 | *advanced* The section of a strut at the position x along it (0 at mid-span, 1/2 at the nodes) is c1 x^4 + c2 x^2 + 1 times its section at mid-span. |
+| Thickening towards the nodes (c2) | `c2` | number 0 to 1000 | 1 | *advanced* |
+| Closed cells: wall over strut thickness (0: open) | `wall` | number 0 to 10 | 0 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### Line
 
 A straight polyline.
@@ -2968,6 +3362,101 @@ Python: `line` · also found by: segment
 | Point 1 | `point1` | x, y, z | (-0.5, 0, 0) |  |
 | Point 2 | `point2` | x, y, z | (0.5, 0, 0) |  |
 | Resolution | `resolution` | whole number 1 to 1000000 | 10 |  |
+
+### Nacre
+
+Brick and mortar: layers of mineral tablets in a thin mortar, the tablets square bricks shifted from layer to layer or the polygons of random points.
+
+Python: `nacre` · also found by: brick and mortar, mother of pearl, tablets, staggered, layered composite, bio-inspired, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [96.0, 96.0, 48.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Tablets | `arrangement` | Bricks / Polygons | `Bricks` |  |
+| Tablet size | `tablet_size` | number 0.000000001 to ∞ | 24 |  |
+| Tablet thickness | `tablet_thickness` | number 0.000000001 to ∞ | 8 |  |
+| Mortar thickness | `mortar` | number 0 to ∞ | 4 |  |
+| Shift from layer to layer (tablets) | `shift` | number 0 to 1 | 0.5 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Nucleation and Growth Grains
+
+Grains by nucleation and growth: nuclei appear at random, all at the start or at a constant rate, and grow at one speed until they meet. Stopped early: a partly transformed material.
+
+Python: `nucleation_growth_grains` · also found by: jmak, avrami, johnson-mehl, recrystallization, crystallization, solidification, kinetics, synthetic microstructure, polycrystal, grains
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | off | The structure continues through opposite faces of the box. |
+| Nucleation | `nucleation` | At a constant rate / All at the start | `At a constant rate` |  |
+| Nucleation rate (per volume and time) | `rate` | number 0 to ∞ | 0.00005 | For nucleation at a constant rate. |
+| Nuclei at the start | `nuclei` | whole number 1 to 1000000 | 150 | For nucleation all at the start (the grains are then Voronoi cells). |
+| Growth speed | `growth` | number 0.000000000001 to ∞ | 1 |  |
+| Stop at time (0: when full) | `time` | number 0 to ∞ | 0 | Above 0, the cells not yet reached are the last feature, of phase 2; the transformed fraction is kept with the result beside the one the kinetics law gives. |
+| Growth front | `front` | Round / Cubes / Octahedra | `Round` | Cubes and octahedra: faceted grains, the facets along the crystal axes of each grain. |
+| Orientations | `orientations` | Random / <100> along Z / <111> along Z | `Random` |  |
+| Fibre spread (degrees) | `spread` | number 0 to 90 | 10 | *advanced* |
+| Crystal structure | `structure` | Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1 | `Cubic m-3m` |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Open-Cell Foam
+
+An open-cell foam: struts on the edges of the cells of random points, the cells made even by relaxation and elongated along an axis, thicker at the nodes (metal and polymer foams, trabecular bone).
+
+Python: `open_cell_foam` · also found by: foam, voronoi edges, struts, trabecular bone, cancellous, porous, relaxed cells, lloyd, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Cells of the foam | `foam_cells` | whole number 8 to 100000 | 64 |  |
+| Volume fraction (0: use the radius) | `fraction` | number 0 to 0.9 | 0.15 |  |
+| Strut radius | `radius` | number 0.000000001 to ∞ | 1.5 |  |
+| Relaxation steps | `relaxation` | whole number 0 to 200 | 10 | Each step moves the points to the centres of their cells: more steps, more even cells. |
+| Elongation of the cells | `anisotropy` | number 0.1 to 10 | 1 |  |
+| Elongated along | `axis` | X / Y / Z | `Z` |  |
+| Node radius over the strut radius | `node_ratio` | number 1 to 5 | 1.3 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Overlapping Fibres
+
+Straight fibres of a given length at random places, free to overlap: cylinders or fibres with round ends, in any direction, along Z, in a plane or in between.
+
+Python: `overlapping_fibres` · also found by: boolean model, cylinders, spherocylinders, fibers, fibrous, nonwoven, short fibres, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 2 |  |
+| Length | `length` | number 0 to ∞ | 30 |  |
+| Directions | `directions` | Isotropic / Along Z / In the XY plane / Beta law about Z / Girdle about the XY plane | `Isotropic` |  |
+| Beta, or girdle spread (degrees) | `direction_shape` | number 0 to 1000 | 1 | *advanced* For the beta law: 1 is isotropic, towards 0 the fibres line up with Z, large values lay them in the XY plane. For the girdle: the spread of the angle from the XY plane, in degrees. |
+| Round ends | `round` | on/off | off |  |
+| Volume fraction | `fraction` | number 0 to 1 | 0.15 |  |
+| Hollow (inner radius over the radius) | `lumen` | number 0 to 0.95 | 0 | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Overlapping Spheres
+
+Spheres at random points, free to overlap (the Boolean model): porous and granular media. The number of spheres follows from the volume fraction of their union.
+
+Python: `overlapping_spheres` · also found by: boolean model, poisson, porous medium, granular, random spheres, synthetic microstructure, pores
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 6 |  |
+| Radius spread (log sigma) | `radius_sigma` | number 0 to 3 | 0 |  |
+| Volume fraction | `fraction` | number 0 to 1 | 0.3 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Pack Grains
 
@@ -2997,6 +3486,39 @@ Python: `pack_grains` · also found by: pack primary phases, synthetic microstru
 | Placement moves per grain | `moves` | whole number 0 to 100000 | 20 | *advanced* |
 | Orientation gradient (degrees per unit length) | `gradient` | number 0 to 90 | 0 | Above 0, every grain turns by this much per unit length along z, with a smooth spread of half a degree (the Orientation Gradient filter with its other settings as they come; use the filter for full control). 0: one orientation per grain. |
 | In-plane orientation gradient (degrees per unit length) | `in_plane_gradient` | number 0 to 90 | 0 | Above 0, every grain also turns by this much per unit length across itself, in the plane perpendicular to z (the Orientation Gradient filter's in-plane gradient). 0: no turn across the grain. |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Penetrable Spheres
+
+Spheres that may overlap down to a hard core (the cherry-pit model): from freely overlapping spheres (impenetrability 0) to hard spheres (1).
+
+Python: `penetrable_spheres` · also found by: cherry-pit, penetrable concentric shell, hard core, interpenetrable, synthetic microstructure, particles
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 6 |  |
+| Impenetrability | `impenetrability` | number 0 to 1 | 0.5 | The radius of the hard core over that of the sphere. |
+| Reduced density | `density` | number 0 to 10 | 0.6 | Spheres per unit volume times the volume of one: the fraction they would take without overlap. |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Pipe Network
+
+A network of pipes assembled from tiles on a cubic lattice: every tile opens towards some of its neighbours, and only tiles with an allowed number of open sides are used, so that pipes never end where they should not.
+
+Python: `pipe_network` · also found by: tile assembly, building blocks, compatible tiles, pipes, channels, network, combinatorial, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Cells per tile | `tile_cells` | whole number 2 to 1000 | 8 |  |
+| Pipe radius (tiles) | `pipe_radius` | number 0.01 to 0.5 | 0.18 |  |
+| Open sides allowed | `degrees` | list of numbers | [0.0, 2.0, 3.0, 4.0] | A tile may have this many open sides: without 1, no pipe ends in a dead end. |
+| Open sides at the start (fraction) | `open` | number 0 to 1 | 0.6 |  |
 | Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
 ### Plane
@@ -3043,6 +3565,22 @@ Python: `point_source` · also found by: random, points, seeds
 | Number of points | `count` | whole number 1 to 100000000 | 1000 |  |
 | Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
+### Poisson Line Fibres
+
+Fibres without ends: cylinders about random straight lines that cross the whole box (long-fibre mats, fibrous networks that always percolate).
+
+Python: `poisson_line_fibres` · also found by: poisson lines, infinite fibres, fibers, long fibres, fibrous network, percolation, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Radius | `radius` | number 0.000000001 to ∞ | 2.5 |  |
+| Directions | `directions` | Isotropic / Along Z / In the XY plane / Beta law about Z / Girdle about the XY plane | `Isotropic` |  |
+| Beta, or girdle spread (degrees) | `direction_shape` | number 0 to 1000 | 1 | *advanced* For the beta law: 1 is isotropic, towards 0 the fibres line up with Z, large values lay them in the XY plane. For the girdle: the spread of the angle from the XY plane, in degrees. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.16 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### Programmable Source
 
 Make data with your own Python (NumPy): assign output.
@@ -3068,6 +3606,82 @@ Python: `random_hyper_tree_grid` · also found by: htg, hyper tree grid, random,
 | Split fraction | `split_fraction` | number 0 to 1 | 0.5 | Chance that a cell is refined. |
 | Masked fraction | `masked_fraction` | number 0 to 1 | 0 | About this share of the volume is hidden (whole subtrees at a time). |
 
+### Random Laminate
+
+Layers of random thicknesses a random distance apart, with round holes through the layers or through the thinner ones only (multilayer films).
+
+Python: `random_laminate` · also found by: layers, multilayer, lamellae, nanolayered film, stack, holes, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Layer thickness | `thickness` | number 0.000000001 to ∞ | 4 |  |
+| Thickness spread (log sigma) | `thickness_sigma` | number 0 to 3 | 0.4 |  |
+| Distance between layers | `layer_spacing` | number 0.000000001 to ∞ | 8 |  |
+| Distance spread (log sigma) | `spacing_sigma` | number 0 to 3 | 0.3 |  |
+| Stacked along | `axis` | X / Y / Z | `Z` |  |
+| Holes (fraction of a layer) | `hole_fraction` | number 0 to 0.99 | 0.2 |  |
+| Hole radius | `hole_radius` | number 0 to ∞ | 5 |  |
+| Holes in the thinner layers only | `thin_only` | on/off | on |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Reaction-Diffusion Pattern
+
+Patterns of two species that diffuse and react (Gray-Scott): spots, worms, labyrinths and holes, cut at a volume fraction. The concentration is kept as an array.
+
+Python: `reaction_diffusion_pattern` · also found by: gray-scott, reaction diffusion, turing, spots, worms, labyrinth, pattern formation, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Pattern | `pattern` | Spots / Worms / Labyrinth / Holes / Custom | `Labyrinth` |  |
+| Steps | `steps` | whole number 1 to 1000000 | 3000 |  |
+| Volume fraction | `fraction` | number 0 to 1 | 0.4 |  |
+| Feed rate (Custom) | `feed` | number 0 to 0.2 | 0.034 | *advanced* |
+| Kill rate (Custom) | `kill` | number 0 to 0.2 | 0.06 | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Reconstructed Medium
+
+A two-phase medium rebuilt from a statistic alone: cells are swapped at random and the swaps kept when they bring the probability that two points a distance apart are both solid nearer to a target (simulated annealing).
+
+Python: `reconstructed_medium` · also found by: stochastic reconstruction, simulated annealing, two-point probability, correlation function, debye medium, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [40.0, 40.0, 40.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.3 |  |
+| Correlation length | `length` | number 0.000000001 to ∞ | 3 | The target falls off as exp(-distance / length). |
+| Swaps tried per cell | `sweeps` | number 0 to 10000 | 15 | More swaps come nearer to the target (and take longer). |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Scale-Rich Network
+
+Ligaments grown one after another, each thinner than the one before, from a random point of the voids until they meet a ligament or the box: thicknesses and lengths over orders of magnitude in one sample. Strips in a plane; plates or beams in space.
+
+Python: `scale_rich_network` · also found by: scale-rich, hierarchical network, power law, ligaments, sequential partition, metamaterial, plates, beams, closed cells
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [256.0, 256.0, 1.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Ligaments | `ligaments` | whole number 1 to 1000000 | 500 |  |
+| Thinning exponent | `decay` | number 0 to 3 | 0.5 | The ligament number t is t to the power minus this exponent as thick as the first: 0 for equal thicknesses, near 1 for a few thick ligaments and many thin ones. |
+| Volume fraction (0: use the first thickness) | `fraction` | number 0 to 0.99 | 0.4 |  |
+| First thickness | `first` | number 0 to ∞ | 12 |  |
+| In space | `element` | Plates / Beams | `Plates` | With more than one layer of cells: plates that close cells, or beams that leave them open. |
+| Directions in the plane (degrees) | `angles` | list of numbers | [] | Empty: any direction. 0, 90: ligaments along X and Y only. |
+| Aligned in space (layers across Z, beams along Z) | `aligned` | on/off | off | *advanced* |
+| Least room beside a new ligament | `min_spacing` | number 0 to ∞ | 1 | *advanced* |
+| Frame thickness | `frame` | number 0 to ∞ | 0 | *advanced* Above 0, a frame of material closes the box. |
+| Tries before the network is jammed | `attempts` | whole number 1 to 100000 | 200 | *advanced* |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
 ### Spatio Temporal Harmonics Grid
 
 Image volume of travelling sine waves with its own time steps (animated test data).
@@ -3092,6 +3706,74 @@ Python: `sphere` · also found by: ball, shape
 | Radius | `radius` | number 0 to ∞ | 0.5 |  |
 | Theta resolution | `theta` | whole number 3 to 1024 | 32 |  |
 | Phi resolution | `phi` | whole number 3 to 1024 | 32 |  |
+
+### Strut Lattice
+
+A lattice of struts: cubic, body-centred, face-centred, octet, Kelvin or diamond cells, with solid or hollow struts, a radius graded along an axis, the lattice turned.
+
+Python: `strut_lattice` · also found by: truss, lattice, octet, bcc, fcc, kelvin, diamond, architected material, metamaterial, additive manufacturing, graded lattice, hollow struts
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Cell | `cell` | Cubic / Body-centred cubic / Face-centred cubic / Octet / Kelvin / Diamond | `Octet` |  |
+| Cell size of the lattice | `cell_size` | number 0.000000001 to ∞ | 32 | The lattice is periodic when the box holds a whole number of cells. |
+| Volume fraction (0: use the radius) | `fraction` | number 0 to 0.95 | 0.15 |  |
+| Strut radius | `radius` | number 0.000000001 to ∞ | 2.5 |  |
+| Wall thickness (0: solid struts) | `wall` | number 0 to ∞ | 0 |  |
+| Radius at the far face (graded) | `radius_top` | number 0 to ∞ | NaN | *advanced* Empty: the same radius everywhere. A value: the radius changes evenly from Strut radius at the near face to this at the far face. |
+| Graded along | `gradient_axis` | X / Y / Z | `Z` | *advanced* |
+| Rotation (Bunge angles, degrees) | `rotation` | x, y, z | (0, 0, 0) | *advanced* |
+
+### Transparent Leaves Medium
+
+A random function made of leaves that let part of what lies under them show through, cut at a level: softer, layered shapes than opaque leaves give.
+
+Python: `transparent_leaves_medium` · also found by: transparent dead leaves, random function, level cut, random texture, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Periodic | `periodic` | on/off | on | The structure continues through opposite faces of the box. |
+| Radius | `radius` | number 0.000000001 to ∞ | 5 |  |
+| Radius spread (log sigma) | `radius_sigma` | number 0 to 3 | 0.3 |  |
+| Transparency | `transparency` | number 0 to 0.99 | 0.4 | The share of what lies under a leaf that shows through it (0: opaque leaves). |
+| Volume fraction | `fraction` | number 0 to 1 | 0.35 |  |
+| Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
+
+### Triply Periodic Surface
+
+A solid built on a triply periodic minimal surface (gyroid, Schwarz P and D, Neovius, I-WP): the sheet about the surface or the network on one side of it, at a volume fraction.
+
+Python: `triply_periodic_surface` · also found by: tpms, gyroid, schwarz, primitive, diamond, neovius, iwp, minimal surface, lattice, additive manufacturing, scaffold
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Surface | `surface` | Gyroid / Schwarz P / Schwarz D / Neovius / I-WP | `Gyroid` |  |
+| Solid | `variant` | Sheet / Network | `Sheet` |  |
+| Cell size of the surface | `cell_size` | number 0.000000001 to ∞ | 32 | One period of the surface. The structure is periodic when the box holds a whole number of them. |
+| Volume fraction | `fraction` | number 0 to 1 | 0.2 |  |
+
+### Twisted Plywood
+
+Layers of parallel fibres whose direction turns a little from each layer to the next, as in the shells of crustaceans and the scales of fish.
+
+Python: `twisted_plywood` · also found by: bouligand, helicoidal, plywood, chitin, cuticle, twisted fibres, bio-inspired, laminate, synthetic microstructure
+
+| Setting | Python | Takes | Default | |
+|---|---|---|---|---|
+| Cells | `cells` | list of numbers | [64.0, 64.0, 64.0] | Cells along X, Y and Z. One cell along Z: the model in the plane. |
+| Cell size | `spacing` | number 0.000000001 to ∞ | 1 | The lengths below are in the same unit. |
+| Fibre radius | `radius` | number 0.000000001 to ∞ | 2.5 |  |
+| Distance between fibres | `fibre_spacing` | number 0.000000001 to ∞ | 7 |  |
+| Layer thickness | `layer` | number 0.000000001 to ∞ | 7 |  |
+| Turn per layer (degrees) | `pitch` | number -180 to 180 | 15 |  |
+| Direction of the first layer (degrees) | `start` | number -360 to 360 | 0 | *advanced* |
 
 ### Unstructured Cell Types
 

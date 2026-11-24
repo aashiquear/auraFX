@@ -445,10 +445,12 @@ Nastran, Fluent, `.dream3d`, `.tex`, SPPARKS sites, CSV, STL, PLY, OBJ, glTF, Ho
 image stacks and MetaImage; screenshots as PNG, JPEG, BMP, TIFF and SVG; scenes as glTF, OBJ,
 X3D, VRML and an interactive web page; animations as PNG frames, GIF, MP4 and WebM.
 
-**Filters (section 2).** 268 filters and sources in nine menu categories (Common, Data,
-Geometry, Grains, Mesh, Temporal, Annotation, Python, Sources), each with typed settings, help,
+**Filters (section 2).** 328 filters and sources (262 filters, 66 sources) in ten menu categories (Common, Data,
+Geometry, Grains, Mesh, Microstructure, Temporal, Annotation, Python, Sources), each with typed settings, help,
 search keywords, a Python call and an entry in the generated filter reference. Custom filters,
-sources, readers and panels in Python; filters and sources in Rust as shared libraries.
+sources, readers and panels in Python; filters and sources in Rust as shared libraries. The
+Sources menu shows the sources in groups (Geometric Shape, Solid Model, Mesh, Sample Data,
+Synthetic Microstructure), each a window with the list of its types and their standard settings.
 
 **Rendering and views (section 3).** A wgpu renderer with surface, edge, wireframe, point,
 outline, molecule, 3D glyph, Surface LIC, texture and volume representations; a light kit, custom
@@ -505,7 +507,7 @@ as listed in those sections, including orientation gradients along the build dir
 plane, and realistic synthetic grains. Sources › Synthetic Microstructure gathers every
 synthetic type in one window: the grain sources and 37 morphological models of particles,
 fibres, random fields, lattices, foams, growths and bio-inspired structures, each starting from
-standard settings or from a named starting point, with a model followed while it forms and
+its standard settings or from one of its own named starting points (50 in all), with a model followed while it forms and
 studies over sizes and seeds. Filters › Microstructure measures any image of phases
 (fractions, surface, two-point statistics, thickness, tortuosity, fabric, percolation,
 representative volume, section sizes), draws exact geometry and smooth surfaces from the

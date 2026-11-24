@@ -18,7 +18,7 @@ that made the clips on the page are in `scripts/site/media/`, one per clip.
 **Opening and adding.** **File › Open…** (Ctrl+O) opens a file; a file with time steps shows
 the time toolbar. A filter is added to the object selected in the Pipeline from **Filters ›**
 *its menu*, or by typing its name after Ctrl+K. Sources (data made without a file) are in the
-**Sources** menu.
+**Sources** menu, in groups: an entry opens a window with a **Type** list.
 
 **Showing and hiding.** A new filter hides the object it was made from and shows its own
 result. The eye beside each object in the Pipeline shows or hides it (`node.hide()`,

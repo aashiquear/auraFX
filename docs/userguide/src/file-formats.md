@@ -511,7 +511,7 @@ What you get:
   version 2 files). Saving as any other format (`.vtu` and the rest) writes the
   visible leaves as an unstructured grid.
 
-**Sources:**
+**Sources** (both under **Sources › Sample Data…**):
 - **Hyper Tree Grid** builds a grid from a text descriptor. Levels are separated by `|`.
   Each level lists `R` (refined) or `.` (leaf) for every cell of that level, all trees in
   order; spaces are ignored. **Dimensions** (points per axis; 1 makes an axis flat), **Branch

@@ -18,7 +18,7 @@ that made the clips on the page are in `scripts/site/media/`, one per clip.
 **Opening and adding.** **File › Open…** (Ctrl+O) opens a file; a file with time steps shows
 the time toolbar. A filter is added to the object selected in the Pipeline from **Filters ›**
 *its menu*, or by typing its name after Ctrl+K. Sources (data made without a file) are in the
-**Sources** menu.
+**Sources** menu, in groups: an entry opens a window with a **Type** list.
 
 **Showing and hiding.** A new filter hides the object it was made from and shows its own
 result. The eye beside each object in the Pipeline shows or hides it (`node.hide()`,
@@ -60,7 +60,7 @@ in `testdata/solver/pinnacle_plate_fine/` and go to step 5.
 
 **Build and run**
 
-1. **Sources › Plate Mesh.** In Properties leave **Width, height, thickness** at 100, 50, 1,
+1. **Sources › Mesh…**, type **Plate Mesh.** In Properties leave **Width, height, thickness** at 100, 50, 1,
    **Hole** at *Circle* with **Semi-axis a (radius)** 2.5, and set **Cell size** to 1. The plate is one element thick, with its faces
    named `x-`, `x+` and so on.
 2. With the plate selected, **Filters › Mesh › Assign Grains.** **Grains from** *Voronoi*,
@@ -320,7 +320,7 @@ afx.save_animation("terrain.mp4", fps=20, orbit=80)
 
 No file. The same chain works on a 3D EBSD volume in place of the synthetic grains.
 
-1. **Sources › Voronoi Grains**: **Cells** 40 × 40 × 40, **Grains** 60.
+1. **Sources › Synthetic Microstructure**, type **Voronoi Grains**, **Change settings first…**: **Cells** 40 × 40 × 40, **Grains** 60.
 2. **Filters › Grains › Quick Surface Mesh** makes triangles on every face between two grains.
 3. **Filters › Grains › Smooth Boundaries**, **Iterations** 20, takes the stair steps out.
 4. **Filters › Grains › Face Orientation Colors** colors each triangle by the crystal direction
@@ -345,7 +345,7 @@ More in [Grain boundary surfaces](grains.md#grain-boundary-surfaces).
 
 No file.
 
-1. **Sources › Inclusion Mesh**: **Inclusions** 8, **Radius** 0.075, **Cells along the
+1. **Sources › Mesh…**, type **Inclusion Mesh**: **Inclusions** 8, **Radius** 0.075, **Cells along the
    shortest side** 24, **Seed** 7. Close its eye: the next steps show parts of it.
 2. Select the mesh, **Filters › Common › Threshold**: **Scalars** `ElementBlock`, **Lower** 50.
    This keeps the inclusions' blocks. **Solid color** a red, **Representation** *Surface With

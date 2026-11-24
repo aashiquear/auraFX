@@ -125,6 +125,9 @@ const CARDS: &[Card] = &[
                 s.add_filter("pack_grains");
                 s.goal_stats.open = true;
             }),
+            ("All types…", "Synthetic Microstructure: grains, particles, fibres, random fields, lattices, foams, growths and bio-inspired structures, each with its standard settings", |s| {
+                crate::source_dialog::open_microstructure(s, None)
+            }),
         ],
     },
     Card {

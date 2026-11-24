@@ -122,11 +122,20 @@ pub fn filter_menu_for(ui: &mut Ui, info: Option<&aurafx_data::DataSetInfo>, kee
     picked
 }
 
-/// The sources, each once, in registry order. Returns the id of the one clicked.
+/// The Sources menu: the groups of sources (shapes, solid models, meshes, sample data,
+/// synthetic microstructures), one entry each, then the sources that stand alone. Returns the
+/// id clicked: the name of a group opens the window that lists its types.
 pub fn source_menu(ui: &mut Ui) -> Option<&'static str> {
     let defs = aurafx_filters::registry();
     let mut picked = None;
-    for f in defs.iter().filter(|f| f.is_source) {
+    for g in aurafx_filters::source_groups::SOURCE_GROUPS {
+        if ui.button(format!("{}…", g.label)).on_hover_text(format!("{} {} types to choose from.", g.hint, g.len())).clicked() {
+            ui.close();
+            picked = Some(g.id);
+        }
+    }
+    ui.separator();
+    for f in defs.iter().filter(|f| f.is_source && aurafx_filters::source_groups::group_of_source(f.id).is_none()) {
         if ui.button(format!("{}…", f.label)).on_hover_text(f.description).clicked() {
             ui.close();
             picked = Some(f.id);
@@ -138,6 +147,22 @@ pub fn source_menu(ui: &mut Ui) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_microstructure_type_is_a_source_with_its_own_label() {
+        let mut labels = Vec::new();
+        for (_, ids) in aurafx_filters::morphology::FAMILIES {
+            for id in *ids {
+                let def = aurafx_filters::find(id).unwrap_or_else(|| panic!("no source {id}"));
+                assert!(def.is_source, "{id}");
+                labels.push(def.label);
+            }
+        }
+        let n = labels.len();
+        labels.sort();
+        labels.dedup();
+        assert_eq!(labels.len(), n);
+    }
 
     #[test]
     fn every_category_and_every_filter_appears_once() {

@@ -12,7 +12,7 @@ change, sketches, patterns and holes.
 
 ## The CAD Model source
 
-Add one with **Sources › CAD Model** (or the command palette, `Ctrl+K`). It starts as a plate.
+Add one with **Sources › Solid Model…**, type **CAD Model** (or the command palette, `Ctrl+K`). It starts as a plate.
 Its Properties show:
 
 - **Dimensions**: the part's named dimensions. Type a new value or an expression such as
@@ -48,7 +48,7 @@ later *downstream check* uses to follow them.
 
 ## The CAD environment
 
-Editing happens in one mode of the same window. Open it from **Sources › CAD Model…** (which
+Editing happens in one mode of the same window. Open it from **Sources › Solid Model…**, type **CAD Model** (which
 adds a new part and opens it), from **Edit in CAD…** (right-click a CAD Model in the Pipeline,
 or the button at the top of its Properties), or from Python with `part.edit_cad()`. While it
 is open:

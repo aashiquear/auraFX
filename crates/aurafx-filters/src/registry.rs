@@ -284,7 +284,7 @@ fn vec_param(key: &str, label: &str) -> ParamSpec {
         ParamValue::Array { assoc: Association::Points, name: String::new() },
     )
 }
-fn f(key: &str, label: &str, default: f64, min: f64, max: f64) -> ParamSpec {
+pub(crate) fn f(key: &str, label: &str, default: f64, min: f64, max: f64) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Float { min, max, log: false }, ParamValue::Float(default))
 }
 pub(crate) fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> ParamSpec {
@@ -293,10 +293,10 @@ pub(crate) fn i(key: &str, label: &str, default: i64, min: i64, max: i64) -> Par
 fn v3(key: &str, label: &str, default: [f64; 3]) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Vec3, ParamValue::Vec3(default))
 }
-fn b(key: &str, label: &str, default: bool) -> ParamSpec {
+pub(crate) fn b(key: &str, label: &str, default: bool) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Bool, ParamValue::Bool(default))
 }
-fn choice(key: &str, label: &str, opts: &[&str], default: &str) -> ParamSpec {
+pub(crate) fn choice(key: &str, label: &str, opts: &[&str], default: &str) -> ParamSpec {
     ParamSpec::new(key, label, ParamKind::Choice(opts.iter().map(|s| s.to_string()).collect()), ParamValue::Str(default.into()))
 }
 pub(crate) fn s(key: &str, label: &str, default: &str) -> ParamSpec {
@@ -5440,6 +5440,9 @@ fn build() -> Vec<FilterDef> {
                 i("grains", "Grains", 100, 1, 10_000_000),
                 f("size_sigma", "Size spread (log sigma)", 0.0, 0.0, 3.0).help("0: Voronoi grains. Above 0: Laguerre grains, seed radii spread lognormally."),
                 b("periodic", "Periodic", false),
+                f("stealth", "Stealthy seeds (0: off)", 0.0, 0.0, 0.49)
+                    .help("Above 0, the seeds are moved until no density wave longer than a limit is left in their pattern: grains without order, yet nearly as even in size as in a crystal. The value (up to about 0.45) is the share of the freedoms of the seeds this takes.")
+                    .advanced(),
                 choice("orientations", "Orientations", &[crate::synthetic::ORIENT_RANDOM, crate::synthetic::ORIENT_FIBER100, crate::synthetic::ORIENT_FIBER111], crate::synthetic::ORIENT_RANDOM),
                 f("spread", "Fibre spread (degrees)", 10.0, 0.0, 90.0),
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
@@ -5470,6 +5473,7 @@ fn build() -> Vec<FilterDef> {
                     grains,
                     size_sigma: if size_sigma <= 0.0 { 0.3 * realism } else { size_sigma },
                     periodic: p.bool("periodic", false),
+                    stealth: p.f64("stealth", 0.0),
                     orientations: p.str("orientations"),
                     spread_deg: p.f64("spread", 10.0),
                     structure: p.str("structure"),
@@ -5572,7 +5576,7 @@ fn build() -> Vec<FilterDef> {
         },
         FilterDef {
             id: "geometry",
-            label: "Geometry",
+            label: "Geometry Commands",
             category: "Sources",
             description: "Solids built from geometry commands (primitives, booleans, extruded, revolved or swept outlines, imported surfaces), with named faces.",
             keywords: &["cad", "csg", "solid", "brick", "cylinder", "boolean", "extrude", "revolve", "sweep", "implicit", "mesh geometry", "model"],
@@ -6136,7 +6140,7 @@ fn table() -> &'static RwLock<Arc<Vec<Arc<FilterDef>>>> {
         // The CAD readers (STEP, IGES, 3MF, .sc, .afxcad) join aurafx-io's reader table, so
         // `import 'part.step'` in geometry commands and every other reader caller reads them.
         crate::cad::register_readers();
-        RwLock::new(Arc::new(build().into_iter().map(Arc::new).collect()))
+        RwLock::new(Arc::new(build().into_iter().chain(crate::morphology::defs::defs()).map(Arc::new).collect()))
     })
 }
 

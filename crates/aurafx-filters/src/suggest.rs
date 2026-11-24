@@ -64,6 +64,15 @@ pub fn applicable(def: &FilterDef, info: &DataSetInfo) -> Result<(), String> {
     if matches!(id, "extract_subset" | "resample_rectilinear_to_image") && !is_grid(kind) {
         return Err("needs an image, rectilinear or structured grid".into());
     }
+    // The filters on microstructures read the phases of the cells of an image.
+    if def.category == "Microstructure" && id != "unfold_section_sizes" {
+        if kind != "Image Data" {
+            return Err("needs an image (a grid of cells) with a phase for every cell".into());
+        }
+        if id != "stretch_microstructure" && info.cell_arrays.is_empty() {
+            return Err("needs a cell array with the phase of every cell (Phases)".into());
+        }
+    }
     let table_only = id.starts_with("table_") || matches!(id, "transpose_table");
     if table_only && kind != "Table" {
         return Err("needs a table".into());
@@ -71,7 +80,7 @@ pub fn applicable(def: &FilterDef, info: &DataSetInfo) -> Result<(), String> {
     if kind == "Table" && !table_only {
         let ok = def.category == "Python"
             || def.keywords.iter().any(|k| matches!(*k, "table" | "statistics" | "stats" | "histogram" | "plot" | "chart"))
-            || matches!(id, "histogram" | "descriptive_statistics" | "calculator" | "find_outliers" | "find_change_points");
+            || matches!(id, "histogram" | "descriptive_statistics" | "calculator" | "find_outliers" | "find_change_points" | "unfold_section_sizes");
         if !ok {
             return Err("works on meshes and grids, not on a table (Table To Points makes points of it)".into());
         }
@@ -120,6 +129,13 @@ pub fn suggestions(info: &DataSetInfo, has_time: bool) -> Vec<Suggestion> {
             ("table_to_points", "Turn rows with coordinates into points you can see in 3D"),
             ("histogram", "See how a column's values are spread"),
             ("descriptive_statistics", "Mean, spread and range of every column"),
+        ]);
+    }
+    if kind == "Image Data" && has_array_named(info, &["Phases"]) && !has_array_named(info, &["EulerAngles", "Quats"]) {
+        ids.extend([
+            ("phase_measures", "Fraction, surface and connectivity of every phase"),
+            ("local_thickness", "The thickness of the solid (or the size of the pores) at every cell"),
+            ("effective_stiffness", "The stiffness of the structure as a whole"),
         ]);
     }
     if has_array_named(info, &["EulerAngles", "Quats", "Phases"]) {

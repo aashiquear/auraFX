@@ -433,7 +433,7 @@ stars.set(data="Particles")                # the particles instead of the grid
 
 ![A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way](images/flash_enzo.png)
 
-**Sources › AMR Gaussian Pulse** makes a small AMR test dataset: a coarse box and
+**Sources › Sample Data…**, type **AMR Gaussian Pulse**, makes a small AMR test dataset: a coarse box and
 two finer boxes holding a Gaussian pulse, in 2-D or 3-D. **Filters › Overlapping AMR Level
 Ids** adds the cell array `LevelIdScalars` with each cell's level.
 
@@ -511,7 +511,7 @@ What you get:
   version 2 files). Saving as any other format (`.vtu` and the rest) writes the
   visible leaves as an unstructured grid.
 
-**Sources:**
+**Sources** (both under **Sources › Sample Data…**):
 - **Hyper Tree Grid** builds a grid from a text descriptor. Levels are separated by `|`.
   Each level lists `R` (refined) or `.` (leaf) for every cell of that level, all trees in
   order; spaces are ignored. **Dimensions** (points per axis; 1 makes an axis flat), **Branch
@@ -622,7 +622,7 @@ What you get:
   VTK writes). Saving as any other format writes the corner mesh
   as an unstructured grid.
 
-**Source** (Sources › Cell Grid): one cell of a chosen **Cell type** with test fields:
+**Source** (Sources › Sample Data…, type Cell Grid): one cell of a chosen **Cell type** with test fields:
 `hgrad` (1, 0, 0 at the first corner, 0 elsewhere), and on hexahedra, tetrahedra, wedges,
 quadrilaterals and triangles `hcurl` and `hdiv` (an edge and a face field whose first
 coefficient is 1). A vertex gets a `constant` field.

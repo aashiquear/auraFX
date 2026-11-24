@@ -290,6 +290,9 @@ and mechanics as filters, sources, readers, writers and charts, for FCC, BCC and
   - [x] G4a: Voronoi/Laguerre grains, columnar AM grains, Add Orientation Noise, Jumble Orientations, Generate Ensemble Statistics.
   - [x] G4b: Pack Grains (goal statistics, four shapes, matrix phase, calibration), Pack Like, Insert Precipitates, Match Crystallography.
   - [x] G4c: Orientation Gradient (a turn along the build direction, a smooth spread and sub-grain cells inside each grain) and Grain Realism (boundary relaxation, coarsening, roughness; competitive growth, layers and fine grains for columnar grains), as filters and as settings of the synthetic sources; the gradient also in plane (every grain turned across itself).
+  - [x] G4d: Synthetic Microstructure, one entry of the Sources menu whose window lists every synthetic type with its standard settings: the three grain sources and 35 morphological models (grains by nucleation and growth, dead leaves; overlapping, penetrable, hard and clustered spheres; overlapping, endless, curved, hard, bending and cross-linked fibres, Delaunay networks, laminates; Gaussian fields, transparent leaves, reconstruction from a two-point statistic; triply periodic surfaces, strut lattices, disordered and hierarchical lattices, fractal sponges, open-cell and level-set foams, scale-rich networks; cellular automata, activator-inhibitor and reaction-diffusion patterns, aggregation, pipe networks, branching trees; nacre, twisted plywood, honeycombs and wood, Haversian bone), with the filters Coat Phase and Combine Microstructures.
+  - [x] G4e: Measuring and simulating microstructures (Filters › Microstructure, on any image of phases): Phase Measures, Two-Point Statistics, Phase Chord Lengths, Local Thickness, Tortuosity, Fabric Tensor, Percolation, Representative Volume, Unfold Section Sizes, Split Touching Particles, Stretch Microstructure, Reconstruct Microstructure; Microstructure Objects, Smooth Surface, Framework Rigidity; Effective Conductivity, Effective Stiffness, Wave Band Structure; the sources Optimized Unit Cell, Polarized Blocks, Microstructure Template (20 starting points, also the Start from list of the window), Microstructure Formation (time steps) and Microstructure Study (percolation thresholds, integral range); model variants: packing by collisions, stealthy seeds, planar Delaunay networks, automata on hexagons, triangles, two tilings that never repeat and two lattice cells, grain growth, polarized and graded scale-rich networks, pyrochlore lattice, rays of wood as cells, foam struts measured one by one.
+  - [x] G4f: The Sources menu in groups, each one entry whose window lists its types with their standard settings: Geometric Shape (sphere, box, cylinder, cone, plane, line, point cloud), Solid Model (Geometry Commands, CAD Model), Mesh (box, plate, dog-bone, inclusion and face meshes), Sample Data (wavelet, cell types, harmonics in time, AMR and hyper tree grids) and Synthetic Microstructure; IPF Color Key and Programmable Source stand alone. In Synthetic Microstructure, Start from belongs to the chosen type: its standard settings, then the starting points of that type only (50 starting points over 35 types).
 - [x] G5 Surface meshing and GBCD: Quick Surface Mesh, Laplacian/Taubin smoothing with node types, triangle-geometry filters, STL per feature, Find GBCD, face IPF and misorientation colouring.
 - [x] G6 Mechanics and AM: Schmid factors for FCC/BCC/HCP slip systems, Taylor factor, directional modulus, yield estimate, SROD by build height, Nye and KAM GND, layer plots; materials table.
 - [x] G7 Files and runs: `.dream3d` writer with pipeline JSON, `.tex`, SPPARKS sites, `.dream3d` pipeline JSON import; MOOSE polycrystal, SPPARKS and PINNACLE job templates with the pipeline's files filled in; results reopened for analysis.
@@ -409,7 +412,7 @@ to auraFX's users. Each row says how it is checked. Priority: **P1** first, **P2
 
 ## Status
 
-The state of the repository at release 0.9.1. The catalog above says what is planned; this
+The state of the repository at release 0.9.2. The catalog above says what is planned; this
 section says what works, what is open and what is known to be limited. How each reader, writer,
 filter and mesher was checked is in `docs/reference/verification.md`.
 
@@ -442,10 +445,12 @@ Nastran, Fluent, `.dream3d`, `.tex`, SPPARKS sites, CSV, STL, PLY, OBJ, glTF, Ho
 image stacks and MetaImage; screenshots as PNG, JPEG, BMP, TIFF and SVG; scenes as glTF, OBJ,
 X3D, VRML and an interactive web page; animations as PNG frames, GIF, MP4 and WebM.
 
-**Filters (section 2).** 268 filters and sources in nine menu categories (Common, Data,
-Geometry, Grains, Mesh, Temporal, Annotation, Python, Sources), each with typed settings, help,
+**Filters (section 2).** 328 filters and sources (262 filters, 66 sources) in ten menu categories (Common, Data,
+Geometry, Grains, Mesh, Microstructure, Temporal, Annotation, Python, Sources), each with typed settings, help,
 search keywords, a Python call and an entry in the generated filter reference. Custom filters,
-sources, readers and panels in Python; filters and sources in Rust as shared libraries.
+sources, readers and panels in Python; filters and sources in Rust as shared libraries. The
+Sources menu shows the sources in groups (Geometric Shape, Solid Model, Mesh, Sample Data,
+Synthetic Microstructure), each a window with the list of its types and their standard settings.
 
 **Rendering and views (section 3).** A wgpu renderer with surface, edge, wireframe, point,
 outline, molecule, 3D glyph, Surface LIC, texture and volume representations; a light kit, custom
@@ -499,7 +504,14 @@ that goes through every clip of the project page step by step; the project page.
 
 **Grain workbench (section 11), geometry and meshing (section 12), CAD (section 13).** Complete
 as listed in those sections, including orientation gradients along the build direction and in
-plane, and realistic synthetic grains.
+plane, and realistic synthetic grains. Sources › Synthetic Microstructure gathers every
+synthetic type in one window: the grain sources and 37 morphological models of particles,
+fibres, random fields, lattices, foams, growths and bio-inspired structures, each starting from
+its standard settings or from one of its own named starting points (50 in all), with a model followed while it forms and
+studies over sizes and seeds. Filters › Microstructure measures any image of phases
+(fractions, surface, two-point statistics, thickness, tortuosity, fabric, percolation,
+representative volume, section sizes), draws exact geometry and smooth surfaces from the
+models, and computes effective conductivity, stiffness and wave bands.
 
 ### Open
 
@@ -523,6 +535,14 @@ plane, and realistic synthetic grains.
 - **Synthetic grains:** boundaries are all alike (no dependence on misorientation), a grain cut
   in two keeps one id, the layer model has no melt-pool shape, and Pack Grains has no realism
   setting of its own (the Grain Realism filter works on its output).
+- **Synthetic microstructures:** the tiling by golden rhombohedra and the periodic
+  approximants of the tilings that never repeat are not there for the automata, which do not
+  wrap on their other cells; reaction and diffusion run on the cubic grid only; mixtures of
+  laws of directions for fibres are not there. The property filters are linear (conduction,
+  elasticity): plasticity, damage, fracture, contact and fatigue are left to the solvers the
+  cases are written for. The wave bands use plane waves (weak with voids); the optimized cell
+  has one material and three goals. Hollow fibres, flat ends and coatings are not in the
+  description that Smooth Surface draws from (the cells are used for those).
 - **Touch:** the real keyboard height on iOS (a share of the screen is kept free instead) and
   composed text input on Android.
 

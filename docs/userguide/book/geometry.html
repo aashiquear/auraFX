@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
+            window.path_to_searchindex_js = "searchindex-7e831cf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8b305462.js"></script>
+        <script src="toc-156d8f89.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,7 +187,7 @@ Abaqus and Gmsh files for solvers. Plates with holes, dog-bone specimens and swe
 have their own generators, and bricks and cylinders built with commands can be meshed with
 <code>mesh body</code> commands.</p>
 <h2 id="the-geometry-source"><a class="header" href="#the-geometry-source">The Geometry source</a></h2>
-<p>Add it with <strong>Sources › Geometry</strong>. Its Properties show:</p>
+<p>Add it with <strong>Sources › Solid Model…</strong>, type <strong>Geometry Commands</strong> (or <strong>Model › New geometry</strong>). Its Properties show:</p>
 <ul>
 <li><strong>Commands</strong>: the command list, edited in the box and applied with <strong>Apply</strong>. The <strong>Insert</strong>
 menus under the box (<em>Shape</em>, <em>Outline</em>, <em>Combine</em>, <em>Move</em>, <em>Mesh</em>, <em>Names and sets</em>) add a
@@ -377,7 +377,7 @@ owning element’s block and element variables) or a node set’s nodes as point
 mesh.save("part.e")          # or part.inp, part.msh
 </code></pre>
 <h2 id="box-mesh"><a class="header" href="#box-mesh">Box Mesh</a></h2>
-<p><strong>Sources › Box Mesh</strong> makes a box of hexahedra: its <strong>Size</strong>, <strong>Origin</strong> and <strong>Cells</strong> along
+<p><strong>Sources › Mesh…</strong>, type <strong>Box Mesh</strong>, makes a box of hexahedra: its <strong>Size</strong>, <strong>Origin</strong> and <strong>Cells</strong> along
 x, y and z, optionally <strong>Graded</strong>. The grading is the ratio of the largest to the smallest
 interval along each axis, with the small intervals at the <strong>Start</strong>, the <strong>End</strong> or <strong>Both</strong>
 ends. It has one block, <code>block_1</code>, and side sets and node sets <code>x-</code>, <code>x+</code>, <code>y-</code>, <code>y+</code>,
@@ -385,7 +385,7 @@ ends. It has one block, <code>block_1</code>, and side sets and node sets <code>
 <pre><code class="language-python">b = afx.box_mesh(size=(2, 1, 1), cells=(40, 20, 20), grading=(3, 1, 1), cluster="Start")
 </code></pre>
 <h2 id="inclusion-mesh"><a class="header" href="#inclusion-mesh">Inclusion Mesh</a></h2>
-<p><strong>Sources › Inclusion Mesh</strong> makes a box of matrix with randomly placed inclusions, meshed with
+<p><strong>Sources › Mesh…</strong>, type <strong>Inclusion Mesh</strong>, makes a box of matrix with randomly placed inclusions, meshed with
 conforming hexahedra. It works in four steps:</p>
 <ul>
 <li><strong>Background grid.</strong> A grid of cubic cells covers the box. <strong>Cells along the shortest side</strong>
@@ -439,7 +439,7 @@ m.save("rve.e")
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/inclusion_mesh.png" alt="Eight spheres meshed in a cube: the inclusion elements, and three walls of the box showing the background grid"><span class="img-wrapper"><img src="images/inclusion_mesh.png" alt="Eight spheres meshed in a cube: the inclusion elements, and three walls of the box showing the background grid"></span></label></p>
 <h2 id="plate-mesh"><a class="header" href="#plate-mesh">Plate Mesh</a></h2>
-<p><strong>Sources › Plate Mesh</strong> makes a plate of <strong>Cell size</strong> hexahedra, one element through the
+<p><strong>Sources › Mesh…</strong>, type <strong>Plate Mesh</strong>, makes a plate of <strong>Cell size</strong> hexahedra, one element through the
 thickness. The width and height must be whole multiples of the cell size. It can have a
 circular or elliptical through-hole, given by its semi-axes <strong>a</strong> and <strong>b</strong>, the ellipse’s
 <strong>angle</strong> and its centre (empty for the plate centre).</p>
@@ -458,7 +458,7 @@ cell size.</p>
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/plate_mesh.png" alt="A plate with a 45-degree elliptical hole: the plate block and the ring around the hole"><span class="img-wrapper"><img src="images/plate_mesh.png" alt="A plate with a 45-degree elliptical hole: the plate block and the ring around the hole"></span></label></p>
 <h2 id="dog-bone-mesh"><a class="header" href="#dog-bone-mesh">Dog-bone Mesh</a></h2>
-<p><strong>Sources › Dog-bone Mesh</strong> makes a flat tensile specimen as one mapped block:</p>
+<p><strong>Sources › Mesh…</strong>, type <strong>Dog-bone Mesh</strong>, makes a flat tensile specimen as one mapped block:</p>
 <ul>
 <li><strong>Planform.</strong> Grips of <strong>Grip width</strong> at both ends and a gage of <strong>Gage width</strong> and <strong>Gage
 length</strong> in the middle, joined by circular fillets of <strong>Fillet radius</strong>.</li>
@@ -489,7 +489,7 @@ Set or a surface read from a file.</p>
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"><span class="img-wrapper"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"></span></label></p>
 <h2 id="face-mesh-triangles-and-quadrilaterals-on-a-planar-face"><a class="header" href="#face-mesh-triangles-and-quadrilaterals-on-a-planar-face">Face Mesh: triangles and quadrilaterals on a planar face</a></h2>
-<p><strong>Sources › Face Mesh</strong> meshes a flat face drawn with the outline commands (see <a href="#outlines-and-profile-solids">Outlines and
+<p><strong>Sources › Mesh…</strong>, type <strong>Face Mesh</strong>, meshes a flat face drawn with the outline commands (see <a href="#outlines-and-profile-solids">Outlines and
 profile solids</a>): an <strong>Outer outline</strong> with <strong>Holes</strong> cut out
 (outline numbers), at a <strong>Size</strong>, with <em>Quadrilaterals</em> (the default) or <em>Triangles</em>:</p>
 <ul>
@@ -869,7 +869,7 @@ check the <code>Quality</code> array.</li>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="grains.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="microstructure-analysis.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -883,7 +883,7 @@ check the <code>Quality</code> array.</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="grains.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="microstructure-analysis.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

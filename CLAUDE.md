@@ -32,7 +32,9 @@ assistant about the feature.
 
 ## Naming other software
 
-auraFX is inspired by ParaView, DREAM.3D and Cubit, and that is said once, in the README. Everywhere
+auraFX is inspired by ParaView, DREAM.3D and Cubit, and its morphological microstructure models by
+morphoGen (https://github.com/jdirr/morphoGen, GPL-3.0: read its documentation and the papers it
+cites, never carry its code); that is said once, in the README. Everywhere
 else (user guide, roadmap catalog, help texts, code comments, commit messages) describe what
 auraFX does in its own terms: do not present a feature as a copy, clone or port of another
 program's feature, and do not compare with those programs. The exceptions are file formats

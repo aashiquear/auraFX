@@ -32,6 +32,8 @@
 - [Running simulations](simulations.md)
 - [Data on another machine](client-server.md)
 - [Grains and crystals](grains.md)
+- [Synthetic microstructures](synthetic-microstructures.md)
+- [Measuring and simulating microstructures](microstructure-analysis.md)
 - [Geometry and meshing](geometry.md)
 - [CAD modeling](cad.md)
 

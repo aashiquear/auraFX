@@ -22,7 +22,7 @@ Python). The app itself is the prebuilt native library `app/src/main/jniLibs/<ab
    (it asks for the key itself, so `keystore.properties` is not needed that way).
 
 Upload `app-release.aab` in the Play Console (with Play App Signing the key above is your
-upload key). `./gradlew bundleRelease -PversionCode=901 -PversionName=0.9.1` sets the
+upload key). `./gradlew bundleRelease -PversionCode=902 -PversionName=0.9.2` sets the
 version without editing the file. Change `applicationId` in `app/build.gradle` if
 `org.aurafx.app` is not yours in the Play Console.
 

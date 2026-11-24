@@ -47,8 +47,10 @@ Rename Array, Set Units, Pass Arrays, and OpenFOAM Boundary Patches.
 
 ## Sources
 
-**Sources** adds objects without a file: Sphere, Cone, Cylinder, Box, Plane, Line, Point
-Cloud, Wavelet (a test volume), Spatio Temporal Harmonics (a test volume of waves with its own
+**Sources** adds objects without a file. Its entries are groups, each a window with a list
+of types ([Adding a source](getting-started.md#adding-a-source)). **Geometric Shape…** has
+Sphere, Box, Cylinder, Cone, Plane, Line and Point Cloud. **Sample Data…** has
+Wavelet (a test volume), Spatio Temporal Harmonics (a test volume of waves with its own
 time steps), AMR Gaussian Pulse (a small [AMR](file-formats.md#amr-data-adaptive-mesh-refinement)
 dataset), Hyper Tree Grid and Random Hyper Tree Grid
 ([hyper tree grids](file-formats.md#hyper-tree-grids)), Cell Grid (one

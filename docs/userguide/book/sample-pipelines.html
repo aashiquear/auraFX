@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
+            window.path_to_searchindex_js = "searchindex-7e831cf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8b305462.js"></script>
+        <script src="toc-156d8f89.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -192,7 +192,7 @@ that made the clips on the page are in <code>scripts/site/media/</code>, one per
 <p><strong>Opening and adding.</strong> <strong>File › Open…</strong> (Ctrl+O) opens a file; a file with time steps shows
 the time toolbar. A filter is added to the object selected in the Pipeline from <strong>Filters ›</strong>
 <em>its menu</em>, or by typing its name after Ctrl+K. Sources (data made without a file) are in the
-<strong>Sources</strong> menu.</p>
+<strong>Sources</strong> menu, in groups: an entry opens a window with a <strong>Type</strong> list.</p>
 <p><strong>Showing and hiding.</strong> A new filter hides the object it was made from and shows its own
 result. The eye beside each object in the Pipeline shows or hides it (<code>node.hide()</code>,
 <code>node.show()</code>); the examples say when an eye has to be closed or opened by hand.</p>
@@ -231,7 +231,7 @@ remote one, see <a href="simulations.html">Running simulations</a>); to skip the
 in <code>testdata/solver/pinnacle_plate_fine/</code> and go to step 5.</p>
 <p><strong>Build and run</strong></p>
 <ol>
-<li><strong>Sources › Plate Mesh.</strong> In Properties leave <strong>Width, height, thickness</strong> at 100, 50, 1,
+<li><strong>Sources › Mesh…</strong>, type <strong>Plate Mesh.</strong> In Properties leave <strong>Width, height, thickness</strong> at 100, 50, 1,
 <strong>Hole</strong> at <em>Circle</em> with <strong>Semi-axis a (radius)</strong> 2.5, and set <strong>Cell size</strong> to 1. The plate is one element thick, with its faces
 named <code>x-</code>, <code>x+</code> and so on.</li>
 <li>With the plate selected, <strong>Filters › Mesh › Assign Grains.</strong> <strong>Grains from</strong> <em>Voronoi</em>,
@@ -451,7 +451,7 @@ afx.save_animation("terrain.mp4", fps=20, orbit=80)
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_grains_orbit.jpg" alt="Smoothed grain boundaries colored by the boundary plane"><span class="img-wrapper"><img src="images/sample_grains_orbit.jpg" alt="Smoothed grain boundaries colored by the boundary plane"></span></label></p>
 <p>No file. The same chain works on a 3D EBSD volume in place of the synthetic grains.</p>
 <ol>
-<li><strong>Sources › Voronoi Grains</strong>: <strong>Cells</strong> 40 × 40 × 40, <strong>Grains</strong> 60.</li>
+<li><strong>Sources › Synthetic Microstructure</strong>, type <strong>Voronoi Grains</strong>, <strong>Change settings first…</strong>: <strong>Cells</strong> 40 × 40 × 40, <strong>Grains</strong> 60.</li>
 <li><strong>Filters › Grains › Quick Surface Mesh</strong> makes triangles on every face between two grains.</li>
 <li><strong>Filters › Grains › Smooth Boundaries</strong>, <strong>Iterations</strong> 20, takes the stair steps out.</li>
 <li><strong>Filters › Grains › Face Orientation Colors</strong> colors each triangle by the crystal direction
@@ -471,7 +471,7 @@ afx.save_animation("grains_orbit.mp4", fps=20, orbit=80)
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"><span class="img-wrapper"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"></span></label></p>
 <p>No file.</p>
 <ol>
-<li><strong>Sources › Inclusion Mesh</strong>: <strong>Inclusions</strong> 8, <strong>Radius</strong> 0.075, <strong>Cells along the
+<li><strong>Sources › Mesh…</strong>, type <strong>Inclusion Mesh</strong>: <strong>Inclusions</strong> 8, <strong>Radius</strong> 0.075, <strong>Cells along the
 shortest side</strong> 24, <strong>Seed</strong> 7. Close its eye: the next steps show parts of it.</li>
 <li>Select the mesh, <strong>Filters › Common › Threshold</strong>: <strong>Scalars</strong> <code>ElementBlock</code>, <strong>Lower</strong> 50.
 This keeps the inclusions’ blocks. <strong>Solid color</strong> a red, <strong>Representation</strong> <em>Surface With

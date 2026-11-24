@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-28f24bf6.js";
+            window.path_to_searchindex_js = "searchindex-7e831cf6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8b305462.js"></script>
+        <script src="toc-156d8f89.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -290,18 +290,40 @@ is unlikely to work on this data is faded and says what it needs (“needs a vec
 <p>Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.</p>
 <h2 id="adding-a-source"><a class="header" href="#adding-a-source">Adding a source</a></h2>
-<p>The <strong>Sources</strong> menu makes data without a file: shapes, synthetic fields, meshes, CAD parts.
-Picking one opens a small window that lists its standard settings (a sphere’s radius and
-resolution, a mesh’s sizes, a CAD Model’s 40 × 30 × 8 mm plate) with two choices:</p>
+<p>The <strong>Sources</strong> menu makes data without a file. Its entries are kinds of sources, each with
+several types to choose from:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Entry</th><th>Types</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Geometric Shape…</strong></td><td>Sphere, Box, Cylinder, Cone; Plane, Line, Point Cloud</td></tr>
+<tr><td><strong>Solid Model…</strong></td><td>Geometry Commands (solids built from commands), CAD Model (a parametric part)</td></tr>
+<tr><td><strong>Mesh…</strong></td><td>Box Mesh, Plate Mesh, Dog-bone Mesh, Inclusion Mesh; Face Mesh</td></tr>
+<tr><td><strong>Sample Data…</strong></td><td>Wavelet; Unstructured Cell Types, Cell Grid; Spatio Temporal Harmonics Grid; AMR Gaussian Pulse, Hyper Tree Grid, Random Hyper Tree Grid</td></tr>
+<tr><td><strong>Synthetic Microstructure…</strong></td><td>grains, particles, fibres, foams, lattices and more (<a href="synthetic-microstructures.html">Synthetic microstructures</a>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Under them come the sources that stand alone: IPF Color Key and Programmable Source.</p>
+<p>An entry opens a small window with a <strong>Type</strong> list at its top. Choosing a type says what it
+makes and lists its standard settings (a sphere’s radius and resolution, a mesh’s sizes, a
+CAD Model’s 40 × 30 × 8 mm plate); choosing another keeps the window open, so the types can
+be read through before anything is added. Then there are two choices:</p>
 <ul>
 <li><strong>Insert with these settings</strong> adds it as it is.</li>
 <li><strong>Change settings first…</strong> shows its basic settings to edit before it is added (for a CAD
 Model, the starter part, a template or the plate with its width, depth and thickness). The other
 settings are in Properties afterwards.</li>
 </ul>
-<p>Tick <strong>Don’t ask again</strong> to insert sources straight away; <strong>Settings › Ask before adding a
-source</strong> turns the window back on. Sources added from Python (<code>afx.sphere(radius=2)</code>) never ask.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Columnar Mesh, and the button to change them first"><span class="img-wrapper"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Columnar Mesh, and the button to change them first"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_dialog.png" alt="Sources › Mesh: the list of types, and the standard settings of a Box Mesh"><span class="img-wrapper"><img src="images/source_dialog.png" alt="Sources › Mesh: the list of types, and the standard settings of a Box Mesh"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_group_types.png" alt="Sources › Geometric Shape with its list of types open"><span class="img-wrapper"><img src="images/source_group_types.png" alt="Sources › Geometric Shape with its list of types open"></span></label></p>
+<p>Every type is also found by its own name in the command palette (<code>Ctrl+K</code>), which opens the
+window of that source alone, and made from Python (<code>afx.sphere(radius=2)</code>), which never asks.
+In the window of a source that stands alone or was found by name, tick <strong>Don’t ask again</strong>
+to insert sources straight away; <strong>Settings › Ask before adding a source</strong> turns the window
+back on. A cone with <strong>Resolution</strong> 4 is a pyramid.</p>
 <h2 id="saving-your-work"><a class="header" href="#saving-your-work">Saving your work</a></h2>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/file_new.png" alt="File › New asking about work that is not saved"><span class="img-wrapper"><img src="images/file_new.png" alt="File › New asking about work that is not saved"></span></label></p>
 <ul>

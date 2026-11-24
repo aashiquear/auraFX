@@ -412,7 +412,7 @@ to auraFX's users. Each row says how it is checked. Priority: **P1** first, **P2
 
 ## Status
 
-The state of the repository at release 0.9.1. The catalog above says what is planned; this
+The state of the repository at release 0.9.2. The catalog above says what is planned; this
 section says what works, what is open and what is known to be limited. How each reader, writer,
 filter and mesher was checked is in `docs/reference/verification.md`.
 

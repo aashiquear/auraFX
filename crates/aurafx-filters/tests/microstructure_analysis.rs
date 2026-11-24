@@ -707,7 +707,7 @@ fn templates_and_formation() {
     for t in aurafx_filters::morphology::study::TEMPLATES {
         let (def, p) = aurafx_filters::morphology::study::template(t.0).unwrap_or_else(|e| panic!("{}: {e:#}", t.0));
         assert_eq!(def.id, t.1);
-        assert!(p.get("cells").is_some());
+        assert!(p.get("cells").is_some() || p.get("size").is_some(), "{}", t.0);
     }
     // Every starting point makes a structure with its own settings.
     for t in aurafx_filters::morphology::study::TEMPLATES {

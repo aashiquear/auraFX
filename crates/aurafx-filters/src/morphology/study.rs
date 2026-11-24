@@ -86,11 +86,41 @@ pub const TEMPLATES: &[(&str, &str, &str, &str)] = &[
     ("Printed truss", "strut_lattice", "cell = Octet; fraction = 0.15; cell_size = 32", "An octet truss at a relative density of 0.15."),
     ("Softwood", "honeycomb", "arrangement = Wood; cells = 128 96 48; cell = 8; wall = 1.5; ring = 128; rays = 0.08", "Growth rings and rays."),
     ("Cortical bone", "haversian_bone", "", "Osteons, cement lines and canals."),
-    ("Nacre", "nacre", "arrangement = Polygons", "Polygonal tablets in a thin mortar."),
+    ("Polygonal nacre", "nacre", "arrangement = Polygons", "Polygonal tablets in a thin mortar."),
     ("Crustacean shell", "twisted_plywood", "pitch = 15", "Layers of fibres that turn from layer to layer."),
     ("Gel network", "delaunay_fibre_network", "regularity = 0.5; fraction = 0.05", "Thin fibres joined at nodes."),
     ("Soot aggregate", "aggregation_cluster", "seeds = 1; fraction = 0.02", "One branched fractal cluster."),
     ("Vascular tree", "branching_network", "", "A tree that thickens from the tips to the root."),
+    ("Annealed metal", "voronoi_grains", "grains = 200; realism = 0.6", "Equiaxed grains with spread sizes and relaxed boundaries."),
+    ("Drawn wire", "voronoi_grains", "orientations = <111> along Z; spread = 8; realism = 0.4", "Grains with a fibre texture along the wire."),
+    ("Even grains", "voronoi_grains", "stealth = 0.4", "Grains without order, nearly as even in size as in a crystal."),
+    ("Faceted crystals", "pack_grains", "shape = Cube-octahedron", "Grains packed as cube-octahedra."),
+    ("Directionally solidified metal", "columnar_grains", "tilt = 2; height = 300; height_sigma = 0.3", "Long columns that hardly lean."),
+    ("Layer by layer build", "columnar_grains", "realism = 0.7; layer = 40", "Columns that grow through the layers of an additive build."),
+    ("Three-phase ceramic", "dead_leaves_mosaic", "phase_fractions = 0.5 0.3 0.2", "Grains of three phases that fill space."),
+    ("Nearly hard particles", "penetrable_spheres", "impenetrability = 0.9; density = 0.4", "Particles that overlap only at their rims."),
+    ("Polydisperse inclusions", "overlapping_spheres", "fraction = 0.3; radius_sigma = 0.5", "Inclusions of widely spread sizes."),
+    ("Particle-filled polymer", "hard_spheres", "fraction = 0.3; radius = 5", "Filler particles apart from one another."),
+    ("Fibre felt", "overlapping_fibres", "directions = In the XY plane; length = 60; fraction = 0.1", "Straight fibres lying in a plane."),
+    ("Hollow fibre insulation", "overlapping_fibres", "lumen = 0.6; fraction = 0.2", "Fibres with an open core."),
+    ("Pressed fibre board", "bending_fibres", "directions = Girdle about the XY plane; direction_shape = 10; fraction = 0.35", "Fibres bent around one another near a plane."),
+    ("Bonded nonwoven", "cross_linked_fibres", "bonded = 0.9", "Fibres bonded at most of their contacts."),
+    ("Layered rock", "random_laminate", "thickness = 3; thickness_sigma = 0.6; hole_fraction = 0.05", "Layers of uneven thickness with few holes."),
+    ("Sandstone pores", "reconstructed_medium", "fraction = 0.2; length = 4", "A pore space rebuilt from its statistics."),
+    ("Sheet between two phases", "gaussian_field_medium", "kind = Between two levels; fraction = 0.3", "A phase that lies as a sheet between two others."),
+    ("Heat exchanger core", "triply_periodic_surface", "surface = Schwarz D; fraction = 0.3", "A sheet that separates two channel systems."),
+    ("Gyroid network", "triply_periodic_surface", "variant = Network; fraction = 0.3", "One of the two channel systems of the gyroid, filled."),
+    ("Kelvin cell foam", "strut_lattice", "cell = Kelvin; fraction = 0.08", "The struts of a regular foam."),
+    ("Diamond lattice", "strut_lattice", "cell = Diamond; fraction = 0.2", "Four struts at every node."),
+    ("Irregular truss", "disordered_strut_lattice", "perturbation = 0.3", "A truss with its nodes moved off their places."),
+    ("Vicsek cross", "fractal_sponge", "pattern = Vicsek fractal", "Crosses of crosses."),
+    ("Beam network", "scale_rich_network", "element = Beams", "Beams of many sizes that end on older ones."),
+    ("Domains on hexagons", "cellular_automaton_structure", "lattice = Hexagons; rule = Majority", "Domains coarsened on a honeycomb of cells."),
+    ("Quasicrystal pattern", "cellular_automaton_structure", "lattice = Penrose rhombi; rule = Majority", "Domains on a tiling that never repeats."),
+    ("Spotted pattern", "reaction_diffusion_pattern", "pattern = Spots", "Separate spots."),
+    ("Deposited film", "aggregation_cluster", "process = Ballistic; geometry = Deposit on the base; fraction = 0.3", "A porous film grown from the base."),
+    ("Honeycomb core", "honeycomb", "cell = 24; wall = 1.5", "Thin-walled hexagonal cells."),
+    ("Brick and mortar", "nacre", "mortar = 2", "Tablets in rows, shifted from row to row, in a thin mortar."),
 ];
 
 /// The model and settings of a starting point.
@@ -106,7 +136,13 @@ pub fn template(name: &str) -> Result<(std::sync::Arc<FilterDef>, Params)> {
 pub fn from_template(name: &str, cells: &[f64], seed: i64) -> Result<DataSet> {
     let (def, mut p) = template(name)?;
     if !cells.is_empty() {
-        p.set("cells", ParamValue::Floats(cells.to_vec()));
+        if def.params.iter().any(|s| s.key == "cells") {
+            p.set("cells", ParamValue::Floats(cells.to_vec()));
+        } else if def.params.iter().any(|s| s.key == "size") {
+            // A model sized by lengths (Columnar Grains): as many cells of its own size.
+            let h = p.f64("voxel", 1.0);
+            p.set("size", ParamValue::Vec3(std::array::from_fn(|k| cells.get(k).copied().unwrap_or(64.0) * h)));
+        }
     }
     if seed > 0 {
         p.set("seed", ParamValue::Int(seed));

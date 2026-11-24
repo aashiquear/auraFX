@@ -2780,21 +2780,24 @@ impl eframe::App for AuraApp {
                     self.state.server.open = true;
                 }
                 // "source_dialog <id>": the window that adds a source (its standard or changed settings).
-                // "source_dialog synthetic_microstructure [id | template:Name] [settings]": the same
-                // window with the list of microstructure types, on a type or a starting point,
-                // showing its settings to change.
+                // "source_dialog <group> [id | template:Name] [settings] [types | starting_points]":
+                // the same window with the list of the types of a group (geometric_shape,
+                // solid_model, mesh, sample_data, synthetic_microstructure), on a type or a
+                // starting point, showing its settings to change, or with one of its lists open.
                 "source_dialog" => {
                     let mut words = arg.split_whitespace();
                     let first = words.next().unwrap_or("");
-                    if first == crate::source_dialog::MICROSTRUCTURE {
+                    if let Some(group) = aurafx_filters::source_groups::source_group(first) {
                         let rest: Vec<&str> = words.collect();
+                        let flags = ["settings", "types", "starting_points"];
                         // "template:Trabecular_bone": a starting point (spaces written as underscores).
                         match rest.iter().find_map(|w| w.strip_prefix("template:")) {
                             Some(name) => crate::source_dialog::open_template(&mut self.state, &name.replace('_', " ")),
-                            None => crate::source_dialog::open_microstructure(&mut self.state, rest.iter().copied().find(|w| *w != "settings")),
+                            None => crate::source_dialog::open_group(&mut self.state, group, rest.iter().copied().find(|w| !flags.contains(w))),
                         }
                         if let Some(d) = self.state.source_dialog.as_mut() {
                             d.customize = rest.contains(&"settings");
+                            d.open_list = if rest.contains(&"types") { 1 } else if rest.contains(&"starting_points") { 2 } else { 0 };
                         }
                     } else if let Some(def) = aurafx_filters::find(first).filter(|d| d.is_source) {
                         self.state.source_dialog = crate::source_dialog::SourceDialog::new(def.id);

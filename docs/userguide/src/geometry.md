@@ -11,7 +11,7 @@ have their own generators, and bricks and cylinders built with commands can be m
 
 ## The Geometry source
 
-Add it with **Sources › Geometry**. Its Properties show:
+Add it with **Sources › Solid Model…**, type **Geometry Commands** (or **Model › New geometry**). Its Properties show:
 
 - **Commands**: the command list, edited in the box and applied with **Apply**. The **Insert**
   menus under the box (*Shape*, *Outline*, *Combine*, *Move*, *Mesh*, *Names and sets*) add a
@@ -212,7 +212,7 @@ mesh.save("part.e")          # or part.inp, part.msh
 
 ## Box Mesh
 
-**Sources › Box Mesh** makes a box of hexahedra: its **Size**, **Origin** and **Cells** along
+**Sources › Mesh…**, type **Box Mesh**, makes a box of hexahedra: its **Size**, **Origin** and **Cells** along
 x, y and z, optionally **Graded**. The grading is the ratio of the largest to the smallest
 interval along each axis, with the small intervals at the **Start**, the **End** or **Both**
 ends. It has one block, `block_1`, and side sets and node sets `x-`, `x+`, `y-`, `y+`,
@@ -224,7 +224,7 @@ b = afx.box_mesh(size=(2, 1, 1), cells=(40, 20, 20), grading=(3, 1, 1), cluster=
 
 ## Inclusion Mesh
 
-**Sources › Inclusion Mesh** makes a box of matrix with randomly placed inclusions, meshed with
+**Sources › Mesh…**, type **Inclusion Mesh**, makes a box of matrix with randomly placed inclusions, meshed with
 conforming hexahedra. It works in four steps:
 
 - **Background grid.** A grid of cubic cells covers the box. **Cells along the shortest side**
@@ -280,7 +280,7 @@ m.save("rve.e")
 
 ## Plate Mesh
 
-**Sources › Plate Mesh** makes a plate of **Cell size** hexahedra, one element through the
+**Sources › Mesh…**, type **Plate Mesh**, makes a plate of **Cell size** hexahedra, one element through the
 thickness. The width and height must be whole multiples of the cell size. It can have a
 circular or elliptical through-hole, given by its semi-axes **a** and **b**, the ellipse's
 **angle** and its centre (empty for the plate centre).
@@ -304,7 +304,7 @@ p = afx.plate_mesh(size=(100, 50, 1), cell=2.5, hole="Circle", a=2.5)
 
 ## Dog-bone Mesh
 
-**Sources › Dog-bone Mesh** makes a flat tensile specimen as one mapped block:
+**Sources › Mesh…**, type **Dog-bone Mesh**, makes a flat tensile specimen as one mapped block:
 - **Planform.** Grips of **Grip width** at both ends and a gage of **Gage width** and **Gage
   length** in the middle, joined by circular fillets of **Fillet radius**.
 - **Thickness.** Constant in the grips. Along the gage it follows a spline through the
@@ -342,7 +342,7 @@ thick = plate.extract_set(set="z-").sweep_quads(direction=(0, 0, 1), distance=4,
 
 ## Face Mesh: triangles and quadrilaterals on a planar face
 
-**Sources › Face Mesh** meshes a flat face drawn with the outline commands (see [Outlines and
+**Sources › Mesh…**, type **Face Mesh**, meshes a flat face drawn with the outline commands (see [Outlines and
 profile solids](#outlines-and-profile-solids)): an **Outer outline** with **Holes** cut out
 (outline numbers), at a **Size**, with *Quadrilaterals* (the default) or *Triangles*:
 

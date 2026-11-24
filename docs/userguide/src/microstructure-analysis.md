@@ -352,30 +352,47 @@ its walls can be. It takes a minute or so for 32 cells along each edge.
 
 ## Starting points
 
-The **Start from** list of the Synthetic Microstructure window holds settings that stand
-for a material. Choosing one selects its type and fills in its settings, which can then be
-changed like any others.
+The **Start from** list of the Synthetic Microstructure window belongs to the type chosen
+above it. Its first entry, **Standard settings**, is the type as it comes; the others are
+settings that stand for a material, which can then be changed like any others. Only the
+starting points of the chosen type are listed.
 
-| Starting point | Type |
+| Type | Starting points beside the standard settings |
 |---|---|
-| Trabecular bone | Open-Cell Foam with elongated cells and thick nodes |
-| Open-cell metal foam, Closed-cell polymer foam | Level-Set Foam |
-| Carbon black in rubber | Clustered Spheres |
-| Short glass fibre composite | Hard Fibres, mostly along Z |
-| Nonwoven mat | Curved Fibres near a plane |
-| Paper and long-fibre mats | Poisson Line Fibres in a plane |
-| Sintered powder | Hard Spheres, densely packed |
-| Porous rock | Overlapping Spheres at a high fraction |
-| Polymer blend | Gaussian Field Medium, half and half |
-| Partly recrystallized metal | Nucleation and Growth Grains stopped early |
-| Bone scaffold | Triply Periodic Surface (gyroid sheet) |
-| Printed truss | Strut Lattice (octet) |
-| Softwood | Honeycomb with growth rings and rays |
-| Cortical bone | Haversian Bone |
-| Nacre, Crustacean shell | Nacre with polygonal tablets, Twisted Plywood |
-| Gel network | Delaunay Fibre Network |
-| Soot aggregate | Aggregation Cluster |
-| Vascular tree | Branching Network |
+| Voronoi Grains | **Annealed metal**: equiaxed grains with spread sizes and relaxed boundaries. **Drawn wire**: grains with a fibre texture along the wire. **Even grains**: grains without order, nearly as even in size as in a crystal. |
+| Pack Grains | **Faceted crystals**: grains packed as cube-octahedra. |
+| Columnar Grains | **Directionally solidified metal**: long columns that hardly lean. **Layer by layer build**: columns that grow through the layers of an additive build. |
+| Nucleation and Growth Grains | **Partly recrystallized metal**: new grains growing in the old material. |
+| Dead Leaves Mosaic | **Three-phase ceramic**: grains of three phases that fill space. |
+| Overlapping Spheres | **Porous rock**: grains that overlap, the pores between them. **Polydisperse inclusions**: inclusions of widely spread sizes. |
+| Penetrable Spheres | **Nearly hard particles**: particles that overlap only at their rims. |
+| Hard Spheres | **Sintered powder**: a dense packing of spheres of several sizes. **Particle-filled polymer**: filler particles apart from one another. |
+| Clustered Spheres | **Carbon black in rubber**: small particles gathered in aggregates. |
+| Overlapping Fibres | **Fibre felt**: straight fibres lying in a plane. **Hollow fibre insulation**: fibres with an open core. |
+| Poisson Line Fibres | **Paper and long-fibre mats**: fibres without ends in a plane. |
+| Curved Fibres | **Nonwoven mat**: long curved fibres lying near a plane. |
+| Hard Fibres | **Short glass fibre composite**: fibres that do not overlap, mostly along Z. |
+| Bending Fibres | **Pressed fibre board**: fibres bent around one another near a plane. |
+| Cross-Linked Fibres | **Bonded nonwoven**: fibres bonded at most of their contacts. |
+| Delaunay Fibre Network | **Gel network**: thin fibres joined at nodes. |
+| Random Laminate | **Layered rock**: layers of uneven thickness with few holes. |
+| Gaussian Field Medium | **Polymer blend**: two interwoven phases in equal shares. **Sheet between two phases**: a phase that lies as a sheet between two others. |
+| Reconstructed Medium | **Sandstone pores**: a pore space rebuilt from its statistics. |
+| Triply Periodic Surface | **Bone scaffold**: a gyroid sheet to print. **Heat exchanger core**: a sheet that separates two channel systems. **Gyroid network**: one of the two channel systems of the gyroid, filled. |
+| Strut Lattice | **Printed truss**: an octet truss at a relative density of 0.15. **Kelvin cell foam**: the struts of a regular foam. **Diamond lattice**: four struts at every node. |
+| Disordered Strut Lattice | **Irregular truss**: a truss with its nodes moved off their places. |
+| Fractal Sponge | **Vicsek cross**: crosses of crosses. |
+| Open-Cell Foam | **Trabecular bone**: struts on elongated cells, thick at the nodes. |
+| Level-Set Foam | **Open-cell metal foam**: struts of three-sided section that thicken towards the nodes. **Closed-cell polymer foam**: cells closed by thin walls, hollow strut sides. |
+| Scale-Rich Network | **Beam network**: beams of many sizes that end on older ones. |
+| Cellular Automaton Structure | **Domains on hexagons**: domains coarsened on a honeycomb of cells. **Quasicrystal pattern**: domains on a tiling that never repeats. |
+| Reaction-Diffusion Pattern | **Spotted pattern**: separate spots. |
+| Aggregation Cluster | **Soot aggregate**: one branched fractal cluster. **Deposited film**: a porous film grown from the base. |
+| Branching Network | **Vascular tree**: a tree that thickens from the tips to the root. |
+| Nacre | **Polygonal nacre**: polygonal tablets in a thin mortar. **Brick and mortar**: tablets in rows, shifted from row to row, in a thin mortar. |
+| Twisted Plywood | **Crustacean shell**: layers of fibres that turn from layer to layer. |
+| Honeycomb | **Softwood**: growth rings and rays. **Honeycomb core**: thin-walled hexagonal cells. |
+| Haversian Bone | **Cortical bone**: osteons, cement lines and canals. |
 
 ![The Synthetic Microstructure window started from Trabecular bone](images/microstructure_templates.png)
 

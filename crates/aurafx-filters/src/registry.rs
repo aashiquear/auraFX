@@ -5576,7 +5576,7 @@ fn build() -> Vec<FilterDef> {
         },
         FilterDef {
             id: "geometry",
-            label: "Geometry",
+            label: "Geometry Commands",
             category: "Sources",
             description: "Solids built from geometry commands (primitives, booleans, extruded, revolved or swept outlines, imported surfaces), with named faces.",
             keywords: &["cad", "csg", "solid", "brick", "cylinder", "boolean", "extrude", "revolve", "sweep", "implicit", "mesh geometry", "model"],

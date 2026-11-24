@@ -57,6 +57,7 @@ pub mod python;
 pub mod rust_plugins;
 pub mod selection;
 pub mod slice;
+pub mod source_groups;
 pub mod sources;
 pub mod stats;
 pub mod streamlines;

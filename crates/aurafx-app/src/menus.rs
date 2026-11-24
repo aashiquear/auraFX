@@ -122,27 +122,20 @@ pub fn filter_menu_for(ui: &mut Ui, info: Option<&aurafx_data::DataSetInfo>, kee
     picked
 }
 
-/// The sources, each once, in registry order. Returns the id of the one clicked. The synthetic
-/// microstructures (grains, particles, fibres, foams, lattices...) are one entry, Synthetic
-/// Microstructure, where the first of them stands: it returns
-/// [`crate::source_dialog::MICROSTRUCTURE`], and the window it opens lists the types.
+/// The Sources menu: the groups of sources (shapes, solid models, meshes, sample data,
+/// synthetic microstructures), one entry each, then the sources that stand alone. Returns the
+/// id clicked: the name of a group opens the window that lists its types.
 pub fn source_menu(ui: &mut Ui) -> Option<&'static str> {
     let defs = aurafx_filters::registry();
     let mut picked = None;
-    let mut grouped = false;
-    for f in defs.iter().filter(|f| f.is_source) {
-        if aurafx_filters::morphology::is_microstructure(f.id) {
-            if !grouped {
-                grouped = true;
-                let types: usize = aurafx_filters::morphology::FAMILIES.iter().map(|(_, ids)| ids.len()).sum();
-                let hint = format!("Grains, particles, fibres, random fields, lattices, foams, growths and bio-inspired structures: {types} types to choose from, each with its standard settings.");
-                if ui.button("Synthetic Microstructure…").on_hover_text(hint).clicked() {
-                    ui.close();
-                    picked = Some(crate::source_dialog::MICROSTRUCTURE);
-                }
-            }
-            continue;
+    for g in aurafx_filters::source_groups::SOURCE_GROUPS {
+        if ui.button(format!("{}…", g.label)).on_hover_text(format!("{} {} types to choose from.", g.hint, g.len())).clicked() {
+            ui.close();
+            picked = Some(g.id);
         }
+    }
+    ui.separator();
+    for f in defs.iter().filter(|f| f.is_source && aurafx_filters::source_groups::group_of_source(f.id).is_none()) {
         if ui.button(format!("{}…", f.label)).on_hover_text(f.description).clicked() {
             ui.close();
             picked = Some(f.id);

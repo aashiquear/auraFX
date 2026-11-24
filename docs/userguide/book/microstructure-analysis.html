@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-f666d8ae.js";
+            window.path_to_searchindex_js = "searchindex-b1f00591.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-156d8f89.js"></script>
@@ -473,33 +473,50 @@ print(cell.array("BulkModulus", "field"), cell.array("UpperBound", "field"))
 <p>The search stops at a good cell, not always the best one, and a coarse grid limits how thin
 its walls can be. It takes a minute or so for 32 cells along each edge.</p>
 <h2 id="starting-points"><a class="header" href="#starting-points">Starting points</a></h2>
-<p>The <strong>Start from</strong> list of the Synthetic Microstructure window holds settings that stand
-for a material. Choosing one selects its type and fills in its settings, which can then be
-changed like any others.</p>
+<p>The <strong>Start from</strong> list of the Synthetic Microstructure window belongs to the type chosen
+above it. Its first entry, <strong>Standard settings</strong>, is the type as it comes; the others are
+settings that stand for a material, which can then be changed like any others. Only the
+starting points of the chosen type are listed.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Starting point</th><th>Type</th></tr>
+<tr><th>Type</th><th>Starting points beside the standard settings</th></tr>
 </thead>
 <tbody>
-<tr><td>Trabecular bone</td><td>Open-Cell Foam with elongated cells and thick nodes</td></tr>
-<tr><td>Open-cell metal foam, Closed-cell polymer foam</td><td>Level-Set Foam</td></tr>
-<tr><td>Carbon black in rubber</td><td>Clustered Spheres</td></tr>
-<tr><td>Short glass fibre composite</td><td>Hard Fibres, mostly along Z</td></tr>
-<tr><td>Nonwoven mat</td><td>Curved Fibres near a plane</td></tr>
-<tr><td>Paper and long-fibre mats</td><td>Poisson Line Fibres in a plane</td></tr>
-<tr><td>Sintered powder</td><td>Hard Spheres, densely packed</td></tr>
-<tr><td>Porous rock</td><td>Overlapping Spheres at a high fraction</td></tr>
-<tr><td>Polymer blend</td><td>Gaussian Field Medium, half and half</td></tr>
-<tr><td>Partly recrystallized metal</td><td>Nucleation and Growth Grains stopped early</td></tr>
-<tr><td>Bone scaffold</td><td>Triply Periodic Surface (gyroid sheet)</td></tr>
-<tr><td>Printed truss</td><td>Strut Lattice (octet)</td></tr>
-<tr><td>Softwood</td><td>Honeycomb with growth rings and rays</td></tr>
-<tr><td>Cortical bone</td><td>Haversian Bone</td></tr>
-<tr><td>Nacre, Crustacean shell</td><td>Nacre with polygonal tablets, Twisted Plywood</td></tr>
-<tr><td>Gel network</td><td>Delaunay Fibre Network</td></tr>
-<tr><td>Soot aggregate</td><td>Aggregation Cluster</td></tr>
-<tr><td>Vascular tree</td><td>Branching Network</td></tr>
+<tr><td>Voronoi Grains</td><td><strong>Annealed metal</strong>: equiaxed grains with spread sizes and relaxed boundaries. <strong>Drawn wire</strong>: grains with a fibre texture along the wire. <strong>Even grains</strong>: grains without order, nearly as even in size as in a crystal.</td></tr>
+<tr><td>Pack Grains</td><td><strong>Faceted crystals</strong>: grains packed as cube-octahedra.</td></tr>
+<tr><td>Columnar Grains</td><td><strong>Directionally solidified metal</strong>: long columns that hardly lean. <strong>Layer by layer build</strong>: columns that grow through the layers of an additive build.</td></tr>
+<tr><td>Nucleation and Growth Grains</td><td><strong>Partly recrystallized metal</strong>: new grains growing in the old material.</td></tr>
+<tr><td>Dead Leaves Mosaic</td><td><strong>Three-phase ceramic</strong>: grains of three phases that fill space.</td></tr>
+<tr><td>Overlapping Spheres</td><td><strong>Porous rock</strong>: grains that overlap, the pores between them. <strong>Polydisperse inclusions</strong>: inclusions of widely spread sizes.</td></tr>
+<tr><td>Penetrable Spheres</td><td><strong>Nearly hard particles</strong>: particles that overlap only at their rims.</td></tr>
+<tr><td>Hard Spheres</td><td><strong>Sintered powder</strong>: a dense packing of spheres of several sizes. <strong>Particle-filled polymer</strong>: filler particles apart from one another.</td></tr>
+<tr><td>Clustered Spheres</td><td><strong>Carbon black in rubber</strong>: small particles gathered in aggregates.</td></tr>
+<tr><td>Overlapping Fibres</td><td><strong>Fibre felt</strong>: straight fibres lying in a plane. <strong>Hollow fibre insulation</strong>: fibres with an open core.</td></tr>
+<tr><td>Poisson Line Fibres</td><td><strong>Paper and long-fibre mats</strong>: fibres without ends in a plane.</td></tr>
+<tr><td>Curved Fibres</td><td><strong>Nonwoven mat</strong>: long curved fibres lying near a plane.</td></tr>
+<tr><td>Hard Fibres</td><td><strong>Short glass fibre composite</strong>: fibres that do not overlap, mostly along Z.</td></tr>
+<tr><td>Bending Fibres</td><td><strong>Pressed fibre board</strong>: fibres bent around one another near a plane.</td></tr>
+<tr><td>Cross-Linked Fibres</td><td><strong>Bonded nonwoven</strong>: fibres bonded at most of their contacts.</td></tr>
+<tr><td>Delaunay Fibre Network</td><td><strong>Gel network</strong>: thin fibres joined at nodes.</td></tr>
+<tr><td>Random Laminate</td><td><strong>Layered rock</strong>: layers of uneven thickness with few holes.</td></tr>
+<tr><td>Gaussian Field Medium</td><td><strong>Polymer blend</strong>: two interwoven phases in equal shares. <strong>Sheet between two phases</strong>: a phase that lies as a sheet between two others.</td></tr>
+<tr><td>Reconstructed Medium</td><td><strong>Sandstone pores</strong>: a pore space rebuilt from its statistics.</td></tr>
+<tr><td>Triply Periodic Surface</td><td><strong>Bone scaffold</strong>: a gyroid sheet to print. <strong>Heat exchanger core</strong>: a sheet that separates two channel systems. <strong>Gyroid network</strong>: one of the two channel systems of the gyroid, filled.</td></tr>
+<tr><td>Strut Lattice</td><td><strong>Printed truss</strong>: an octet truss at a relative density of 0.15. <strong>Kelvin cell foam</strong>: the struts of a regular foam. <strong>Diamond lattice</strong>: four struts at every node.</td></tr>
+<tr><td>Disordered Strut Lattice</td><td><strong>Irregular truss</strong>: a truss with its nodes moved off their places.</td></tr>
+<tr><td>Fractal Sponge</td><td><strong>Vicsek cross</strong>: crosses of crosses.</td></tr>
+<tr><td>Open-Cell Foam</td><td><strong>Trabecular bone</strong>: struts on elongated cells, thick at the nodes.</td></tr>
+<tr><td>Level-Set Foam</td><td><strong>Open-cell metal foam</strong>: struts of three-sided section that thicken towards the nodes. <strong>Closed-cell polymer foam</strong>: cells closed by thin walls, hollow strut sides.</td></tr>
+<tr><td>Scale-Rich Network</td><td><strong>Beam network</strong>: beams of many sizes that end on older ones.</td></tr>
+<tr><td>Cellular Automaton Structure</td><td><strong>Domains on hexagons</strong>: domains coarsened on a honeycomb of cells. <strong>Quasicrystal pattern</strong>: domains on a tiling that never repeats.</td></tr>
+<tr><td>Reaction-Diffusion Pattern</td><td><strong>Spotted pattern</strong>: separate spots.</td></tr>
+<tr><td>Aggregation Cluster</td><td><strong>Soot aggregate</strong>: one branched fractal cluster. <strong>Deposited film</strong>: a porous film grown from the base.</td></tr>
+<tr><td>Branching Network</td><td><strong>Vascular tree</strong>: a tree that thickens from the tips to the root.</td></tr>
+<tr><td>Nacre</td><td><strong>Polygonal nacre</strong>: polygonal tablets in a thin mortar. <strong>Brick and mortar</strong>: tablets in rows, shifted from row to row, in a thin mortar.</td></tr>
+<tr><td>Twisted Plywood</td><td><strong>Crustacean shell</strong>: layers of fibres that turn from layer to layer.</td></tr>
+<tr><td>Honeycomb</td><td><strong>Softwood</strong>: growth rings and rays. <strong>Honeycomb core</strong>: thin-walled hexagonal cells.</td></tr>
+<tr><td>Haversian Bone</td><td><strong>Cortical bone</strong>: osteons, cement lines and canals.</td></tr>
 </tbody>
 </table>
 </div>

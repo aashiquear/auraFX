@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-f666d8ae.js";
+            window.path_to_searchindex_js = "searchindex-b1f00591.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-156d8f89.js"></script>
@@ -192,10 +192,13 @@ longer sections in <a href="grains.html#synthetic-microstructures">Grains and cr
 <li>Choose <strong>Sources › Synthetic Microstructure…</strong> (or, in the Welcome window, <strong>Synthesize
 crystal › All types…</strong>).</li>
 <li>Pick a <strong>Type</strong> from the list at the top. The types are grouped by family; hovering over
-one says what it makes. Or pick a material from <strong>Start from</strong>
-(<a href="microstructure-analysis.html#starting-points">starting points</a>): it selects a type and
-fills in its settings.</li>
-<li>The window shows what the type makes and its standard settings. <strong>Insert with these
+one says what it makes.</li>
+<li><strong>Start from</strong> lists what the chosen type can start from: its <strong>Standard settings</strong>, and
+under them the <a href="microstructure-analysis.html#starting-points">starting points</a> of that
+type, settings that stand for a material (for Open-Cell Foam, <em>Trabecular bone</em>; for
+Strut Lattice, <em>Printed truss</em>, <em>Kelvin cell foam</em> and <em>Diamond lattice</em>). A type
+without starting points has its standard settings only, and the list is greyed.</li>
+<li>The window shows what the type makes and its settings, those a starting point changes first. <strong>Insert with these
 settings</strong> adds it as it is. <strong>Change settings first…</strong> shows the basic settings to edit;
 <strong>Standard settings</strong> puts them back.</li>
 <li>After inserting, every setting (the advanced ones too, under <strong>Show advanced</strong>) is in the
@@ -203,7 +206,8 @@ Properties panel, and the structure is made again when one changes.</li>
 </ol>
 <p>Choosing another type keeps the window open and shows that type’s standard settings, so the
 types can be read through one after another before anything is inserted.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the list of types and the standard settings of Hard Spheres"><span class="img-wrapper"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the list of types and the standard settings of Hard Spheres"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the Type and Start from lists and the standard settings of Hard Spheres"><span class="img-wrapper"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the Type and Start from lists and the standard settings of Hard Spheres"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/microstructure_start_from.png" alt="Start from, open on the Strut Lattice type: its standard settings and its three starting points"><span class="img-wrapper"><img src="images/microstructure_start_from.png" alt="Start from, open on the Strut Lattice type: its standard settings and its three starting points"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/synthetic_microstructure_settings.png" alt="After Change settings first: the basic settings of the Strut Lattice type"><span class="img-wrapper"><img src="images/synthetic_microstructure_settings.png" alt="After Change settings first: the basic settings of the Strut Lattice type"></span></label></p>
 <p>Every type is also a source of its own: the command palette (<code>Ctrl+K</code>) finds it by name
 (“gyroid”, “foam”, “hard spheres”), and Python makes it with <code>afx.&lt;name&gt;(...)</code>.</p>

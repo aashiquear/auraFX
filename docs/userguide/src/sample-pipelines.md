@@ -60,7 +60,7 @@ in `testdata/solver/pinnacle_plate_fine/` and go to step 5.
 
 **Build and run**
 
-1. **Sources › Plate Mesh.** In Properties leave **Width, height, thickness** at 100, 50, 1,
+1. **Sources › Mesh…**, type **Plate Mesh.** In Properties leave **Width, height, thickness** at 100, 50, 1,
    **Hole** at *Circle* with **Semi-axis a (radius)** 2.5, and set **Cell size** to 1. The plate is one element thick, with its faces
    named `x-`, `x+` and so on.
 2. With the plate selected, **Filters › Mesh › Assign Grains.** **Grains from** *Voronoi*,
@@ -345,7 +345,7 @@ More in [Grain boundary surfaces](grains.md#grain-boundary-surfaces).
 
 No file.
 
-1. **Sources › Inclusion Mesh**: **Inclusions** 8, **Radius** 0.075, **Cells along the
+1. **Sources › Mesh…**, type **Inclusion Mesh**: **Inclusions** 8, **Radius** 0.075, **Cells along the
    shortest side** 24, **Seed** 7. Close its eye: the next steps show parts of it.
 2. Select the mesh, **Filters › Common › Threshold**: **Scalars** `ElementBlock`, **Lower** 50.
    This keeps the inclusions' blocks. **Solid color** a red, **Representation** *Surface With

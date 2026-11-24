@@ -3388,7 +3388,7 @@ Python: `gaussian_field_medium` · also found by: gaussian random field, excursi
 | Solid | `kind` | One side of a level / Between two levels | `One side of a level` | Between two levels: sheets that follow the mean level of the field. |
 | Random seed | `seed` | whole number 0 to any | 1 | *advanced* |
 
-### Geometry
+### Geometry Commands
 
 Solids built from geometry commands (primitives, booleans, extruded, revolved or swept outlines, imported surfaces), with named faces.
 
@@ -3630,7 +3630,7 @@ Python: `microstructure_template` · also found by: template, preset, gallery, e
 
 | Setting | Python | Takes | Default | |
 |---|---|---|---|---|
-| Template | `template` | Trabecular bone / Open-cell metal foam / Closed-cell polymer foam / Carbon black in rubber / Short glass fibre composite / Nonwoven mat / Paper and long-fibre mats / Sintered powder / Porous rock / Polymer blend / Partly recrystallized metal / Bone scaffold / Printed truss / Softwood / Cortical bone / Nacre / Crustacean shell / Gel network / Soot aggregate / Vascular tree | `Trabecular bone` |  |
+| Template | `template` | Trabecular bone / Open-cell metal foam / Closed-cell polymer foam / Carbon black in rubber / Short glass fibre composite / Nonwoven mat / Paper and long-fibre mats / Sintered powder / Porous rock / Polymer blend / Partly recrystallized metal / Bone scaffold / Printed truss / Softwood / Cortical bone / Polygonal nacre / Crustacean shell / Gel network / Soot aggregate / Vascular tree / Annealed metal / Drawn wire / Even grains / Faceted crystals / Directionally solidified metal / Layer by layer build / Three-phase ceramic / Nearly hard particles / Polydisperse inclusions / Particle-filled polymer / Fibre felt / Hollow fibre insulation / Pressed fibre board / Bonded nonwoven / Layered rock / Sandstone pores / Sheet between two phases / Heat exchanger core / Gyroid network / Kelvin cell foam / Diamond lattice / Irregular truss / Vicsek cross / Beam network / Domains on hexagons / Quasicrystal pattern / Spotted pattern / Deposited film / Honeycomb core / Brick and mortar | `Trabecular bone` |  |
 | Cells (empty: the template's) | `cells` | list of numbers | [] |  |
 | Random seed (0: the template's) | `seed` | whole number 0 to any | 0 | *advanced* |
 

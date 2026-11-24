@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-f666d8ae.js";
+            window.path_to_searchindex_js = "searchindex-b1f00591.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-156d8f89.js"></script>
@@ -328,22 +328,40 @@ is unlikely to work on this data is faded and says what it needs (“needs a vec
 <p>Filters can be stacked: a Contour of a Clip of a file. Delete an object with the trash button
 or the Delete key; the objects below it go too.</p>
 <h2 id="adding-a-source"><a class="header" href="#adding-a-source">Adding a source</a></h2>
-<p>The <strong>Sources</strong> menu makes data without a file: shapes, synthetic fields, meshes, CAD parts.
-Picking one opens a small window that lists its standard settings (a sphere’s radius and
-resolution, a mesh’s sizes, a CAD Model’s 40 × 30 × 8 mm plate) with two choices:</p>
+<p>The <strong>Sources</strong> menu makes data without a file. Its entries are kinds of sources, each with
+several types to choose from:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Entry</th><th>Types</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Geometric Shape…</strong></td><td>Sphere, Box, Cylinder, Cone; Plane, Line, Point Cloud</td></tr>
+<tr><td><strong>Solid Model…</strong></td><td>Geometry Commands (solids built from commands), CAD Model (a parametric part)</td></tr>
+<tr><td><strong>Mesh…</strong></td><td>Box Mesh, Plate Mesh, Dog-bone Mesh, Inclusion Mesh; Face Mesh</td></tr>
+<tr><td><strong>Sample Data…</strong></td><td>Wavelet; Unstructured Cell Types, Cell Grid; Spatio Temporal Harmonics Grid; AMR Gaussian Pulse, Hyper Tree Grid, Random Hyper Tree Grid</td></tr>
+<tr><td><strong>Synthetic Microstructure…</strong></td><td>grains, particles, fibres, foams, lattices and more (<a href="#synthetic-microstructures-1">Synthetic microstructures</a>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Under them come the sources that stand alone: IPF Color Key and Programmable Source.</p>
+<p>An entry opens a small window with a <strong>Type</strong> list at its top. Choosing a type says what it
+makes and lists its standard settings (a sphere’s radius and resolution, a mesh’s sizes, a
+CAD Model’s 40 × 30 × 8 mm plate); choosing another keeps the window open, so the types can
+be read through before anything is added. Then there are two choices:</p>
 <ul>
 <li><strong>Insert with these settings</strong> adds it as it is.</li>
 <li><strong>Change settings first…</strong> shows its basic settings to edit before it is added (for a CAD
 Model, the starter part, a template or the plate with its width, depth and thickness). The other
 settings are in Properties afterwards.</li>
 </ul>
-<p>Tick <strong>Don’t ask again</strong> to insert sources straight away; <strong>Settings › Ask before adding a
-source</strong> turns the window back on. Sources added from Python (<code>afx.sphere(radius=2)</code>) never ask.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Box Mesh, and the button to change them first"><span class="img-wrapper"><img src="images/source_dialog.png" alt="Adding a source: the standard settings of a Box Mesh, and the button to change them first"></span></label></p>
-<p>One entry of the menu stands for many sources: <strong>Synthetic Microstructure…</strong> opens the same
-window with a <strong>Type</strong> list at its top (grains, particles, fibres, foams, lattices and more).
-Choosing a type shows its standard settings; see
-<a href="#synthetic-microstructures-1">Synthetic microstructures</a>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_dialog.png" alt="Sources › Mesh: the list of types, and the standard settings of a Box Mesh"><span class="img-wrapper"><img src="images/source_dialog.png" alt="Sources › Mesh: the list of types, and the standard settings of a Box Mesh"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/source_group_types.png" alt="Sources › Geometric Shape with its list of types open"><span class="img-wrapper"><img src="images/source_group_types.png" alt="Sources › Geometric Shape with its list of types open"></span></label></p>
+<p>Every type is also found by its own name in the command palette (<code>Ctrl+K</code>), which opens the
+window of that source alone, and made from Python (<code>afx.sphere(radius=2)</code>), which never asks.
+In the window of a source that stands alone or was found by name, tick <strong>Don’t ask again</strong>
+to insert sources straight away; <strong>Settings › Ask before adding a source</strong> turns the window
+back on. A cone with <strong>Resolution</strong> 4 is a pyramid.</p>
 <h2 id="saving-your-work"><a class="header" href="#saving-your-work">Saving your work</a></h2>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/file_new.png" alt="File › New asking about work that is not saved"><span class="img-wrapper"><img src="images/file_new.png" alt="File › New asking about work that is not saved"></span></label></p>
 <ul>
@@ -1993,7 +2011,7 @@ remote one, see <a href="#running-simulations">Running simulations</a>); to skip
 in <code>testdata/solver/pinnacle_plate_fine/</code> and go to step 5.</p>
 <p><strong>Build and run</strong></p>
 <ol>
-<li><strong>Sources › Plate Mesh.</strong> In Properties leave <strong>Width, height, thickness</strong> at 100, 50, 1,
+<li><strong>Sources › Mesh…</strong>, type <strong>Plate Mesh.</strong> In Properties leave <strong>Width, height, thickness</strong> at 100, 50, 1,
 <strong>Hole</strong> at <em>Circle</em> with <strong>Semi-axis a (radius)</strong> 2.5, and set <strong>Cell size</strong> to 1. The plate is one element thick, with its faces
 named <code>x-</code>, <code>x+</code> and so on.</li>
 <li>With the plate selected, <strong>Filters › Mesh › Assign Grains.</strong> <strong>Grains from</strong> <em>Voronoi</em>,
@@ -2233,7 +2251,7 @@ afx.save_animation("grains_orbit.mp4", fps=20, orbit=80)
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"><span class="img-wrapper"><img src="images/sample_hex_mesh.jpg" alt="Eight spheres in a box, meshed with hexahedra"></span></label></p>
 <p>No file.</p>
 <ol>
-<li><strong>Sources › Inclusion Mesh</strong>: <strong>Inclusions</strong> 8, <strong>Radius</strong> 0.075, <strong>Cells along the
+<li><strong>Sources › Mesh…</strong>, type <strong>Inclusion Mesh</strong>: <strong>Inclusions</strong> 8, <strong>Radius</strong> 0.075, <strong>Cells along the
 shortest side</strong> 24, <strong>Seed</strong> 7. Close its eye: the next steps show parts of it.</li>
 <li>Select the mesh, <strong>Filters › Common › Threshold</strong>: <strong>Scalars</strong> <code>ElementBlock</code>, <strong>Lower</strong> 50.
 This keeps the inclusions’ blocks. <strong>Solid color</strong> a red, <strong>Representation</strong> <em>Surface With
@@ -2678,7 +2696,7 @@ stars.set(data="Particles")                # the particles instead of the grid
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/chombo4d.png" alt="A 4-D Chombo file’s space grid (two boxes) colored by the sum of f over velocity space, with its cell edges; the right box’s data does not cover the highest parallel velocities, so its sums are lower"><span class="img-wrapper"><img src="images/chombo4d.png" alt="A 4-D Chombo file’s space grid (two boxes) colored by the sum of f over velocity space, with its cell edges; the right box’s data does not cover the highest parallel velocities, so its sums are lower"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/chombo.png" alt="A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells"><span class="img-wrapper"><img src="images/chombo.png" alt="A 2-D Chombo file with three levels drawn with its cell edges and colored by density: the finer boxes show as smaller cells"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/flash_enzo.png" alt="A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way"><span class="img-wrapper"><img src="images/flash_enzo.png" alt="A FLASH file: the outlines of its blocks on two levels and a slice colored by density, and an Enzo dump with three levels sliced the other way"></span></label></p>
-<p><strong>Sources › AMR Gaussian Pulse</strong> makes a small AMR test dataset: a coarse box and
+<p><strong>Sources › Sample Data…</strong>, type <strong>AMR Gaussian Pulse</strong>, makes a small AMR test dataset: a coarse box and
 two finer boxes holding a Gaussian pulse, in 2-D or 3-D. <strong>Filters › Overlapping AMR Level
 Ids</strong> adds the cell array <code>LevelIdScalars</code> with each cell’s level.</p>
 <p><strong>Filters › Resample AMR</strong> samples AMR data on one uniform grid, so tools that want a single
@@ -2848,7 +2866,7 @@ the number of sides shown).</li>
 VTK writes). Saving as any other format writes the corner mesh
 as an unstructured grid.</li>
 </ul>
-<p><strong>Source</strong> (Sources › Cell Grid): one cell of a chosen <strong>Cell type</strong> with test fields:
+<p><strong>Source</strong> (Sources › Sample Data…, type Cell Grid): one cell of a chosen <strong>Cell type</strong> with test fields:
 <code>hgrad</code> (1, 0, 0 at the first corner, 0 elsewhere), and on hexahedra, tetrahedra, wedges,
 quadrilaterals and triangles <code>hcurl</code> and <code>hdiv</code> (an edge and a face field whose first
 coefficient is 1). A vertex gets a <code>constant</code> field.</p>
@@ -4420,10 +4438,13 @@ longer sections in <a href="#synthetic-microstructures">Grains and crystals</a>.
 <li>Choose <strong>Sources › Synthetic Microstructure…</strong> (or, in the Welcome window, <strong>Synthesize
 crystal › All types…</strong>).</li>
 <li>Pick a <strong>Type</strong> from the list at the top. The types are grouped by family; hovering over
-one says what it makes. Or pick a material from <strong>Start from</strong>
-(<a href="#starting-points">starting points</a>): it selects a type and
-fills in its settings.</li>
-<li>The window shows what the type makes and its standard settings. <strong>Insert with these
+one says what it makes.</li>
+<li><strong>Start from</strong> lists what the chosen type can start from: its <strong>Standard settings</strong>, and
+under them the <a href="#starting-points">starting points</a> of that
+type, settings that stand for a material (for Open-Cell Foam, <em>Trabecular bone</em>; for
+Strut Lattice, <em>Printed truss</em>, <em>Kelvin cell foam</em> and <em>Diamond lattice</em>). A type
+without starting points has its standard settings only, and the list is greyed.</li>
+<li>The window shows what the type makes and its settings, those a starting point changes first. <strong>Insert with these
 settings</strong> adds it as it is. <strong>Change settings first…</strong> shows the basic settings to edit;
 <strong>Standard settings</strong> puts them back.</li>
 <li>After inserting, every setting (the advanced ones too, under <strong>Show advanced</strong>) is in the
@@ -4431,7 +4452,8 @@ Properties panel, and the structure is made again when one changes.</li>
 </ol>
 <p>Choosing another type keeps the window open and shows that type’s standard settings, so the
 types can be read through one after another before anything is inserted.</p>
-<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the list of types and the standard settings of Hard Spheres"><span class="img-wrapper"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the list of types and the standard settings of Hard Spheres"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the Type and Start from lists and the standard settings of Hard Spheres"><span class="img-wrapper"><img src="images/synthetic_microstructure.png" alt="The Synthetic Microstructure window: the Type and Start from lists and the standard settings of Hard Spheres"></span></label></p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/microstructure_start_from.png" alt="Start from, open on the Strut Lattice type: its standard settings and its three starting points"><span class="img-wrapper"><img src="images/microstructure_start_from.png" alt="Start from, open on the Strut Lattice type: its standard settings and its three starting points"></span></label></p>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/synthetic_microstructure_settings.png" alt="After Change settings first: the basic settings of the Strut Lattice type"><span class="img-wrapper"><img src="images/synthetic_microstructure_settings.png" alt="After Change settings first: the basic settings of the Strut Lattice type"></span></label></p>
 <p>Every type is also a source of its own: the command palette (<code>Ctrl+K</code>) finds it by name
 (“gyroid”, “foam”, “hard spheres”), and Python makes it with <code>afx.&lt;name&gt;(...)</code>.</p>
@@ -5137,33 +5159,50 @@ print(cell.array("BulkModulus", "field"), cell.array("UpperBound", "field"))
 <p>The search stops at a good cell, not always the best one, and a coarse grid limits how thin
 its walls can be. It takes a minute or so for 32 cells along each edge.</p>
 <h2 id="starting-points"><a class="header" href="#starting-points">Starting points</a></h2>
-<p>The <strong>Start from</strong> list of the Synthetic Microstructure window holds settings that stand
-for a material. Choosing one selects its type and fills in its settings, which can then be
-changed like any others.</p>
+<p>The <strong>Start from</strong> list of the Synthetic Microstructure window belongs to the type chosen
+above it. Its first entry, <strong>Standard settings</strong>, is the type as it comes; the others are
+settings that stand for a material, which can then be changed like any others. Only the
+starting points of the chosen type are listed.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Starting point</th><th>Type</th></tr>
+<tr><th>Type</th><th>Starting points beside the standard settings</th></tr>
 </thead>
 <tbody>
-<tr><td>Trabecular bone</td><td>Open-Cell Foam with elongated cells and thick nodes</td></tr>
-<tr><td>Open-cell metal foam, Closed-cell polymer foam</td><td>Level-Set Foam</td></tr>
-<tr><td>Carbon black in rubber</td><td>Clustered Spheres</td></tr>
-<tr><td>Short glass fibre composite</td><td>Hard Fibres, mostly along Z</td></tr>
-<tr><td>Nonwoven mat</td><td>Curved Fibres near a plane</td></tr>
-<tr><td>Paper and long-fibre mats</td><td>Poisson Line Fibres in a plane</td></tr>
-<tr><td>Sintered powder</td><td>Hard Spheres, densely packed</td></tr>
-<tr><td>Porous rock</td><td>Overlapping Spheres at a high fraction</td></tr>
-<tr><td>Polymer blend</td><td>Gaussian Field Medium, half and half</td></tr>
-<tr><td>Partly recrystallized metal</td><td>Nucleation and Growth Grains stopped early</td></tr>
-<tr><td>Bone scaffold</td><td>Triply Periodic Surface (gyroid sheet)</td></tr>
-<tr><td>Printed truss</td><td>Strut Lattice (octet)</td></tr>
-<tr><td>Softwood</td><td>Honeycomb with growth rings and rays</td></tr>
-<tr><td>Cortical bone</td><td>Haversian Bone</td></tr>
-<tr><td>Nacre, Crustacean shell</td><td>Nacre with polygonal tablets, Twisted Plywood</td></tr>
-<tr><td>Gel network</td><td>Delaunay Fibre Network</td></tr>
-<tr><td>Soot aggregate</td><td>Aggregation Cluster</td></tr>
-<tr><td>Vascular tree</td><td>Branching Network</td></tr>
+<tr><td>Voronoi Grains</td><td><strong>Annealed metal</strong>: equiaxed grains with spread sizes and relaxed boundaries. <strong>Drawn wire</strong>: grains with a fibre texture along the wire. <strong>Even grains</strong>: grains without order, nearly as even in size as in a crystal.</td></tr>
+<tr><td>Pack Grains</td><td><strong>Faceted crystals</strong>: grains packed as cube-octahedra.</td></tr>
+<tr><td>Columnar Grains</td><td><strong>Directionally solidified metal</strong>: long columns that hardly lean. <strong>Layer by layer build</strong>: columns that grow through the layers of an additive build.</td></tr>
+<tr><td>Nucleation and Growth Grains</td><td><strong>Partly recrystallized metal</strong>: new grains growing in the old material.</td></tr>
+<tr><td>Dead Leaves Mosaic</td><td><strong>Three-phase ceramic</strong>: grains of three phases that fill space.</td></tr>
+<tr><td>Overlapping Spheres</td><td><strong>Porous rock</strong>: grains that overlap, the pores between them. <strong>Polydisperse inclusions</strong>: inclusions of widely spread sizes.</td></tr>
+<tr><td>Penetrable Spheres</td><td><strong>Nearly hard particles</strong>: particles that overlap only at their rims.</td></tr>
+<tr><td>Hard Spheres</td><td><strong>Sintered powder</strong>: a dense packing of spheres of several sizes. <strong>Particle-filled polymer</strong>: filler particles apart from one another.</td></tr>
+<tr><td>Clustered Spheres</td><td><strong>Carbon black in rubber</strong>: small particles gathered in aggregates.</td></tr>
+<tr><td>Overlapping Fibres</td><td><strong>Fibre felt</strong>: straight fibres lying in a plane. <strong>Hollow fibre insulation</strong>: fibres with an open core.</td></tr>
+<tr><td>Poisson Line Fibres</td><td><strong>Paper and long-fibre mats</strong>: fibres without ends in a plane.</td></tr>
+<tr><td>Curved Fibres</td><td><strong>Nonwoven mat</strong>: long curved fibres lying near a plane.</td></tr>
+<tr><td>Hard Fibres</td><td><strong>Short glass fibre composite</strong>: fibres that do not overlap, mostly along Z.</td></tr>
+<tr><td>Bending Fibres</td><td><strong>Pressed fibre board</strong>: fibres bent around one another near a plane.</td></tr>
+<tr><td>Cross-Linked Fibres</td><td><strong>Bonded nonwoven</strong>: fibres bonded at most of their contacts.</td></tr>
+<tr><td>Delaunay Fibre Network</td><td><strong>Gel network</strong>: thin fibres joined at nodes.</td></tr>
+<tr><td>Random Laminate</td><td><strong>Layered rock</strong>: layers of uneven thickness with few holes.</td></tr>
+<tr><td>Gaussian Field Medium</td><td><strong>Polymer blend</strong>: two interwoven phases in equal shares. <strong>Sheet between two phases</strong>: a phase that lies as a sheet between two others.</td></tr>
+<tr><td>Reconstructed Medium</td><td><strong>Sandstone pores</strong>: a pore space rebuilt from its statistics.</td></tr>
+<tr><td>Triply Periodic Surface</td><td><strong>Bone scaffold</strong>: a gyroid sheet to print. <strong>Heat exchanger core</strong>: a sheet that separates two channel systems. <strong>Gyroid network</strong>: one of the two channel systems of the gyroid, filled.</td></tr>
+<tr><td>Strut Lattice</td><td><strong>Printed truss</strong>: an octet truss at a relative density of 0.15. <strong>Kelvin cell foam</strong>: the struts of a regular foam. <strong>Diamond lattice</strong>: four struts at every node.</td></tr>
+<tr><td>Disordered Strut Lattice</td><td><strong>Irregular truss</strong>: a truss with its nodes moved off their places.</td></tr>
+<tr><td>Fractal Sponge</td><td><strong>Vicsek cross</strong>: crosses of crosses.</td></tr>
+<tr><td>Open-Cell Foam</td><td><strong>Trabecular bone</strong>: struts on elongated cells, thick at the nodes.</td></tr>
+<tr><td>Level-Set Foam</td><td><strong>Open-cell metal foam</strong>: struts of three-sided section that thicken towards the nodes. <strong>Closed-cell polymer foam</strong>: cells closed by thin walls, hollow strut sides.</td></tr>
+<tr><td>Scale-Rich Network</td><td><strong>Beam network</strong>: beams of many sizes that end on older ones.</td></tr>
+<tr><td>Cellular Automaton Structure</td><td><strong>Domains on hexagons</strong>: domains coarsened on a honeycomb of cells. <strong>Quasicrystal pattern</strong>: domains on a tiling that never repeats.</td></tr>
+<tr><td>Reaction-Diffusion Pattern</td><td><strong>Spotted pattern</strong>: separate spots.</td></tr>
+<tr><td>Aggregation Cluster</td><td><strong>Soot aggregate</strong>: one branched fractal cluster. <strong>Deposited film</strong>: a porous film grown from the base.</td></tr>
+<tr><td>Branching Network</td><td><strong>Vascular tree</strong>: a tree that thickens from the tips to the root.</td></tr>
+<tr><td>Nacre</td><td><strong>Polygonal nacre</strong>: polygonal tablets in a thin mortar. <strong>Brick and mortar</strong>: tablets in rows, shifted from row to row, in a thin mortar.</td></tr>
+<tr><td>Twisted Plywood</td><td><strong>Crustacean shell</strong>: layers of fibres that turn from layer to layer.</td></tr>
+<tr><td>Honeycomb</td><td><strong>Softwood</strong>: growth rings and rays. <strong>Honeycomb core</strong>: thin-walled hexagonal cells.</td></tr>
+<tr><td>Haversian Bone</td><td><strong>Cortical bone</strong>: osteons, cement lines and canals.</td></tr>
 </tbody>
 </table>
 </div>
@@ -5267,7 +5306,7 @@ Abaqus and Gmsh files for solvers. Plates with holes, dog-bone specimens and swe
 have their own generators, and bricks and cylinders built with commands can be meshed with
 <code>mesh body</code> commands.</p>
 <h2 id="the-geometry-source"><a class="header" href="#the-geometry-source">The Geometry source</a></h2>
-<p>Add it with <strong>Sources › Geometry</strong>. Its Properties show:</p>
+<p>Add it with <strong>Sources › Solid Model…</strong>, type <strong>Geometry Commands</strong> (or <strong>Model › New geometry</strong>). Its Properties show:</p>
 <ul>
 <li><strong>Commands</strong>: the command list, edited in the box and applied with <strong>Apply</strong>. The <strong>Insert</strong>
 menus under the box (<em>Shape</em>, <em>Outline</em>, <em>Combine</em>, <em>Move</em>, <em>Mesh</em>, <em>Names and sets</em>) add a
@@ -5457,7 +5496,7 @@ owning element’s block and element variables) or a node set’s nodes as point
 mesh.save("part.e")          # or part.inp, part.msh
 </code></pre>
 <h2 id="box-mesh"><a class="header" href="#box-mesh">Box Mesh</a></h2>
-<p><strong>Sources › Box Mesh</strong> makes a box of hexahedra: its <strong>Size</strong>, <strong>Origin</strong> and <strong>Cells</strong> along
+<p><strong>Sources › Mesh…</strong>, type <strong>Box Mesh</strong>, makes a box of hexahedra: its <strong>Size</strong>, <strong>Origin</strong> and <strong>Cells</strong> along
 x, y and z, optionally <strong>Graded</strong>. The grading is the ratio of the largest to the smallest
 interval along each axis, with the small intervals at the <strong>Start</strong>, the <strong>End</strong> or <strong>Both</strong>
 ends. It has one block, <code>block_1</code>, and side sets and node sets <code>x-</code>, <code>x+</code>, <code>y-</code>, <code>y+</code>,
@@ -5465,7 +5504,7 @@ ends. It has one block, <code>block_1</code>, and side sets and node sets <code>
 <pre><code class="language-python">b = afx.box_mesh(size=(2, 1, 1), cells=(40, 20, 20), grading=(3, 1, 1), cluster="Start")
 </code></pre>
 <h2 id="inclusion-mesh"><a class="header" href="#inclusion-mesh">Inclusion Mesh</a></h2>
-<p><strong>Sources › Inclusion Mesh</strong> makes a box of matrix with randomly placed inclusions, meshed with
+<p><strong>Sources › Mesh…</strong>, type <strong>Inclusion Mesh</strong>, makes a box of matrix with randomly placed inclusions, meshed with
 conforming hexahedra. It works in four steps:</p>
 <ul>
 <li><strong>Background grid.</strong> A grid of cubic cells covers the box. <strong>Cells along the shortest side</strong>
@@ -5519,7 +5558,7 @@ m.save("rve.e")
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/inclusion_mesh.png" alt="Eight spheres meshed in a cube: the inclusion elements, and three walls of the box showing the background grid"><span class="img-wrapper"><img src="images/inclusion_mesh.png" alt="Eight spheres meshed in a cube: the inclusion elements, and three walls of the box showing the background grid"></span></label></p>
 <h2 id="plate-mesh"><a class="header" href="#plate-mesh">Plate Mesh</a></h2>
-<p><strong>Sources › Plate Mesh</strong> makes a plate of <strong>Cell size</strong> hexahedra, one element through the
+<p><strong>Sources › Mesh…</strong>, type <strong>Plate Mesh</strong>, makes a plate of <strong>Cell size</strong> hexahedra, one element through the
 thickness. The width and height must be whole multiples of the cell size. It can have a
 circular or elliptical through-hole, given by its semi-axes <strong>a</strong> and <strong>b</strong>, the ellipse’s
 <strong>angle</strong> and its centre (empty for the plate centre).</p>
@@ -5538,7 +5577,7 @@ cell size.</p>
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/plate_mesh.png" alt="A plate with a 45-degree elliptical hole: the plate block and the ring around the hole"><span class="img-wrapper"><img src="images/plate_mesh.png" alt="A plate with a 45-degree elliptical hole: the plate block and the ring around the hole"></span></label></p>
 <h2 id="dog-bone-mesh"><a class="header" href="#dog-bone-mesh">Dog-bone Mesh</a></h2>
-<p><strong>Sources › Dog-bone Mesh</strong> makes a flat tensile specimen as one mapped block:</p>
+<p><strong>Sources › Mesh…</strong>, type <strong>Dog-bone Mesh</strong>, makes a flat tensile specimen as one mapped block:</p>
 <ul>
 <li><strong>Planform.</strong> Grips of <strong>Grip width</strong> at both ends and a gage of <strong>Gage width</strong> and <strong>Gage
 length</strong> in the middle, joined by circular fillets of <strong>Fillet radius</strong>.</li>
@@ -5569,7 +5608,7 @@ Set or a surface read from a file.</p>
 </code></pre>
 <p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"><span class="img-wrapper"><img src="images/geometry_hex_mesh.png" alt="Bricks and cylinders meshed with ‘mesh body’ commands: a turned brick, and a cylinder as an O-grid disk swept along its axis in its own block"></span></label></p>
 <h2 id="face-mesh-triangles-and-quadrilaterals-on-a-planar-face"><a class="header" href="#face-mesh-triangles-and-quadrilaterals-on-a-planar-face">Face Mesh: triangles and quadrilaterals on a planar face</a></h2>
-<p><strong>Sources › Face Mesh</strong> meshes a flat face drawn with the outline commands (see <a href="#outlines-and-profile-solids">Outlines and
+<p><strong>Sources › Mesh…</strong>, type <strong>Face Mesh</strong>, meshes a flat face drawn with the outline commands (see <a href="#outlines-and-profile-solids">Outlines and
 profile solids</a>): an <strong>Outer outline</strong> with <strong>Holes</strong> cut out
 (outline numbers), at a <strong>Size</strong>, with <em>Quadrilaterals</em> (the default) or <em>Triangles</em>:</p>
 <ul>
@@ -5955,7 +5994,7 @@ changes when the part does.</p>
 quick specimens written as text; use a CAD model when the part has dimensions you want to
 change, sketches, patterns and holes.</p>
 <h2 id="the-cad-model-source"><a class="header" href="#the-cad-model-source">The CAD Model source</a></h2>
-<p>Add one with <strong>Sources › CAD Model</strong> (or the command palette, <code>Ctrl+K</code>). It starts as a plate.
+<p>Add one with <strong>Sources › Solid Model…</strong>, type <strong>CAD Model</strong> (or the command palette, <code>Ctrl+K</code>). It starts as a plate.
 Its Properties show:</p>
 <ul>
 <li><strong>Dimensions</strong>: the part’s named dimensions. Type a new value or an expression such as
@@ -5985,7 +6024,7 @@ sketch (the sketch’s own order). <code>Bore side</code> is the wall of a hole 
 the top of a brick named <em>Base</em>. Rename a feature and its faces are renamed with it, which the
 later <em>downstream check</em> uses to follow them.</p>
 <h2 id="the-cad-environment-1"><a class="header" href="#the-cad-environment-1">The CAD environment</a></h2>
-<p>Editing happens in one mode of the same window. Open it from <strong>Sources › CAD Model…</strong> (which
+<p>Editing happens in one mode of the same window. Open it from <strong>Sources › Solid Model…</strong>, type <strong>CAD Model</strong> (which
 adds a new part and opens it), from <strong>Edit in CAD…</strong> (right-click a CAD Model in the Pipeline,
 or the button at the top of its Properties), or from Python with <code>part.edit_cad()</code>. While it
 is open:</p>
@@ -10747,7 +10786,7 @@ color blindness.</p>
 </tbody>
 </table>
 </div>
-<h3 id="geometry-1-1"><a class="header" href="#geometry-1-1">Geometry</a></h3>
+<h3 id="geometry-commands"><a class="header" href="#geometry-commands">Geometry Commands</a></h3>
 <p>Solids built from geometry commands (primitives, booleans, extruded, revolved or swept outlines, imported surfaces), with named faces.</p>
 <p>Python: <code>geometry</code> · also found by: cad, csg, solid, brick, cylinder, boolean, extrude, revolve, sweep, implicit, mesh geometry, model</p>
 <div class="table-wrapper">
@@ -11029,7 +11068,7 @@ color blindness.</p>
 <tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
 </thead>
 <tbody>
-<tr><td>Template</td><td><code>template</code></td><td>Trabecular bone / Open-cell metal foam / Closed-cell polymer foam / Carbon black in rubber / Short glass fibre composite / Nonwoven mat / Paper and long-fibre mats / Sintered powder / Porous rock / Polymer blend / Partly recrystallized metal / Bone scaffold / Printed truss / Softwood / Cortical bone / Nacre / Crustacean shell / Gel network / Soot aggregate / Vascular tree</td><td><code>Trabecular bone</code></td><td></td></tr>
+<tr><td>Template</td><td><code>template</code></td><td>Trabecular bone / Open-cell metal foam / Closed-cell polymer foam / Carbon black in rubber / Short glass fibre composite / Nonwoven mat / Paper and long-fibre mats / Sintered powder / Porous rock / Polymer blend / Partly recrystallized metal / Bone scaffold / Printed truss / Softwood / Cortical bone / Polygonal nacre / Crustacean shell / Gel network / Soot aggregate / Vascular tree / Annealed metal / Drawn wire / Even grains / Faceted crystals / Directionally solidified metal / Layer by layer build / Three-phase ceramic / Nearly hard particles / Polydisperse inclusions / Particle-filled polymer / Fibre felt / Hollow fibre insulation / Pressed fibre board / Bonded nonwoven / Layered rock / Sandstone pores / Sheet between two phases / Heat exchanger core / Gyroid network / Kelvin cell foam / Diamond lattice / Irregular truss / Vicsek cross / Beam network / Domains on hexagons / Quasicrystal pattern / Spotted pattern / Deposited film / Honeycomb core / Brick and mortar</td><td><code>Trabecular bone</code></td><td></td></tr>
 <tr><td>Cells (empty: the template’s)</td><td><code>cells</code></td><td>list of numbers</td><td>[]</td><td></td></tr>
 <tr><td>Random seed (0: the template’s)</td><td><code>seed</code></td><td>whole number 0 to any</td><td>0</td><td><em>advanced</em></td></tr>
 </tbody>

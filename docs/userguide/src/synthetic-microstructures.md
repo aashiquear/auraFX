@@ -15,19 +15,24 @@ longer sections in [Grains and crystals](grains.md#synthetic-microstructures).
 1. Choose **Sources › Synthetic Microstructure…** (or, in the Welcome window, **Synthesize
    crystal › All types…**).
 2. Pick a **Type** from the list at the top. The types are grouped by family; hovering over
-   one says what it makes. Or pick a material from **Start from**
-   ([starting points](microstructure-analysis.md#starting-points)): it selects a type and
-   fills in its settings.
-3. The window shows what the type makes and its standard settings. **Insert with these
+   one says what it makes.
+3. **Start from** lists what the chosen type can start from: its **Standard settings**, and
+   under them the [starting points](microstructure-analysis.md#starting-points) of that
+   type, settings that stand for a material (for Open-Cell Foam, *Trabecular bone*; for
+   Strut Lattice, *Printed truss*, *Kelvin cell foam* and *Diamond lattice*). A type
+   without starting points has its standard settings only, and the list is greyed.
+4. The window shows what the type makes and its settings, those a starting point changes first. **Insert with these
    settings** adds it as it is. **Change settings first…** shows the basic settings to edit;
    **Standard settings** puts them back.
-4. After inserting, every setting (the advanced ones too, under **Show advanced**) is in the
+5. After inserting, every setting (the advanced ones too, under **Show advanced**) is in the
    Properties panel, and the structure is made again when one changes.
 
 Choosing another type keeps the window open and shows that type's standard settings, so the
 types can be read through one after another before anything is inserted.
 
-![The Synthetic Microstructure window: the list of types and the standard settings of Hard Spheres](images/synthetic_microstructure.png)
+![The Synthetic Microstructure window: the Type and Start from lists and the standard settings of Hard Spheres](images/synthetic_microstructure.png)
+
+![Start from, open on the Strut Lattice type: its standard settings and its three starting points](images/microstructure_start_from.png)
 
 ![After Change settings first: the basic settings of the Strut Lattice type](images/synthetic_microstructure_settings.png)
 

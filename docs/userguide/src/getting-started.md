@@ -124,24 +124,38 @@ or the Delete key; the objects below it go too.
 
 ## Adding a source
 
-The **Sources** menu makes data without a file: shapes, synthetic fields, meshes, CAD parts.
-Picking one opens a small window that lists its standard settings (a sphere's radius and
-resolution, a mesh's sizes, a CAD Model's 40 × 30 × 8 mm plate) with two choices:
+The **Sources** menu makes data without a file. Its entries are kinds of sources, each with
+several types to choose from:
+
+| Entry | Types |
+|---|---|
+| **Geometric Shape…** | Sphere, Box, Cylinder, Cone; Plane, Line, Point Cloud |
+| **Solid Model…** | Geometry Commands (solids built from commands), CAD Model (a parametric part) |
+| **Mesh…** | Box Mesh, Plate Mesh, Dog-bone Mesh, Inclusion Mesh; Face Mesh |
+| **Sample Data…** | Wavelet; Unstructured Cell Types, Cell Grid; Spatio Temporal Harmonics Grid; AMR Gaussian Pulse, Hyper Tree Grid, Random Hyper Tree Grid |
+| **Synthetic Microstructure…** | grains, particles, fibres, foams, lattices and more ([Synthetic microstructures](synthetic-microstructures.md)) |
+
+Under them come the sources that stand alone: IPF Color Key and Programmable Source.
+
+An entry opens a small window with a **Type** list at its top. Choosing a type says what it
+makes and lists its standard settings (a sphere's radius and resolution, a mesh's sizes, a
+CAD Model's 40 × 30 × 8 mm plate); choosing another keeps the window open, so the types can
+be read through before anything is added. Then there are two choices:
 
 - **Insert with these settings** adds it as it is.
 - **Change settings first…** shows its basic settings to edit before it is added (for a CAD
   Model, the starter part, a template or the plate with its width, depth and thickness). The other
   settings are in Properties afterwards.
 
-Tick **Don't ask again** to insert sources straight away; **Settings › Ask before adding a
-source** turns the window back on. Sources added from Python (`afx.sphere(radius=2)`) never ask.
+![Sources › Mesh: the list of types, and the standard settings of a Box Mesh](images/source_dialog.png)
 
-![Adding a source: the standard settings of a Box Mesh, and the button to change them first](images/source_dialog.png)
+![Sources › Geometric Shape with its list of types open](images/source_group_types.png)
 
-One entry of the menu stands for many sources: **Synthetic Microstructure…** opens the same
-window with a **Type** list at its top (grains, particles, fibres, foams, lattices and more).
-Choosing a type shows its standard settings; see
-[Synthetic microstructures](synthetic-microstructures.md).
+Every type is also found by its own name in the command palette (`Ctrl+K`), which opens the
+window of that source alone, and made from Python (`afx.sphere(radius=2)`), which never asks.
+In the window of a source that stands alone or was found by name, tick **Don't ask again**
+to insert sources straight away; **Settings › Ask before adding a source** turns the window
+back on. A cone with **Resolution** 4 is a pyramid.
 
 ## Saving your work
 

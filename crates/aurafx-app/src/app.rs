@@ -2780,14 +2780,19 @@ impl eframe::App for AuraApp {
                     self.state.server.open = true;
                 }
                 // "source_dialog <id>": the window that adds a source (its standard or changed settings).
-                // "source_dialog synthetic_microstructure [id] [settings]": the same window with the
-                // list of microstructure types, on a type, showing its settings to change.
+                // "source_dialog synthetic_microstructure [id | template:Name] [settings]": the same
+                // window with the list of microstructure types, on a type or a starting point,
+                // showing its settings to change.
                 "source_dialog" => {
                     let mut words = arg.split_whitespace();
                     let first = words.next().unwrap_or("");
                     if first == crate::source_dialog::MICROSTRUCTURE {
                         let rest: Vec<&str> = words.collect();
-                        crate::source_dialog::open_microstructure(&mut self.state, rest.iter().copied().find(|w| *w != "settings"));
+                        // "template:Trabecular_bone": a starting point (spaces written as underscores).
+                        match rest.iter().find_map(|w| w.strip_prefix("template:")) {
+                            Some(name) => crate::source_dialog::open_template(&mut self.state, &name.replace('_', " ")),
+                            None => crate::source_dialog::open_microstructure(&mut self.state, rest.iter().copied().find(|w| *w != "settings")),
+                        }
                         if let Some(d) = self.state.source_dialog.as_mut() {
                             d.customize = rest.contains(&"settings");
                         }

@@ -10,11 +10,16 @@
 
 pub mod bio;
 pub mod defs;
+pub mod fft;
 pub mod fibres;
 pub mod fields;
 pub mod growth;
+pub mod homogenize;
 pub mod lattices;
+pub mod measure;
 pub mod particles;
+pub mod shapes;
+pub mod study;
 
 use crate::synthetic::Draws;
 use anyhow::{bail, Result};
@@ -50,6 +55,7 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
             "open_cell_foam",
             "level_set_foam",
             "scale_rich_network",
+            "optimized_cell",
         ],
     ),
     (
@@ -60,10 +66,12 @@ pub const FAMILIES: &[(&str, &[&str])] = &[
             "reaction_diffusion_pattern",
             "aggregation_cluster",
             "pipe_network",
+            "polarized_blocks",
             "branching_network",
         ],
     ),
     ("Bio-inspired", &["nacre", "twisted_plywood", "honeycomb", "haversian_bone"]),
+    ("Sequences and studies", &["microstructure_template", "microstructure_formation", "microstructure_study"]),
 ];
 
 /// Whether a source is one of the Synthetic Microstructure types.
@@ -463,4 +471,113 @@ impl Buckets {
             }
         }
     }
+}
+
+/// Points moved from where they start until their pattern is stealthy and hyperuniform: no
+/// density wave of a wavelength above a limit is left in it, although the points keep no
+/// order. `chi` (up to about 0.5) is the share of the freedoms of the points that the
+/// vanishing waves take; the larger, the more even the spacing. The box is taken periodic.
+pub fn stealthy(size: [f64; 3], planar: bool, mut x: Vec<[f64; 3]>, chi: f64) -> Result<Vec<[f64; 3]>> {
+    let n = x.len();
+    if n < 4 || !(chi > 0.0) {
+        return Ok(x);
+    }
+    if n > 4000 {
+        bail!("stealthy points are limited to 4000 points");
+    }
+    let dim = if planar { 2 } else { 3 };
+    let want = ((chi.min(0.49) * (dim * (n - 1)) as f64).round() as usize).max(1);
+    // One of each pair of opposite wave vectors of the box, the shortest first.
+    let aspect = size.iter().take(dim).cloned().fold(0.0, f64::max) / size.iter().take(dim).cloned().fold(f64::INFINITY, f64::min);
+    let reach = ((if planar { (4.0 * want as f64 / std::f64::consts::PI).sqrt() } else { (3.0 * want as f64 / std::f64::consts::PI).cbrt() } * aspect) as i64
+        + 3)
+    .min(80);
+    let mut waves: Vec<([f64; 3], f64)> = Vec::new();
+    for mz in if planar { 0..=0 } else { -reach..=reach } {
+        for my in -reach..=reach {
+            for mx in -reach..=reach {
+                if (mz, my, mx) <= (0, 0, 0) {
+                    continue;
+                }
+                let k = [
+                    std::f64::consts::TAU * mx as f64 / size[0],
+                    std::f64::consts::TAU * my as f64 / size[1],
+                    if planar { 0.0 } else { std::f64::consts::TAU * mz as f64 / size[2] },
+                ];
+                waves.push((k, norm(k)));
+            }
+        }
+    }
+    waves.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let mut m = want.min(waves.len());
+    while m < waves.len() && waves[m].1 <= waves[m - 1].1 * (1.0 + 1e-9) {
+        m += 1;
+    }
+    waves.truncate(m);
+    // The energy: the squared amplitude of every wave, summed; and its slope at every point.
+    let eval = |x: &[[f64; 3]]| -> (f64, Vec<[f64; 3]>) {
+        let rho: Vec<[f64; 2]> = waves
+            .par_iter()
+            .map(|(k, _)| {
+                let (mut c, mut s) = (0.0, 0.0);
+                for p in x {
+                    let a = dot(*k, *p);
+                    c += a.cos();
+                    s += a.sin();
+                }
+                [c, s]
+            })
+            .collect();
+        let e = rho.iter().map(|r| r[0] * r[0] + r[1] * r[1]).sum();
+        let grad = x
+            .par_iter()
+            .map(|p| {
+                let mut g = [0.0; 3];
+                for ((k, _), r) in waves.iter().zip(&rho) {
+                    let a = dot(*k, *p);
+                    g = add(g, scale(*k, 2.0 * (r[1] * a.cos() - r[0] * a.sin())));
+                }
+                g
+            })
+            .collect();
+        (e, grad)
+    };
+    let inner = |a: &[[f64; 3]], b: &[[f64; 3]]| -> f64 { a.iter().zip(b).map(|(p, q)| dot(*p, *q)).sum() };
+    let (mut e, mut g) = eval(&x);
+    let mut d: Vec<[f64; 3]> = g.iter().map(|v| scale(*v, -1.0)).collect();
+    let spacing = (size.iter().take(dim).product::<f64>() / n as f64).powf(1.0 / dim as f64);
+    let mut step = 0.05 * spacing / g.iter().map(|v| norm(*v)).fold(1e-300, f64::max);
+    let done = 1e-14 * (n * n) as f64;
+    for _ in 0..4000 {
+        if e <= done {
+            break;
+        }
+        let mut slope = inner(&g, &d);
+        if slope >= 0.0 {
+            d = g.iter().map(|v| scale(*v, -1.0)).collect();
+            slope = -inner(&g, &g);
+        }
+        let mut t = step;
+        let (xn, en, gn) = loop {
+            let xn: Vec<[f64; 3]> = x.iter().zip(&d).map(|(p, q)| add(*p, scale(*q, t))).collect();
+            let (en, gn) = eval(&xn);
+            if en <= e + 1e-4 * t * slope || t < 1e-30 {
+                break (xn, en, gn);
+            }
+            t *= 0.5;
+        };
+        if t < 1e-30 {
+            break;
+        }
+        let beta = (gn.iter().zip(&g).map(|(a, b)| dot(*a, sub(*a, *b))).sum::<f64>() / inner(&g, &g).max(1e-300)).max(0.0);
+        d = gn.iter().zip(&d).map(|(a, b)| add(scale(*a, -1.0), scale(*b, beta))).collect();
+        (x, e, g) = (xn, en, gn);
+        step = 2.0 * t;
+    }
+    for p in x.iter_mut() {
+        for k in 0..dim {
+            p[k] = p[k].rem_euclid(size[k]);
+        }
+    }
+    Ok(x)
 }

@@ -69,6 +69,26 @@ pub fn gaussian_field_medium(g: &Grid, length: f64, fraction: f64, kind: &str, s
     let phases =
         if kind == EXCURSION_BAND { below_quantile(&field.iter().map(|x| x.abs()).collect::<Vec<_>>(), fraction) } else { below_quantile(&field, fraction) };
     let mut img = phase_image(g, phases, None);
+    if kind != EXCURSION_BAND && fraction > 0.0 && fraction < 1.0 {
+        // The level in standard deviations, and what the field then gives exactly: two points
+        // a distance apart both under the level, and the surface of the level set.
+        let level = quantile(&field, fraction) as f64;
+        let reach = g.n.iter().filter(|n| **n > 1).min().copied().unwrap_or(1) / 2;
+        let two: Vec<f64> = (0..=reach)
+            .map(|k| {
+                let rho = (-(k as f64 * g.h / length).powi(2)).exp();
+                let top = rho.min(1.0).asin();
+                let steps = 200;
+                let sum: f64 = (0..steps).map(|i| (-level * level / (1.0 + ((i as f64 + 0.5) * top / steps as f64).sin())).exp()).sum();
+                fraction * fraction + sum * top / steps as f64 / std::f64::consts::TAU
+            })
+            .collect();
+        note(&mut img, "ExpectedFraction", vec![fraction]);
+        note(&mut img, "ExpectedTwoPoint", two);
+        if !g.planar() {
+            note(&mut img, "ExpectedSpecificSurface", vec![2.0 / std::f64::consts::PI * 2f64.sqrt() / length * (-0.5 * level * level).exp()]);
+        }
+    }
     img.cell_data.insert(Array::new("Field", 1, ArrayData::F32(field)));
     Ok(DataSet::ImageData(img))
 }
@@ -260,6 +280,147 @@ fn pair_counts(state: &[u8], n: [usize; 3], axes: &[usize], reach: usize) -> Vec
         .collect()
 }
 
+/// For one line of cells (through its periodic end), the number of places where a segment
+/// of `d` cells more than one lies wholly in the phase, for `d` from 1 to `reach`: added to
+/// `out` with the weight `sign`.
+fn line_segments(state: &[u8], base: usize, stride: usize, n: usize, sign: f64, out: &mut [f64]) {
+    let at = |i: usize| state[base + (i % n) * stride];
+    let Some(start) = (0..n).find(|i| at(*i) == 0) else {
+        out.iter_mut().for_each(|v| *v += sign * n as f64);
+        return;
+    };
+    let mut run = 0usize;
+    for k in 1..=n {
+        if at(start + k) == 1 {
+            run += 1;
+        } else {
+            for (d, v) in out.iter_mut().enumerate().take(run.saturating_sub(1)) {
+                *v += sign * (run - d - 1) as f64;
+            }
+            run = 0;
+        }
+    }
+}
+
+/// What an annealed medium is brought to: for every axis, the number of pairs of cells of
+/// the phase at each distance and, when the lineal path is asked too, the number of
+/// segments of each length that lie wholly in the phase.
+pub struct Target {
+    pub axes: Vec<usize>,
+    pub reach: usize,
+    pub pairs: Vec<Vec<f64>>,
+    pub segments: Option<Vec<Vec<f64>>>,
+}
+
+/// Cells of the phase swapped with cells outside it, a swap kept when it brings the counts
+/// nearer to the target and, less and less often as the annealing cools, when it takes them
+/// away. Returns the state, the distance left and the pair counts reached.
+fn anneal(n: [usize; 3], ones: usize, target: &Target, sweeps: f64, r: &mut dyn Draws) -> (Vec<u8>, f64, Vec<Vec<f64>>) {
+    let total = n[0] * n[1] * n[2];
+    let (axes, reach) = (&target.axes, target.reach);
+    let mut state = vec![0u8; total];
+    let mut placed = 0;
+    while placed < ones {
+        let c = (r.random() * total as f64) as usize % total;
+        if state[c] == 0 {
+            state[c] = 1;
+            placed += 1;
+        }
+    }
+    let stride = [1, n[0], n[0] * n[1]];
+    let mut counts = pair_counts(&state, n, axes, reach);
+    let lineal = target.segments.is_some();
+    let mut paths: Vec<Vec<f64>> = vec![vec![0.0; reach]; axes.len()];
+    if lineal {
+        for (k, &a) in axes.iter().enumerate() {
+            for c in (0..total).filter(|c| (c / stride[a]) % n[a] == 0) {
+                line_segments(&state, c, stride[a], n[a], 1.0, &mut paths[k]);
+            }
+        }
+    }
+    let norm2 = (total as f64).powi(2);
+    let distance = |counts: &[Vec<f64>], extra: &[Vec<f64>], goal: &[Vec<f64>]| -> f64 {
+        counts.iter().zip(extra).zip(goal).map(|((c, d), t)| c.iter().zip(d).zip(t).map(|((c, d), t)| (c + d - t).powi(2)).sum::<f64>()).sum::<f64>() / norm2
+    };
+    // The change of the pair counts when the cell `c` changes (the state not yet changed).
+    let change = |state: &[u8], c: usize, sign: f64, d: &mut [Vec<f64>]| {
+        for (k, &a) in axes.iter().enumerate() {
+            let i = (c / stride[a]) % n[a];
+            let base = c - i * stride[a];
+            for dist in 1..=reach {
+                let up = state[base + ((i + dist) % n[a]) * stride[a]];
+                let down = state[base + ((i + n[a] - dist) % n[a]) * stride[a]];
+                d[k][dist - 1] += sign * (up + down) as f64;
+            }
+        }
+    };
+    let lines = |state: &[u8], c: usize, sign: f64, d: &mut [Vec<f64>]| {
+        for (k, &a) in axes.iter().enumerate() {
+            let i = (c / stride[a]) % n[a];
+            line_segments(state, c - i * stride[a], stride[a], n[a], sign, &mut d[k]);
+        }
+    };
+    let zero = vec![vec![0.0; reach]; axes.len()];
+    let energy = |counts: &[Vec<f64>], d: &[Vec<f64>], paths: &[Vec<f64>], dp: &[Vec<f64>]| -> f64 {
+        distance(counts, d, &target.pairs) + target.segments.as_ref().map(|t| distance(paths, dp, t)).unwrap_or(0.0)
+    };
+    let mut e = energy(&counts, &zero, &paths, &zero);
+    let trials = (sweeps.max(0.0) * total as f64) as usize;
+    let mut temperature = 0.0;
+    let mut warm = Vec::new();
+    let mut delta = zero.clone();
+    let mut dpath = zero.clone();
+    for k in 0..trials {
+        let (a, b) = loop {
+            let a = (r.random() * total as f64) as usize % total;
+            let b = (r.random() * total as f64) as usize % total;
+            if state[a] == 1 && state[b] == 0 {
+                break (a, b);
+            }
+        };
+        delta.iter_mut().for_each(|d| d.fill(0.0));
+        if lineal {
+            dpath.iter_mut().for_each(|d| d.fill(0.0));
+            lines(&state, a, -1.0, &mut dpath);
+            lines(&state, b, -1.0, &mut dpath);
+        }
+        change(&state, a, -1.0, &mut delta);
+        state[a] = 0;
+        change(&state, b, 1.0, &mut delta);
+        state[b] = 1;
+        if lineal {
+            lines(&state, a, 1.0, &mut dpath);
+            lines(&state, b, 1.0, &mut dpath);
+            // Both cells on one line: that line was taken off and put back twice.
+            for (k, &ax) in axes.iter().enumerate() {
+                let (ia, ib) = ((a / stride[ax]) % n[ax], (b / stride[ax]) % n[ax]);
+                if a - ia * stride[ax] == b - ib * stride[ax] {
+                    dpath[k].iter_mut().for_each(|v| *v *= 0.5);
+                }
+            }
+        }
+        let e_new = energy(&counts, &delta, &paths, &dpath);
+        let de = e_new - e;
+        if k < 200 {
+            // The first swaps set the starting temperature: about half the bad ones pass.
+            warm.push(de.abs());
+            temperature = warm.iter().sum::<f64>() / warm.len() as f64;
+        }
+        let t = temperature * 1e-4f64.powf(k as f64 / trials as f64);
+        if de <= 0.0 || (t > 0.0 && r.random() < (-de / t).exp()) {
+            counts.iter_mut().zip(&delta).for_each(|(c, d)| c.iter_mut().zip(d).for_each(|(c, d)| *c += d));
+            if lineal {
+                paths.iter_mut().zip(&dpath).for_each(|(c, d)| c.iter_mut().zip(d).for_each(|(c, d)| *c += d));
+            }
+            e = e_new;
+        } else {
+            state[a] = 1;
+            state[b] = 0;
+        }
+    }
+    (state, e, counts)
+}
+
 /// A medium rebuilt from a two-point probability function. The cells start at random at the
 /// volume fraction, and two cells of different phases are swapped again and again; a swap
 /// that brings the two-point probability along the axes nearer to the target is kept, one
@@ -282,72 +443,89 @@ pub fn reconstructed_medium(g: &Grid, fraction: f64, length: f64, sweeps: f64, s
     let reach = (((4.0 * length / g.h).ceil() as usize).max(4)).min((least - 1) / 2);
     let mut r = Rng::new(seed);
     let ones = ((fraction * total as f64).round() as usize).clamp(1, total - 1);
-    let mut state = vec![0u8; total];
-    let mut placed = 0;
-    while placed < ones {
-        let c = (r.random() * total as f64) as usize % total;
-        if state[c] == 0 {
-            state[c] = 1;
-            placed += 1;
-        }
-    }
     let f = ones as f64 / total as f64;
-    let target: Vec<f64> = (1..=reach).map(|d| total as f64 * (f * f + f * (1.0 - f) * (-(d as f64) * g.h / length).exp())).collect();
-    let mut counts = pair_counts(&state, n, &axes, reach);
-    let stride = [1, n[0], n[0] * n[1]];
-    let norm2 = (total as f64).powi(2);
-    let energy = |counts: &[Vec<f64>]| -> f64 { counts.iter().map(|c| c.iter().zip(&target).map(|(a, b)| (a - b).powi(2)).sum::<f64>()).sum::<f64>() / norm2 };
-    // The change of the counts when the cell `c` becomes `to` (the state not yet changed).
-    let change = |state: &[u8], c: usize, sign: f64, d: &mut [Vec<f64>]| {
-        for (k, &a) in axes.iter().enumerate() {
-            let i = (c / stride[a]) % n[a];
-            let base = c - i * stride[a];
-            for dist in 1..=reach {
-                let up = state[base + ((i + dist) % n[a]) * stride[a]];
-                let down = state[base + ((i + n[a] - dist) % n[a]) * stride[a]];
-                d[k][dist - 1] += sign * (up + down) as f64;
-            }
-        }
-    };
-    let mut e = energy(&counts);
-    let trials = (sweeps.max(0.0) * total as f64) as usize;
-    let mut temperature = 0.0;
-    let mut warm = Vec::new();
-    let mut delta = vec![vec![0.0; reach]; axes.len()];
-    for k in 0..trials {
-        let (a, b) = loop {
-            let a = (r.random() * total as f64) as usize % total;
-            let b = (r.random() * total as f64) as usize % total;
-            if state[a] == 1 && state[b] == 0 {
-                break (a, b);
-            }
-        };
-        delta.iter_mut().for_each(|d| d.fill(0.0));
-        change(&state, a, -1.0, &mut delta);
-        state[a] = 0;
-        change(&state, b, 1.0, &mut delta);
-        state[b] = 1;
-        let e_new: f64 =
-            counts.iter().zip(&delta).map(|(c, d)| c.iter().zip(d).zip(&target).map(|((c, d), t)| (c + d - t).powi(2)).sum::<f64>()).sum::<f64>() / norm2;
-        let de = e_new - e;
-        if k < 200 {
-            // The first swaps set the starting temperature: about half the bad ones pass.
-            warm.push(de.abs());
-            temperature = warm.iter().sum::<f64>() / warm.len() as f64;
-        }
-        let t = temperature * 1e-4f64.powf(k as f64 / trials as f64);
-        if de <= 0.0 || (t > 0.0 && r.random() < (-de / t).exp()) {
-            counts.iter_mut().zip(&delta).for_each(|(c, d)| c.iter_mut().zip(d).for_each(|(c, d)| *c += d));
-            e = e_new;
-        } else {
-            state[a] = 1;
-            state[b] = 0;
-        }
-    }
+    let pairs: Vec<f64> = (1..=reach).map(|d| total as f64 * (f * f + f * (1.0 - f) * (-(d as f64) * g.h / length).exp())).collect();
+    let target = Target { pairs: vec![pairs.clone(); axes.len()], axes, reach, segments: None };
+    let (state, e, counts) = anneal(n, ones, &target, sweeps, &mut r);
     let phases: Vec<i32> = state.iter().map(|s| if *s == 1 { PHASE_SOLID } else { PHASE_MATRIX }).collect();
     let mut img = phase_image(g, phases, None);
     note(&mut img, "Energy", vec![e]);
-    note(&mut img, "TwoPointTarget", target.iter().map(|t| t / total as f64).collect());
+    note(&mut img, "TwoPointTarget", pairs.iter().map(|t| t / total as f64).collect());
     note(&mut img, "TwoPointResult", (0..reach).map(|d| counts.iter().map(|c| c[d]).sum::<f64>() / (counts.len() * total) as f64).collect());
+    Ok(DataSet::ImageData(img))
+}
+
+/// Reconstruct Microstructure: a new medium of any size with the statistics of a phase of
+/// an image: its volume fraction, the probability that two points a distance apart along
+/// each axis both lie in it and, when asked, that the whole segment between them does. From
+/// a single layer of cells (a section) a volume is made, the third axis taking the mean of
+/// the two measured ones.
+#[allow(clippy::too_many_arguments)]
+pub fn reconstruct(ds: &DataSet, array: &str, phase: i32, cells: &[f64], lineal: bool, reach: usize, sweeps: f64, seed: u64) -> Result<DataSet> {
+    let m = super::measure::Cells::of(ds, array)?;
+    let mask: Vec<u8> = m.mask(phase)?.iter().map(|x| *x as u8).collect();
+    let g = Grid::new(if cells.is_empty() { &[40.0, 40.0, 40.0] } else { cells }, m.sp[0], true)?;
+    let n = g.n;
+    let total = g.len();
+    if total > 8_000_000 {
+        bail!("the reconstruction is limited to 8 million cells");
+    }
+    let axes: Vec<usize> = (0..3).filter(|a| n[*a] > 3).collect();
+    let measured: Vec<usize> = (0..3).filter(|a| m.n[*a] > 3).collect();
+    if axes.is_empty() || measured.is_empty() {
+        bail!("the grid is too small");
+    }
+    let least = axes.iter().map(|a| n[*a]).chain(measured.iter().map(|a| m.n[*a])).min().unwrap();
+    let reach = if reach == 0 { least / 3 } else { reach }.clamp(2, (least - 1) / 2);
+    let fraction = mask.iter().filter(|x| **x == 1).count() as f64 / mask.len() as f64;
+    let ones = ((fraction * total as f64).round() as usize).clamp(1, total - 1);
+    // The probabilities measured in the image along each of its axes, without its faces wrapped.
+    let stride = [1, m.n[0], m.n[0] * m.n[1]];
+    let places = |a: usize, d: usize| (mask.len() / m.n[a] * (m.n[a] - d)) as f64;
+    let two = |a: usize| -> Vec<f64> {
+        (1..=reach)
+            .map(|d| {
+                (0..mask.len()).filter(|c| mask[*c] == 1 && (c / stride[a]) % m.n[a] + d < m.n[a] && mask[c + d * stride[a]] == 1).count() as f64 / places(a, d)
+            })
+            .collect()
+    };
+    let path = |a: usize| -> Vec<f64> {
+        let mut out = vec![0.0; reach];
+        // Runs along the lines: a run of `len` cells holds `len - d - 1` segments of `d + 2` cells.
+        let mut run = |len: usize| {
+            for (d, v) in out.iter_mut().enumerate().take(len.saturating_sub(1)) {
+                *v += (len - d - 1) as f64;
+            }
+        };
+        for start in (0..mask.len()).filter(|c| (c / stride[a]) % m.n[a] == 0) {
+            let mut len = 0;
+            for i in 0..m.n[a] {
+                if mask[start + i * stride[a]] == 1 {
+                    len += 1;
+                } else {
+                    run(len);
+                    len = 0;
+                }
+            }
+            run(len);
+        }
+        out.iter().enumerate().map(|(d, v)| v / places(a, d + 1)).collect()
+    };
+    let mean = |f: &dyn Fn(usize) -> Vec<f64>| -> Vec<f64> {
+        let all: Vec<Vec<f64>> = measured.iter().map(|a| f(*a)).collect();
+        (0..reach).map(|d| all.iter().map(|v| v[d]).sum::<f64>() / all.len() as f64).collect()
+    };
+    let per_axis = |f: &dyn Fn(usize) -> Vec<f64>| -> Vec<Vec<f64>> {
+        let fallback = mean(f);
+        axes.iter().map(|a| if measured.contains(a) { f(*a) } else { fallback.clone() }.iter().map(|p| p * total as f64).collect()).collect()
+    };
+    let target = Target { pairs: per_axis(&two), segments: if lineal { Some(per_axis(&path)) } else { None }, axes: axes.clone(), reach };
+    let mut r = Rng::new(seed);
+    let (state, e, counts) = anneal(n, ones, &target, sweeps, &mut r);
+    let phases: Vec<i32> = state.iter().map(|s| if *s == 1 { PHASE_SOLID } else { PHASE_MATRIX }).collect();
+    let mut img = phase_image(&g, phases, None);
+    note(&mut img, "Energy", vec![e]);
+    note(&mut img, "TwoPointTarget", (0..reach).map(|d| target.pairs.iter().map(|c| c[d]).sum::<f64>() / (axes.len() * total) as f64).collect());
+    note(&mut img, "TwoPointResult", (0..reach).map(|d| counts.iter().map(|c| c[d]).sum::<f64>() / (axes.len() * total) as f64).collect());
     Ok(DataSet::ImageData(img))
 }

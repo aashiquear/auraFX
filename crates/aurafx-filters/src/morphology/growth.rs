@@ -75,6 +75,10 @@ pub struct AutomatonParams {
     /// cell comes alive, and at which a live cell stays alive.
     pub births: String,
     pub survivals: String,
+    /// The cells the automaton runs on (`LATTICES`) and, for other cells than those of the
+    /// grid, their size.
+    pub lattice: String,
+    pub tile: f64,
     pub seed: u64,
 }
 
@@ -85,6 +89,9 @@ pub struct AutomatonParams {
 /// rule of that kind.
 pub fn cellular_automaton(g: &Grid, p: &AutomatonParams) -> Result<DataSet> {
     let mut r = Rng::new(p.seed);
+    if p.lattice != LATTICE_GRID && !p.lattice.is_empty() {
+        return automaton_on_tiles(g, p, &mut r);
+    }
     let offs = offsets(g.planar(), p.neighbours != NEIGHBOURS_FACES);
     let mut state: Vec<u8> = (0..g.len()).map(|_| (r.random() < p.initial_fraction) as u8).collect();
     let around = offs.len() + 1;
@@ -301,6 +308,9 @@ pub struct NucleationParams {
     pub orientations: String,
     pub spread_deg: f64,
     pub structure: String,
+    /// Sweeps of grain growth after the box is full (0: none), and its temperature.
+    pub coarsening: usize,
+    pub temperature: f64,
     pub seed: u64,
 }
 
@@ -387,6 +397,12 @@ pub fn nucleation_growth(g: &Grid, p: &NucleationParams) -> Result<DataSet> {
     let (mut ids, found) = crate::synthetic::compact(&labels);
     let mut grain_orients: Vec<cx::Quat> = found.iter().filter(|l| **l != u32::MAX).map(|l| orients[alive[*l as usize]]).collect();
     let rest = found.iter().position(|l| *l == u32::MAX).map(|k| k as i32 + 1);
+    if p.coarsening > 0 && rest.is_none() {
+        coarsen(g, &mut ids, p.coarsening, p.temperature, &mut r);
+        let (renumbered, kept) = crate::synthetic::compact(&ids.iter().map(|i| *i as u32).collect::<Vec<u32>>());
+        grain_orients = kept.iter().map(|l| grain_orients[*l as usize - 1]).collect();
+        ids = renumbered;
+    }
     let mut phases = vec![1i32; g.len()];
     if let Some(m) = rest {
         // The untransformed material is the last feature.
@@ -663,6 +679,16 @@ pub fn pipe_network(g: &Grid, tile_cells: usize, pipe_radius: f64, degrees: &[f6
         }
     }
     let mut img = phase_image(g, phases, None);
+    let mut all = Vec::new();
+    for &a in &axes {
+        for t in (0..count).filter(|t| edges[a][*t]) {
+            let from = tgrid.pos(t);
+            let mut to = from;
+            to[a] += side;
+            all.push(shapes::capsule(from, to, radius));
+        }
+    }
+    shapes::keep(&mut img, &all, g.periodic);
     note(&mut img, "Pipes", vec![pipes as f64]);
     note(&mut img, "Tiles", vec![count as f64]);
     Ok(DataSet::ImageData(img))
@@ -800,9 +826,356 @@ pub fn branching_network(g: &Grid, p: &BranchingParams) -> Result<DataSet> {
         }
     }
     let mut img = phase_image(g, phases, None);
+    let all: Vec<shapes::Shape> =
+        (0..nodes.len()).filter(|n| parent[*n] != usize::MAX).map(|n| shapes::capsule(nodes[parent[n]], nodes[n], radius[n].max(0.5 * g.h))).collect();
+    shapes::keep(&mut img, &all, false);
     img.cell_data.insert(Array::new("BranchRadius", 1, ArrayData::F32(thick)));
     note(&mut img, "Nodes", vec![nodes.len() as f64]);
     note(&mut img, "Tips", vec![tips as f64]);
     note(&mut img, "RootRadius", vec![radius.iter().cloned().fold(0.0, f64::max)]);
+    Ok(DataSet::ImageData(img))
+}
+
+pub const LATTICE_GRID: &str = "Squares or cubes";
+pub const LATTICE_HEXAGONS: &str = "Hexagons";
+pub const LATTICE_TRIANGLES: &str = "Triangles";
+pub const LATTICE_PENROSE: &str = "Penrose rhombi";
+pub const LATTICE_EIGHTFOLD: &str = "Squares and rhombi (eightfold)";
+pub const LATTICE_BCC: &str = "Truncated octahedra";
+pub const LATTICE_FCC: &str = "Rhombic dodecahedra";
+pub const LATTICES: &[&str] = &[LATTICE_GRID, LATTICE_HEXAGONS, LATTICE_TRIANGLES, LATTICE_PENROSE, LATTICE_EIGHTFOLD, LATTICE_BCC, LATTICE_FCC];
+
+/// A tiling of the plane by rhombi that never repeats (fivefold: the Penrose tiling;
+/// eightfold: squares and rhombi), drawn on the columns of cells of the grid: the tile of
+/// every column. Families of parallel lines, one for each direction of a star, cut the
+/// plane; every crossing of two lines is a rhombus of the tiling, placed by the numbers of
+/// the lines of every family that lie before the crossing.
+fn rhombus_tiling(g: &Grid, fold: usize, size: f64, r: &mut dyn Draws) -> Vec<u32> {
+    let star: Vec<[f64; 2]> =
+        (0..fold).map(|j| if fold == 5 { 2.0 * PI * j as f64 / 5.0 } else { PI * j as f64 / fold as f64 }).map(|a| [a.cos(), a.sin()]).collect();
+    let mut shift: Vec<f64> = (0..fold).map(|_| r.random()).collect();
+    if fold == 5 {
+        // The shifts of the five families sum to nothing: the tiling is then Penrose's.
+        shift[4] = -shift[..4].iter().sum::<f64>();
+    }
+    let centre = [0.5 * g.size[0], 0.5 * g.size[1]];
+    let half = (0.5 * g.size[0].hypot(g.size[1]) + (fold as f64 + 2.0) * size) / (size * 0.5 * fold as f64);
+    let (nx, ny) = (g.n[0], g.n[1]);
+    let mut tile = vec![u32::MAX; nx * ny];
+    let mut next = 0u32;
+    for a in 0..fold {
+        for b in a + 1..fold {
+            let (ea, eb) = (star[a], star[b]);
+            let det = ea[0] * eb[1] - ea[1] * eb[0];
+            let lines = |s: f64| ((-half + s).ceil() as i64 - 1)..=((half + s).floor() as i64 + 1);
+            for ka in lines(shift[a]) {
+                for kb in lines(shift[b]) {
+                    let (ca, cb) = (ka as f64 - shift[a], kb as f64 - shift[b]);
+                    let x = [(ca * eb[1] - cb * ea[1]) / det, (cb * ea[0] - ca * eb[0]) / det];
+                    if x[0].hypot(x[1]) > half {
+                        continue;
+                    }
+                    let mut base = [0.0; 2];
+                    for (j, e) in star.iter().enumerate() {
+                        let k = if j == a {
+                            ka as f64
+                        } else if j == b {
+                            kb as f64
+                        } else {
+                            (x[0] * e[0] + x[1] * e[1] + shift[j]).ceil()
+                        };
+                        base = [base[0] + k * e[0], base[1] + k * e[1]];
+                    }
+                    let w = [centre[0] + size * base[0], centre[1] + size * base[1]];
+                    let corners = [
+                        w,
+                        [w[0] + size * ea[0], w[1] + size * ea[1]],
+                        [w[0] + size * (ea[0] + eb[0]), w[1] + size * (ea[1] + eb[1])],
+                        [w[0] + size * eb[0], w[1] + size * eb[1]],
+                    ];
+                    let lo = [corners.iter().map(|c| c[0]).fold(f64::INFINITY, f64::min), corners.iter().map(|c| c[1]).fold(f64::INFINITY, f64::min)];
+                    let hi = [corners.iter().map(|c| c[0]).fold(f64::NEG_INFINITY, f64::max), corners.iter().map(|c| c[1]).fold(f64::NEG_INFINITY, f64::max)];
+                    let range = |k: usize, n: usize| {
+                        ((lo[k] / g.h - 0.5).ceil().max(0.0) as usize)..(((hi[k] / g.h - 0.5).floor() + 1.0).clamp(0.0, n as f64) as usize)
+                    };
+                    let mut used = false;
+                    for j in range(1, ny) {
+                        for i in range(0, nx) {
+                            let q = [(i as f64 + 0.5) * g.h - w[0], (j as f64 + 0.5) * g.h - w[1]];
+                            let (u, v) = ((q[0] * eb[1] - q[1] * eb[0]) / (size * det), (ea[0] * q[1] - ea[1] * q[0]) / (size * det));
+                            if (0.0..1.0).contains(&u) && (0.0..1.0).contains(&v) {
+                                tile[i + nx * j] = next;
+                                used = true;
+                            }
+                        }
+                    }
+                    if used {
+                        next += 1;
+                    }
+                }
+            }
+        }
+    }
+    tile
+}
+
+/// The tile of every cell of the grid for a lattice of tiles of size `size`, and the number
+/// of tiles. Tilings of the plane are stacked in layers when the grid has several.
+fn tiles(g: &Grid, lattice: &str, size: f64, r: &mut dyn Draws) -> Result<(Vec<u32>, usize)> {
+    if !(size >= 3.0 * g.h) {
+        bail!("the tiles must be at least three cells across");
+    }
+    let planar_lattice = !matches!(lattice, LATTICE_BCC | LATTICE_FCC);
+    if !planar_lattice && g.planar() {
+        bail!("{lattice} need more than one layer of cells");
+    }
+    let layer = |z: f64| if g.planar() { 0 } else { (z / size).floor() as i64 };
+    let flat: Option<Vec<u32>> = match lattice {
+        LATTICE_PENROSE => Some(rhombus_tiling(g, 5, size, r)),
+        LATTICE_EIGHTFOLD => Some(rhombus_tiling(g, 4, size, r)),
+        _ => None,
+    };
+    let row = size * 3f64.sqrt() / 2.0;
+    let keys: Vec<[i64; 4]> = (0..g.len())
+        .into_par_iter()
+        .map(|c| {
+            let x = g.pos(c);
+            match lattice {
+                LATTICE_PENROSE | LATTICE_EIGHTFOLD => [flat.as_ref().unwrap()[c % (g.n[0] * g.n[1])] as i64, layer(x[2]), 0, 0],
+                LATTICE_TRIANGLES => {
+                    let (u, v) = (x[0] / size - x[1] / (size * 3f64.sqrt()), 2.0 * x[1] / (size * 3f64.sqrt()));
+                    [u.floor() as i64, v.floor() as i64, layer(x[2]), ((u - u.floor()) + (v - v.floor()) < 1.0) as i64]
+                }
+                LATTICE_BCC => {
+                    let y = x.map(|t| t / size);
+                    let (a, b) = (y.map(f64::round), y.map(|t| t.floor() + 0.5));
+                    let near = |q: [f64; 3]| (0..3).map(|k| (y[k] - q[k]).powi(2)).sum::<f64>();
+                    let q = if near(a) <= near(b) { a } else { b };
+                    [(2.0 * q[0]) as i64, (2.0 * q[1]) as i64, (2.0 * q[2]) as i64, 0]
+                }
+                LATTICE_FCC => {
+                    // The points of whole coordinates of even sum, in units of half the size.
+                    let y = x.map(|t| 2.0 * t / size);
+                    let mut q = y.map(|t| t.round() as i64);
+                    if (q[0] + q[1] + q[2]).rem_euclid(2) == 1 {
+                        let k = (0..3).max_by(|a, b| (y[*a] - q[*a] as f64).abs().total_cmp(&(y[*b] - q[*b] as f64).abs())).unwrap();
+                        q[k] += if y[k] > q[k] as f64 { 1 } else { -1 };
+                    }
+                    [q[0], q[1], q[2], 0]
+                }
+                _ => {
+                    // Hexagons: the nearest point of a triangular lattice.
+                    let j0 = (x[1] / row).round() as i64;
+                    let mut best = (f64::INFINITY, [0i64; 2]);
+                    for j in j0 - 1..=j0 + 1 {
+                        let off = if j.rem_euclid(2) == 1 { 0.5 * size } else { 0.0 };
+                        let i0 = ((x[0] - off) / size).round() as i64;
+                        for i in i0 - 1..=i0 + 1 {
+                            let d = (x[0] - (i as f64 * size + off)).powi(2) + (x[1] - j as f64 * row).powi(2);
+                            if d < best.0 {
+                                best = (d, [i, j]);
+                            }
+                        }
+                    }
+                    [best.1[0], best.1[1], layer(x[2]), 0]
+                }
+            }
+        })
+        .collect();
+    let mut index: std::collections::HashMap<[i64; 4], u32> = std::collections::HashMap::new();
+    let tile: Vec<u32> = keys
+        .iter()
+        .map(|k| {
+            let n = index.len() as u32;
+            *index.entry(*k).or_insert(n)
+        })
+        .collect();
+    Ok((tile, index.len()))
+}
+
+/// The automaton on the tiles of a lattice drawn over the grid: two tiles are neighbours
+/// when they share a side (a face), or, with all the neighbours, a corner too.
+fn automaton_on_tiles(g: &Grid, p: &AutomatonParams, r: &mut dyn Draws) -> Result<DataSet> {
+    let (tile, count) = tiles(g, &p.lattice, p.tile, r)?;
+    let moore = p.neighbours != NEIGHBOURS_FACES;
+    let offs = offsets(g.planar(), moore);
+    let mut touching: std::collections::HashMap<(u32, u32), u32> = std::collections::HashMap::new();
+    for c in 0..g.len() {
+        for o in &offs {
+            if let Some(q) = shifted(g, c, *o) {
+                if tile[q] > tile[c] {
+                    *touching.entry((tile[c], tile[q])).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    // Sides, not corners: the two tiles touch along a stretch of cells.
+    let across = p.tile / g.h;
+    let least = if moore {
+        1
+    } else if g.planar() {
+        (0.4 * across).max(2.0) as u32
+    } else {
+        (0.1 * across * across).max(2.0) as u32
+    };
+    let mut near: Vec<Vec<u32>> = vec![Vec::new(); count];
+    for ((a, b), n) in &touching {
+        if *n >= least {
+            near[*a as usize].push(*b);
+            near[*b as usize].push(*a);
+        }
+    }
+    let mut state: Vec<u8> = (0..count).map(|_| (r.random() < p.initial_fraction) as u8).collect();
+    let (births, survivals) = if p.rule == RULE_CUSTOM { (counts_listed(&p.births)?, counts_listed(&p.survivals)?) } else { (Vec::new(), Vec::new()) };
+    for _ in 0..p.steps {
+        let live: Vec<usize> = near.iter().map(|n| n.iter().map(|q| state[*q as usize] as usize).sum()).collect();
+        let next: Vec<u8> = match p.rule.as_str() {
+            RULE_CONSERVED => {
+                let alive = state.iter().filter(|s| **s == 1).count();
+                let score: Vec<f32> = (0..count)
+                    .map(|t| -((live[t] + state[t] as usize) as f32 / (near[t].len() + 1) as f32) - 0.01 * state[t] as f32 - 0.005 * r.random() as f32)
+                    .collect();
+                below_quantile(&score, alive as f64 / count as f64).iter().map(|x| (*x == PHASE_SOLID) as u8).collect()
+            }
+            RULE_CUSTOM => (0..count).map(|t| if state[t] == 1 { survivals.contains(&live[t]) } else { births.contains(&live[t]) } as u8).collect(),
+            rule => (0..count)
+                .map(|t| {
+                    let (s, half) = (live[t] + state[t] as usize, (near[t].len() + 1).div_ceil(2));
+                    if rule == RULE_MAJORITY {
+                        (s >= half) as u8
+                    } else {
+                        (s > half || s + 1 == half) as u8
+                    }
+                })
+                .collect(),
+        };
+        if next == state {
+            break;
+        }
+        state = next;
+    }
+    let phases = tile.iter().map(|t| if state[*t as usize] == 1 { PHASE_SOLID } else { PHASE_MATRIX }).collect();
+    let mut img = phase_image(g, phases, Some(tile.iter().map(|t| *t as i32 + 1).collect()));
+    note(&mut img, "Tiles", vec![count as f64]);
+    note(&mut img, "NeighboursPerTile", vec![near.iter().map(|n| n.len()).sum::<usize>() as f64 / count.max(1) as f64]);
+    Ok(DataSet::ImageData(img))
+}
+
+/// Grain growth: again and again a cell takes the grain of one of its neighbours when that
+/// leaves it with no more unlike neighbours than before (at a temperature above 0, sometimes
+/// even when it leaves more). Boundaries straighten, small grains vanish, the others grow.
+fn coarsen(g: &Grid, ids: &mut [i32], sweeps: usize, temperature: f64, r: &mut dyn Draws) {
+    let offs = offsets(g.planar(), true);
+    let n = g.len();
+    for _ in 0..sweeps * n {
+        let c = ((r.random() * n as f64) as usize).min(n - 1);
+        let Some(q) = shifted(g, c, offs[((r.random() * offs.len() as f64) as usize).min(offs.len() - 1)]) else { continue };
+        let (mine, other) = (ids[c], ids[q]);
+        if mine == other {
+            continue;
+        }
+        let (mut same, mut gained) = (0i32, 0i32);
+        for o in &offs {
+            if let Some(k) = shifted(g, c, *o) {
+                same += (ids[k] == mine) as i32;
+                gained += (ids[k] == other) as i32;
+            }
+        }
+        let rise = (same - gained) as f64;
+        if rise <= 0.0 || (temperature > 0.0 && r.random() < (-rise / temperature).exp()) {
+            ids[c] = other;
+        }
+    }
+}
+
+/// Polarized blocks: cubes that each deform in one way only, long along one axis and short
+/// along the two others or the reverse, so that a block pushes its neighbours out through
+/// two opposite faces and pulls them in through the four others (or the reverse). Blocks
+/// fit together when every face moves the same way on both sides: along every line of blocks
+/// the motion alternates. The blocks are drawn as cubes with a pore, long along the axis
+/// that pushes out; `BlockAxis` and `BlockSign` give the state of every block.
+pub fn polarized_blocks(g: &Grid, tile_cells: usize, pore: f64, seed: u64) -> Result<DataSet> {
+    let m = tile_cells.max(4);
+    let blocks: [usize; 3] = std::array::from_fn(|k| (g.n[k] / m).max(1));
+    let axes: Vec<usize> = (0..3).filter(|k| blocks[*k] > 1).collect();
+    if axes.len() < 3 {
+        bail!("polarized blocks need at least two blocks along every axis: more cells, or fewer cells per block");
+    }
+    if g.periodic && blocks.iter().any(|b| b % 2 == 1) {
+        bail!("a periodic assembly needs an even number of blocks along every axis");
+    }
+    let mut r = Rng::new(seed);
+    // The motion along each axis: a sign for every line of blocks, alternating along the line.
+    let lines = [blocks[1] * blocks[2], blocks[0] * blocks[2], blocks[0] * blocks[1]];
+    let mut sign: [Vec<i8>; 3] = std::array::from_fn(|a| (0..lines[a]).map(|_| if r.random() < 0.5 { 1 } else { -1 }).collect());
+    let line = |a: usize, b: [usize; 3]| -> usize {
+        match a {
+            0 => b[1] + blocks[1] * b[2],
+            1 => b[0] + blocks[0] * b[2],
+            _ => b[0] + blocks[0] * b[1],
+        }
+    };
+    let alternate = |k: usize| if k % 2 == 0 { 1i8 } else { -1 };
+    let strain = |sign: &[Vec<i8>; 3], b: [usize; 3]| -> [i8; 3] { std::array::from_fn(|a| sign[a][line(a, b)] * alternate(b[a])) };
+    let all: Vec<[usize; 3]> =
+        (0..blocks[0] * blocks[1] * blocks[2]).map(|t| [t % blocks[0], (t / blocks[0]) % blocks[1], t / (blocks[0] * blocks[1])]).collect();
+    // A block whose three motions have the same sign is no block: lines are flipped until none is left.
+    let bad = |sign: &[Vec<i8>; 3], b: [usize; 3]| {
+        let s = strain(sign, b);
+        s[0] == s[1] && s[1] == s[2]
+    };
+    let mut tries = 0usize;
+    loop {
+        let wrong: Vec<[usize; 3]> = all.iter().filter(|b| bad(&sign, **b)).copied().collect();
+        if wrong.is_empty() {
+            break;
+        }
+        tries += 1;
+        if tries > 200 * all.len() + 10_000 {
+            bail!("no assembly found: change the seed");
+        }
+        let b = wrong[((r.random() * wrong.len() as f64) as usize).min(wrong.len() - 1)];
+        // The flip of one of the three lines through the block that leaves the fewest wrong blocks.
+        let mut best = (usize::MAX, 0usize);
+        for a in 0..3 {
+            let l = line(a, b);
+            sign[a][l] = -sign[a][l];
+            let left = (0..blocks[a])
+                .filter(|k| {
+                    let mut q = b;
+                    q[a] = *k;
+                    bad(&sign, q)
+                })
+                .count();
+            sign[a][l] = -sign[a][l];
+            if left < best.0 || (left == best.0 && r.random() < 0.4) {
+                best = (left, a);
+            }
+        }
+        let a = if r.random() < 0.1 { ((r.random() * 3.0) as usize).min(2) } else { best.1 };
+        let l = line(a, b);
+        sign[a][l] = -sign[a][l];
+    }
+    let side = g.h * m as f64;
+    let pore = pore.clamp(0.05, 0.45);
+    let cells: Vec<(i32, i32, i8, i8)> = per_cell(g, |x| {
+        let b: [usize; 3] = std::array::from_fn(|k| ((x[k] / side) as usize).min(blocks[k] - 1));
+        let s = strain(&sign, b);
+        // The axis whose motion differs from the two others.
+        let odd = (0..3).find(|a| s[*a] != s[(a + 1) % 3] && s[*a] != s[(a + 2) % 3]).unwrap_or(0);
+        let d: f64 = (0..3)
+            .map(|k| {
+                let u = (x[k] - (b[k] as f64 + 0.5) * side) / side;
+                let semi = if (k == odd) == (s[odd] > 0) { 1.5 * pore } else { 0.75 * pore };
+                (u / semi.min(0.47)).powi(2)
+            })
+            .sum();
+        let number = (b[0] + blocks[0] * (b[1] + blocks[1] * b[2])) as i32 + 1;
+        (if d < 1.0 { PHASE_MATRIX } else { PHASE_SOLID }, number, odd as i8, s[odd])
+    });
+    let mut img = phase_image(g, cells.iter().map(|c| c.0).collect(), Some(cells.iter().map(|c| c.1).collect()));
+    img.cell_data.insert(Array::new("BlockAxis", 1, ArrayData::I32(cells.iter().map(|c| c.2 as i32).collect())));
+    img.cell_data.insert(Array::new("BlockSign", 1, ArrayData::I32(cells.iter().map(|c| c.3 as i32).collect())));
+    note(&mut img, "Blocks", vec![all.len() as f64]);
     Ok(DataSet::ImageData(img))
 }

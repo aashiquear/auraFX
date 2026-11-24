@@ -5440,6 +5440,9 @@ fn build() -> Vec<FilterDef> {
                 i("grains", "Grains", 100, 1, 10_000_000),
                 f("size_sigma", "Size spread (log sigma)", 0.0, 0.0, 3.0).help("0: Voronoi grains. Above 0: Laguerre grains, seed radii spread lognormally."),
                 b("periodic", "Periodic", false),
+                f("stealth", "Stealthy seeds (0: off)", 0.0, 0.0, 0.49)
+                    .help("Above 0, the seeds are moved until no density wave longer than a limit is left in their pattern: grains without order, yet nearly as even in size as in a crystal. The value (up to about 0.45) is the share of the freedoms of the seeds this takes.")
+                    .advanced(),
                 choice("orientations", "Orientations", &[crate::synthetic::ORIENT_RANDOM, crate::synthetic::ORIENT_FIBER100, crate::synthetic::ORIENT_FIBER111], crate::synthetic::ORIENT_RANDOM),
                 f("spread", "Fibre spread (degrees)", 10.0, 0.0, 90.0),
                 choice("structure", "Crystal structure", &crate::crystal::structure_choices()[1..], "Cubic m-3m"),
@@ -5470,6 +5473,7 @@ fn build() -> Vec<FilterDef> {
                     grains,
                     size_sigma: if size_sigma <= 0.0 { 0.3 * realism } else { size_sigma },
                     periodic: p.bool("periodic", false),
+                    stealth: p.f64("stealth", 0.0),
                     orientations: p.str("orientations"),
                     spread_deg: p.f64("spread", 10.0),
                     structure: p.str("structure"),

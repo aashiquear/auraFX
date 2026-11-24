@@ -221,7 +221,24 @@ fn wood(g: &Grid, p: &HoneycombParams, r: &mut dyn Draws) -> Vec<i32> {
     let stagger: Vec<f64> = (0..files).map(|_| r.random()).collect();
     let ray_width = 0.5 * d;
     let ray_count = if p.rays > 0.0 && p.ray_height > 0.0 { (p.rays * g.size[1] * g.size[2] / (ray_width * p.ray_height)).round() as usize } else { 0 };
-    let rays: Vec<(usize, f64)> = (0..ray_count).map(|_| (((r.random() * files as f64) as usize).min(files - 1), r.uniform(0.0, g.size[2]))).collect();
+    // Rays are added one after another, none within one ray cell along Z of a ray on the same
+    // boundary between two files or on the next one.
+    let ray_cell = (0.5 * d).max(3.0 * g.h);
+    let mut rays: Vec<(usize, f64)> = Vec::new();
+    let mut tries = 0;
+    while rays.len() < ray_count && tries < 200 * ray_count {
+        tries += 1;
+        let new = (((r.random() * files as f64) as usize).min(files - 1), r.uniform(0.0, g.size[2]));
+        let apart = |z: f64| {
+            let dz = new.1 - z;
+            (if g.periodic { dz - g.size[2] * (dz / g.size[2]).round() } else { dz }).abs()
+        };
+        if rays.iter().all(|(f, z)| f.abs_diff(new.0) > 1 || apart(*z) > p.ray_height + ray_cell) {
+            rays.push(new);
+        }
+    }
+    // The walls of the cells of a ray: thinner than those of the files, never under a cell.
+    let ray_wall = (0.5 * p.wall).max(g.h).min(0.2 * ray_width.max(ray_cell));
     per_cell(g, |x| {
         let file = ((x[1] / d).floor() as usize).min(files - 1);
         for (f, z) in &rays {
@@ -229,8 +246,16 @@ fn wood(g: &Grid, p: &HoneycombParams, r: &mut dyn Draws) -> Vec<i32> {
             if g.periodic {
                 dz -= g.size[2] * (dz / g.size[2]).round();
             }
-            if (x[1] - *f as f64 * d).abs() < 0.5 * ray_width && dz.abs() < 0.5 * p.ray_height {
-                return 3;
+            let across = (x[1] - *f as f64 * d).abs();
+            if across < 0.5 * ray_width && dz.abs() < 0.5 * p.ray_height {
+                // Cells in a row along X, stacked along Z, each a box with its own walls.
+                let long = 2.0 * d;
+                let s = (x[0] + 0.37 * long * (*f as f64)).rem_euclid(long);
+                let rows = (p.ray_height / ray_cell).round().max(1.0);
+                let tall = p.ray_height / rows;
+                let v = (dz + 0.5 * p.ray_height).rem_euclid(tall);
+                let wall = across > 0.5 * ray_width - ray_wall || s.min(long - s) < 0.5 * ray_wall || v.min(tall - v) < 0.5 * ray_wall;
+                return if wall { 3 } else { PHASE_MATRIX };
             }
         }
         let u = x[0].rem_euclid(ring);
@@ -298,7 +323,7 @@ pub fn haversian_bone(g: &Grid, radius: f64, radius_sd: f64, coverage: f64, cana
     Ok(DataSet::ImageData(img))
 }
 
-fn phases_of(ds: &DataSet, array: &str) -> Result<(ImageData, Vec<i32>)> {
+pub(crate) fn phases_of(ds: &DataSet, array: &str) -> Result<(ImageData, Vec<i32>)> {
     let DataSet::ImageData(img) = ds else { bail!("the input must be an image (a grid of cells)") };
     let name = if array.is_empty() { "Phases" } else { array };
     let a = img.cell_data.get(name).ok_or_else(|| anyhow!("the input has no cell array {name}"))?;
@@ -306,7 +331,7 @@ fn phases_of(ds: &DataSet, array: &str) -> Result<(ImageData, Vec<i32>)> {
     Ok((img.clone(), phases))
 }
 
-fn refresh_fractions(img: &mut ImageData, phases: Vec<i32>) {
+pub(crate) fn refresh_fractions(img: &mut ImageData, phases: Vec<i32>) {
     let top = phases.iter().copied().max().unwrap_or(1).max(1) as usize;
     let mut count = vec![0usize; top + 1];
     phases.iter().for_each(|p| count[(*p).max(0) as usize] += 1);

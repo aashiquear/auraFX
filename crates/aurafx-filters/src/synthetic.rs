@@ -235,6 +235,8 @@ pub struct TessellationParams {
     /// Log-standard deviation of the seed radii (0: Voronoi).
     pub size_sigma: f64,
     pub periodic: bool,
+    /// Above 0: the seeds are made stealthy (`morphology::stealthy`).
+    pub stealth: f64,
     pub orientations: String,
     pub spread_deg: f64,
     pub structure: String,
@@ -262,7 +264,10 @@ pub fn tessellation(p: &TessellationParams) -> Result<DataSet> {
     let laue = Laue::from_label(&p.structure).ok_or_else(|| anyhow!("unknown crystal structure {}", p.structure))?;
     let mut r = Rng::new(p.seed);
     let ng = p.grains.max(1);
-    let seeds: Vec<[f64; 3]> = (0..ng).map(|_| std::array::from_fn(|a| r.uniform(0.0, size[a]))).collect();
+    let mut seeds: Vec<[f64; 3]> = (0..ng).map(|_| std::array::from_fn(|a| r.uniform(0.0, size[a]))).collect();
+    if p.stealth > 0.0 {
+        seeds = crate::morphology::stealthy(size, n[2] == 1, seeds, p.stealth)?;
+    }
     let spacing = (size[0] * size[1] * size[2] / ng as f64).cbrt();
     let weights: Vec<f64> = (0..ng)
         .map(|_| {

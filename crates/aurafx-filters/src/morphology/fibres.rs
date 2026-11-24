@@ -158,7 +158,13 @@ fn finish(g: &Grid, fibres: &[Fibre], radius: f64, flat: bool, lumen: f64) -> Im
     let (phases, ids) = fibre_cells(g, fibres, radius, flat, lumen);
     let mut img = phase_image(g, phases, Some(ids));
     note(&mut img, "Fibres", vec![fibres.len() as f64]);
+    shapes::keep(&mut img, &fibre_shapes(fibres, radius), g.periodic);
     img
+}
+
+/// The pieces of fibres as objects of the description (round ends, no bore).
+pub fn fibre_shapes(fibres: &[Fibre], radius: f64) -> Vec<shapes::Shape> {
+    fibres.iter().flat_map(|f| f.windows(2).map(move |w| shapes::capsule(w[0], w[1], radius))).collect()
 }
 
 fn straight(centre: [f64; 3], d: [f64; 3], length: f64) -> Fibre {
@@ -185,6 +191,11 @@ pub fn overlapping_fibres(g: &Grid, radius: f64, length: f64, dirs: &Directions,
     let fibres: Vec<Fibre> = (0..count).map(|_| straight(mid_plane(g, g.random_point_around(margin, &mut r)), dirs.draw(&mut r), length)).collect();
     let mut img = finish(g, &fibres, radius, !round, lumen);
     note(&mut img, "ExpectedFraction", vec![fraction]);
+    if !g.planar() && lumen <= 0.0 {
+        // The surface of the union: that of the fibres, where no other fibre covers it.
+        let area = 2.0 * PI * radius * length + if round { 4.0 } else { 2.0 } * PI * radius * radius;
+        note(&mut img, "ExpectedSpecificSurface", vec![-(1.0 - fraction).ln() / one * area * (1.0 - fraction)]);
+    }
     Ok(DataSet::ImageData(img))
 }
 
@@ -217,6 +228,9 @@ pub fn poisson_line_fibres(g: &Grid, radius: f64, dirs: &Directions, fraction: f
     let open = Grid { periodic: false, ..g.clone() };
     let mut img = finish(&open, &fibres, radius, true, 0.0);
     note(&mut img, "ExpectedFraction", vec![fraction]);
+    if !g.planar() {
+        note(&mut img, "ExpectedSpecificSurface", vec![-(1.0 - fraction).ln() * 2.0 / radius * (1.0 - fraction)]);
+    }
     Ok(DataSet::ImageData(img))
 }
 
@@ -524,6 +538,7 @@ pub fn cross_linked_fibres(g: &Grid, p: &CrossLinkParams, dirs: &Directions) -> 
         }
     }
     let mut img = phase_image(&grid, phases, Some(ids));
+    shapes::keep(&mut img, &fibre_shapes(&fibres, p.radius), grid.periodic);
     note(&mut img, "Fibres", vec![fibres.len() as f64]);
     note(&mut img, "Contacts", vec![contacts.len() as f64]);
     note(&mut img, "CrossLinks", vec![links as f64]);
@@ -594,23 +609,28 @@ pub fn germs(g: &Grid, count: usize, regularity: f64, r: &mut dyn Draws) -> Resu
 
 /// A network of fibres on the edges of the Delaunay triangulation of random points, joined
 /// at every point. With `fraction` above 0 the radius is the one that gives this fraction.
-pub fn delaunay_fibre_network(g: &Grid, count: usize, radius: f64, fraction: f64, regularity: f64, seed: u64) -> Result<DataSet> {
-    if g.planar() {
-        bail!("the Delaunay fibre network needs more than one layer of cells");
-    }
+pub fn delaunay_fibre_network(g: &Grid, count: usize, radius: f64, fraction: f64, regularity: f64, stealth: f64, seed: u64) -> Result<DataSet> {
     if count < 8 {
         bail!("at least 8 points");
     }
     let mut r = Rng::new(seed);
-    let points = germs(g, count, regularity, &mut r)?;
-    let edges = delaunay_edges(g, &points)?;
-    let spacing = (g.volume() / count as f64).cbrt();
+    let planar = g.planar();
+    let mut points = if planar { super::lattices::planar_germs(g, count, regularity, &mut r)? } else { germs(g, count, regularity, &mut r)? };
+    if stealth > 0.0 {
+        points = stealthy(g.size, planar, points, stealth)?;
+    }
+    let edges = if planar { planar_delaunay_edges(g, &points)? } else { delaunay_edges(g, &points)? };
+    let spacing = if planar { (g.size[0] * g.size[1] / count as f64).sqrt() } else { (g.volume() / count as f64).cbrt() };
+    let dist = segment_distance(g, &edges, if fraction > 0.0 { 0.5 * spacing } else { radius });
+    let radius = if fraction > 0.0 { quantile(&dist, fraction.min(0.95)) as f64 } else { radius };
     let phases = if fraction > 0.0 {
-        below_quantile(&segment_distance(g, &edges, 0.5 * spacing), fraction.min(0.95))
+        below_quantile(&dist, fraction.min(0.95))
     } else {
-        segment_distance(g, &edges, radius).iter().map(|d| if (*d as f64) < radius { PHASE_SOLID } else { PHASE_MATRIX }).collect()
+        dist.iter().map(|d| if (*d as f64) < radius { PHASE_SOLID } else { PHASE_MATRIX }).collect()
     };
     let mut img = phase_image(g, phases, None);
+    shapes::keep(&mut img, &edges.iter().map(|e| shapes::capsule(e.0, e.1, radius)).collect::<Vec<_>>(), g.periodic);
+    note(&mut img, "FibreRadius", vec![radius]);
     note(&mut img, "Nodes", vec![count as f64]);
     note(&mut img, "Fibres", vec![edges.len() as f64]);
     note(&mut img, "MeanDegree", vec![2.0 * edges.len() as f64 / count as f64]);
@@ -702,4 +722,44 @@ pub fn random_laminate(g: &Grid, p: &LaminateParams) -> Result<DataSet> {
     let mut img = phase_image(g, cells.iter().map(|c| c.0).collect(), Some(cells.iter().map(|c| c.1).collect()));
     note(&mut img, "Layers", vec![thick.len() as f64]);
     Ok(DataSet::ImageData(img))
+}
+
+/// The edges of the Delaunay triangulation of points of a plane (their z kept), over the
+/// periodic images of the points when the box is periodic: every edge once.
+pub fn planar_delaunay_edges(g: &Grid, points: &[[f64; 3]]) -> Result<Vec<([f64; 3], [f64; 3])>> {
+    let mut all: Vec<[f64; 3]> = points.to_vec();
+    if g.periodic {
+        let margin = 3.5 * (g.size[0] * g.size[1] / points.len().max(1) as f64).sqrt();
+        for sy in -1..=1i32 {
+            for sx in -1..=1i32 {
+                if (sx, sy) == (0, 0) {
+                    continue;
+                }
+                for p in points {
+                    let q = [p[0] + sx as f64 * g.size[0], p[1] + sy as f64 * g.size[1], p[2]];
+                    if (0..2).all(|k| q[k] > -margin && q[k] < g.size[k] + margin) {
+                        all.push(q);
+                    }
+                }
+            }
+        }
+    }
+    let cloud = PolyData { points: Points::new_f64(all.iter().flatten().copied().collect()), ..Default::default() };
+    let mesh = crate::surface_ops::delaunay_2d(&DataSet::PolyData(cloud), 0.0)?;
+    let mut seen = std::collections::HashSet::new();
+    let mut edges = Vec::new();
+    for (_, tri) in mesh.polys.iter() {
+        for k in 0..tri.len() {
+            let (a, b) = (tri[k], tri[(k + 1) % tri.len()]);
+            if !seen.insert((a.min(b), a.max(b))) {
+                continue;
+            }
+            let (p, q) = (mesh.points.get(a as usize), mesh.points.get(b as usize));
+            let mid = scale(add(p, q), 0.5);
+            if !g.periodic || (0..2).all(|k| mid[k] >= 0.0 && mid[k] < g.size[k]) {
+                edges.push((p, q));
+            }
+        }
+    }
+    Ok(edges)
 }

@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-2b08cded.js";
+            window.path_to_searchindex_js = "searchindex-f666d8ae.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-ec50e088.js"></script>
+        <script src="toc-156d8f89.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -2143,39 +2143,6 @@
 </tbody>
 </table>
 </div>
-<h3 id="coat-phase"><a class="header" href="#coat-phase">Coat Phase</a></h3>
-<p>A layer of a new phase around a phase of a microstructure, or just inside it: coatings and interphases around particles and fibres, hollow spheres, tubes and struts.</p>
-<p>Python: <code>coat_phase</code> · also found by: coating, interphase, shell, core-shell, hollow, dilate phase, layer around particles</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
-</thead>
-<tbody>
-<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
-<tr><td>Phase to coat</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
-<tr><td>Thickness</td><td><code>thickness</code></td><td>number 0 to ∞</td><td>2</td><td></td></tr>
-<tr><td>Side</td><td><code>side</code></td><td>Outside / Inside</td><td><code>Outside</code></td><td>Outside: a coating around the phase. Inside: a shell, the outer layer of the phase itself.</td></tr>
-<tr><td>Number of the new phase (0: the next free one)</td><td><code>new_phase</code></td><td>whole number 0 to 1000000</td><td>0</td><td><em>advanced</em></td></tr>
-<tr><td>Through periodic faces</td><td><code>periodic</code></td><td>on/off</td><td>off</td><td>On when the microstructure was made periodic.</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="combine-microstructures"><a class="header" href="#combine-microstructures">Combine Microstructures</a></h3>
-<p>Two microstructures on the same grid combined through a phase of each: union, intersection, difference, the second as inclusions over the first, or the second inside the phase of the first.</p>
-<p>Python: <code>combine_microstructures</code> · also found by: union, intersection, difference, nested, inclusions in a matrix, boolean operation, combine phases, multiscale</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
-</thead>
-<tbody>
-<tr><td>Operation</td><td><code>operation</code></td><td>Union / Intersection / Difference / Inclusions over the first / Second inside the first</td><td><code>Union</code></td><td></td></tr>
-<tr><td>Phase of the first</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
-<tr><td>Phase of the second</td><td><code>second_phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
-</tbody>
-</table>
-</div>
 <h3 id="convert-orientations"><a class="header" href="#convert-orientations">Convert Orientations</a></h3>
 <p>Convert orientations between Euler angles, quaternions, orientation matrices, axis-angle, Rodrigues and homochoric vectors, optionally reduced to the fundamental zone.</p>
 <p>Python: <code>convert_orientations</code> · also found by: euler, quaternion, rodrigues, homochoric, axis angle, orientation matrix, fundamental zone, crystal</p>
@@ -3394,6 +3361,305 @@
 </tbody>
 </table>
 </div>
+<h2 id="microstructure"><a class="header" href="#microstructure">Microstructure</a></h2>
+<h3 id="coat-phase"><a class="header" href="#coat-phase">Coat Phase</a></h3>
+<p>A layer of a new phase around a phase of a microstructure, or just inside it: coatings and interphases around particles and fibres, hollow spheres, tubes and struts.</p>
+<p>Python: <code>coat_phase</code> · also found by: coating, interphase, shell, core-shell, hollow, dilate phase, layer around particles</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase to coat</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Thickness</td><td><code>thickness</code></td><td>number 0 to ∞</td><td>2</td><td></td></tr>
+<tr><td>Side</td><td><code>side</code></td><td>Outside / Inside</td><td><code>Outside</code></td><td>Outside: a coating around the phase. Inside: a shell, the outer layer of the phase itself.</td></tr>
+<tr><td>Number of the new phase (0: the next free one)</td><td><code>new_phase</code></td><td>whole number 0 to 1000000</td><td>0</td><td><em>advanced</em></td></tr>
+<tr><td>Through periodic faces</td><td><code>periodic</code></td><td>on/off</td><td>off</td><td>On when the microstructure was made periodic.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="combine-microstructures"><a class="header" href="#combine-microstructures">Combine Microstructures</a></h3>
+<p>Two microstructures on the same grid combined through a phase of each: union, intersection, difference, the second as inclusions over the first, or the second inside the phase of the first.</p>
+<p>Python: <code>combine_microstructures</code> · also found by: union, intersection, difference, nested, inclusions in a matrix, boolean operation, combine phases, multiscale</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Operation</td><td><code>operation</code></td><td>Union / Intersection / Difference / Inclusions over the first / Second inside the first</td><td><code>Union</code></td><td></td></tr>
+<tr><td>Phase of the first</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Phase of the second</td><td><code>second_phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="effective-conductivity"><a class="header" href="#effective-conductivity">Effective Conductivity</a></h3>
+<p>The conductivity of the microstructure as a whole (heat, electricity, diffusion), each phase with its own: a mean gradient is applied along each axis and the flux found everywhere, the box taken as one period of an endless medium. The tensor, the bounds the fractions alone give and the tortuosity factor are kept with the result; the gradient and the flux of one load are cell arrays.</p>
+<p>Python: <code>effective_conductivity</code> · also found by: homogenization, thermal conductivity, electrical conductivity, diffusivity, effective property, fft solver, hashin-shtrikman, tortuosity factor, permittivity</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Conductivity of each phase</td><td><code>conductivities</code></td><td>list of numbers</td><td>[0.01, 1.0]</td><td>In the order of the phases: phase 1, phase 2, and so on (the last value for the phases beyond).</td></tr>
+<tr><td>Keep the fields of the gradient along</td><td><code>axis</code></td><td>X / Y / Z</td><td><code>X</code></td><td></td></tr>
+<tr><td>Tolerance</td><td><code>tolerance</code></td><td>number 0.000000000001 to 1</td><td>0.0001</td><td><em>advanced</em></td></tr>
+<tr><td>Iterations at most</td><td><code>iterations</code></td><td>whole number 1 to 100000</td><td>500</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="effective-stiffness"><a class="header" href="#effective-stiffness">Effective Stiffness</a></h3>
+<p>The elastic stiffness of the microstructure as a whole, each phase with its Young’s modulus and Poisson’s ratio: six mean strains are applied in turn and the stress found everywhere, the box taken as one period of an endless medium. The stiffness matrix, the moduli along the axes, the bulk and shear moduli with their bounds are kept with the result; the strain, the stress and the von Mises stress of one load are cell arrays.</p>
+<p>Python: <code>effective_stiffness</code> · also found by: homogenization, elastic moduli, young’s modulus, stiffness tensor, effective property, fft solver, hashin-shtrikman, voigt reuss, stress concentration, rve computation</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Young’s modulus of each phase</td><td><code>youngs</code></td><td>list of numbers</td><td>[0.001, 1.0]</td><td>In the order of the phases. Give pores a small value rather than 0.</td></tr>
+<tr><td>Poisson’s ratio of each phase</td><td><code>poisson</code></td><td>list of numbers</td><td>[0.3, 0.3]</td><td></td></tr>
+<tr><td>Keep the fields of</td><td><code>load</code></td><td>Stretch along X / Stretch along Y / Stretch along Z / Shear YZ / Shear XZ / Shear XY</td><td><code>Stretch along X</code></td><td></td></tr>
+<tr><td>Tolerance</td><td><code>tolerance</code></td><td>number 0.000000000001 to 1</td><td>0.0001</td><td><em>advanced</em></td></tr>
+<tr><td>Iterations at most</td><td><code>iterations</code></td><td>whole number 1 to 100000</td><td>500</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="fabric-tensor"><a class="header" href="#fabric-tensor">Fabric Tensor</a></h3>
+<p>The directions along which a phase is long and short: the mean length of the chords through it along 13 directions, the ellipsoid that fits them, its axes, and the degree of anisotropy (longest over shortest).</p>
+<p>Python: <code>fabric_tensor</code> · also found by: mean intercept length, mil, anisotropy, fabric, degree of anisotropy, orientation of a structure, trabecular</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Through periodic faces</td><td><code>periodic</code></td><td>on/off</td><td>off</td><td>On when the microstructure was made periodic.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="framework-rigidity"><a class="header" href="#framework-rigidity">Framework Rigidity</a></h3>
+<p>A lattice of struts taken as bars joined by pins: the ways it can move without stretching a bar (mechanisms), the ways its bars can be stressed without load (states of self-stress) and, for a periodic lattice, the mean strains it cannot resist. A lattice with none of those carries loads by stretching its struts.</p>
+<p>Python: <code>framework_rigidity</code> · also found by: maxwell, calladine, mechanisms, self-stress, stretching dominated, bending dominated, rigidity matrix, isostatic, pin-jointed</p>
+<h3 id="local-thickness"><a class="header" href="#local-thickness">Local Thickness</a></h3>
+<p>At every cell of a phase, the diameter of the largest ball inside the phase that holds the cell: the thickness of struts and walls, or the size of the pores. As a table: the size distribution (what openings by balls of growing size remove).</p>
+<p>Python: <code>local_thickness</code> · also found by: thickness map, pore size distribution, granulometry, opening, largest inscribed sphere, trabecular thickness, strut thickness, wall thickness</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Result</td><td><code>output</code></td><td>Thickness at every cell / Size distribution</td><td><code>Thickness at every cell</code></td><td></td></tr>
+<tr><td>Classes of the distribution</td><td><code>bins</code></td><td>whole number 1 to 10000</td><td>20</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="microstructure-objects"><a class="header" href="#microstructure-objects">Microstructure Objects</a></h3>
+<p>The objects a microstructure was made of, as geometry: spheres as points, fibre pieces and struts as lines, each with its radius. For glyphs and tubes, for a mesher, or to count and measure them.</p>
+<p>Python: <code>microstructure_objects</code> · also found by: exact geometry, description, centres and radii, fibre axes, strut axes, skeleton, beam model</p>
+<h3 id="percolation"><a class="header" href="#percolation">Percolation</a></h3>
+<p>The connected parts of a phase, numbered from the largest (ClusterIds), and whether one of them joins opposite faces of the box along X, Y and Z, with the share of the phase in such parts.</p>
+<p>Python: <code>percolation</code> · also found by: percolating cluster, connected clusters, spanning cluster, connectivity, conducting path, open porosity</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Cells are joined across</td><td><code>connectivity</code></td><td>Faces / Faces and edges / Faces, edges and corners</td><td><code>Faces</code></td><td></td></tr>
+<tr><td>Through periodic faces</td><td><code>periodic</code></td><td>on/off</td><td>off</td><td>On when the microstructure was made periodic.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="phase-chord-lengths"><a class="header" href="#phase-chord-lengths">Phase Chord Lengths</a></h3>
+<p>The lengths of the stretches of a phase along lines in X, Y and Z, as the share of the chords in each class of length, with their means (chords cut by the box are left out).</p>
+<p>Python: <code>phase_chord_lengths</code> · also found by: chord length distribution, intercept lengths, linear intercept, pore chords, mean free path</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Classes</td><td><code>bins</code></td><td>whole number 1 to 10000</td><td>30</td><td></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="phase-measures"><a class="header" href="#phase-measures">Phase Measures</a></h3>
+<p>A table with a row for every phase of a microstructure: its volume fraction, its surface per unit volume, the mean length of the chords through it, its Euler number (parts less tunnels plus cavities) and the number of its connected parts, beside the values the model gives exactly where it kept them.</p>
+<p>Python: <code>phase_measures</code> · also found by: volume fraction, specific surface, surface area per volume, euler characteristic, connectivity, minkowski, porosity, stereology, intercepts</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Through periodic faces</td><td><code>periodic</code></td><td>on/off</td><td>off</td><td>On when the microstructure was made periodic.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="reconstruct-microstructure"><a class="header" href="#reconstruct-microstructure">Reconstruct Microstructure</a></h3>
+<p>A new random medium of any size with the statistics of a phase of an image: its fraction, the probability that two points a distance apart both lie in it and, when asked, that the segment between them does. From a section (one layer of cells) it makes a volume.</p>
+<p>Python: <code>reconstruct_microstructure</code> · also found by: stochastic reconstruction, simulated annealing, statistical copy, 3d from 2d, tomography, two-point, lineal path, digital rock</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Cells of the new medium</td><td><code>cells</code></td><td>list of numbers</td><td>[40.0, 40.0, 40.0]</td><td></td></tr>
+<tr><td>Match the lineal path too</td><td><code>lineal</code></td><td>on/off</td><td>on</td><td>Keeps the lengths of the straight stretches of the phase, which the two-point probability alone lets drift.</td></tr>
+<tr><td>Farthest distance matched (cells, 0: a third of the box)</td><td><code>reach</code></td><td>whole number 0 to 10000</td><td>0</td><td><em>advanced</em></td></tr>
+<tr><td>Swaps tried per cell</td><td><code>sweeps</code></td><td>number 0 to 10000</td><td>15</td><td></td></tr>
+<tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="representative-volume"><a class="header" href="#representative-volume">Representative Volume</a></h3>
+<p>How large a sample must be: the box is cut into blocks of growing size and the variance of the mean of a property over the blocks is followed against their volume. The fit gives the integral range and the volume that brings the mean to a relative precision with a number of samples.</p>
+<p>Python: <code>representative_volume</code> · also found by: rve, representative volume element, integral range, variance scaling, sample size, statistical representativity, how many realizations</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Property</td><td><code>property</code></td><td>array</td><td>(the active array)</td><td>Empty: the volume fraction of the phase. A cell array: its mean (a stress or a flux from the property filters, for instance).</td></tr>
+<tr><td>Relative precision</td><td><code>precision</code></td><td>number 0.000000001 to 1</td><td>0.01</td><td></td></tr>
+<tr><td>Samples</td><td><code>samples</code></td><td>whole number 1 to 1000000</td><td>1</td><td></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="smooth-surface"><a class="header" href="#smooth-surface">Smooth Surface</a></h3>
+<p>The closed surface of a phase as triangles, without the steps of the cells: from the exact spheres, fibres and struts of the model at any resolution, or from the cells with their steps smoothed. For printing (save as STL) and for a tetrahedral mesh (Tet Mesh).</p>
+<p>Python: <code>microstructure_surface</code> · also found by: conforming mesh, stl, isosurface, level set, surface mesh, 3d printing, additive manufacturing, smooth voxels, export geometry</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Resolution (times the image)</td><td><code>refine</code></td><td>whole number 1 to 16</td><td>2</td><td>With a model made of spheres, fibres or struts: the surface is drawn this many times finer than the cells.</td></tr>
+<tr><td>Smoothing (cells)</td><td><code>smoothing</code></td><td>number 0 to 10</td><td>0.8</td><td>Without such a description: the steps of the cells are smoothed over this many cells.</td></tr>
+<tr><td>Always from the cells</td><td><code>from_cells</code></td><td>on/off</td><td>off</td><td><em>advanced</em> On: the surface follows the cells (with hollow fibres, flat ends and coatings as drawn) even when the model kept its objects.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="split-touching-particles"><a class="header" href="#split-touching-particles">Split Touching Particles</a></h3>
+<p>Particles of a phase that touch told apart: every cell goes to the particle whose core it leads to (FeatureIds), the cores being the places farthest from the boundary. Then measure them with the feature filters.</p>
+<p>Python: <code>split_particles</code> · also found by: watershed, separate particles, segmentation, touching grains, distance transform, particle analysis, label particles</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Least neck depth</td><td><code>depth</code></td><td>number 0 to ∞</td><td>1</td><td>Two cores are one particle when the neck between them is less than this narrower (in radius) than the smaller core. Larger: fewer particles.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="stretch-microstructure"><a class="header" href="#stretch-microstructure">Stretch Microstructure</a></h3>
+<p>A structure stretched by a factor along each of three axes, the axes turned: elongated grains and pores, aligned ellipsoids from spheres, a field with a longer correlation one way, on the same grid.</p>
+<p>Python: <code>stretch_microstructure</code> · also found by: anisotropy, affine, elongate, ellipsoids, squeeze, aspect ratio, texture of shapes</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Stretch along the axes</td><td><code>stretch</code></td><td>x, y, z</td><td>(1, 1, 2)</td><td></td></tr>
+<tr><td>Axes turned by (Bunge angles, degrees)</td><td><code>rotation</code></td><td>x, y, z</td><td>(0, 0, 0)</td><td></td></tr>
+<tr><td>The structure is periodic</td><td><code>periodic</code></td><td>on/off</td><td>on</td><td>What comes in from beyond the box is then the structure repeated; otherwise its mirror image.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="tortuosity"><a class="header" href="#tortuosity">Tortuosity</a></h3>
+<p>How winding the paths through a phase are: the length of the shortest path inside the phase from one face of the box to every cell (PathLength), and the mean length of the paths that reach the opposite face over the straight distance.</p>
+<p>Python: <code>tortuosity</code> · also found by: geometric tortuosity, geodesic distance, shortest path, pore paths, transport path, diffusion path</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>1</td><td></td></tr>
+<tr><td>From the face at the start of</td><td><code>axis</code></td><td>X / Y / Z</td><td><code>Z</code></td><td></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="two-point-statistics"><a class="header" href="#two-point-statistics">Two-Point Statistics</a></h3>
+<p>For a phase, against the distance: the probability that two points that far apart both lie in the phase (along each axis and over all directions), that the whole segment between them does (the lineal path), and that they lie in the same connected part (the cluster function). The integral range is kept with the table, and the exact curve of the model where it kept one.</p>
+<p>Python: <code>two_point_statistics</code> · also found by: two-point probability, covariance, correlation function, s2, lineal path, cluster function, integral range, autocorrelation, covariogram</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Farthest distance (cells, 0: half the box)</td><td><code>reach</code></td><td>whole number 0 to 100000</td><td>0</td><td></td></tr>
+<tr><td>Through periodic faces</td><td><code>periodic</code></td><td>on/off</td><td>off</td><td>On when the microstructure was made periodic.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="unfold-section-sizes"><a class="header" href="#unfold-section-sizes">Unfold Section Sizes</a></h3>
+<p>The sizes of spheres in space from the sizes of their sections by a plane: a table with, for every class of diameter, the number of sections per unit area and of spheres per unit volume.</p>
+<p>Python: <code>unfold_section_sizes</code> · also found by: saltykov, stereology, scheil-schwartz-saltykov, unfolding, 3d size distribution from 2d, section diameters, particle size</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Section diameters</td><td><code>array</code></td><td>text</td><td><code>EquivalentDiameters</code></td><td>A column of a table, or an array of the dataset.</td></tr>
+<tr><td>Classes</td><td><code>classes</code></td><td>whole number 1 to 200</td><td>12</td><td></td></tr>
+<tr><td>Area of the section (0: that of the image)</td><td><code>area</code></td><td>number 0 to ∞</td><td>0</td><td></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="wave-band-structure"><a class="header" href="#wave-band-structure">Wave Band Structure</a></h3>
+<p>The frequencies of the elastic waves that can travel through a periodic structure, along a path of wave vectors: a table with one column per band. A range of frequencies that no band crosses is a band gap: no wave of those frequencies gets through (BandGaps).</p>
+<p>Python: <code>wave_band_structure</code> · also found by: bloch waves, phononic crystal, dispersion, band gap, plane wave expansion, acoustic metamaterial, brillouin zone, wave propagation</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Phases</td><td><code>phases</code></td><td>array</td><td>(the active array)</td><td><em>advanced</em> Empty: Phases.</td></tr>
+<tr><td>Young’s modulus of each phase</td><td><code>youngs</code></td><td>list of numbers</td><td>[1.0, 20.0]</td><td></td></tr>
+<tr><td>Poisson’s ratio of each phase</td><td><code>poisson</code></td><td>list of numbers</td><td>[0.3, 0.3]</td><td></td></tr>
+<tr><td>Density of each phase</td><td><code>density</code></td><td>list of numbers</td><td>[1.0, 8.0]</td><td></td></tr>
+<tr><td>Plane waves each way along an axis</td><td><code>waves</code></td><td>whole number 1 to 12</td><td>3</td><td>The displacement is a sum of plane waves, from minus to plus this number along every axis: more waves, finer bands, much longer.</td></tr>
+<tr><td>Bands</td><td><code>bands</code></td><td>whole number 1 to 200</td><td>8</td><td></td></tr>
+<tr><td>Points per stretch of the path</td><td><code>points</code></td><td>whole number 2 to 500</td><td>10</td><td></td></tr>
+</tbody>
+</table>
+</div>
 <h2 id="python"><a class="header" href="#python">Python</a></h2>
 <h3 id="programmable-filter"><a class="header" href="#programmable-filter">Programmable Filter</a></h3>
 <p>Run your own Python (NumPy) on the data: read inputs[0], change output (a copy of it).</p>
@@ -3595,8 +3861,8 @@
 </table>
 </div>
 <h3 id="cellular-automaton-structure"><a class="header" href="#cellular-automaton-structure">Cellular Automaton Structure</a></h3>
-<p>A two-phase structure grown by a cellular automaton from random cells: annealing coarsens the noise into two interwoven phases; majority rules and any rule of births and survivals are there too.</p>
-<p>Python: <code>cellular_automaton_structure</code> · also found by: cellular automaton, vichniac, annealing rule, majority rule, life-like, bicontinuous, coarsening, synthetic microstructure</p>
+<p>A two-phase structure grown by a cellular automaton from random cells: annealing coarsens the noise into two interwoven phases; majority rules and any rule of births and survivals are there too. On the cells of the grid, or on hexagons, triangles, tilings that never repeat, or the cells of body-centred and face-centred lattices.</p>
+<p>Python: <code>cellular_automaton_structure</code> · also found by: cellular automaton, vichniac, annealing rule, majority rule, life-like, bicontinuous, coarsening, hexagonal, penrose, quasi-periodic, ammann-beenker, quasicrystal, tiling, synthetic microstructure</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -3608,6 +3874,8 @@
 <tr><td>Periodic</td><td><code>periodic</code></td><td>on/off</td><td>on</td><td>The structure continues through opposite faces of the box.</td></tr>
 <tr><td>Rule</td><td><code>rule</code></td><td>Annealing / Majority / Majority at a constant fraction / Births and survivals</td><td><code>Annealing</code></td><td></td></tr>
 <tr><td>Neighbours</td><td><code>neighbours</code></td><td>Faces, edges and corners / Faces</td><td><code>Faces, edges and corners</code></td><td></td></tr>
+<tr><td>Cells of the automaton</td><td><code>lattice</code></td><td>Squares or cubes / Hexagons / Triangles / Penrose rhombi / Squares and rhombi (eightfold) / Truncated octahedra / Rhombic dodecahedra</td><td><code>Squares or cubes</code></td><td>Other cells than those of the grid are drawn over it, several grid cells across each; tilings of the plane are stacked in layers in a volume.</td></tr>
+<tr><td>Size of those cells</td><td><code>tile</code></td><td>number 0.000000001 to ∞</td><td>6</td><td>For other cells than those of the grid: the side of a tile (the distance between the centres of hexagons, the edge of the cube of a lattice).</td></tr>
 <tr><td>Steps</td><td><code>steps</code></td><td>whole number 0 to 100000</td><td>40</td><td></td></tr>
 <tr><td>Live cells at the start (fraction)</td><td><code>initial_fraction</code></td><td>number 0 to 1</td><td>0.5</td><td></td></tr>
 <tr><td>Births (live neighbours)</td><td><code>births</code></td><td>text</td><td><code>14-26</code></td><td><em>advanced</em> For the rule of births and survivals: a dead cell comes alive with this many live neighbours (5-8, or 4, 6, 7).</td></tr>
@@ -3784,7 +4052,7 @@
 </table>
 </div>
 <h3 id="delaunay-fibre-network"><a class="header" href="#delaunay-fibre-network">Delaunay Fibre Network</a></h3>
-<p>A network of fibres on the edges of the Delaunay triangulation of random points, joined at every point (gels, biological networks).</p>
+<p>A network of fibres on the edges of the Delaunay triangulation of random points, joined at every point (gels, biological networks); in space or, with one layer of cells, in the plane.</p>
 <p>Python: <code>delaunay_fibre_network</code> · also found by: delaunay, network, cross-linked network, gel, collagen, fibers, beams, synthetic microstructure</p>
 <div class="table-wrapper">
 <table>
@@ -3799,6 +4067,7 @@
 <tr><td>Fibre radius</td><td><code>radius</code></td><td>number 0.000000001 to ∞</td><td>1.2</td><td></td></tr>
 <tr><td>Volume fraction (0: use the radius)</td><td><code>fraction</code></td><td>number 0 to 0.95</td><td>0</td><td></td></tr>
 <tr><td>Regularity of the points</td><td><code>regularity</code></td><td>number 0 to 1</td><td>0</td><td>0: points at random. Towards 1 the points keep apart, and the fibres are of more even lengths.</td></tr>
+<tr><td>Stealthy points (0: off)</td><td><code>stealth</code></td><td>number 0 to 0.49</td><td>0</td><td><em>advanced</em> Above 0, the points are moved until no density wave longer than a limit is left in their pattern: disordered, yet nearly as evenly spaced as a crystal. The value (up to about 0.45) is the share of their freedoms this takes.</td></tr>
 <tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
 </tbody>
 </table>
@@ -3815,7 +4084,7 @@
 <tr><td>Cells</td><td><code>cells</code></td><td>list of numbers</td><td>[64.0, 64.0, 64.0]</td><td>Cells along X, Y and Z. One cell along Z: the model in the plane.</td></tr>
 <tr><td>Cell size</td><td><code>spacing</code></td><td>number 0.000000001 to ∞</td><td>1</td><td>The lengths below are in the same unit.</td></tr>
 <tr><td>Periodic</td><td><code>periodic</code></td><td>on/off</td><td>on</td><td>The structure continues through opposite faces of the box.</td></tr>
-<tr><td>Cell</td><td><code>cell</code></td><td>Cubic / Body-centred cubic / Face-centred cubic / Octet / Kelvin / Diamond</td><td><code>Octet</code></td><td></td></tr>
+<tr><td>Cell</td><td><code>cell</code></td><td>Cubic / Body-centred cubic / Face-centred cubic / Octet / Kelvin / Diamond / Pyrochlore</td><td><code>Octet</code></td><td></td></tr>
 <tr><td>Cell size of the lattice</td><td><code>cell_size</code></td><td>number 0.000000001 to ∞</td><td>16</td><td>The lattice is periodic when the box holds a whole number of cells.</td></tr>
 <tr><td>Volume fraction (0: use the radius)</td><td><code>fraction</code></td><td>number 0 to 0.95</td><td>0</td><td></td></tr>
 <tr><td>Strut radius</td><td><code>radius</code></td><td>number 0.000000001 to ∞</td><td>1.2</td><td></td></tr>
@@ -3947,8 +4216,8 @@
 </table>
 </div>
 <h3 id="hard-spheres"><a class="header" href="#hard-spheres">Hard Spheres</a></h3>
-<p>Spheres that do not overlap: placed one after another at random (up to a fraction near 0.38), or packed densely by growing them while pushing them apart (up to about 0.6).</p>
-<p>Python: <code>hard_spheres</code> · also found by: random sequential addition, rsa, packing, dense random packing, inclusions, composite, synthetic microstructure, particles, non-overlapping</p>
+<p>Spheres that do not overlap: placed one after another at random (up to a fraction near 0.38), or packed densely, by growing them while pushing them apart or as a gas of growing spheres that bounce off one another (up to about 0.64).</p>
+<p>Python: <code>hard_spheres</code> · also found by: random sequential addition, rsa, packing, dense random packing, event-driven, molecular dynamics, jammed, inclusions, composite, synthetic microstructure, particles, non-overlapping</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -3962,8 +4231,8 @@
 <tr><td>Radius spread (log sigma)</td><td><code>radius_sigma</code></td><td>number 0 to 3</td><td>0</td><td></td></tr>
 <tr><td>Volume fraction</td><td><code>fraction</code></td><td>number 0 to 1</td><td>0.3</td><td></td></tr>
 <tr><td>Least gap</td><td><code>gap</code></td><td>number 0 to ∞</td><td>0.5</td><td>No two spheres come nearer than this.</td></tr>
-<tr><td>Method</td><td><code>method</code></td><td>Random sequential addition / Dense packing</td><td><code>Random sequential addition</code></td><td></td></tr>
-<tr><td>Growth per step (dense packing)</td><td><code>growth_rate</code></td><td>number 0.0001 to 0.2</td><td>0.01</td><td><em>advanced</em> Slower growth packs denser (and takes longer).</td></tr>
+<tr><td>Method</td><td><code>method</code></td><td>Random sequential addition / Dense packing / Dense packing by collisions</td><td><code>Random sequential addition</code></td><td></td></tr>
+<tr><td>Growth per step (dense packing)</td><td><code>growth_rate</code></td><td>number 0.0001 to 0.2</td><td>0.01</td><td><em>advanced</em> Slower growth packs denser (and takes longer). By collisions: the speed at which the radii grow over the speed of the spheres.</td></tr>
 <tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
 </tbody>
 </table>
@@ -4143,6 +4412,58 @@
 </tbody>
 </table>
 </div>
+<h3 id="microstructure-formation"><a class="header" href="#microstructure-formation">Microstructure Formation</a></h3>
+<p>A model followed while it forms, as time steps: grains nucleating and growing, an automaton or a pattern step after step, an aggregate particle after particle, a network ligament after ligament. Play it as an animation.</p>
+<p>Python: <code>microstructure_formation</code> · also found by: formation, evolution, growth animation, time series, kinetics, step by step, microstructure evolution</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Model</td><td><code>model</code></td><td>Nucleation and Growth Grains / Cellular Automaton Structure / Activator-Inhibitor Pattern / Reaction-Diffusion Pattern / Aggregation Cluster / Scale-Rich Network</td><td><code>Nucleation and Growth Grains</code></td><td></td></tr>
+<tr><td>Settings of the model</td><td><code>settings</code></td><td>text</td><td>(empty)</td><td>Settings that differ from the standard ones, as name = value; name = value (cells = 96 96 1; seed = 3). The names are those of Python.</td></tr>
+<tr><td>Time steps</td><td><code>frames</code></td><td>whole number 1 to 10000</td><td>20</td><td></td></tr>
+<tr><td>From, to</td><td><code>range</code></td><td>list of numbers</td><td>[]</td><td>The first and last values of what advances the model (the time, the number of steps, the fraction, the number of ligaments). Empty: the standard ones.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="microstructure-study"><a class="header" href="#microstructure-study">Microstructure Study</a></h3>
+<p>A model run again and again over sizes of the box, values of one setting and seeds: a table with the mean and the variance of the volume fraction of a phase, its surface, and how often the phase joins opposite faces of the box. With a setting varied: the value at which the phase percolates, for every size and carried to an endless box.</p>
+<p>Python: <code>microstructure_study</code> · also found by: percolation threshold, finite-size scaling, representative volume, realizations, ensemble, parameter study, integral range, statistics over seeds</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Model</td><td><code>model</code></td><td>Voronoi Grains / Pack Grains / Columnar Grains / Nucleation and Growth Grains / Dead Leaves Mosaic / Overlapping Spheres / Penetrable Spheres / Hard Spheres / Clustered Spheres / Overlapping Fibres / Poisson Line Fibres / Curved Fibres / Hard Fibres / Bending Fibres / Cross-Linked Fibres / Delaunay Fibre Network / Random Laminate / Gaussian Field Medium / Transparent Leaves Medium / Reconstructed Medium / Triply Periodic Surface / Strut Lattice / Disordered Strut Lattice / Hierarchical Lattice / Fractal Sponge / Open-Cell Foam / Level-Set Foam / Scale-Rich Network / Cellular Automaton Structure / Activator-Inhibitor Pattern / Reaction-Diffusion Pattern / Aggregation Cluster / Pipe Network / Branching Network / Nacre / Twisted Plywood / Honeycomb / Haversian Bone</td><td><code>Overlapping Spheres</code></td><td></td></tr>
+<tr><td>Settings of the model</td><td><code>settings</code></td><td>text</td><td>(empty)</td><td>Settings that differ from the standard ones, as name = value; name = value (radius = 4; periodic = false). The names are those of Python.</td></tr>
+<tr><td>Setting to vary</td><td><code>vary</code></td><td>text</td><td><code>fraction</code></td><td>The name of one setting (empty: none, only the sizes and the seeds change).</td></tr>
+<tr><td>Its values</td><td><code>values</code></td><td>list of numbers</td><td>[0.2, 0.25, 0.3, 0.35, 0.4]</td><td></td></tr>
+<tr><td>Cells along an edge</td><td><code>sizes</code></td><td>list of numbers</td><td>[32.0]</td><td>One box size or several (empty: the size of the model).</td></tr>
+<tr><td>Samples of each</td><td><code>realizations</code></td><td>whole number 1 to 1000</td><td>8</td><td></td></tr>
+<tr><td>Phase</td><td><code>phase</code></td><td>whole number 0 to 1000000</td><td>2</td><td></td></tr>
+<tr><td>Cells are joined across</td><td><code>connectivity</code></td><td>Faces / Faces and edges / Faces, edges and corners</td><td><code>Faces</code></td><td></td></tr>
+<tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="microstructure-template"><a class="header" href="#microstructure-template">Microstructure Template</a></h3>
+<p>A named starting point: one of the microstructure models with settings that stand for a material (trabecular bone, carbon black in rubber, a nonwoven mat, softwood and others).</p>
+<p>Python: <code>microstructure_template</code> · also found by: template, preset, gallery, example microstructure, trabecular bone, carbon black, nonwoven, sandstone, softwood, starting point</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Template</td><td><code>template</code></td><td>Trabecular bone / Open-cell metal foam / Closed-cell polymer foam / Carbon black in rubber / Short glass fibre composite / Nonwoven mat / Paper and long-fibre mats / Sintered powder / Porous rock / Polymer blend / Partly recrystallized metal / Bone scaffold / Printed truss / Softwood / Cortical bone / Nacre / Crustacean shell / Gel network / Soot aggregate / Vascular tree</td><td><code>Trabecular bone</code></td><td></td></tr>
+<tr><td>Cells (empty: the template’s)</td><td><code>cells</code></td><td>list of numbers</td><td>[]</td><td></td></tr>
+<tr><td>Random seed (0: the template’s)</td><td><code>seed</code></td><td>whole number 0 to any</td><td>0</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
 <h3 id="nacre"><a class="header" href="#nacre">Nacre</a></h3>
 <p>Brick and mortar: layers of mineral tablets in a thin mortar, the tablets square bricks shifted from layer to layer or the polygons of random points.</p>
 <p>Python: <code>nacre</code> · also found by: brick and mortar, mother of pearl, tablets, staggered, layered composite, bio-inspired, synthetic microstructure</p>
@@ -4185,6 +4506,8 @@
 <tr><td>Orientations</td><td><code>orientations</code></td><td>Random / &lt;100&gt; along Z / &lt;111&gt; along Z</td><td><code>Random</code></td><td></td></tr>
 <tr><td>Fibre spread (degrees)</td><td><code>spread</code></td><td>number 0 to 90</td><td>10</td><td><em>advanced</em></td></tr>
 <tr><td>Crystal structure</td><td><code>structure</code></td><td>Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1</td><td><code>Cubic m-3m</code></td><td></td></tr>
+<tr><td>Grain growth sweeps</td><td><code>coarsening</code></td><td>whole number 0 to 10000</td><td>0</td><td>After the box is full: every sweep gives each cell the chance to join a neighbouring grain when that shortens the boundaries. Small grains vanish and the others grow.</td></tr>
+<tr><td>Grain growth temperature</td><td><code>temperature</code></td><td>number 0 to 10</td><td>0</td><td><em>advanced</em> Above 0, a cell sometimes joins a grain even when that lengthens the boundaries (rougher boundaries).</td></tr>
 <tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
 </tbody>
 </table>
@@ -4207,6 +4530,30 @@
 <tr><td>Elongation of the cells</td><td><code>anisotropy</code></td><td>number 0.1 to 10</td><td>1</td><td></td></tr>
 <tr><td>Elongated along</td><td><code>axis</code></td><td>X / Y / Z</td><td><code>Z</code></td><td></td></tr>
 <tr><td>Node radius over the strut radius</td><td><code>node_ratio</code></td><td>number 1 to 5</td><td>1.3</td><td></td></tr>
+<tr><td>Stealthy points (0: off)</td><td><code>stealth</code></td><td>number 0 to 0.49</td><td>0</td><td><em>advanced</em> Above 0, the points are moved until no density wave longer than a limit is left in their pattern: disordered, yet nearly as evenly spaced as a crystal. The value (up to about 0.45) is the share of their freedoms this takes.</td></tr>
+<tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="optimized-unit-cell"><a class="header" href="#optimized-unit-cell">Optimized Unit Cell</a></h3>
+<p>A periodic unit cell found by moving material to where it serves most: the stiffest in compression from all sides, the stiffest in shear, or the best conductor, at a volume fraction. The value reached and the bound no structure can pass are kept with the result.</p>
+<p>Python: <code>optimized_cell</code> · also found by: topology optimization, inverse homogenization, metamaterial design, extremal, bulk modulus, shear modulus, simp, unit cell design, lattice design</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Cells</td><td><code>cells</code></td><td>list of numbers</td><td>[32.0, 32.0, 32.0]</td><td>Cells along X, Y and Z. One cell along Z: the model in the plane.</td></tr>
+<tr><td>Cell size</td><td><code>spacing</code></td><td>number 0.000000001 to ∞</td><td>1</td><td>The lengths below are in the same unit.</td></tr>
+<tr><td>Best</td><td><code>goal</code></td><td>Bulk modulus / Shear modulus / Conductivity</td><td><code>Bulk modulus</code></td><td></td></tr>
+<tr><td>Volume fraction</td><td><code>fraction</code></td><td>number 0 to 1</td><td>0.3</td><td></td></tr>
+<tr><td>Steps</td><td><code>iterations</code></td><td>whole number 1 to 2000</td><td>40</td><td></td></tr>
+<tr><td>Smoothing radius (cells)</td><td><code>filter_radius</code></td><td>number 0 to 20</td><td>1.8</td><td>The least size of a member: densities are smoothed over this radius.</td></tr>
+<tr><td>Push towards solid or void</td><td><code>penalty</code></td><td>number 1 to 6</td><td>3</td><td><em>advanced</em></td></tr>
+<tr><td>Void over solid</td><td><code>contrast</code></td><td>number 0.000000001 to 0.5</td><td>0.001</td><td><em>advanced</em> The stiffness (or conductivity) of the void as a share of that of the solid.</td></tr>
+<tr><td>Poisson’s ratio of the solid</td><td><code>poisson</code></td><td>number -0.9 to 0.49</td><td>0.3</td><td><em>advanced</em></td></tr>
+<tr><td>Start from</td><td><code>start</code></td><td>A soft centre / Random</td><td><code>A soft centre</code></td><td></td></tr>
 <tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
 </tbody>
 </table>
@@ -4397,6 +4744,24 @@
 </tbody>
 </table>
 </div>
+<h3 id="polarized-blocks"><a class="header" href="#polarized-blocks">Polarized Blocks</a></h3>
+<p>An assembly of blocks that each deform in one way only (long along one axis and short along the others, or the reverse), put together so that every face moves the same way on both sides: the motion alternates along every line of blocks. BlockAxis and BlockSign give the state of each block.</p>
+<p>Python: <code>polarized_blocks</code> · also found by: combinatorial metamaterial, building blocks, tile assembly, compatible, anisotropic blocks, voxelated, mechanical metamaterial</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Python</th><th>Takes</th><th>Default</th><th></th></tr>
+</thead>
+<tbody>
+<tr><td>Cells</td><td><code>cells</code></td><td>list of numbers</td><td>[64.0, 64.0, 64.0]</td><td>Cells along X, Y and Z. One cell along Z: the model in the plane.</td></tr>
+<tr><td>Cell size</td><td><code>spacing</code></td><td>number 0.000000001 to ∞</td><td>1</td><td>The lengths below are in the same unit.</td></tr>
+<tr><td>Periodic</td><td><code>periodic</code></td><td>on/off</td><td>on</td><td>The structure continues through opposite faces of the box.</td></tr>
+<tr><td>Cells per block</td><td><code>tile_cells</code></td><td>whole number 4 to 1000</td><td>16</td><td></td></tr>
+<tr><td>Pore size (share of the block)</td><td><code>pore</code></td><td>number 0.05 to 0.45</td><td>0.3</td><td></td></tr>
+<tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
+</tbody>
+</table>
+</div>
 <h3 id="programmable-source"><a class="header" href="#programmable-source">Programmable Source</a></h3>
 <p>Make data with your own Python (NumPy): assign output.</p>
 <p>Python: <code>programmable_source</code> · also found by: python, script, numpy, custom, generate</p>
@@ -4512,6 +4877,12 @@
 <tr><td>Least room beside a new ligament</td><td><code>min_spacing</code></td><td>number 0 to ∞</td><td>1</td><td><em>advanced</em></td></tr>
 <tr><td>Frame thickness</td><td><code>frame</code></td><td>number 0 to ∞</td><td>0</td><td><em>advanced</em> Above 0, a frame of material closes the box.</td></tr>
 <tr><td>Tries before the network is jammed</td><td><code>attempts</code></td><td>whole number 1 to 100000</td><td>200</td><td><em>advanced</em></td></tr>
+<tr><td>Ligaments turned towards a pole (share)</td><td><code>polarized</code></td><td>number 0 to 1</td><td>0</td><td>This share of the ligaments, the first and thickest ones, point at the pole (or turn around it).</td></tr>
+<tr><td>Pole (fractions of the box)</td><td><code>pole</code></td><td>list of numbers</td><td>[0.5, 0.5, 0.5]</td><td><em>advanced</em></td></tr>
+<tr><td>Angle to the direction of the pole (degrees)</td><td><code>pole_angle</code></td><td>number -180 to 180</td><td>0</td><td>0: ligaments along the rays from the pole. 90: around it.</td></tr>
+<tr><td>Spread of the directions (degrees)</td><td><code>angle_spread</code></td><td>number 0 to 90</td><td>0</td><td><em>advanced</em></td></tr>
+<tr><td>Density of starting points (from, to)</td><td><code>nucleation_gradient</code></td><td>list of numbers</td><td>[]</td><td>Empty: ligaments start anywhere alike. 1, 4: four times as many start at the far end as at the near end.</td></tr>
+<tr><td>Density changes along</td><td><code>gradient_along</code></td><td>X / Y / Z / Distance to the pole</td><td><code>X</code></td><td><em>advanced</em></td></tr>
 <tr><td>Random seed</td><td><code>seed</code></td><td>whole number 0 to any</td><td>1</td><td><em>advanced</em></td></tr>
 </tbody>
 </table>
@@ -4559,7 +4930,7 @@
 <tr><td>Cells</td><td><code>cells</code></td><td>list of numbers</td><td>[64.0, 64.0, 64.0]</td><td>Cells along X, Y and Z. One cell along Z: the model in the plane.</td></tr>
 <tr><td>Cell size</td><td><code>spacing</code></td><td>number 0.000000001 to ∞</td><td>1</td><td>The lengths below are in the same unit.</td></tr>
 <tr><td>Periodic</td><td><code>periodic</code></td><td>on/off</td><td>on</td><td>The structure continues through opposite faces of the box.</td></tr>
-<tr><td>Cell</td><td><code>cell</code></td><td>Cubic / Body-centred cubic / Face-centred cubic / Octet / Kelvin / Diamond</td><td><code>Octet</code></td><td></td></tr>
+<tr><td>Cell</td><td><code>cell</code></td><td>Cubic / Body-centred cubic / Face-centred cubic / Octet / Kelvin / Diamond / Pyrochlore</td><td><code>Octet</code></td><td></td></tr>
 <tr><td>Cell size of the lattice</td><td><code>cell_size</code></td><td>number 0.000000001 to ∞</td><td>32</td><td>The lattice is periodic when the box holds a whole number of cells.</td></tr>
 <tr><td>Volume fraction (0: use the radius)</td><td><code>fraction</code></td><td>number 0 to 0.95</td><td>0.15</td><td></td></tr>
 <tr><td>Strut radius</td><td><code>radius</code></td><td>number 0.000000001 to ∞</td><td>2.5</td><td></td></tr>
@@ -4656,6 +5027,7 @@
 <tr><td>Grains</td><td><code>grains</code></td><td>whole number 1 to 10000000</td><td>100</td><td></td></tr>
 <tr><td>Size spread (log sigma)</td><td><code>size_sigma</code></td><td>number 0 to 3</td><td>0</td><td>0: Voronoi grains. Above 0: Laguerre grains, seed radii spread lognormally.</td></tr>
 <tr><td>Periodic</td><td><code>periodic</code></td><td>on/off</td><td>off</td><td></td></tr>
+<tr><td>Stealthy seeds (0: off)</td><td><code>stealth</code></td><td>number 0 to 0.49</td><td>0</td><td><em>advanced</em> Above 0, the seeds are moved until no density wave longer than a limit is left in their pattern: grains without order, yet nearly as even in size as in a crystal. The value (up to about 0.45) is the share of the freedoms of the seeds this takes.</td></tr>
 <tr><td>Orientations</td><td><code>orientations</code></td><td>Random / &lt;100&gt; along Z / &lt;111&gt; along Z</td><td><code>Random</code></td><td></td></tr>
 <tr><td>Fibre spread (degrees)</td><td><code>spread</code></td><td>number 0 to 90</td><td>10</td><td></td></tr>
 <tr><td>Crystal structure</td><td><code>structure</code></td><td>Cubic m-3m / Cubic m-3 / Hexagonal 6/mmm / Hexagonal 6/m / Trigonal -3m / Trigonal -3 / Tetragonal 4/mmm / Tetragonal 4/m / Orthorhombic mmm / Monoclinic 2/m / Triclinic -1</td><td><code>Cubic m-3m</code></td><td></td></tr>

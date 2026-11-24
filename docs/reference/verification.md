@@ -361,6 +361,23 @@ Boundaries against a brute-force distance.
   bone take the fractions of the dead leaves model within 0.02; brick nacre and hexagonal and
   square honeycombs take their geometric fractions; the reconstruction lowers its energy fifty
   times and matches its target two-point probability within 0.01.
+- The filters that measure and simulate microstructures are checked against exact results
+  (`crates/aurafx-filters/tests/microstructure_analysis.rs`): the surface of a sphere of 20
+  cells within 5 %, the Euler number 1, 0 and 2 of a ball, a ring and a shell; the two-point
+  probability of overlapping spheres within 0.012 and of a Gaussian field within 0.015 of
+  their closed forms, the lineal path of the pores q exp(-n pi R^2 z) within 0.03; chords of
+  layers exactly; tortuosity 1 of a straight channel and sqrt(2) of a slanted one; conductivity
+  of layers in series and in parallel within 1e-5, their stiffness across and along within
+  1e-4, the moduli of a uniform medium to 1e-9, spheres between their Hashin-Shtrikman bounds;
+  the two wave speeds of a uniform medium to 1e-9; no floppy strain for the octet truss, three
+  for the cubic lattice, struts less freedoms equal to self-stresses less mechanisms; sections
+  of equal spheres unfolded to one class with their number per volume within 3 %; the variance
+  of block means of uncorrelated cells falling as one over the volume; overlapping spheres
+  percolating near 0.29; a rebuilt medium matching the two-point probability of its source
+  within 0.01; spheres packed by collisions to 0.56 without overlap; volumes of grains from
+  stealthy seeds spread by under 12 % against about 42 % for random seeds; thick and thin
+  rhombi of the fivefold tiling in the golden ratio; blocks whose motion alternates along
+  every line.
 - Voronoi Grains (200 periodic grains on 60³ cells) has 15.0 neighbours per grain on average
   against 15.5 for the exact Poisson-Voronoi tessellation (the voxels hide the smallest
   faces), and a log-sigma of the diameters of 0.14 (volume coefficient of variation 0.42).

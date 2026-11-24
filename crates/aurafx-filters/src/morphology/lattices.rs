@@ -36,7 +36,7 @@ pub fn triply_periodic_surface(g: &Grid, surface: &str, variant: &str, cell: f64
     Ok(DataSet::ImageData(phase_image(g, phases, None)))
 }
 
-pub const CELLS: &[&str] = &["Cubic", "Body-centred cubic", "Face-centred cubic", "Octet", "Kelvin", "Diamond"];
+pub const CELLS: &[&str] = &["Cubic", "Body-centred cubic", "Face-centred cubic", "Octet", "Kelvin", "Diamond", "Pyrochlore"];
 
 /// The nodes of a unit cell and its struts: (node, node, cell of the second node).
 type UnitCell = (Vec<[f64; 3]>, Vec<(usize, usize, [i32; 3])>);
@@ -88,6 +88,12 @@ fn unit_cell(kind: &str) -> UnitCell {
             nodes.extend(fcc.iter().map(|p| p.map(|x| x + 0.25)));
             joined(nodes, 0.1875f64.sqrt(), |_, _| true)
         }
+        "Pyrochlore" => {
+            // Tetrahedra joined by their corners: every node belongs to two of them.
+            let corners = [[0.0, 0.0, 0.0], [0.25, 0.25, 0.0], [0.25, 0.0, 0.25], [0.0, 0.25, 0.25]];
+            let nodes: Vec<[f64; 3]> = fcc.iter().flat_map(|p| corners.iter().map(move |c| add(*p, *c))).collect();
+            joined(nodes, 0.125f64.sqrt(), |_, _| true)
+        }
         _ => joined(vec![[0.0; 3]], 1.0, |_, _| true),
     }
 }
@@ -137,7 +143,7 @@ pub struct LatticeParams {
 
 /// The struts of a lattice over the box, as segments, with the numbers of nodes and struts
 /// of the cells of the box.
-fn lattice_struts(g: &Grid, p: &LatticeParams) -> (Vec<([f64; 3], [f64; 3])>, usize, usize) {
+fn lattice_struts(g: &Grid, p: &LatticeParams) -> (Vec<([f64; 3], [f64; 3])>, usize, usize, bool) {
     let (nodes, struts) = unit_cell(&p.cell);
     let a = p.cell_size;
     let turned = p.rotation != [0.0; 3];
@@ -195,7 +201,7 @@ fn lattice_struts(g: &Grid, p: &LatticeParams) -> (Vec<([f64; 3], [f64; 3])>, us
             }
         }
     }
-    (out, nodes.len() * (cells[0] * cells[1] * cells[2]) as usize, kept)
+    (out, nodes.len() * (cells[0] * cells[1] * cells[2]) as usize, kept, wraps)
 }
 
 /// The solid of struts from the distance to their axes: where the distance is below the
@@ -239,7 +245,7 @@ pub fn strut_lattice(g: &Grid, p: &LatticeParams) -> Result<DataSet> {
     let graded = p.radius_top.is_finite();
     let top = if graded { p.radius_top } else { p.radius };
     let reach = if p.fraction > 0.0 { 0.5 * p.cell_size } else { p.radius.max(top) };
-    let (segments, nodes, struts) = lattice_struts(g, p);
+    let (segments, nodes, struts, wraps) = lattice_struts(g, p);
     let dist = segment_distance(g, &segments, reach);
     let ax = p.gradient_axis.min(2);
     let base = |c: usize| -> f64 {
@@ -248,6 +254,8 @@ pub fn strut_lattice(g: &Grid, p: &LatticeParams) -> Result<DataSet> {
     };
     let (phases, s) = strut_solid(g, &dist, base, p.fraction, p.wall, reach);
     let mut img = phase_image(g, phases, None);
+    let at = |x: [f64; 3]| s * (p.radius + (top - p.radius) * (x[ax] / g.size[ax]).clamp(0.0, 1.0));
+    shapes::keep(&mut img, &segments.iter().map(|(a, b)| [a[0], a[1], a[2], b[0], b[1], b[2], at(*a), at(*b)]).collect::<Vec<_>>(), wraps);
     note(&mut img, "StrutRadius", vec![s * p.radius, s * top]);
     note(&mut img, "Nodes", vec![nodes as f64]);
     note(&mut img, "Struts", vec![struts as f64]);
@@ -326,6 +334,7 @@ pub fn hierarchical_lattice(g: &Grid, cell_size: f64, generations: usize, octahe
     let dist = segment_distance(&open, &members, radius);
     let (phases, _) = strut_solid(g, &dist, |_| radius, 0.0, wall, radius);
     let mut img = phase_image(g, phases, None);
+    shapes::keep(&mut img, &members.iter().map(|(a, b)| shapes::capsule(*a, *b, radius)).collect::<Vec<_>>(), false);
     note(&mut img, "TubesPerCell", vec![members.len() as f64 / ((cells[0] + 2) * (cells[1] + 2) * (cells[2] + 2)) as f64]);
     Ok(DataSet::ImageData(img))
 }
@@ -421,6 +430,8 @@ pub struct FoamParams {
     pub axis: usize,
     /// Radius of the balls at the nodes over the strut radius (1 or less: none).
     pub node_ratio: f64,
+    /// Above 0: the points are made stealthy (see `stealthy`) before the relaxation.
+    pub stealth: f64,
     pub seed: u64,
 }
 
@@ -440,6 +451,9 @@ pub fn open_cell_foam(g: &Grid, p: &FoamParams) -> Result<DataSet> {
     size[ax] /= stretch;
     let mut r = Rng::new(p.seed);
     let mut germs: Vec<[f64; 3]> = (0..p.cells).map(|_| std::array::from_fn(|k| r.uniform(0.0, size[k]))).collect();
+    if p.stealth > 0.0 {
+        germs = stealthy(size, false, germs, p.stealth)?;
+    }
     // Lloyd's relaxation on a coarse grid: each germ goes to the centroid of its cell.
     let coarse: [usize; 3] = std::array::from_fn(|k| g.n[k].clamp(2, 40));
     let hc: [f64; 3] = std::array::from_fn(|k| size[k] / coarse[k] as f64);
@@ -495,6 +509,11 @@ pub fn open_cell_foam(g: &Grid, p: &FoamParams) -> Result<DataSet> {
         (dist.iter().map(|d| if (*d as f64) < p.radius { PHASE_SOLID } else { PHASE_MATRIX }).collect(), p.radius)
     };
     let mut img = phase_image(g, phases, None);
+    let mut all: Vec<shapes::Shape> = edges.iter().map(|e| shapes::capsule(e.0, e.1, radius)).collect();
+    if p.node_ratio > 1.0 {
+        all.extend(edges.iter().flat_map(|e| [shapes::sphere(e.0, radius * p.node_ratio), shapes::sphere(e.1, radius * p.node_ratio)]));
+    }
+    shapes::keep(&mut img, &all, true);
     note(&mut img, "StrutRadius", vec![radius]);
     note(&mut img, "Struts", vec![edges.len() as f64]);
     Ok(DataSet::ImageData(img))
@@ -566,28 +585,42 @@ pub fn level_set_foam(g: &Grid, p: &LevelSetFoamParams) -> Result<DataSet> {
     let seeds: Vec<([f64; 3], [f64; 3])> =
         centres.iter().zip(&radii).map(|(c, a)| (std::array::from_fn(|k| c[k] * shape[k]), std::array::from_fn(|k| a * shape[k]))).collect();
     // The four smallest distance functions at every cell.
-    let four: Vec<[f32; 4]> = per_cell(g, |x| {
-        let mut best = [f64::INFINITY; 4];
-        for (c, semi) in &seeds {
+    let nearest: Vec<([f32; 4], [u32; 3])> = per_cell(g, |x| {
+        let mut best = [(f64::INFINITY, 0u32); 4];
+        for (i, (c, semi)) in seeds.iter().enumerate() {
             let d = g.delta(x, *c);
             let v = (d[0] / semi[0]).powi(2) + (d[1] / semi[1]).powi(2) + (d[2] / semi[2]).powi(2) - 1.0;
-            if v < best[3] {
-                best[3] = v;
+            if v < best[3].0 {
+                best[3] = (v, i as u32);
                 let mut k = 3;
-                while k > 0 && best[k] < best[k - 1] {
+                while k > 0 && best[k].0 < best[k - 1].0 {
                     best.swap(k, k - 1);
                     k -= 1;
                 }
             }
         }
-        best.map(|v| v as f32)
+        let mut ids = [best[0].1, best[1].1, best[2].1];
+        ids.sort_unstable();
+        (best.map(|v| v.0 as f32), ids)
     });
-    // Along a strut, the gap between the third and the fourth distance is largest at mid-span.
-    let near: Vec<f32> = four.iter().filter(|d| 0.5 * (d[2] + d[1]) - d[0] < 0.1).map(|d| d[3] - d[2]).collect();
-    let span = quantile(&near, 0.9).max(1e-6) as f64;
+    // Along a strut (the line between three seeds), the gap between the third and the fourth
+    // distance is largest at mid-span: the largest gap near the axis of each strut measures it.
+    let mut spans: std::collections::HashMap<[u32; 3], f32> = std::collections::HashMap::new();
+    for (d, ids) in &nearest {
+        if 0.5 * (d[2] + d[1]) - d[0] < 0.1 {
+            let e = spans.entry(*ids).or_insert(0.0);
+            *e = e.max(d[3] - d[2]);
+        }
+    }
+    let near: Vec<f32> = nearest.iter().filter(|(d, _)| 0.5 * (d[2] + d[1]) - d[0] < 0.1).map(|(d, _)| d[3] - d[2]).collect();
+    let overall = quantile(&near, 0.9).max(1e-6);
+    // The four distances with, in place of the fourth, the gap over the span of the strut.
+    let four: Vec<[f32; 4]> =
+        nearest.iter().map(|(d, ids)| [d[0], d[1], d[2], (d[3] - d[2]) / spans.get(ids).copied().filter(|s| *s > 1e-6).unwrap_or(overall)]).collect();
+    drop(nearest);
     let level = |d: &[f32; 4], t: f64| -> bool {
-        let [d1, d2, d3, d4] = d.map(|v| v as f64);
-        let xi = (0.5 * (1.0 - (d4 - d3) / span)).clamp(0.0, 0.5);
+        let [d1, d2, d3, gap] = d.map(|v| v as f64);
+        let xi = (0.5 * (1.0 - gap)).clamp(0.0, 0.5);
         let width = t * (p.c1 * xi.powi(4) + p.c2 * xi * xi + 1.0).max(0.0).sqrt();
         let across = 0.5 * (d3 - d2);
         let bend = if width > 0.0 { ((across * across - width * width) / (2.0 * width)).min(0.0) } else { 0.0 };
@@ -632,7 +665,55 @@ pub struct ScaleRichParams {
     /// Thickness of a frame of material around the box (0: none).
     pub frame: f64,
     pub attempts: usize,
+    /// The share of the ligaments, the first ones, that are turned towards a pole: a point of
+    /// the box (as fractions of its size), and the angle of the ligaments (plates: of their
+    /// planes) to the direction of the pole, 0 radial, 90 around it.
+    pub polarized: f64,
+    pub pole: [f64; 3],
+    pub pole_angle: f64,
+    /// A normal spread of the directions about the ones given or polarized (degrees).
+    pub angle_spread: f64,
+    /// The density of the starting points from one end to the other (two weights; empty:
+    /// even), along X, Y or Z (0, 1, 2) or the distance to the pole (3).
+    pub gradient: Vec<f64>,
+    pub gradient_along: usize,
     pub seed: u64,
+}
+
+impl ScaleRichParams {
+    fn pole_at(&self, g: &Grid) -> [f64; 3] {
+        let mut c: [f64; 3] = std::array::from_fn(|k| self.pole[k] * g.size[k]);
+        if g.planar() {
+            c[2] = 0.5 * g.h;
+        }
+        c
+    }
+    /// A starting point: uniform, or kept with the weight of the gradient where it falls.
+    fn start(&self, g: &Grid, r: &mut Rng) -> [f64; 3] {
+        loop {
+            let mut x: [f64; 3] = std::array::from_fn(|k| r.uniform(self.frame, (g.size[k] - self.frame).max(self.frame)));
+            if g.planar() {
+                x[2] = 0.5 * g.h;
+            }
+            if self.gradient.len() < 2 {
+                return x;
+            }
+            let u = if self.gradient_along < 3 {
+                x[self.gradient_along] / g.size[self.gradient_along]
+            } else {
+                let pole = self.pole_at(g);
+                let far = (0..8).map(|k| norm(sub(std::array::from_fn(|a| if k >> a & 1 == 1 { g.size[a] } else { 0.0 }), pole))).fold(0.0, f64::max);
+                norm(sub(x, pole)) / far.max(1e-300)
+            };
+            let (a, b) = (self.gradient[0].max(0.0), self.gradient[1].max(0.0));
+            if r.random() * a.max(b).max(1e-300) <= a + (b - a) * u {
+                return x;
+            }
+        }
+    }
+    fn is_polarized(&self, t: usize) -> bool {
+        self.polarized > 0.0 && (t as f64) <= (self.polarized * self.ligaments as f64).ceil()
+    }
 }
 
 /// The box cut again and again by slabs: a ligament is a slab across the convex void it
@@ -681,19 +762,35 @@ fn grow_plates(g: &Grid, p: &ScaleRichParams, first: f64) -> (Cuts, usize) {
         let room = half + 0.5 * p.min_spacing;
         let mut done = false;
         for _ in 0..p.attempts.max(1) {
-            let mut x: [f64; 3] = std::array::from_fn(|k| r.uniform(p.frame, (g.size[k] - p.frame).max(p.frame)));
+            let x = p.start(g, &mut r);
+            let spread = p.angle_spread.to_radians();
+            let away = unit(sub(x, p.pole_at(g)));
             let normal = if planar {
-                x[2] = 0.5 * g.h;
-                let a = if p.angles.is_empty() {
+                let a = if p.is_polarized(t) {
+                    away[1].atan2(away[0]) + p.pole_angle.to_radians()
+                } else if p.angles.is_empty() {
                     r.uniform(0.0, PI)
                 } else {
                     p.angles[((r.random() * p.angles.len() as f64) as usize).min(p.angles.len() - 1)].to_radians()
-                };
+                } + if spread > 0.0 { spread * r.std_normal() } else { 0.0 };
                 [-a.sin(), a.cos(), 0.0]
-            } else if p.aligned {
-                [0.0, 0.0, 1.0]
             } else {
-                isotropic(&mut r)
+                let n = if p.is_polarized(t) {
+                    // At the angle to the direction of the pole, any way around it.
+                    let (u, w) = frame(away);
+                    let (b, phi) = (p.pole_angle.to_radians(), r.uniform(0.0, 2.0 * PI));
+                    add(scale(away, b.sin()), scale(add(scale(u, phi.cos()), scale(w, phi.sin())), b.cos()))
+                } else if p.aligned {
+                    [0.0, 0.0, 1.0]
+                } else {
+                    isotropic(&mut r)
+                };
+                if spread > 0.0 {
+                    let (u, w) = frame(n);
+                    unit(add(n, add(scale(u, spread * r.std_normal()), scale(w, spread * r.std_normal()))))
+                } else {
+                    n
+                }
             };
             let Some(void) = cuts.void_at(x) else { continue };
             let side = |s: f64| cuts.void_at(add(x, scale(normal, s))) == Some(void);
@@ -732,8 +829,17 @@ fn grow_beams(g: &Grid, p: &ScaleRichParams, first: f64) -> Vec<([f64; 3], [f64;
         let rad = 0.5 * first * (t as f64).powf(-p.decay);
         let mut done = false;
         for _ in 0..p.attempts.max(1) {
-            let x = g.random_point(&mut r);
-            let d = if p.aligned { [0.0, 0.0, 1.0] } else { isotropic(&mut r) };
+            let x = p.start(g, &mut r);
+            let d = if p.is_polarized(t) {
+                let away = unit(sub(x, p.pole_at(g)));
+                let (u, w) = frame(away);
+                let (b, phi) = (p.pole_angle.to_radians(), r.uniform(0.0, 2.0 * PI));
+                add(scale(away, b.cos()), scale(add(scale(u, phi.cos()), scale(w, phi.sin())), b.sin()))
+            } else if p.aligned {
+                [0.0, 0.0, 1.0]
+            } else {
+                isotropic(&mut r)
+            };
             if beams.iter().any(|b| point_gap(x, b) < rad + 0.5 * p.min_spacing) {
                 continue;
             }

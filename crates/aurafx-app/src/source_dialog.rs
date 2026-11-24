@@ -27,6 +27,29 @@ pub struct SourceDialog {
     pub dont_ask: bool,
     /// Opened as Synthetic Microstructure: the window lists the types to choose from.
     pub group: bool,
+    /// The starting point the settings were taken from ("": the standard settings).
+    pub template: &'static str,
+}
+
+/// Open Synthetic Microstructure on a starting point: its type, with its settings filled in.
+pub fn open_template(state: &mut State, name: &str) {
+    let Some(t) = aurafx_filters::morphology::study::TEMPLATES.iter().find(|t| t.0.eq_ignore_ascii_case(name)) else { return };
+    let Ok((def, preset)) = aurafx_filters::morphology::study::template(t.0) else { return };
+    let customize = state.source_dialog.as_ref().is_some_and(|d| d.customize);
+    state.source_dialog = SourceDialog::new(def.id).map(|mut d| {
+        d.group = true;
+        d.customize = customize;
+        d.template = t.0;
+        for spec in &def.params {
+            let Some(v) = preset.get(&spec.key).filter(|v| **v != spec.default) else { continue };
+            match d.values.iter_mut().find(|(p, _)| p.key == spec.key) {
+                Some(slot) => slot.1 = v.clone(),
+                // A setting the window does not show otherwise: shown, since the template sets it.
+                None => d.values.push((spec.clone(), v.clone())),
+            }
+        }
+        d
+    });
 }
 
 /// The entry of the Sources menu that opens the window with the list of microstructure types.
@@ -52,7 +75,7 @@ impl SourceDialog {
             .filter(|p| !p.advanced && !NOT_BASIC.contains(&p.key.as_str()) && !matches!(p.kind, ParamKind::Code | ParamKind::Expression))
             .map(|p| (p.clone(), p.default.clone()))
             .collect();
-        Some(Self { id, customize: false, values, cad_start: String::new(), cad_dims: [40.0, 30.0, 8.0], dont_ask: false, group: false })
+        Some(Self { id, customize: false, values, cad_start: String::new(), cad_dims: [40.0, 30.0, 8.0], dont_ask: false, group: false, template: "" })
     }
 
     /// The settings that differ from the standard ones, ready for `set_param`.
@@ -131,6 +154,8 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
     let (mut insert, mut cancel) = (false, false);
     let group = d.group;
     let mut chosen: Option<&'static str> = None;
+    let mut chosen_template: Option<&'static str> = None;
+    let template = d.template;
     egui::Window::new(if group { "Synthetic Microstructure".to_string() } else { format!("Add {}", def.label) })
         .open(&mut open)
         .collapsible(false)
@@ -154,6 +179,24 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                             ui.add_space(4.0);
                         }
                     });
+                });
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Start from").strong()).on_hover_text("Settings that stand for a material; change them as you like afterwards");
+                    egui::ComboBox::from_id_salt("microstructure template")
+                        .selected_text(if template.is_empty() { "The standard settings" } else { template })
+                        .width(264.0)
+                        .height(420.0)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(template.is_empty(), "The standard settings").clicked() && !template.is_empty() {
+                                chosen = Some(def.id);
+                            }
+                            for t in aurafx_filters::morphology::study::TEMPLATES {
+                                let model = aurafx_filters::find(t.1).map(|m| m.label).unwrap_or(t.1);
+                                if ui.selectable_label(template == t.0, t.0).on_hover_text(format!("{} ({model})", t.3)).clicked() {
+                                    chosen_template = Some(t.0);
+                                }
+                            }
+                        });
                 });
                 ui.add_space(4.0);
             }
@@ -255,6 +298,10 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
                 }
             });
         });
+    if let Some(name) = chosen_template {
+        open_template(state, name);
+        return;
+    }
     if let Some(id) = chosen {
         // Another type: its standard settings, in the same view (summary or settings).
         let customize = state.source_dialog.as_ref().is_some_and(|d| d.customize);

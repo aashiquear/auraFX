@@ -56,11 +56,17 @@ fn every_type_is_a_source_that_runs_with_its_standard_settings() {
             let start = std::time::Instant::now();
             let out = run(id, None, &[]);
             let took = start.elapsed().as_secs_f64();
+            if *id == "microstructure_study" {
+                // A table: a row for every value of the setting it varies.
+                let DataSet::Table(t) = &out else { panic!("the study gives a table") };
+                assert_eq!(t.n_rows(), 5);
+                continue;
+            }
             let p = phases(&out);
             let fractions = field(&out, "PhaseFractions");
             close(&format!("{id}: the fractions sum"), fractions.iter().sum::<f64>(), 1.0, 1e-9);
             assert!(p.iter().all(|x| *x >= 1), "{id}: a cell without a phase");
-            if *id != "nucleation_growth_grains" {
+            if !matches!(*id, "nucleation_growth_grains" | "microstructure_formation") {
                 assert!(fractions.len() >= 3 && fractions[2] > 0.0 && fractions[1] > 0.0, "{id}: one phase only ({fractions:?})");
             }
             // The same seed gives the same structure.
@@ -71,7 +77,7 @@ fn every_type_is_a_source_that_runs_with_its_standard_settings() {
             assert!(took < 30.0, "{id}: {took} s with its standard settings");
         }
     }
-    assert_eq!(seen.len(), 38);
+    assert_eq!(seen.len(), 43);
 }
 
 #[test]
@@ -478,7 +484,7 @@ fn bio_structures_have_their_fractions() {
     }
     let random = run("honeycomb", None, &[("arrangement", json!("Random cells"))]);
     assert!(share(&random, 2) > 0.15 && share(&random, 2) < 0.35);
-    let wood = run("honeycomb", None, &[("arrangement", json!("Wood")), ("cells", json!([128, 64, 32]))]);
+    let wood = run("honeycomb", None, &[("arrangement", json!("Wood")), ("cells", json!([128, 64, 32])), ("rays", json!(0.15))]);
     let w = phases(&wood);
     assert!(share(&wood, 3) > 0.01, "rays");
     // Latewood (the end of each ring of 64 along X) is denser than earlywood.

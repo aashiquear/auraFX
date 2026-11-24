@@ -1,10 +1,13 @@
 # Synthetic microstructures
 
 **Sources › Synthetic Microstructure** makes a microstructure from a few numbers: a size, a
-volume fraction, a random seed. One window holds every type, in seven families: grains,
-particles, fibres and layers, random fields, lattices and foams, automata and growth, and
-structures of living materials. This chapter lists the types, what each one makes and the
-settings that matter. The grain types (Voronoi, packed and columnar grains) have their own
+volume fraction, a random seed. One window holds every type, in families: grains,
+particles, fibres and layers, random fields, lattices and foams, automata and growth,
+structures of living materials, and sequences and studies that run the others. This chapter
+lists the types, what each one makes and the settings that matter;
+[Measuring and simulating microstructures](microstructure-analysis.md) covers the filters
+that measure them and compute their properties, the starting points, and the sequences and
+studies. The grain types (Voronoi, packed and columnar grains) have their own
 longer sections in [Grains and crystals](grains.md#synthetic-microstructures).
 
 ## The window
@@ -12,7 +15,9 @@ longer sections in [Grains and crystals](grains.md#synthetic-microstructures).
 1. Choose **Sources › Synthetic Microstructure…** (or, in the Welcome window, **Synthesize
    crystal › All types…**).
 2. Pick a **Type** from the list at the top. The types are grouped by family; hovering over
-   one says what it makes.
+   one says what it makes. Or pick a material from **Start from**
+   ([starting points](microstructure-analysis.md#starting-points)): it selects a type and
+   fills in its settings.
 3. The window shows what the type makes and its standard settings. **Insert with these
    settings** adds it as it is. **Change settings first…** shows the basic settings to edit;
    **Standard settings** puts them back.
@@ -51,6 +56,9 @@ The result is an image (a grid of cubic cells) with:
   each phase. Where the model has a closed form, **`ExpectedFraction`** sits beside it.
 - A few numbers of the model, also as field values: `Centers` and `Radii` of spheres, the
   number of `Fibres`, `Contacts` and `CrossLinks`, the `StrutRadius` of a lattice, and so on.
+- For the types made of spheres, fibres, struts, pipes or branches: the description of those
+  objects, from which [Microstructure Objects and Smooth Surface](microstructure-analysis.md#exact-geometry-and-smooth-surfaces)
+  draw exact geometry at any resolution.
 
 Settings shared by the types:
 
@@ -80,7 +88,17 @@ above 0 ends the growth early; the cells not yet reached are the last feature, o
 (1 − exp(−π N G³ t⁴ / 3) for N nuclei per volume and time growing at the speed G). The cell
 array `TransformationTime` holds the time each cell was reached: a **Threshold** on it shows
 the structure at any earlier time. **Growth front** *Cubes* or *Octahedra* gives faceted
-grains, the facets along each grain's crystal axes.
+grains, the facets along each grain's crystal axes. **Grain growth sweeps** above 0 lets the
+grains coarsen once the box is full: at every sweep each cell may join a neighbouring grain
+when that shortens the boundaries, so boundaries straighten, small grains vanish and the
+others grow (a hundred sweeps remove about half of 300 grains on 32 cells along each edge).
+
+**Voronoi Grains** has **Stealthy seeds** (advanced): above 0, the seeds are moved until no
+density wave longer than a limit is left in their pattern. The grains then have no order,
+yet are nearly as even in size as in a crystal (their volumes spread by a few percent, against
+42 % for random seeds). The value, up to about 0.45, is the share of the freedoms of the seeds
+this takes; up to 4000 seeds. Open-Cell Foam and Delaunay Fibre Network have the same
+setting.
 
 **Dead Leaves Mosaic.** **Phase fractions** lists the volume fraction of each phase of
 leaves (`0.5, 0.5` for two phases); **Radius of each phase** (advanced) gives the phases
@@ -105,11 +123,14 @@ m = afx.dead_leaves_mosaic(radius=8, phase_fractions=[0.7, 0.3])
 | **Hard Spheres** | Spheres that do not overlap, with a **Least gap** between them. |
 | **Clustered Spheres** | Small particles gathered inside aggregates (overlapping spheres), as fillers in a rubber. The aggregates can be a third phase around the particles. |
 
-**Hard Spheres** has two methods. *Random sequential addition* places the spheres one after
-another at random and never moves them; it stops near a fraction of 0.38 for equal spheres,
-and says so when asked for more. *Dense packing* places the spheres small, grows them step by
-step and pushes overlapping pairs apart after each step; it reaches about 0.6. **Radius
-spread** gives lognormal radii with either method.
+**Hard Spheres** has three methods. *Random sequential addition* places the spheres one
+after another at random and never moves them; it stops near a fraction of 0.38 for equal
+spheres, and says so when asked for more. *Dense packing* places the spheres small, grows
+them step by step and pushes overlapping pairs apart after each step; it reaches about 0.6.
+*Dense packing by collisions* lets the spheres fly as a gas while they grow at a steady rate
+and bounce apart when they touch; grown slowly (**Growth per step**, advanced) they
+rearrange and pack to about 0.64, the densest random packing of equal spheres. **Radius
+spread** gives lognormal radii with any method.
 
 ```python
 b = afx.overlapping_spheres(radius=6, fraction=0.3)
@@ -155,8 +176,12 @@ w = afx.curved_fibres(shape="Worm-like chain", length=60, persistence=30, fracti
 p = afx.bending_fibres(radius=2, length=40, fraction=0.25)
 x = afx.cross_linked_fibres(radius=1.5, fraction=0.085, bonded=0.5, link_radius=3)
 d = afx.delaunay_fibre_network(points=200, radius=1.2)
+flat = afx.delaunay_fibre_network(cells=[128, 128, 1], points=200)    # in the plane: six fibres at a node
 l = afx.random_laminate(thickness=4, layer_spacing=8, hole_fraction=0.2)
 ```
+
+With one cell along Z the **Delaunay Fibre Network** is the triangulation of points of the
+plane.
 
 ![Overlapping fibres, curved fibres, packed bending fibres, cross-linked fibres, a Delaunay network and a laminate with holes](images/microstructure_fibres.png)
 
@@ -191,13 +216,14 @@ r = afx.reconstructed_medium(cells=[40, 40, 40], fraction=0.3, length=3)
 | Type | What it makes |
 |---|---|
 | **Triply Periodic Surface** | Gyroid, Schwarz P, Schwarz D, Neovius or I-WP: the *Sheet* about the surface or the *Network* on one side of it. |
-| **Strut Lattice** | Cubic, body-centred, face-centred, octet, Kelvin or diamond cells of struts. |
+| **Strut Lattice** | Cubic, body-centred, face-centred, octet, Kelvin, diamond or pyrochlore cells of struts. |
 | **Disordered Strut Lattice** | A lattice with struts missing and nodes moved at random. |
 | **Hierarchical Lattice** | A lattice whose struts are themselves frames of octahedra made of tubes. |
 | **Fractal Sponge** | The Menger sponge, the Vicsek fractal or the Cantor dust. |
 | **Open-Cell Foam** | Struts on the edges of the cells of random points, with balls at the nodes. |
 | **Level-Set Foam** | A foam drawn from the distances to packed seeds: struts with three-sided sections, open or closed cells. |
 | **Scale-Rich Network** | Ligaments grown one after another, each thinner than the one before. |
+| **Optimized Unit Cell** | A periodic cell found for its stiffness or conductivity: see [Unit cells found for a property](microstructure-analysis.md#unit-cells-found-for-a-property). |
 
 **Strut Lattice.** **Wall thickness** above 0 hollows the struts. **Radius at the far face**
 (advanced) grades the radius along an axis, and **Rotation** turns the lattice. A lattice
@@ -220,13 +246,19 @@ even cells; **Elongation** stretches the cells along an axis, as in trabecular b
 **Level-Set Foam.** The seeds are ellipsoids packed without overlap; **Seed shape** elongates
 them along Y and Z. **Curvature of the strut sides** between 0 and 1 hollows the sides, as in
 a drained liquid foam, and below 0 makes them bulge. **Closed cells** above 0 adds walls.
+Every strut thickens from its own mid-span to its nodes, whatever its length.
 
 **Scale-Rich Network.** The ligament number t is t to the power minus the **Thinning
 exponent** as thick as the first. Each starts at a random point of the voids and grows until
 it meets a ligament or the box, so thicknesses and lengths spread over orders of magnitude.
 With one cell along Z (the standard settings) the ligaments are strips in the plane; with more
 cells they are *Plates* that close cells, or *Beams*. **Directions in the plane** `0, 90`
-keeps the ligaments along X and Y.
+keeps the ligaments along X and Y. **Ligaments turned towards a pole** makes that share of
+the ligaments, the first and thickest, point along the rays from a pole (**Angle to the
+direction of the pole** 0) or turn around it (90); in space the angle is that of the plates
+to the direction of the pole. **Density of starting points** `1, 4` starts four times as
+many ligaments at the far end of an axis (or far from the pole) as at the near end, which
+grades the size of the cells.
 
 ```python
 g = afx.triply_periodic_surface(surface="Schwarz P", variant="Network", cell_size=32, fraction=0.3)
@@ -251,12 +283,31 @@ n = afx.scale_rich_network(cells=[256, 256, 1], ligaments=500, decay=0.5, fracti
 | **Reaction-Diffusion Pattern** | Spots, worms, labyrinths and holes of two species that diffuse and react. |
 | **Aggregation Cluster** | Clusters and deposits grown one cell at a time. |
 | **Pipe Network** | Pipes assembled from tiles that must fit their neighbours. |
+| **Polarized Blocks** | Blocks that each deform in one way only, assembled so that every face moves the same way on both sides. |
 | **Branching Network** | A tree grown towards points scattered in the box. |
 
 **Cellular Automaton Structure.** *Annealing* (the majority rule with its two middle counts
 swapped) coarsens noise into two interwoven phases; *Majority* freezes early; *Majority at a
 constant fraction* keeps the volume fraction; *Births and survivals* takes the numbers of
 live neighbours at which a cell is born or survives (`5-8`, or `4, 6, 7`).
+
+**Cells of the automaton** runs it on other cells than those of the grid, drawn over the
+grid several cells across (**Size of those cells**): *Hexagons* and *Triangles*; *Penrose
+rhombi* and *Squares and rhombi (eightfold)*, two tilings of the plane that never repeat;
+*Truncated octahedra* and *Rhombic dodecahedra*, the cells of the body-centred and
+face-centred lattices. Tilings of the plane are stacked in layers when the grid has several.
+`FeatureIds` then numbers the tiles. With **Neighbours** *Faces* a tile looks at the tiles
+it shares a side with (6 for a hexagon, 3 for a triangle, 4 for a rhombus, 14 and 12 for the
+two lattices), otherwise also at those it shares a corner with. These cells do not join up
+through the faces of the box.
+
+**Polarized Blocks.** Each block is long along one axis and short along the two others, or
+the reverse, and can only deform that way: it pushes its neighbours out through two opposite
+faces and pulls them in through the four others. Blocks fit when every shared face moves the
+same way on both sides, so the motion alternates along every line of blocks, and a periodic
+box needs an even number of blocks along every axis. The blocks are drawn as cubes with a
+pore, long along the axis that pushes out; `BlockAxis` (0, 1, 2) and `BlockSign` give the
+state of each block.
 
 **Aggregation Cluster.** *Diffusion-limited*: a particle wanders at random and sticks where
 it first touches the aggregate, which gives branched, fractal clusters. *Eden growth*: a
@@ -281,9 +332,13 @@ r = afx.reaction_diffusion_pattern(pattern="Labyrinth", steps=3000, fraction=0.4
 c = afx.aggregation_cluster(process="Diffusion-limited", seeds=20, fraction=0.08)
 p = afx.pipe_network(tile_cells=8, degrees=[0, 2, 3, 4])
 v = afx.branching_network(attractors=3000, step=1.5, tip_radius=0.6, exponent=3)
+q = afx.cellular_automaton_structure(cells=[160, 160, 1], lattice="Penrose rhombi", tile=9)
+k = afx.polarized_blocks(tile_cells=16)
 ```
 
 ![An annealed automaton, an activator-inhibitor pattern, a reaction-diffusion pattern, diffusion-limited clusters, a pipe network and a branching tree](images/microstructure_growth.png)
+
+![Variants: automata on hexagons and on Penrose rhombi, grains from stealthy seeds; a network turned around a pole, spheres packed by collisions and polarized blocks colored by their axis](images/microstructure_variants.png)
 
 ## Bio-inspired structures
 
@@ -296,8 +351,9 @@ v = afx.branching_network(attractors=3000, step=1.5, tip_radius=0.6, exponent=3)
 
 **Honeycomb** with **Cells** *Wood* makes rows of cells along X whose size and walls change
 through each growth ring, from large thin-walled earlywood cells to small thick-walled
-latewood cells; the advanced settings give the ring width, the latewood share and the rays
-(ribbons of phase 3 between two rows).
+latewood cells; the advanced settings give the ring width, the latewood share and the rays.
+A ray is a ribbon of small cells between two rows, each cell a box with walls of its own
+(phase 3) around its lumen; rays never sit side by side.
 
 **Haversian Bone.** Osteons arrive one after another at random places and cover what was
 there. The phases are 1 interstitial bone, 2 the bone of the osteons, 3 cement lines and
@@ -317,7 +373,7 @@ b = afx.haversian_bone(cells=[192, 192, 4], radius=20, coverage=0.65)
 
 ## Coatings and combinations
 
-Two filters (under **Filters › Grains**) build on any of the types.
+Two filters (under **Filters › Microstructure**) build on any of the types.
 
 **Coat Phase** adds a layer of a new phase around a phase (**Side** *Outside*: coatings and
 interphases around particles, fibres and struts) or just inside it (*Inside*: hollow spheres
@@ -354,7 +410,11 @@ both = afx.combine_microstructures(g, l, operation="Second inside the first")
   are not periodic. Twisted Plywood and Triply Periodic Surface are periodic only when the
   box fits their periods.
 - A packing that cannot reach its fraction stops with a message that says how far it got.
-- Cellular automata and reaction-diffusion patterns run on the cubic grid only.
+- Reaction-diffusion patterns run on the cubic grid only. The automaton's other cells
+  (hexagons, tilings, lattice cells) do not wrap through periodic faces, and the tiling by
+  golden rhombohedra is not there.
+- Stealthy seeds are limited to 4000 points; the packing by collisions slows down sharply
+  above a fraction of 0.6.
 
 ## Methods
 
@@ -380,6 +440,13 @@ The models follow published methods:
   D. Young, Math. Biosci. 72 (1984). Reaction and diffusion: P. Gray and S. Scott, Chem. Eng.
   Sci. 39 (1984).
 - Diffusion-limited aggregation: T. Witten and L. Sander, Phys. Rev. Lett. 47 (1981).
+- Packing by collisions of growing spheres: B. Lubachevsky and F. Stillinger, J. Stat. Phys.
+  60 (1990). Stealthy hyperuniform points: O. Uche, F. Stillinger and S. Torquato, Phys. Rev.
+  E 70 (2004).
+- Tilings that never repeat, from families of parallel lines: N. de Bruijn, Indag. Math. 43
+  (1981). Grain growth: M. Anderson, D. Srolovitz, G. Grest and P. Sahni, Acta Metall. 32
+  (1984). Blocks that deform in one way: C. Coulais, E. Teomy, K. de Reus, Y. Shokef and
+  M. van Hecke, Nature 535 (2016).
 - Branching by space colonization: A. Runions, B. Lane and P. Prusinkiewicz (2007); radii:
   C. Murray, Proc. Natl. Acad. Sci. 12 (1926).
 - Twisted plywoods: Y. Bouligand, Tissue Cell 4 (1972). Honeycombs and wood: L. Gibson and

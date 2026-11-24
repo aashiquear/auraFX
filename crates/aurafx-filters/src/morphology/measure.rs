@@ -419,19 +419,54 @@ pub fn two_point_statistics(ds: &DataSet, array: &str, phase: i32, reach: usize,
     cols.push(("S2".into(), radial.clone()));
     let (ids, _) = label(&mask, m.n, 6, periodic);
     for &a in &axes {
-        let positions = |d: usize| (m.len() / m.n[a] * (m.n[a] - d)) as f64;
-        let mut inside = vec![0.0; reach + 1];
-        runs(&mask, m.n, a, |len, _| {
-            for (d, v) in inside.iter_mut().enumerate().take(len.min(reach + 1)) {
-                *v += (len - d) as f64;
-            }
-        });
-        cols.push((format!("LinealPath {}", ["X", "Y", "Z"][a]), inside.iter().enumerate().map(|(d, v)| v / positions(d)).collect()));
+        // Periodic: a segment or a pair that leaves through a face comes back through the
+        // opposite one, and every cell starts one. Otherwise only those that stay in the box count.
+        let positions = |d: usize| if periodic { m.len() as f64 } else { (m.len() / m.n[a] * (m.n[a] - d)) as f64 };
         let stride = [1, m.n[0], m.n[0] * m.n[1]][a];
+        let mut inside = vec![0.0; reach + 1];
+        if periodic {
+            // For every cell, how many cells of the phase follow one another from it along the
+            // axis, around the line when it comes to its end.
+            let n = m.n[a];
+            for start in (0..m.len()).filter(|c| (c / stride) % n == 0) {
+                let line: Vec<bool> = (0..n).map(|k| mask[start + k * stride]).collect();
+                let Some(gap) = line.iter().rposition(|x| !*x) else {
+                    inside.iter_mut().for_each(|v| *v += n as f64);
+                    continue;
+                };
+                // Going backwards from the last cell outside the phase, around the line once.
+                let mut run = 0usize;
+                for k in 0..n {
+                    let x = (gap + n - k) % n;
+                    run = if line[x] { run + 1 } else { 0 };
+                    for v in inside.iter_mut().take(run.min(reach + 1)) {
+                        *v += 1.0;
+                    }
+                }
+            }
+        } else {
+            runs(&mask, m.n, a, |len, _| {
+                for (d, v) in inside.iter_mut().enumerate().take(len.min(reach + 1)) {
+                    *v += (len - d) as f64;
+                }
+            });
+        }
+        cols.push((format!("LinealPath {}", ["X", "Y", "Z"][a]), inside.iter().enumerate().map(|(d, v)| v / positions(d)).collect()));
         let same: Vec<f64> = (0..=reach)
             .into_par_iter()
             .map(|d| {
-                (0..m.len()).filter(|c| ids[*c] != 0 && (c / stride) % m.n[a] + d < m.n[a] && ids[c + d * stride] == ids[*c]).count() as f64 / positions(d)
+                (0..m.len())
+                    .filter(|c| {
+                        let x = (c / stride) % m.n[a];
+                        ids[*c] != 0
+                            && if periodic {
+                                ids[c - x * stride + (x + d) % m.n[a] * stride] == ids[*c]
+                            } else {
+                                x + d < m.n[a] && ids[c + d * stride] == ids[*c]
+                            }
+                    })
+                    .count() as f64
+                    / positions(d)
             })
             .collect();
         cols.push((format!("Cluster {}", ["X", "Y", "Z"][a]), same));

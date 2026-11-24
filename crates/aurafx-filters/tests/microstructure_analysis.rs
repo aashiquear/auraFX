@@ -738,3 +738,37 @@ fn templates_and_formation() {
     assert_eq!((p.f64("radius", 0.0), p.str("directions"), p.floats("cells")), (3.0, "Along Z".to_string(), vec![32.0, 32.0, 16.0]));
     assert!(aurafx_filters::morphology::study::params_from_text(&def, "radios = 3").is_err());
 }
+
+#[test]
+fn periodic_lineal_path_and_cluster_wrap_through_the_faces() {
+    // A row of four cells, the first and the last in the phase: around the row they touch.
+    let row = image([4, 1, 1], |p| if p[0] < 1.0 || p[0] > 3.0 { 2 } else { 1 });
+    let t = run("two_point_statistics", Some(&row), &[("periodic", json!(true)), ("reach", json!(2))]);
+    for name in ["S2 X", "LinealPath X", "Cluster X"] {
+        close(&format!("{name} at 0"), column(&t, name)[0], 0.5, 1e-12);
+        close(&format!("{name} at 1"), column(&t, name)[1], 0.25, 1e-12);
+    }
+    // In a box that is not periodic the two cells are apart.
+    let t = run("two_point_statistics", Some(&row), &[("reach", json!(2))]);
+    close("lineal path, not periodic", column(&t, "LinealPath X")[1], 0.0, 1e-12);
+    close("cluster, not periodic", column(&t, "Cluster X")[1], 0.0, 1e-12);
+    // A row all in the phase: every segment lies in it.
+    let full = image([4, 1, 1], |_| 2);
+    let t = run("two_point_statistics", Some(&full), &[("periodic", json!(true)), ("reach", json!(3))]);
+    close("a full row", column(&t, "LinealPath X")[3], 1.0, 1e-12);
+}
+
+#[test]
+fn discs_in_a_plane_reach_their_fraction() {
+    // Not periodic: the margin around the box must not count along the single cell of Z.
+    let mut sum = 0.0;
+    for seed in 1..=8 {
+        let d = run(
+            "overlapping_spheres",
+            None,
+            &[("cells", json!([200, 200, 1])), ("radius", json!(5.0)), ("fraction", json!(0.3)), ("periodic", json!(false)), ("seed", json!(seed))],
+        );
+        sum += share(&d, 2) / 8.0;
+    }
+    close("discs", sum, 0.3, 0.02);
+}

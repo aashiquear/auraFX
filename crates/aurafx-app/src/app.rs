@@ -2797,7 +2797,13 @@ impl eframe::App for AuraApp {
                         }
                         if let Some(d) = self.state.source_dialog.as_mut() {
                             d.customize = rest.contains(&"settings");
-                            d.open_list = if rest.contains(&"types") { 1 } else if rest.contains(&"starting_points") { 2 } else { 0 };
+                            d.open_list = if rest.contains(&"types") {
+                                1
+                            } else if rest.contains(&"starting_points") {
+                                2
+                            } else {
+                                0
+                            };
                         }
                     } else if let Some(def) = aurafx_filters::find(first).filter(|d| d.is_source) {
                         self.state.source_dialog = crate::source_dialog::SourceDialog::new(def.id);

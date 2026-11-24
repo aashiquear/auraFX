@@ -46,7 +46,10 @@ pub fn overlapping_spheres(g: &Grid, radius: f64, sigma: f64, fraction: f64, see
         if g.planar() { g.h * std::f64::consts::PI * lognormal_moment(radius, sigma, 2.0) } else { SPHERE * lognormal_moment(radius, sigma, 3.0) };
     let theta = -(1.0 - fraction).ln() / mean_volume;
     let margin = radius * (3.0 * sigma).exp();
-    let count = poisson(theta * g.volume_around(margin), &mut r);
+    // Discs in a plane: their centres are all put in the plane, so the margin around the box
+    // counts along X and Y only (one along Z too would raise the number of discs per area).
+    let around = if g.planar() && !g.periodic { (g.size[0] + 2.0 * margin) * (g.size[1] + 2.0 * margin) * g.size[2] } else { g.volume_around(margin) };
+    let count = poisson(theta * around, &mut r);
     let radii: Vec<f64> = (0..count).map(|_| lognormal(radius, sigma, &mut r)).collect();
     let centres: Vec<[f64; 3]> = (0..count).map(|_| planar_point(g, g.random_point_around(margin, &mut r))).collect();
     let (phases, ids) = sphere_cells(g, &centres, &radii);

@@ -89,7 +89,17 @@ impl SourceDialog {
             .filter(|p| !p.advanced && !NOT_BASIC.contains(&p.key.as_str()) && !matches!(p.kind, ParamKind::Code | ParamKind::Expression))
             .map(|p| (p.clone(), p.default.clone()))
             .collect();
-        Some(Self { id, customize: false, values, cad_start: String::new(), cad_dims: [40.0, 30.0, 8.0], dont_ask: false, group: None, template: "", open_list: 0 })
+        Some(Self {
+            id,
+            customize: false,
+            values,
+            cad_start: String::new(),
+            cad_dims: [40.0, 30.0, 8.0],
+            dont_ask: false,
+            group: None,
+            template: "",
+            open_list: 0,
+        })
     }
 
     /// The settings that differ from the standard ones, ready for `set_param`.
@@ -175,170 +185,175 @@ pub fn window(state: &mut State, ctx: &egui::Context) {
         Some(g) => g.label.to_string(),
         None => format!("Add {}", def.label),
     })
-        .open(&mut open)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show_fit(ctx, |ui| {
-            ui.set_max_width(420.0);
-            if let Some(g) = group {
-                // Both rows start their lists at one place, whatever the lengths of the labels.
-                egui::Grid::new("source group").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                    ui.label(RichText::new("Type").strong());
-                    if open_list == 1 {
-                        egui::Popup::open_id(ui.ctx(), ui.make_persistent_id(egui::IdSalt::new("source type")).with("popup"));
-                    }
-                    egui::ComboBox::from_id_salt("source type").selected_text(def.label).width(300.0).height(420.0).show_ui(ui, |ui| {
-                        for (family, ids) in g.families {
-                            if !family.is_empty() {
-                                ui.label(RichText::new(*family).weak().small());
-                            }
-                            for id in *ids {
-                                if let Some(t) = aurafx_filters::find(id) {
-                                    let item = ui.selectable_label(t.id == def.id, t.label);
-                                    // A list a command opened is for a picture: no tip from a resting pointer over it.
-                                    let item = if open_list == 0 { item.on_hover_text(t.description) } else { item };
-                                    if item.clicked() && t.id != def.id {
-                                        chosen = Some(t.id);
-                                    }
+    .open(&mut open)
+    .collapsible(false)
+    .resizable(false)
+    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    .show_fit(ctx, |ui| {
+        ui.set_max_width(420.0);
+        if let Some(g) = group {
+            // Both rows start their lists at one place, whatever the lengths of the labels.
+            egui::Grid::new("source group").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                ui.label(RichText::new("Type").strong());
+                if open_list == 1 {
+                    egui::Popup::open_id(ui.ctx(), ui.make_persistent_id(egui::IdSalt::new("source type")).with("popup"));
+                }
+                egui::ComboBox::from_id_salt("source type").selected_text(def.label).width(300.0).height(420.0).show_ui(ui, |ui| {
+                    for (family, ids) in g.families {
+                        if !family.is_empty() {
+                            ui.label(RichText::new(*family).weak().small());
+                        }
+                        for id in *ids {
+                            if let Some(t) = aurafx_filters::find(id) {
+                                let item = ui.selectable_label(t.id == def.id, t.label);
+                                // A list a command opened is for a picture: no tip from a resting pointer over it.
+                                let item = if open_list == 0 { item.on_hover_text(t.description) } else { item };
+                                if item.clicked() && t.id != def.id {
+                                    chosen = Some(t.id);
                                 }
                             }
-                            ui.add_space(4.0);
+                        }
+                        ui.add_space(4.0);
+                    }
+                });
+                ui.end_row();
+                // The starting points of this type only; a type without any has its standard settings.
+                let points = starting_points(def.id);
+                if g.id == MICROSTRUCTURE {
+                    ui.label(RichText::new("Start from").strong())
+                        .on_hover_text("The standard settings of this type, or settings that stand for a material; change them as you like afterwards");
+                    ui.add_enabled_ui(!points.is_empty(), |ui| {
+                        if open_list == 2 {
+                            egui::Popup::open_id(ui.ctx(), ui.make_persistent_id(egui::IdSalt::new("source starting point")).with("popup"));
+                        }
+                        egui::ComboBox::from_id_salt("source starting point")
+                            .selected_text(if template.is_empty() { "Standard settings" } else { template })
+                            .width(300.0)
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_label(template.is_empty(), "Standard settings").on_hover_text(format!("{} as it comes", def.label)).clicked()
+                                    && !template.is_empty()
+                                {
+                                    chosen = Some(def.id);
+                                }
+                                for (name, what) in &points {
+                                    let item = ui.selectable_label(template == *name, *name);
+                                    let item = if open_list == 0 { item.on_hover_text(*what) } else { item };
+                                    if item.clicked() && template != *name {
+                                        chosen_template = Some(*name);
+                                    }
+                                }
+                            });
+                    })
+                    .response
+                    .on_disabled_hover_text(format!("{} has no other starting point than its standard settings", def.label));
+                    ui.end_row();
+                }
+            });
+            ui.add_space(4.0);
+        }
+        ui.label(def.description);
+        ui.add_space(6.0);
+        let customize = state.source_dialog.as_ref().unwrap().customize;
+        if !customize {
+            ui.label(
+                RichText::new(if template.is_empty() { "With the standard settings:".to_string() } else { format!("Starting from {template}:") }).strong(),
+            );
+            let d = state.source_dialog.as_ref().unwrap();
+            if d.id == "cad_model" {
+                ui.label("a plate 40 × 30 × 8 mm with the dimensions width, depth and thickness, opened in the CAD environment");
+            }
+            egui::Grid::new("source defaults").num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
+                // What a starting point changes comes first.
+                let mut shown: Vec<&(ParamSpec, ParamValue)> = d.values.iter().collect();
+                shown.sort_by_key(|(p, v)| *v == p.default);
+                for (p, v) in shown.into_iter().take(10) {
+                    ui.label(RichText::new(&p.label).weak());
+                    ui.label(show(v));
+                    ui.end_row();
+                }
+            });
+            if d.values.len() > 10 {
+                ui.label(RichText::new(format!("and {} more", d.values.len() - 10)).weak().small());
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button(RichText::new(format!("{} Insert with these settings", crate::icons::CHECK_CIRCLE)).strong()).clicked() {
+                    insert = true;
+                }
+                if ui.button(format!("{} Change settings first…", crate::icons::PENCIL_SIMPLE)).clicked() {
+                    state.source_dialog.as_mut().unwrap().customize = true;
+                }
+            });
+        } else {
+            ui.label(RichText::new("Basic settings (the rest are in Properties after inserting):").strong());
+            let d = state.source_dialog.as_mut().unwrap();
+            if d.id == "cad_model" {
+                egui::Grid::new("cad start").num_columns(2).show(ui, |ui| {
+                    ui.label("start from");
+                    let shown = if d.cad_start.is_empty() { "Plate".to_string() } else { d.cad_start.clone() };
+                    egui::ComboBox::from_id_salt("cad start combo").selected_text(shown).width(240.0).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut d.cad_start, String::new(), "Plate");
+                        for (t, _) in aurafx_cad::templates() {
+                            ui.selectable_value(&mut d.cad_start, t.to_string(), t);
                         }
                     });
                     ui.end_row();
-                    // The starting points of this type only; a type without any has its standard settings.
-                    let points = starting_points(def.id);
-                    if g.id == MICROSTRUCTURE {
-                        ui.label(RichText::new("Start from").strong()).on_hover_text("The standard settings of this type, or settings that stand for a material; change them as you like afterwards");
-                        ui.add_enabled_ui(!points.is_empty(), |ui| {
-                            if open_list == 2 {
-                                egui::Popup::open_id(ui.ctx(), ui.make_persistent_id(egui::IdSalt::new("source starting point")).with("popup"));
-                            }
-                            egui::ComboBox::from_id_salt("source starting point")
-                                .selected_text(if template.is_empty() { "Standard settings" } else { template })
-                                .width(300.0)
-                                .show_ui(ui, |ui| {
-                                    if ui.selectable_label(template.is_empty(), "Standard settings").on_hover_text(format!("{} as it comes", def.label)).clicked() && !template.is_empty() {
-                                        chosen = Some(def.id);
-                                    }
-                                    for (name, what) in &points {
-                                        let item = ui.selectable_label(template == *name, *name);
-                                        let item = if open_list == 0 { item.on_hover_text(*what) } else { item };
-                                        if item.clicked() && template != *name {
-                                            chosen_template = Some(*name);
-                                        }
-                                    }
-                                });
-                        })
-                        .response
-                        .on_disabled_hover_text(format!("{} has no other starting point than its standard settings", def.label));
-                        ui.end_row();
-                    }
-                });
-                ui.add_space(4.0);
-            }
-            ui.label(def.description);
-            ui.add_space(6.0);
-            let customize = state.source_dialog.as_ref().unwrap().customize;
-            if !customize {
-                ui.label(RichText::new(if template.is_empty() { "With the standard settings:".to_string() } else { format!("Starting from {template}:") }).strong());
-                let d = state.source_dialog.as_ref().unwrap();
-                if d.id == "cad_model" {
-                    ui.label("a plate 40 × 30 × 8 mm with the dimensions width, depth and thickness, opened in the CAD environment");
-                }
-                egui::Grid::new("source defaults").num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
-                    // What a starting point changes comes first.
-                    let mut shown: Vec<&(ParamSpec, ParamValue)> = d.values.iter().collect();
-                    shown.sort_by_key(|(p, v)| *v == p.default);
-                    for (p, v) in shown.into_iter().take(10) {
-                        ui.label(RichText::new(&p.label).weak());
-                        ui.label(show(v));
-                        ui.end_row();
-                    }
-                });
-                if d.values.len() > 10 {
-                    ui.label(RichText::new(format!("and {} more", d.values.len() - 10)).weak().small());
-                }
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button(RichText::new(format!("{} Insert with these settings", crate::icons::CHECK_CIRCLE)).strong()).clicked() {
-                        insert = true;
-                    }
-                    if ui.button(format!("{} Change settings first…", crate::icons::PENCIL_SIMPLE)).clicked() {
-                        state.source_dialog.as_mut().unwrap().customize = true;
-                    }
-                });
-            } else {
-                ui.label(RichText::new("Basic settings (the rest are in Properties after inserting):").strong());
-                let d = state.source_dialog.as_mut().unwrap();
-                if d.id == "cad_model" {
-                    egui::Grid::new("cad start").num_columns(2).show(ui, |ui| {
-                        ui.label("start from");
-                        let shown = if d.cad_start.is_empty() { "Plate".to_string() } else { d.cad_start.clone() };
-                        egui::ComboBox::from_id_salt("cad start combo").selected_text(shown).width(240.0).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut d.cad_start, String::new(), "Plate");
-                            for (t, _) in aurafx_cad::templates() {
-                                ui.selectable_value(&mut d.cad_start, t.to_string(), t);
-                            }
-                        });
-                        ui.end_row();
-                        if d.cad_start.is_empty() {
-                            for (label, v) in ["width", "depth", "thickness"].iter().zip(d.cad_dims.iter_mut()) {
-                                ui.label(*label);
-                                ui.add(egui::DragValue::new(v).range(0.1..=10000.0).speed(0.5).suffix(" mm"));
-                                ui.end_row();
-                            }
-                        }
-                    });
-                }
-                let mut edits: Vec<(usize, ParamValue)> = Vec::new();
-                let values: Vec<(ParamSpec, ParamValue)> = state.source_dialog.as_ref().unwrap().values.clone();
-                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                    egui::Grid::new("source params").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                        for (i, (p, v)) in values.iter().enumerate() {
-                            let l = ui.label(&p.label);
-                            if !p.help.is_empty() {
-                                l.on_hover_text(&p.help);
-                            }
-                            if let Some(nv) = crate::panels::param_widget(state, ui, u64::MAX, p, v, &[]) {
-                                edits.push((i, nv));
-                            }
+                    if d.cad_start.is_empty() {
+                        for (label, v) in ["width", "depth", "thickness"].iter().zip(d.cad_dims.iter_mut()) {
+                            ui.label(*label);
+                            ui.add(egui::DragValue::new(v).range(0.1..=10000.0).speed(0.5).suffix(" mm"));
                             ui.end_row();
                         }
-                    });
-                });
-                if let Some(d) = state.source_dialog.as_mut() {
-                    for (i, v) in edits {
-                        d.values[i].1 = v;
-                    }
-                }
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button(RichText::new(format!("{} Insert", crate::icons::CHECK_CIRCLE)).strong()).clicked() {
-                        insert = true;
-                    }
-                    if ui.button("Standard settings").on_hover_text("Put every setting back to its standard value").clicked() {
-                        let id = state.source_dialog.as_ref().unwrap().id;
-                        state.source_dialog = SourceDialog::new(id).map(|mut d| {
-                            d.customize = true;
-                            d.group = group;
-                            d
-                        });
                     }
                 });
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                if let Some(d) = state.source_dialog.as_mut().filter(|_| group.is_none()) {
-                    ui.checkbox(&mut d.dont_ask, "Don't ask again (insert sources straight away)")
-                        .on_hover_text("Turn it back on in Settings › General › Ask before adding a source");
+            let mut edits: Vec<(usize, ParamValue)> = Vec::new();
+            let values: Vec<(ParamSpec, ParamValue)> = state.source_dialog.as_ref().unwrap().values.clone();
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::Grid::new("source params").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                    for (i, (p, v)) in values.iter().enumerate() {
+                        let l = ui.label(&p.label);
+                        if !p.help.is_empty() {
+                            l.on_hover_text(&p.help);
+                        }
+                        if let Some(nv) = crate::panels::param_widget(state, ui, u64::MAX, p, v, &[]) {
+                            edits.push((i, nv));
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
+            if let Some(d) = state.source_dialog.as_mut() {
+                for (i, v) in edits {
+                    d.values[i].1 = v;
                 }
-                if ui.button("Cancel").clicked() {
-                    cancel = true;
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button(RichText::new(format!("{} Insert", crate::icons::CHECK_CIRCLE)).strong()).clicked() {
+                    insert = true;
+                }
+                if ui.button("Standard settings").on_hover_text("Put every setting back to its standard value").clicked() {
+                    let id = state.source_dialog.as_ref().unwrap().id;
+                    state.source_dialog = SourceDialog::new(id).map(|mut d| {
+                        d.customize = true;
+                        d.group = group;
+                        d
+                    });
                 }
             });
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            if let Some(d) = state.source_dialog.as_mut().filter(|_| group.is_none()) {
+                ui.checkbox(&mut d.dont_ask, "Don't ask again (insert sources straight away)")
+                    .on_hover_text("Turn it back on in Settings › General › Ask before adding a source");
+            }
+            if ui.button("Cancel").clicked() {
+                cancel = true;
+            }
         });
+    });
     if let Some(name) = chosen_template {
         open_template(state, name);
         return;

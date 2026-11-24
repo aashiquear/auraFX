@@ -103,7 +103,12 @@ pub const TEMPLATES: &[(&str, &str, &str, &str)] = &[
     ("Particle-filled polymer", "hard_spheres", "fraction = 0.3; radius = 5", "Filler particles apart from one another."),
     ("Fibre felt", "overlapping_fibres", "directions = In the XY plane; length = 60; fraction = 0.1", "Straight fibres lying in a plane."),
     ("Hollow fibre insulation", "overlapping_fibres", "lumen = 0.6; fraction = 0.2", "Fibres with an open core."),
-    ("Pressed fibre board", "bending_fibres", "directions = Girdle about the XY plane; direction_shape = 10; fraction = 0.35", "Fibres bent around one another near a plane."),
+    (
+        "Pressed fibre board",
+        "bending_fibres",
+        "directions = Girdle about the XY plane; direction_shape = 10; fraction = 0.35",
+        "Fibres bent around one another near a plane.",
+    ),
     ("Bonded nonwoven", "cross_linked_fibres", "bonded = 0.9", "Fibres bonded at most of their contacts."),
     ("Layered rock", "random_laminate", "thickness = 3; thickness_sigma = 0.6; hole_fraction = 0.05", "Layers of uneven thickness with few holes."),
     ("Sandstone pores", "reconstructed_medium", "fraction = 0.2; length = 4", "A pore space rebuilt from its statistics."),
@@ -136,18 +141,35 @@ pub fn template(name: &str) -> Result<(std::sync::Arc<FilterDef>, Params)> {
 pub fn from_template(name: &str, cells: &[f64], seed: i64) -> Result<DataSet> {
     let (def, mut p) = template(name)?;
     if !cells.is_empty() {
-        if def.params.iter().any(|s| s.key == "cells") {
-            p.set("cells", ParamValue::Floats(cells.to_vec()));
-        } else if def.params.iter().any(|s| s.key == "size") {
-            // A model sized by lengths (Columnar Grains): as many cells of its own size.
-            let h = p.f64("voxel", 1.0);
-            p.set("size", ParamValue::Vec3(std::array::from_fn(|k| cells.get(k).copied().unwrap_or(64.0) * h)));
-        }
+        set_cells(&def, &mut p, cells);
     }
     if seed > 0 {
         p.set("seed", ParamValue::Int(seed));
     }
     (def.apply)(None, &p)
+}
+
+/// Give a model its number of cells. A model sized by lengths (Columnar Grains, with Size and
+/// Voxel size) gets as many cells of its own size.
+fn set_cells(def: &FilterDef, p: &mut Params, cells: &[f64]) {
+    if def.params.iter().any(|s| s.key == "cells") {
+        p.set("cells", ParamValue::Floats(cells.to_vec()));
+    } else if def.params.iter().any(|s| s.key == "size") {
+        let h = p.f64("voxel", 1.0);
+        p.set("size", ParamValue::Vec3(std::array::from_fn(|k| cells.get(k).copied().unwrap_or(64.0) * h)));
+    }
+}
+
+/// The number of cells a model is set to make along each axis.
+fn cells_of(def: &FilterDef, p: &Params) -> Vec<f64> {
+    if def.params.iter().any(|s| s.key == "cells") {
+        p.floats("cells")
+    } else if def.params.iter().any(|s| s.key == "size") {
+        let h = p.f64("voxel", 1.0);
+        p.vec3("size", [64.0 * h; 3]).iter().map(|x| (x / h).round().max(1.0)).collect()
+    } else {
+        Vec::new()
+    }
 }
 
 fn model_named(label: &str) -> Result<std::sync::Arc<FilterDef>> {
@@ -223,7 +245,7 @@ pub fn study(p: &StudyParams) -> Result<DataSet> {
     if values.is_empty() {
         bail!("give the values of {key}");
     }
-    let own = base.floats("cells");
+    let own = cells_of(&def, &base);
     let planar = own.get(2).is_some_and(|z| *z <= 1.0);
     let sizes: Vec<f64> = if p.sizes.is_empty() { vec![own.first().copied().unwrap_or(64.0)] } else { p.sizes.clone() };
     let runs = p.realizations.max(1);
@@ -242,7 +264,7 @@ pub fn study(p: &StudyParams) -> Result<DataSet> {
         .map(|(size, value)| {
             let mut q = base.clone();
             if !p.sizes.is_empty() {
-                q.set("cells", ParamValue::Floats(vec![*size, *size, if planar { 1.0 } else { *size }]));
+                set_cells(&def, &mut q, &[*size, *size, if planar { 1.0 } else { *size }]);
             }
             if let Some(s) = spec {
                 q.set(&s.key, if matches!(s.kind, ParamKind::Int { .. }) { ParamValue::Int(value.round() as i64) } else { ParamValue::Float(*value) });
@@ -268,7 +290,7 @@ pub fn study(p: &StudyParams) -> Result<DataSet> {
     for r in rows {
         done.push(r?);
     }
-    let spacing = base.f64("spacing", 1.0);
+    let spacing = base.f64("spacing", base.f64("voxel", 1.0));
     let dim = if planar { 2 } else { 3 };
     let mut t = Table::default();
     let mut col = |name: &str, v: Vec<f64>| {
@@ -317,4 +339,27 @@ pub fn study(p: &StudyParams) -> Result<DataSet> {
     }
     t.field_data.insert(Array::scalars_f64("Samples", vec![runs as f64]));
     Ok(DataSet::Table(t))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_model_sized_by_lengths_takes_cells() {
+        let def = crate::registry::find("columnar_grains").unwrap();
+        let mut p = def.default_params();
+        p.set("voxel", ParamValue::Float(5.0));
+        set_cells(&def, &mut p, &[12.0, 10.0, 8.0]);
+        assert_eq!(p.vec3("size", [0.0; 3]), [60.0, 50.0, 40.0]);
+        assert_eq!(cells_of(&def, &p), vec![12.0, 10.0, 8.0]);
+        let out = (def.apply)(None, &p).unwrap();
+        let DataSet::ImageData(img) = out else { panic!("not an image") };
+        assert_eq!([img.extent[1] - img.extent[0], img.extent[3] - img.extent[2], img.extent[5] - img.extent[4]], [12, 10, 8]);
+        // A model with Cells keeps them as given.
+        let spheres = crate::registry::find("overlapping_spheres").unwrap();
+        let mut q = spheres.default_params();
+        set_cells(&spheres, &mut q, &[20.0, 20.0, 1.0]);
+        assert_eq!(cells_of(&spheres, &q), vec![20.0, 20.0, 1.0]);
+    }
 }

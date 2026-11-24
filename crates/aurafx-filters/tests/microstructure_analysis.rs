@@ -709,6 +709,13 @@ fn templates_and_formation() {
         assert_eq!(def.id, t.1);
         assert!(p.get("cells").is_some());
     }
+    // Every starting point makes a structure with its own settings.
+    for t in aurafx_filters::morphology::study::TEMPLATES {
+        let start = std::time::Instant::now();
+        let out = try_run("microstructure_template", None, &[("template", json!(t.0))]).unwrap_or_else(|e| panic!("{}: {e:#}", t.0));
+        assert!(!phases(&out).is_empty(), "{}", t.0);
+        println!("{:32} {:6.2} s", t.0, start.elapsed().as_secs_f64());
+    }
     let bone = run("microstructure_template", None, &[("cells", json!([40, 40, 40]))]);
     close("trabecular bone", share(&bone, 2), 0.2, 0.01);
     assert!(try_run("microstructure_template", None, &[("template", json!("Softwood")), ("cells", json!([64, 48, 16]))]).is_ok());
